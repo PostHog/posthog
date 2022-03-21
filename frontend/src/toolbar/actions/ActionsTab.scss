@@ -1,0 +1,50 @@
+.action-block-body {
+    padding: 16px;
+}
+
+.action-section {
+    padding: 20px;
+    &.highlight {
+        background: hsla(228, 14%, 96%, 1);
+        &:nth-child(even) {
+            background: white;
+            &:last-child {
+                padding-bottom: 10px;
+            }
+        }
+    }
+}
+.action-title-field {
+    margin-bottom: 10px;
+}
+.action-inspect {
+    margin: 20px 0;
+}
+.action-field {
+    margin: 5px -20px;
+    padding: 2px 20px 8px 20px;
+
+    .ant-form-item {
+        margin-bottom: 0;
+    }
+
+    .action-field-hint {
+        font-size: 12px;
+        margin-top: 4px;
+    }
+
+    .action-field-caption {
+        font-size: 0.8em;
+        color: rgba(0, 0, 0, 0.5);
+        padding: 8px 0;
+    }
+}
+
+.actions-list {
+    .actions-list-header {
+        padding: 6px 0;
+    }
+    .ant-list-item {
+        padding: 6px 0;
+    }
+}

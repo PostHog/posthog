@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+./bin/migrate-check
+
+./bin/plugin-server &
+./bin/docker-worker-celery --with-scheduler

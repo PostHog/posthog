@@ -1,0 +1,24 @@
+@import '~/vars';
+
+.background {
+    background-color: $bg_bridge;
+}
+
+.platform-item {
+    margin-right: 10px;
+    padding: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    border: 1px solid gray;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.platform-item:hover {
+    background-color: gainsboro;
+}
+
+.selectable-item:hover {
+    background-color: gainsboro;
+    cursor: pointer;
+}

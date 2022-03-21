@@ -1,0 +1,24 @@
+@import '~/vars';
+
+.retention-table {
+    .ant-table-tbody .ant-table-cell {
+        padding: 0px !important;
+    }
+
+    .percentage-cell {
+        padding: 8px;
+    }
+
+    .period-in-progress {
+        background: repeating-linear-gradient(-45deg, #e4edf9, #e4edf9 10px, #f8fbfe 10px, #f8fbfe 20px);
+        color: #555555;
+    }
+}
+
+.retention-success {
+    border-radius: $radius;
+    background-color: lighten($primary, 20%);
+}
+.retention-dropped {
+    background-color: $bg_mid;
+}

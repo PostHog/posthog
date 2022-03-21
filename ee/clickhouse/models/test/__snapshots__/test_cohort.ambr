@@ -1,0 +1,166 @@
+# name: TestCohort.test_cohortpeople_action_count
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.10
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.11
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.2
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.3
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.4
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.5
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.6
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.7
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.8
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.9
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_static_cohort_precalculated
+  '
+  
+  SELECT distinct_id
+  FROM
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0)
+  WHERE person_id IN
+      (SELECT person_id
+       FROM person_static_cohort
+       WHERE cohort_id = %(_cohort_id_0)s
+         AND team_id = %(team_id)s)
+  '
+---

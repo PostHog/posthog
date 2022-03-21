@@ -1,0 +1,35 @@
+set -e
+  
+echo "Upgrading PostHog. This will cause a few minutes of downtime."
+read -r -p "Do you want to upgarde PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}" $POSTHOG_APP_TAG
+
+cd posthog
+git pull
+cd ../
+
+rm -f docker-compose.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
+rm docker-compose.yml.tmpl
+
+docker-compose pull
+
+echo "Checking if async migrations are up to date"
+sudo -E docker-compose run asyncmigrationscheck
+
+echo "Stopping the stack!"
+docker-compose stop
+
+echo "Restarting the stack!"
+sudo -E docker-compose up -d
+
+echo "PostHog upgraded successfully!"

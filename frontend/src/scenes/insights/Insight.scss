@@ -1,0 +1,281 @@
+@import '~/vars';
+
+$funnel_canvas_background: #fff;
+
+.insights-page {
+    .top-bar {
+        width: 100%;
+        .ant-tabs,
+        .ant-tabs-nav-list {
+            width: 100%;
+        }
+        .ant-btn-loading-icon {
+            display: none;
+        }
+
+        .ant-tabs-tab {
+            padding: 0; // More compact tabs to save vertical space
+
+            .ant-tabs-tab-btn {
+                height: 100%;
+                width: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+
+                .tab-text {
+                    height: 100%;
+                    width: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding-bottom: 6px;
+                    color: inherit;
+                }
+            }
+        }
+    }
+
+    .insight-history-button {
+        padding-right: 0;
+        padding-left: 0;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        &.active {
+            border-bottom: 2px solid $primary;
+        }
+    }
+
+    .LastModified {
+        margin-top: 0.5rem;
+    }
+
+    hr {
+        margin: 1rem 0;
+    }
+
+    .ant-card-bordered {
+        @extend %mixin-base-bordered-card;
+    }
+
+    .ant-tabs-tab {
+        .hotkey {
+            margin-bottom: 0;
+            background-color: rgba($primary, 0.1) !important;
+            border-color: rgba($primary, 0.1) !important;
+        }
+        // TODO: Remove deprecated style if we fully remove or actively support again
+        .deprecated {
+            color: $text_muted;
+            .hotkey {
+                margin-bottom: 0;
+                background-color: rgba($border, 0.1) !important;
+                border-color: $border !important;
+                color: $text_muted;
+            }
+        }
+        &.ant-tabs-tab-active {
+            .deprecated {
+                color: $primary;
+            }
+        }
+    }
+
+    .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
+        // TODO: If we remove deprecated tabs, remove the :not selector below
+        .hotkey {
+            background-color: rgba($primary, 0.2) !important;
+        }
+        .deprecated {
+            .hotkey {
+                background-color: rgba($border, 0.2) !important;
+            }
+        }
+    }
+
+    .insight-controls {
+        overflow: visible;
+        position: relative;
+        margin-bottom: 1rem;
+
+        .ant-card-body {
+            padding: $default_spacing * 0.8 $default_spacing;
+        }
+    }
+
+    .insights-graph-container {
+        background: #fff;
+        margin-bottom: 1rem;
+
+        .ant-card-head {
+            border-bottom: 1px solid $border;
+            min-height: unset;
+            background-color: $bg_light;
+            padding-left: $default_spacing;
+            padding-right: $default_spacing;
+
+            .ant-card-head-title {
+                padding: 0;
+
+                span.filter {
+                    font-size: 14px;
+
+                    &:not(:last-child) {
+                        margin-right: $default_spacing / 2;
+                    }
+
+                    span.head-title-item {
+                        margin-right: $default_spacing / 2;
+                    }
+                }
+            }
+        }
+        .display-config-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+
+            .display-config-inner-row {
+                flex-wrap: wrap;
+                display: flex;
+                align-items: center;
+                margin: 0.5rem 0;
+            }
+        }
+
+        .ant-card-body {
+            padding: 0;
+        }
+
+        .insights-graph-container-row {
+            .insights-graph-container-row-left {
+                width: 100%;
+            }
+
+            .insights-graph-container-row-right {
+                width: 100%;
+                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+                max-width: 300px;
+                padding: 0 $default_spacing $default_spacing 0;
+                display: flex;
+                align-items: center;
+            }
+        }
+
+        .graph-container {
+            // hacky because container not respecting position: relative;
+            width: calc(100% - 3rem);
+            height: calc(100% - 3rem);
+        }
+    }
+
+    .insight-title-container {
+        display: flex;
+        align-items: center;
+
+        .insight-title-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    .insights-tab-actions {
+        margin-left: auto;
+        padding-left: 1rem;
+        display: flex;
+        flex-wrap: nowrap;
+        justify-content: flex-end;
+    }
+
+    .action-filters-bordered {
+        .draggable-action-filter {
+            border-bottom: 1px solid $border;
+            padding: $default_spacing $default_spacing / 4;
+            margin-top: 0;
+        }
+        .row-action-btn {
+            color: $primary_alt;
+        }
+    }
+
+    .advanced-options-dropdown {
+        font-size: 1.4em;
+        color: $primary_alt;
+        &.expanded {
+            transform: rotateX(180deg);
+        }
+    }
+
+    .funnel-advanced-options {
+        .funnel-exclusions-filter {
+            .mt:first-of-type {
+                margin-top: $default_spacing / 2;
+            }
+        }
+    }
+
+    .retention-date-picker {
+        background-color: transparent;
+        border: 0;
+        input::placeholder {
+            color: $text_default;
+        }
+    }
+
+    .insights-graph-header {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-left: $default_spacing;
+        padding-right: $default_spacing;
+        min-height: 48px;
+    }
+}
+
+.insight-metadata-tags {
+    margin-top: 0.5rem;
+    .ant-tag {
+        margin-top: 0;
+    }
+}
+
+.trends-insights-container {
+    position: relative;
+    min-height: min(calc(90vh - 16rem), 36rem);
+    display: flex;
+    justify-content: center;
+    .graph-container {
+        height: calc(100% - 1rem) !important;
+    }
+}
+
+.funnel-insights-container {
+    padding: 24px;
+    background-color: $funnel_canvas_background;
+
+    &.no-padding {
+        padding: 0;
+    }
+
+    &.non-empty-state {
+        min-height: 400px;
+        position: relative;
+        margin-bottom: 0;
+    }
+    .ant-table-wrapper {
+        margin-top: 0 !important;
+    }
+}
+
+.funnel-tab-btn-popover {
+    .ant-popover-inner-content {
+        padding: 4px 15px; // same as antd button padding
+
+        button.ant-btn-link {
+            padding: 0;
+            margin: 0 0 0 4px;
+        }
+    }
+}

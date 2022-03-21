@@ -1,0 +1,67 @@
+:host {
+    // reset fonts
+    all: initial;
+    font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.toolbar-block {
+    background: white;
+    color: black;
+    font-size: 14px;
+    &.no-padding {
+        padding: 0;
+    }
+}
+
+.ant-modal-mask,
+.ant-modal-wrap {
+    z-index: 2147483030 !important;
+}
+.ant-select-dropdown,
+.ant-picker-dropdown {
+    z-index: 2147483031 !important;
+}
+.ant-tooltip {
+    z-index: 2147483032 !important;
+}
+.ant-list-item {
+    &:hover {
+        background: #f0f0f0;
+    }
+}
+
+.section-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    font-weight: bold;
+    color: hsla(220, 15%, 49%, 1);
+    margin-bottom: 10px;
+}
+
+.ant-tabs > .ant-tabs-nav .ant-tabs-nav-wrap,
+.ant-tabs > div > .ant-tabs-nav .ant-tabs-nav-wrap {
+    justify-content: center;
+}
+
+.fade-component-container {
+    position: fixed;
+    z-index: 2147483020;
+}
+
+.Toastify__toast-container {
+    z-index: 2147483040;
+}
+
+.toolbar-global-fade-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    > * {
+        pointer-events: auto;
+    }
+}

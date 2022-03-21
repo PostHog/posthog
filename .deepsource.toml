@@ -1,0 +1,26 @@
+version = 1
+
+test_patterns = [
+  "**/test_*.py",
+]
+
+exclude_patterns = [
+  "**/migrations/*.py",
+]
+
+[[analyzers]]
+name = "python"
+enabled = true
+
+  [analyzers.meta]
+  runtime_version = "3.x.x"
+
+[[analyzers]]
+name = "docker"
+enabled = true
+
+  [analyzers.meta]
+  dockerfile_paths = [
+    "preview.Dockerfile",
+    "production.Dockerfile",
+  ]

@@ -1,0 +1,14 @@
+.demo-warning {
+    display: flex;
+    align-items: center;
+
+    .ant-alert-message {
+        font-weight: bold;
+    }
+
+    .ant-alert-close-icon .anticon-close svg {
+        height: 14px;
+        width: 14px;
+        margin-left: 1rem;
+    }
+}

@@ -1,0 +1,41 @@
+@import '~/vars';
+
+.inline-message {
+    background-color: $bg_mid;
+    border-radius: $radius;
+    padding: $default_spacing / 2 $default_spacing;
+    font-weight: $medium;
+    display: flex;
+    align-items: center;
+    color: $primary_alt;
+
+    &.danger {
+        background-color: rgba($danger, 0.09);
+        color: $danger;
+    }
+
+    &.closable {
+        padding-right: $default_spacing / 2;
+    }
+
+    &.hidden {
+        display: none;
+    }
+
+    .inline-icon {
+        margin-right: 6px;
+        display: flex;
+        align-items: center;
+    }
+
+    .inline-main {
+        flex-grow: 1;
+    }
+
+    .closable {
+        color: $text_muted;
+        align-self: flex-start;
+        padding-left: $default_spacing;
+        cursor: pointer;
+    }
+}

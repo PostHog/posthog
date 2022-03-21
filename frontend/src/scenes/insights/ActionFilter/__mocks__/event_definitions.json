@@ -1,0 +1,91 @@
+{
+    "count": 14,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "017b2cd5-074c-0001-35a3-7f6269f813ed",
+            "name": "$autocapture",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b767d-5b32-0001-d4fb-25c5b989f087",
+            "name": "$capture_failed_request",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd4-3230-0000-b143-23cb9bc53356",
+            "name": "$capture_metrics",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd3-c787-0000-7ecd-572842883105",
+            "name": "$feature_flag_called",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd3-bc34-0000-787d-c47b6e628d62",
+            "name": "$identify",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd4-3227-0000-b495-395e13879f3a",
+            "name": "$pageleave",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd3-c767-0000-1bce-db0c7beaab3d",
+            "name": "$pageview",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b3106-c27b-0000-7a4b-dd754cc5a9e5",
+            "name": "$rageclick",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017ba6c7-8aa7-0001-bff1-1bfcf734282d",
+            "name": "client_request_failure",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017ba6cb-ebd6-0001-fa92-6b5407ca826b",
+            "name": "hotkey navigation",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd3-c7c3-0001-3aea-58fc6696805a",
+            "name": "ingestion landing seen",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017ba6c7-adc2-0001-ddc2-40fd89635f17",
+            "name": "insight analyzed",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd5-1a60-0001-c65d-a5a9dd4fa82b",
+            "name": "insight loaded",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        },
+        {
+            "id": "017b2cd5-1a6a-0001-e12a-30ee213106c0",
+            "name": "insight viewed",
+            "volume_30_day": null,
+            "query_usage_30_day": null
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+# name: TestInstanceSettings.test_update_recordings_ttl_setting
+  '
+  /* request:api_instance_settings_(?P<key>[^_.]+)_?$ (InstanceSettingsViewset) */
+  ALTER TABLE sharded_session_recording_events MODIFY TTL toDate(created_at) + toIntervalWeek(5)
+  '
+---

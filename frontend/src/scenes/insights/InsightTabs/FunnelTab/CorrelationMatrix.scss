@@ -1,0 +1,53 @@
+@import '~/vars';
+
+.correlation-matrix {
+    .ant-modal-body {
+        display: flex;
+        justify-content: center;
+    }
+    .correlation-table-wrapper {
+        table {
+            border-radius: $radius;
+            border: 1px solid $border;
+            border-collapse: separate;
+            border-spacing: 0px;
+            margin: 0 auto;
+
+            td {
+                padding: $default_spacing / 2 $default_spacing;
+                border-left: 1px solid $border;
+                border-top: 1px solid $border;
+                text-align: center;
+
+                .percentage {
+                    font-weight: bold;
+                    padding-bottom: $default_spacing / 4;
+                }
+                &:first-child {
+                    border-left: none;
+                }
+            }
+
+            .table-title {
+                color: $text_muted_alt;
+                td {
+                    border-top: none;
+                }
+            }
+
+            thead,
+            .horizontal-header {
+                font-weight: bold;
+                background-color: $antd_table_background_dark;
+                text-transform: uppercase;
+                color: $text_muted;
+            }
+
+            tbody {
+                td:not(.horizontal-header) {
+                    text-align: right;
+                }
+            }
+        }
+    }
+}

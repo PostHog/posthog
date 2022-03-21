@@ -1,0 +1,10 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "baseUrl": "./",
+        "rootDir": "./",
+        "noEmit": true
+    },
+    "include": [".", "src", "tests", ".eslintrc.js"],
+    "exclude": ["node_modules", "dist", "bin"]
+}

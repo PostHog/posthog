@@ -1,0 +1,34 @@
+@import '~/vars';
+
+.pay-gate-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-top: $default_spacing;
+
+    h2 {
+        font-size: 32px;
+        font-weight: 600;
+        margin-bottom: 8px;
+
+        .highlight {
+            font-weight: bold;
+            color: $danger;
+        }
+    }
+
+    .pay-caption {
+        max-width: 500px;
+    }
+
+    .pay-buttons {
+        margin-top: $default_spacing;
+        width: 320px;
+        max-width: 90%;
+
+        .ant-btn {
+            margin-bottom: $default_spacing;
+        }
+    }
+}

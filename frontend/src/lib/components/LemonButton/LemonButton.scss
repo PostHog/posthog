@@ -1,0 +1,103 @@
+.LemonButton {
+    font-weight: 500;
+    color: var(--primary);
+    cursor: pointer;
+    &:not(:disabled):hover,
+    &.LemonButton--active {
+        background: var(--primary-bg-hover);
+    }
+    &:not(:disabled):active {
+        background: var(--primary-bg-active);
+    }
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .LemonRow__icon {
+        color: var(--primary);
+    }
+}
+
+.LemonButton--tertiary {
+    color: var(--muted-alt);
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonButton--secondary {
+    border: 1px solid var(--border);
+    background: #fff;
+    &:not(:disabled):hover,
+    &.LemonButton--active,
+    &:not(:disabled):active {
+        background: inherit;
+        border-color: currentColor;
+    }
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonButton--primary {
+    background: var(--primary);
+    color: #fff;
+    &:not(:disabled):hover,
+    &.LemonButton--active {
+        background: var(--primary-hover);
+    }
+    &:not(:disabled):active {
+        background: var(--primary-active);
+    }
+    .LemonRow__icon {
+        color: #fff;
+    }
+}
+
+.LemonButton--primary-alt {
+    color: var(--primary-alt);
+    .LemonRow__icon {
+        color: var(--primary-alt);
+    }
+}
+
+.LemonButton--stealth {
+    color: var(--text-default);
+    font-weight: 400;
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+// Order matters - translucent should be before highlighted, but after all the other types
+.LemonButton--translucent {
+    background: transparent;
+}
+
+.LemonButton--highlighted {
+    background: var(--primary-bg-hover);
+    color: var(--text-default);
+    .LemonRow__icon {
+        color: var(--primary);
+    }
+}
+
+.LemonRow--outlined.LemonButton {
+    &:not(:disabled):hover,
+    &.LemonButton--active,
+    &:not(:disabled):active {
+        background: inherit;
+        border-color: var(--primary);
+    }
+}
+
+.LemonButtonWithSideAction {
+    position: relative;
+}
+
+.LemonButtonWithSideAction--side-button {
+    position: absolute;
+    top: 50%;
+    right: 1.25rem;
+    transform: translate(50%, -50%);
+}

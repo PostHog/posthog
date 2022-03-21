@@ -1,0 +1,7 @@
+{
+  "tsConfigPath": "./tsconfig.json",
+  "rootPath": "./frontend/src",
+  "typesPath": "./frontend/src",
+  "writePaths": true
+}
+
