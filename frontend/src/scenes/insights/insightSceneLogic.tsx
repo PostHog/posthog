@@ -106,7 +106,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters: _filters, dashboard }, { method, initial }) => {
+        '/insights/:shortId(/:mode)': (
+            { shortId, mode },
+            { dashboard },
+            { filters: _filters },
+            { method, initial }
+        ) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
@@ -128,27 +133,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                             shouldMergeWithExisting: false,
                         }
                     )
-                    if (dashboard) {
-                        // Handle "Add insight" from dashboards by setting the dashboard ID locally
-                        // Usually it's better to keep this hash param instead of stripping it after usage,
-                        // just in case the user reloads the page or navigates away
-                        values.insightCache?.logic.actions.setSourceDashboardId
-                    }
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                }
-
-                if (resetNewInsight || filters) {
+                } else if (filters) {
                     values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
 
-                if (insightMode === ItemMode.Edit && insightId !== 'new') {
-                    lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
-                }
-
                 if (filters) {
+                    if (insightMode === ItemMode.Edit && insightId !== 'new') {
+                        lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
+                    }
                     router.actions.replace(
                         insightId === 'new'
-                            ? urls.insightNew()
+                            ? urls.insightNew(undefined, dashboard)
                             : insightMode === ItemMode.Edit
                             ? urls.insightEdit(insightId)
                             : urls.insightView(insightId)

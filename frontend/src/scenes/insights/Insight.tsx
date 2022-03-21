@@ -159,7 +159,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!sourceDashboardId}
+                                addingToDashboard={!!insight.dashboard && !insight.id}
                                 filtersChanged={filtersChanged}
                             />
                         )}

@@ -673,7 +673,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
                 layouts,
                 color,
-                dashboard: dashboard || values.sourceDashboardId,
+                dashboard,
                 tags,
             }
 
@@ -688,16 +688,7 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            if (redirectToViewMode) {
-                if (values.sourceDashboardId) {
-                    router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
-                } else {
-                    insightSceneLogic
-                        .findMounted()
-                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-                }
-            }
-            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' & added to dashboard' : ''}`, {
+            lemonToast.success(`Insight saved${dashboard ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -707,7 +698,10 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
-                if (insightNumericId) {
+                if (!insightNumericId && dashboard) {
+                    // redirect new insights added to dashboard to the dashboard
+                    router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
+                } else if (insightNumericId) {
                     insightSceneLogic
                         .findMounted()
                         ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)

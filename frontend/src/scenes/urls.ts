@@ -27,9 +27,8 @@ export const urls = {
     eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null) =>
-        `/insights/new${filters || dashboardId ? combineUrl('', '', { filters, dashboard: dashboardId }).hash : ''}`,
-    insightEdit: (id: InsightShortId, dashboardId?: DashboardType['id'] | null) =>
-        `/insights/${id}/edit${dashboardId ? combineUrl('', '', { dashboard: dashboardId }).hash : ''}`,
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
+    insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
     insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
