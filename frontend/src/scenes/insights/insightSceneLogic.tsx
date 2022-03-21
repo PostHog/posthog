@@ -106,7 +106,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters: _filters }, { method, initial }) => {
+        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters: _filters, dashboard }, { method, initial }) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
@@ -115,16 +115,30 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (initial || insightId !== oldInsightId || insightMode !== values.insightMode || filters) {
                 actions.setSceneState(insightId, insightMode)
 
-                if ((insightId === 'new' && (method === 'PUSH' || initial)) || filters) {
-                    values.insightCache?.logic.actions.setInsight(createEmptyInsight('new'), {
-                        fromPersistentApi: false,
-                        overrideFilter: true,
-                        shouldMergeWithExisting: false,
-                    })
-                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
-                    if (insightId === 'new') {
-                        eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
+                const resetNewInsight = insightId === 'new' && (method === 'PUSH' || initial)
+                if (resetNewInsight) {
+                    values.insightCache?.logic.actions.setInsight(
+                        {
+                            ...createEmptyInsight('new'),
+                            ...(dashboard ? { dashboard } : {}),
+                        },
+                        {
+                            fromPersistentApi: true,
+                            overrideFilter: true,
+                            shouldMergeWithExisting: false,
+                        }
+                    )
+                    if (dashboard) {
+                        // Handle "Add insight" from dashboards by setting the dashboard ID locally
+                        // Usually it's better to keep this hash param instead of stripping it after usage,
+                        // just in case the user reloads the page or navigates away
+                        values.insightCache?.logic.actions.setSourceDashboardId
                     }
+                    eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
+                }
+
+                if (resetNewInsight || filters) {
+                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
 
                 if (insightMode === ItemMode.Edit && insightId !== 'new') {

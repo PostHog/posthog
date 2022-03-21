@@ -123,6 +123,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
@@ -139,6 +140,7 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -178,7 +180,7 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    const updatedInsight: Partial<InsightModel> = {
+                    const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
@@ -218,7 +220,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight: Partial<InsightModel> = { ...values.insight }
+                    const updatedInsight = { ...values.insight } as InsightModel
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -437,6 +439,12 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 setTagLoading: (_, { tagLoading }) => tagLoading,
+            },
+        ],
+        sourceDashboardId: [
+            null as number | null,
+            {
+                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
             },
         ],
     }),
@@ -665,7 +673,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
                 layouts,
                 color,
-                dashboard,
+                dashboard: dashboard || values.sourceDashboardId,
                 tags,
             }
 
@@ -680,7 +688,16 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            lemonToast.success('Insight saved', {
+            if (redirectToViewMode) {
+                if (values.sourceDashboardId) {
+                    router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
+                } else {
+                    insightSceneLogic
+                        .findMounted()
+                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                }
+            }
+            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -752,6 +769,11 @@ export const insightLogic = kea<insightLogicType>({
                     ...nextEntries,
                 },
             })
+        },
+        cancelChanges: () => {
+            actions.setFilters(values.savedFilters)
+            insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            eventUsageLogic.actions.reportInsightsTabReset()
         },
     }),
 
