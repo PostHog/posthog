@@ -750,7 +750,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             }
                                         />
                                     </Col>
-                                    {!experimentResults && experimentData.start_date && (
+                                    {!experimentResultsLoading && !experimentResults && experimentData.start_date && (
                                         <Col span={12}>
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
