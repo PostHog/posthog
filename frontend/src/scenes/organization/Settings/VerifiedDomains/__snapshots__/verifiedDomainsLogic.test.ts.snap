@@ -13,6 +13,7 @@ Object {
   },
   "domainBeingVerified": null,
   "isFeatureAvailable": true,
+  "isSSOEnforcementAvailable": true,
   "updatingDomain": false,
   "updatingDomainLoading": false,
   "verifiedDomains": Array [
