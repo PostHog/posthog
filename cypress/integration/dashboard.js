@@ -48,7 +48,7 @@ describe('Dashboard', () => {
 
         cy.get('[data-attr=dashboard-share-button]').click()
         cy.get('[data-attr=share-dashboard-switch]').click()
-        cy.wait(200)
+        cy.contains('Share dashboard publicly').should('exist')
         cy.get('[data-attr=share-dashboard-link-button]').click()
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {

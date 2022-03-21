@@ -1,20 +1,25 @@
 import { Meta } from '@storybook/react'
 
-import { EventsTable } from 'scenes/events/index'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import eventList from './__mocks__/eventList.json'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { App } from 'scenes/App'
 
 export default {
-    title: 'Scenes/Events',
+    title: 'Scenes-App/Events',
     decorators: [
         mswDecorator({
-            get: { '/api/projects/1/events': { next: null, results: eventList } },
+            get: { '/api/projects/:projectId/events': { next: null, results: eventList } },
         }),
     ],
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
-export const AllEvents = (): JSX.Element => {
-    return <EventsTable pageKey="EventsTable" sceneUrl="/" />
+export const LiveEvents = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.events())
+    }, [])
+    return <App />
 }

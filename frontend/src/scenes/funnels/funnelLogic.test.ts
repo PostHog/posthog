@@ -1,5 +1,5 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
-import { api, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -25,6 +25,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { useFeatures } from '~/mocks/features'
+import api from 'lib/api'
 
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId

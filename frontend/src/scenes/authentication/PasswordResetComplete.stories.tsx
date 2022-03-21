@@ -8,7 +8,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Authentication/Password Reset Complete',
+    title: 'Scenes-Other/Password Reset Complete',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
