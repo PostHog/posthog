@@ -579,9 +579,10 @@ describe('insightLogic', () => {
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
+                savedFilters: partial({ insight: InsightType.FUNNELS }),
                 filters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                filtersChanged: true,
+                filtersChanged: false,
             })
 
         await expectLogic(router)

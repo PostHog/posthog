@@ -27,6 +27,7 @@ export function confirmDiscardingInsightChanges(): boolean {
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
     connect: {
+        values: [sceneLogic, ['scene']],
         logic: [eventUsageLogic, featureFlagLogic],
     },
     actions: {
@@ -145,7 +146,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (insightId !== oldInsightId || insightMode !== values.insightMode) {
                 // If navigating from an unsaved insight to a different insight within the scene, prompt the user
                 if (
-                    sceneLogic.values.scene === Scene.Insight &&
+                    values.scene === Scene.Insight &&
                     insightId !== oldInsightId &&
                     oldInsightId !== 'new' &&
                     values.insightCache?.logic.values.filtersChanged &&
