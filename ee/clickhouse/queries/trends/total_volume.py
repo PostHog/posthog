@@ -56,9 +56,8 @@ class ClickhouseTrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
-                    aggregator="distinct_id"
-                    if team.aggregate_users_by_distinct_id
-                    else "person_id" ** trend_event_query.active_user_params,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
