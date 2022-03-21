@@ -139,10 +139,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     )
                     values.insightCache?.logic.actions.loadResults()
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
+                } else if (filters) {
+                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
 
                 if (filters) {
-                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                     if (insightMode === ItemMode.Edit && insightId !== 'new') {
                         lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
                     }
