@@ -18,6 +18,7 @@ from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import format_query_params_absolute_url
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -201,21 +202,34 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
-        activity = load_activity(scope="FeatureFlag", team_id=self.team_id)
+        limit = int(request.query_params.get("limit", "10"))
+        offset = int(request.query_params.get("offset", "0"))
+
+        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, offset=offset)
+
         return Response(
-            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            {
+                "results": ActivityLogSerializer(activity, many=True,).data,
+                "next": format_query_params_absolute_url(request, offset + limit, limit),
+            },
             status=status.HTTP_200_OK,
         )
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        offset = int(request.query_params.get("offset", "0"))
+
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, item_id=item_id,)
+        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, offset=offset)
         return Response(
-            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            {
+                "results": ActivityLogSerializer(activity, many=True,).data,
+                "next": format_query_params_absolute_url(request, offset + limit, limit),
+            },
             status=status.HTTP_200_OK,
         )
 

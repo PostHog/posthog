@@ -1,48 +1,22 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { useMocks } from '~/mocks/jest'
-import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
-import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
-
-const aHumanizedPageOfHistory: HumanizedActivityLogItem[] = [
-    {
-        email: 'kunal@posthog.com',
-        name: 'kunal',
-        description: (
-            <>
-                created the flag: <Link to={urls.featureFlag('7')}>test flag</Link>
-            </>
-        ),
-        created_at: dayjs('2022-02-05T16:28:39.594Z'),
-    },
-    {
-        email: 'eli@posthog.com',
-        name: 'eli',
-        description: expect.anything(), // react fragment equality is odd here. tested in humanizeActivity.test.tsx
-        created_at: dayjs('2022-02-06T16:28:39.594Z'),
-    },
-    {
-        email: 'guido@posthog.com',
-        name: 'guido',
-        description: expect.anything(), // react fragment equality is odd here. tested in humanizeActivity.test.tsx
-        created_at: dayjs('2022-02-08T16:28:39.594Z'),
-    },
-]
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
 
     describe('when not scoped by ID', () => {
-        beforeEach(() => {
+        beforeAll(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -60,16 +34,24 @@ describe('the activity log logic', () => {
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-                activity: aHumanizedPageOfHistory,
+                activityAPILoading: false,
+                nextPageURL: 'a provided url',
             })
+
+            // react fragments confuse equality check so stringify to confirm this prop has the humanized version of the response
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
+                JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
+            )
         })
     })
     describe('when scoped by ID', () => {
-        beforeEach(() => {
+        beforeAll(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/7/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -87,9 +69,14 @@ describe('the activity log logic', () => {
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-                activity: aHumanizedPageOfHistory,
+                activityAPILoading: false,
+                nextPageURL: 'a provided url',
             })
+
+            // react fragments confuse equality check so stringify to confirm this prop has the humanized version of the response
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
+                JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
+            )
         })
     })
 })

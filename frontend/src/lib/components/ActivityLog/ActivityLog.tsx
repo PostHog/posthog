@@ -1,10 +1,10 @@
 import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { Skeleton } from 'antd'
+import { Button, Skeleton } from 'antd'
 import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 
 export interface ActivityLogProps {
@@ -40,27 +40,43 @@ const Loading = (): JSX.Element => {
 
 export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, describer })
-    const { activity, activityLoading } = useValues(logic)
+    const { humanizedActivity, activityAPILoading, hasNextPage } = useValues(logic)
+    const { fetchActivity } = useActions(logic)
     return (
         <div className="activity-log">
-            {activityLoading ? (
+            {activityAPILoading ? (
                 <Loading />
-            ) : activity.length > 0 ? (
-                activity.map((logItem, index) => {
-                    return (
-                        <div className={'activity-log-row'} key={index}>
-                            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
-                            <div className="details">
-                                <div>
-                                    <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
-                                </div>
-                                <div className={'text-muted'}>
-                                    <TZLabel time={logItem.created_at} />
+            ) : humanizedActivity.length > 0 ? (
+                <>
+                    {humanizedActivity.map((logItem, index) => {
+                        return (
+                            <div className={'activity-log-row'} key={index}>
+                                <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+                                <div className="details">
+                                    <div>
+                                        <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
+                                    </div>
+                                    <div className={'text-muted'}>
+                                        <TZLabel time={logItem.created_at} />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )
-                })
+                        )
+                    })}
+                    <div className="activity-log-row">
+                        <Button
+                            type="primary"
+                            onClick={fetchActivity}
+                            loading={activityAPILoading}
+                            disabled={!hasNextPage}
+                            style={{
+                                margin: 'auto',
+                            }}
+                        >
+                            Load more activity
+                        </Button>
+                    </div>
+                </>
             ) : (
                 <Empty />
             )}
