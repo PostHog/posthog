@@ -1,4 +1,4 @@
-import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -34,7 +34,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
@@ -178,7 +177,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             >
                                 Cancel
                             </LemonButton>
-                            <LemonButton type="primary" htmlType="submit">
+                            <LemonButton type="primary" htmlType="submit" form="new-experiment">
                                 Save
                             </LemonButton>
                         </Row>
@@ -1023,7 +1022,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         ) : (
                             experimentResultsLoading && (
                                 <div className="text-center">
-                                    <Spinner />
+                                    <Skeleton active />
                                 </div>
                             )
                         )}
@@ -1062,9 +1061,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             experimentData.start_date && (
                                 <>
                                     <div className="no-experiment-results">
-                                        {experimentResultsLoading ? (
-                                            <Spinner />
-                                        ) : (
+                                        {!experimentResultsLoading && (
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
                                                 <div className="text-default">
@@ -1080,7 +1077,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                     </div>
                 </div>
             ) : (
-                <Spinner />
+                <Skeleton active />
             )}
         </>
     )

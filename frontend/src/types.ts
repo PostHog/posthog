@@ -1282,7 +1282,6 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean

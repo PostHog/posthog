@@ -41,13 +41,14 @@ export function FunnelTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md) || screens.xl
     useMountedLogic(funnelCommandLogic)
+
+    const isSmallScreen = !screens.xl
 
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
             <Col xs={24} md={16} xl={24}>
-                <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
+                <div>
                     <form
                         onSubmit={(e): void => {
                             e.preventDefault()
