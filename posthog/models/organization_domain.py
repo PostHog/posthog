@@ -14,7 +14,15 @@ def generate_verification_challenge() -> str:
     return secrets.token_urlsafe(32)
 
 
+class OrganizationDomainManager(models.Manager):
+    def verified_domains(self):
+        # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        return self.exclude(verified_at__isnull=True)
+
+
 class OrganizationDomain(UUIDModel):
+    objects = OrganizationDomainManager()
+
     organization: models.ForeignKey = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="domains",
     )

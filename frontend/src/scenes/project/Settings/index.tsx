@@ -256,7 +256,6 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
                 </h2>
