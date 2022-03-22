@@ -222,6 +222,10 @@ jobs:
               run: |
                   curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
+            - name: Checkout current branch
+              uses: actions/checkout@v2
+              with:
+                  path: 'deploy/'
             - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
