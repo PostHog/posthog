@@ -81,7 +81,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
         return instance
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        email = validated_data.get("email")
+        email = validated_data.get("email", "")
         domain = email[email.index("@") + 1 :]
         domain_query = (
             OrganizationDomain.objects.verified_domains()
