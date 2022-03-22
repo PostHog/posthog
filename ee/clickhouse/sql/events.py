@@ -2,9 +2,8 @@ from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from ee.kafka_client.topics import KAFKA_EVENTS
-
-EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
+from posthog.kafka_client.topics import KAFKA_EVENTS
+from posthog.sql.events import EVENTS_DATA_TABLE
 
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -118,13 +117,6 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
 )
 
-INSERT_EVENT_SQL = (
-    lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
-"""
-)
-
 GET_EVENTS_SQL = """
 SELECT
     uuid,
@@ -136,19 +128,6 @@ SELECT
     elements_chain,
     created_at
 FROM events
-"""
-
-GET_EVENTS_BY_TEAM_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """

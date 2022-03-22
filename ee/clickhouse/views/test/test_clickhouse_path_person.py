@@ -6,10 +6,10 @@ from uuid import uuid4
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.cohort import Cohort
+from posthog.models.event.util import create_event
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import APIBaseTest

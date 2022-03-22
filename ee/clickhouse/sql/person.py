@@ -1,6 +1,6 @@
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
@@ -286,30 +286,6 @@ WHERE team_id = %(team_id)s
     offset="{offset}",
     GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
-
-INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
-"""
-
-INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
-"""
-
-INSERT_PERSON_DISTINCT_ID2 = """
-INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 0, %(version)s, now(), 0, 0 VALUES
-"""
-
-DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 1
-"""
-
-DELETE_PERSON_EVENTS_BY_ID = """
-ALTER TABLE events DELETE
-WHERE distinct_id IN (
-    SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
-)
-AND team_id = %(team_id)s
-"""
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (

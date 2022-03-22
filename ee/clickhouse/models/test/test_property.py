@@ -7,7 +7,6 @@ from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
     PropertyGroup,
     get_property_string_expr,
@@ -20,6 +19,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
+from posthog.models.event.util import create_event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties

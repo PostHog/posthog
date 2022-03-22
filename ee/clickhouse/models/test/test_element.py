@@ -1,6 +1,6 @@
-from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Element
+from posthog.models.element.util import chain_to_elements, elements_to_string
 from posthog.test.base import BaseTest
 
 

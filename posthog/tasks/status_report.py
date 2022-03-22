@@ -69,13 +69,13 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
             team_report: Dict[str, Any] = {}
             # pull events stats from clickhouse
-            from ee.clickhouse.models.event import (
+            from posthog.models.event.util import (
                 get_event_count_for_team,
                 get_event_count_for_team_and_period,
                 get_events_count_for_team_by_client_lib,
                 get_events_count_for_team_by_event_type,
             )
-            from ee.clickhouse.models.person import (
+            from posthog.models.person.util import (
                 count_duplicate_distinct_ids_for_team,
                 count_total_persons_with_multiple_ids,
             )

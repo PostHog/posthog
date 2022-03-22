@@ -4,9 +4,9 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin
 from ee.tasks.send_license_usage import send_license_usage
+from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 

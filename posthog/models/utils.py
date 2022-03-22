@@ -1,13 +1,18 @@
+import json
 import random
 import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
+from ctypes import Union
 from enum import Enum, auto
 from time import time
 from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
 
+import pytz
+from dateutil.parser import isoparse
 from django.db import IntegrityError, models, transaction
+from django.utils import timezone
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
@@ -204,3 +209,32 @@ def get_deferred_field_set_for_model(
         field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
     """
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
+
+
+def is_json(val):
+    if isinstance(val, int):
+        return False
+
+    try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
+        json.loads(val)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")

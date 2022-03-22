@@ -2,11 +2,8 @@ from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-
-SESSION_RECORDING_EVENTS_DATA_TABLE = (
-    lambda: "sharded_session_recording_events" if settings.CLICKHOUSE_REPLICATION else "session_recording_events"
-)
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.sql.session_recording_events import SESSION_RECORDING_EVENTS_DATA_TABLE
 
 SESSION_RECORDING_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -111,14 +108,6 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
-)
-
-
-INSERT_SESSION_RECORDING_EVENT_SQL = (
-    lambda: f"""
-INSERT INTO {SESSION_RECORDING_EVENTS_DATA_TABLE()} (uuid, timestamp, team_id, distinct_id, session_id, window_id, snapshot_data, created_at, _timestamp, _offset)
-SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
-"""
 )
 
 

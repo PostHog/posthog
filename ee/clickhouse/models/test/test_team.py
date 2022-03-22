@@ -1,13 +1,13 @@
 from uuid import UUID, uuid4
 
 from ee.clickhouse.models.cohort import insert_static_cohort
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.team import delete_teams_data
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models import Team
+from posthog.models.event.util import create_event
+from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.test.base import BaseTest
 
 

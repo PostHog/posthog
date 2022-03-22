@@ -6,10 +6,10 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Organization, Person, Team, User
+from posthog.models.event.util import create_event
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.org_usage_report import OrgReport, send_all_reports

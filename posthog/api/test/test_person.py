@@ -6,10 +6,10 @@ from uuid import uuid4
 from django.utils import timezone
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
+from posthog.models.event.util import create_event
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 

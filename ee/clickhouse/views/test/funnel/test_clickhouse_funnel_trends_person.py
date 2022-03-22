@@ -3,9 +3,9 @@ from uuid import uuid4
 
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.models.event.util import create_event
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 

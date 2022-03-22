@@ -4,12 +4,12 @@ from uuid import uuid4
 import pytz
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.breakdown_props import _parse_breakdown_cohorts
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
+from posthog.models.event.util import create_event
 from posthog.queries.util import get_earliest_timestamp
 
 

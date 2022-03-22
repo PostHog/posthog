@@ -1,11 +1,11 @@
 from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.event.util import create_event
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person

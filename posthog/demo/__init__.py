@@ -29,7 +29,7 @@ def demo(request: Request):
     user.save()
     EventDefinition.objects.get_or_create(team=team, name="$pageview")
 
-    from ee.clickhouse.models.event import get_events_by_team
+    from posthog.models.event.util import get_events_by_team
 
     result = get_events_by_team(team_id=team.pk)
     if not result:

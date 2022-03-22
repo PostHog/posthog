@@ -17,9 +17,9 @@ from django.http import HttpResponse
 from django.test import Client
 from kafka.errors import KafkaError
 
-from ee.kafka_client.client import TestKafkaProducer
 from posthog.client import ch_pool
 from posthog.health import logger
+from posthog.kafka_client.client import TestKafkaProducer
 
 
 @pytest.mark.django_db

@@ -4,15 +4,15 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.entity import Entity
+from posthog.models.event.util import create_event
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.test.base import APIBaseTest
 
 

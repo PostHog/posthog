@@ -11,11 +11,11 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
+from posthog.models.event.util import create_event
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 

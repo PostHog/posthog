@@ -4,9 +4,9 @@ from uuid import uuid4
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Element, ElementGroup, Organization
+from posthog.models.event.util import create_event
 from posthog.test.base import APIBaseTest
 
 

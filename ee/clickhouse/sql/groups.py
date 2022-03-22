@@ -1,6 +1,6 @@
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
-from ee.kafka_client.topics import KAFKA_GROUPS
+from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"

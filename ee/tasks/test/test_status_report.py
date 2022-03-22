@@ -1,10 +1,10 @@
 from datetime import datetime
 from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person_distinct_id
 from posthog.client import sync_execute
+from posthog.models.event.util import create_event
 from posthog.models.person import Person
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report

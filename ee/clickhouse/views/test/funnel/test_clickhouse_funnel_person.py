@@ -5,9 +5,9 @@ from uuid import uuid4
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.event.util import create_event
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 

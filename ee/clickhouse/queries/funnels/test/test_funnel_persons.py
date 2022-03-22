@@ -4,14 +4,14 @@ from uuid import UUID, uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
+from posthog.models.event.util import create_event
 from posthog.models.person import Person
+from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

@@ -5,8 +5,8 @@ from typing import Dict, Optional
 from django.utils.timezone import now
 
 from ee.clickhouse.sql.groups import INSERT_GROUP_SQL
-from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_GROUPS
+from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models import Group
 from posthog.models.filters.utils import GroupTypeIndex
 

@@ -1,10 +1,10 @@
 import unittest
 from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.models.event.util import create_event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest

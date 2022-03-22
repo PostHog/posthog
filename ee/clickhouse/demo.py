@@ -1,8 +1,8 @@
 from typing import Dict, List
 from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
+from posthog.models.event.util import create_event
+from posthog.models.session_recording_event.util import create_session_recording_event
 
 
 def bulk_create_events(events: List[Dict], **kw):

@@ -3,11 +3,11 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization, Person
+from posthog.models.event.util import create_event
+from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.test.base import APIBaseTest
 
 

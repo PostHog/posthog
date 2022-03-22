@@ -1,6 +1,6 @@
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
-from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
+from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 

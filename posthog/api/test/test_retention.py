@@ -22,7 +22,7 @@ def identify(
     """
     properties = properties or {}
 
-    from ee.clickhouse.models.person import Person, PersonDistinctId
+    from posthog.models.person.util import Person, PersonDistinctId
 
     person = Person.objects.create(team_id=team_id, properties=properties)
     PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
