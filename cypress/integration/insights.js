@@ -32,6 +32,7 @@ describe('Insights', () => {
         // Save and continue editing
         cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="add-action-event-button"]').click()
+        cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="insight-save-and-continue"]').click()
         cy.get('[data-attr="add-action-event-button"]').should('exist')
 
