@@ -47,6 +47,7 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -507,7 +508,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 setFilters(payload)
                                                             }}
                                                             typeKey={`EditFunnel-action`}
-                                                            hideMathSelector={true}
+                                                            mathAvailability={MathAvailability.None}
                                                             hideDeleteBtn={filterSteps.length === 1}
                                                             buttonCopy="Add funnel step"
                                                             buttonType="link"
@@ -537,7 +538,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             buttonCopy="Add graph series"
                                                             showSeriesIndicator
                                                             entitiesLimit={1}
-                                                            hideMathSelector={false}
                                                             propertiesTaxonomicGroupTypes={[
                                                                 TaxonomicFilterGroupType.EventProperties,
                                                                 TaxonomicFilterGroupType.PersonProperties,
