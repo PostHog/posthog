@@ -126,10 +126,10 @@ def log_activity(
             detail=detail,
         )
     except Exception as e:
-        with push_scope() as scope:
-            scope.set_tag("team-id", team_id)
-            scope.set_tag("scope", scope)
-            scope.set_tag("activity", activity)
+        with push_scope() as sentry_scope:
+            sentry_scope.set_tag("team-id", team_id)
+            sentry_scope.set_tag("scope", scope)
+            sentry_scope.set_tag("activity", activity)
             capture_exception(e)
 
 
