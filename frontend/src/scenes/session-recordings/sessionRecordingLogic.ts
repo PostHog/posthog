@@ -272,14 +272,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
             loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
-                const snapshotParams = {}
-                if (values.featureFlags[FEATURE_FLAGS.TUNE_RECORDING_SNAPSHOT_LIMIT]) {
-                    snapshotParams['limit'] = 4
-                }
                 const apiUrl =
                     url ||
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots?${toParams(
-                        snapshotParams
+                        {
+                            limit: values.featureFlags[FEATURE_FLAGS.TUNE_RECORDING_SNAPSHOT_LIMIT] ? 4 : undefined,
+                        }
                     )}`
                 const response = await api.get(apiUrl)
                 breakpoint()
