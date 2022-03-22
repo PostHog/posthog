@@ -43,7 +43,6 @@ const Loading = (): JSX.Element => {
 export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, describer, startingPage })
     const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
-
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
