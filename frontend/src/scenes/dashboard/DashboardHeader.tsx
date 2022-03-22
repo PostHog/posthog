@@ -10,7 +10,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode, DashboardType, InsightType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
@@ -201,7 +201,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 Share
                             </Button>
                             {canEditDashboard && (
-                                <Link to={urls.insightNew({ insight: InsightType.TRENDS }, dashboard?.id)}>
+                                <Link to={urls.insightNew(undefined, dashboard?.id)}>
                                     <Button
                                         type="primary"
                                         data-attr="dashboard-add-graph-header"
