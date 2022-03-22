@@ -120,10 +120,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
-            if (initial || insightId !== oldInsightId || insightMode !== values.insightMode || filters) {
+            const insightStateChanged = insightId !== oldInsightId || insightMode !== values.insightMode
+            const forceChange = method === 'PUSH' || filters || initial
+
+            if (insightStateChanged || forceChange) {
                 actions.setSceneState(insightId, insightMode)
 
-                const resetNewInsight = insightId === 'new' && (method === 'PUSH' || filters || initial)
+                const resetNewInsight = insightId === 'new' && forceChange
                 if (resetNewInsight) {
                     values.insightCache?.logic.actions.setInsight(
                         {
