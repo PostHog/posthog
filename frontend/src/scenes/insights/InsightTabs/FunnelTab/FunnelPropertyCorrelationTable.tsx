@@ -47,7 +47,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         if (propertyNames.length === 0) {
             setPropertyNames(allProperties)
         }
-        loadPropertyCorrelations()
+        loadPropertyCorrelations({})
     }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
