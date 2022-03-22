@@ -9,13 +9,8 @@ import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 
-export function ActionsLineGraph({
-    dashboardItemId,
-    color = 'white',
-    inSharedMode = false,
-    showPersonsModal = true,
-}: ChartParams): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -31,15 +26,12 @@ export function ActionsLineGraph({
                     : GraphType.Line
             }
             hiddenLegendKeys={hiddenLegendKeys}
-            color={color}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightId={insight.id}
+            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
-            interval={filters.interval}
             showPersonsModal={showPersonsModal}
-            tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
                     ? {
@@ -57,7 +49,7 @@ export function ActionsLineGraph({
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
+                !showPersonsModal || isMultiSeriesFormula(filters.formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset, seriesId } = payload
@@ -96,6 +88,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={isViewedOnDashboard} />
+        <InsightEmptyState />
     )
 }

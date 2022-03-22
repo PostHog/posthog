@@ -418,3 +418,16 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
         if self.correlation_persons_converted is not None:
             result_dict[FUNNEL_CORRELATION_PERSON_CONVERTED] = self.correlation_persons_converted
         return result_dict
+
+    @cached_property
+    def include_final_matching_events(self) -> bool:
+        # If true, actor query will include the user's final event in the funnel for recordings
+        return self._data.get("include_final_matching_events", False)
+
+    @include_dict
+    def include_final_matching_events_to_dict(self):
+        return (
+            {"include_final_matching_events": self.include_final_matching_events}
+            if self.include_final_matching_events
+            else {}
+        )

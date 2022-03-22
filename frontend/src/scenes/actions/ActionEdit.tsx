@@ -13,18 +13,23 @@ import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { AvailableFeature } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
-    const relevantActionEditLogic = actionEditLogic({
+    const logic = actionEditLogic({
         id: id,
         action: loadedAction,
         onSave: (action) => onSave(action),
         temporaryToken,
     })
-    const { action, errorActionId, actionCount, actionCountLoading } = useValues(relevantActionEditLogic)
-    const { setAction, saveAction } = useActions(relevantActionEditLogic)
+    const { action, actionLoading, errorActionId, actionCount, actionCountLoading } = useValues(logic)
+    const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = currentTeam?.slack_incoming_webhook
@@ -61,28 +66,62 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <PageHeader title={id ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
+            <PageHeader
+                title={
+                    <EditableField
+                        name="name"
+                        value={action.name || ''}
+                        placeholder="Name this action"
+                        onChange={(name) => {
+                            setAction({ ...action, name })
+                            setEdited(!!name)
+                        }}
+                        mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
+                        minLength={1}
+                        maxLength={400} // Sync with action model
+                        data-attr={`action-name-${id ? 'edit' : 'create'}`}
+                        saveButtonText="Set"
+                    />
+                }
+                caption={
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            value={action.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(description) => {
+                                setAction({ ...action, description })
+                                setEdited(!!description)
+                            }}
+                            mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
+                            autoFocus={!!id}
+                            data-attr="action-description"
+                            compactButtons
+                            maxLength={600} // No limit on backend model, but enforce shortish description
+                            paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                            saveButtonText="Set"
+                        />
+                        {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                            <ObjectTags
+                                tags={action.tags ?? []}
+                                onChange={(_, tags) => setAction({ tags })}
+                                className="action-tags"
+                                saving={actionLoading}
+                            />
+                        )}
+                    </>
+                }
+                buttons={deleteAction}
+            />
             <form
                 onSubmit={(e) => {
                     e.preventDefault()
                     saveAction()
                 }}
             >
-                <div className="input-set">
-                    <label htmlFor="actionName">Action name</label>
-                    <Input
-                        required
-                        placeholder="e.g. user account created, purchase completed, movie watched"
-                        value={action.name}
-                        style={{ maxWidth: 500, display: 'block' }}
-                        onChange={(e) => {
-                            setAction({ ...action, name: e.target.value })
-                            setEdited(e.target.value ? true : false)
-                        }}
-                        data-attr="edit-action-input"
-                        id="actionName"
-                    />
-                    {id && (
+                {id && (
+                    <div className="input-set">
                         <div>
                             <span className="text-muted mb-05">
                                 {actionCountLoading && <LoadingOutlined />}
@@ -94,8 +133,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 )}
                             </span>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div className="match-group-section" style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
@@ -207,7 +246,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div className="float-right">
                     <span data-attr="delete-action-bottom">{deleteAction}</span>
                     <Button
-                        disabled={!edited}
+                        disabled={!edited || !action.name}
                         data-attr="save-action-button"
                         type="primary"
                         icon={<SaveOutlined />}

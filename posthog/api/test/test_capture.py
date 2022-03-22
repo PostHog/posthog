@@ -19,7 +19,7 @@ from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from posthog.test.base import BaseTest
 
 
-def mocked_get_team_from_token(_: Any) -> None:
+def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 

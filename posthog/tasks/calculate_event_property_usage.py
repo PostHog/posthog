@@ -2,11 +2,9 @@ from datetime import timedelta
 from typing import List, Tuple
 
 from celery.app import shared_task
-from django.db.models import Count
 from django.utils.timezone import now
 
 from posthog.models import Team
-from posthog.models.event import Event
 from posthog.models.event_definition import EventDefinition
 from posthog.models.insight import Insight
 from posthog.models.property_definition import PropertyDefinition

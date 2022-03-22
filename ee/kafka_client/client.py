@@ -2,10 +2,12 @@ import io
 import json
 from typing import Any, Callable, Dict, Optional
 
+import kafka.errors
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
+from structlog import get_logger
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
@@ -14,6 +16,8 @@ from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
+
+logger = get_logger(__file__)
 
 
 class TestKafkaProducer:
@@ -70,10 +74,30 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b)
+        self.producer.send(topic, value=b, key=key)
 
     def close(self):
         self.producer.flush()
+
+
+def can_connect():
+    """
+    This is intended to validate if we are able to connect to kafka, without
+    actually sending any messages. I'm not amazingly pleased with this as a
+    solution. Would have liked to have validated that the singleton producer was
+    connected. It does expose `bootstrap_connected`, but this becomes false if
+    the cluster restarts despite still being able to successfully send messages.
+
+    I'm hoping that the load this generates on the cluster will be
+    insignificant, even if it is occuring from, say, 30 separate pods, say,
+    every 10 seconds.
+    """
+    try:
+        _KafkaProducer(test=TEST)
+    except kafka.errors.KafkaError:
+        logger.debug("kafka_connection_failure", exc_info=True)
+        return False
+    return True
 
 
 KafkaProducer = SingletonDecorator(_KafkaProducer)

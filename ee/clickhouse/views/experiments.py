@@ -1,6 +1,6 @@
 from typing import Any, Type, Union
 
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -38,6 +38,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "feature_flag_key",
+            # get the FF id as well to link to FF UI
+            "feature_flag",
             "parameters",
             "secondary_metrics",
             "filters",
@@ -51,6 +53,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "feature_flag",
         ]
 
     def validate_parameters(self, value):
@@ -95,6 +98,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "groups": [{"properties": properties, "rollout_percentage": None}],
             "multivariate": {"variants": variants or default_variants},
         }
+
+        if validated_data["filters"].get("aggregation_group_type_index"):
+            filters["aggregation_group_type_index"] = validated_data["filters"]["aggregation_group_type_index"]
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
@@ -146,6 +152,17 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     != 1
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
+
+        feature_flag_properties = validated_data.get("filters", {}).get("properties")
+        if feature_flag_properties is not None:
+            feature_flag.filters["groups"][0]["properties"] = feature_flag_properties
+            feature_flag.save()
+
+        feature_flag_group_type_index = validated_data.get("filters", {}).get("aggregation_group_type_index")
+        # Only update the group type index when filters are sent
+        if validated_data.get("filters"):
+            feature_flag.filters["aggregation_group_type_index"] = feature_flag_group_type_index
+            feature_flag.save()
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
@@ -232,7 +249,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.secondary_metrics[parsed_id])
+        filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
 
         result = ClickhouseSecondaryExperimentResult(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,

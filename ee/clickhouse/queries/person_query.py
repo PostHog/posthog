@@ -1,14 +1,18 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
+from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_grouped_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyGroup
 
 
 class ClickhousePersonQuery:
@@ -21,18 +25,22 @@ class ClickhousePersonQuery:
     """
 
     PERSON_PROPERTIES_ALIAS = "person_props"
+    COHORT_TABLE_ALIAS = "cohort_persons"
     ALIASES = {"properties": "person_props"}
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: Set[ColumnName]
+    _inner_person_properties: Optional[PropertyGroup]
+    _cohort: Optional[Cohort]
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
+        cohort: Optional[Cohort] = None,
         *,
         entity: Optional[Entity] = None,
         extra_fields: List[ColumnName] = [],
@@ -40,11 +48,20 @@ class ClickhousePersonQuery:
         self._filter = filter
         self._team_id = team_id
         self._entity = entity
+        self._cohort = cohort
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._extra_fields = set(extra_fields)
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
+
+        properties = self._filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
+        )
+
+        self._inner_person_properties = self._column_optimizer.property_optimizer.parse_property_groups(
+            properties
+        ).inner
 
     def get_query(self) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
@@ -52,16 +69,21 @@ class ClickhousePersonQuery:
         )
 
         person_filters, params = self._get_person_filters()
+        cohort_query, cohort_params = self._get_cohort_query()
+        limit_offset, limit_params = self._get_limit_offset()
+        search_clause, search_params = self._get_search_clause()
 
         return (
             f"""
             SELECT {fields}
             FROM person
+            {cohort_query}
             WHERE team_id = %(team_id)s
             GROUP BY id
-            HAVING max(is_deleted) = 0 {person_filters}
+            HAVING max(is_deleted) = 0 {person_filters} {search_clause}
+            {limit_offset}
         """,
-            params,
+            {**params, **cohort_params, **limit_params, **search_params},
         )
 
     @property
@@ -72,9 +94,9 @@ class ClickhousePersonQuery:
     @property
     def is_used(self):
         "Returns whether properties or any other columns are actually being queried"
-        if any(self._uses_person_id(prop) for prop in self._filter.properties):
+        if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.properties):
+        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
             return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
@@ -88,33 +110,92 @@ class ClickhousePersonQuery:
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
-        properties_to_query -= extract_tables_and_properties(self._filter.properties)
-
-        if self._entity is not None:
-            properties_to_query -= extract_tables_and_properties(self._entity.properties)
+        if self._inner_person_properties:
+            properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
     def _get_person_filters(self) -> Tuple[str, Dict]:
-        conditions, params = [""], {}
+        return parse_prop_grouped_clauses(
+            self._team_id,
+            self._inner_person_properties,
+            has_person_id_joined=False,
+            group_properties_joined=False,
+            person_properties_mode=PersonPropertiesMode.DIRECT,
+        )
 
-        properties = self._filter.properties + (self._entity.properties if self._entity else [])
+    def _get_cohort_query(self) -> Tuple[str, Dict]:
 
-        for index, property in enumerate(properties):
-            if property.type != "person":
-                continue
+        if self._cohort:
+            cohort_table = (
+                GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
+            )
+            return (
+                f"""
+            INNER JOIN (
+                {cohort_table}
+            ) {self.COHORT_TABLE_ALIAS}
+            ON {self.COHORT_TABLE_ALIAS}.person_id = person.id
+            """,
+                {"team_id": self._team_id, "cohort_id": self._cohort.pk},
+            )
+        else:
+            return "", {}
 
-            expr, prop_params = prop_filter_json_extract(
-                property,
-                index,
-                prepend="personquery",
-                allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+    def _get_limit_offset(self) -> Tuple[str, Dict]:
+
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if not self._cohort or not (self._filter.limit or self._filter.offset):
+            return "", {}
+
+        clause = """
+        ORDER BY id
+        """
+
+        params = {}
+
+        if self._filter.limit:
+            clause += " LIMIT %(limit)s"
+            params.update({"limit": self._filter.limit})
+
+        if self._filter.offset:
+            clause += " OFFSET %(offset)s"
+            params.update({"offset": self._filter.offset})
+
+        return clause, params
+
+    def _get_search_clause(self) -> Tuple[str, Dict]:
+
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.search:
+            prop_group = PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[Property(key="email", operator="icontains", value=self._filter.search, type="person")],
+            )
+            search_clause, params = parse_prop_grouped_clauses(
+                self._team_id,
+                prop_group,
+                prepend="search",
+                has_person_id_joined=False,
+                group_properties_joined=False,
+                person_properties_mode=PersonPropertiesMode.DIRECT,
+                _top_level=False,
             )
 
-            conditions.append(expr)
-            params.update(prop_params)
+            distinct_id_clause = """
+            id IN (
+                SELECT person_id FROM person_distinct_id where distinct_id = %(distinct_id)s
+            )
+            """
 
-        return " ".join(conditions), params
+            params.update({"distinct_id": self._filter.search})
+
+            return f"AND (({search_clause}) OR ({distinct_id_clause}))", params
+
+        return "", {}

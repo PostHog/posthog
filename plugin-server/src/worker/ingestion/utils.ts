@@ -35,7 +35,9 @@ export function generateEventDeadLetterQueueMessage(
         raw_payload: JSON.stringify(event),
         error_location: errorLocation,
         error: errorMessage,
+        tags: ['plugin_server', 'ingest_event'],
     }
+
     const message = {
         topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [

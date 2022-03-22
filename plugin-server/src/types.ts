@@ -24,6 +24,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
+import { PromiseManager } from './worker/vm/promise-manager'
 
 export enum LogLevel {
     None = 'none',
@@ -108,6 +109,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
+    MAX_PENDING_PROMISES_PER_WORKER: number
+    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -138,6 +141,7 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
+    promiseManager: PromiseManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -215,7 +219,7 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-
+export type PluginPublicJobPayload = Record<string, string>
 export interface Plugin {
     id: number
     organization_id: string
@@ -237,6 +241,8 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    public_jobs?: Record<string, PluginPublicJobPayload>
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -257,7 +263,7 @@ export interface PluginConfig {
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
-    updated_at: string
+    updated_at?: string
 }
 
 export interface PluginJsonConfig {
@@ -300,6 +306,13 @@ export enum PluginLogEntryType {
     Info = 'INFO',
     Warn = 'WARN',
     Error = 'ERROR',
+}
+
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
 }
 
 export interface PluginLogEntry {
@@ -371,6 +384,7 @@ export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    vmResponseVariable: string
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
@@ -499,6 +513,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }
@@ -614,6 +629,8 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
+    version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
@@ -716,6 +733,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean
@@ -801,8 +819,6 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -818,7 +834,6 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {
@@ -848,4 +863,10 @@ export enum OrganizationPluginsAccessLevel {
     CONFIG = 3,
     INSTALL = 6,
     ROOT = 9,
+}
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
 }

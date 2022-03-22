@@ -2,14 +2,10 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
-import celery
 import pytz
 from dateutil.parser import isoparse
-from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
@@ -17,9 +13,6 @@ from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
-from ee.models.hook import Hook
-from posthog.constants import AvailableFeature
-from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -61,7 +54,7 @@ def create_event(
 
     p = ClickhouseProducer()
 
-    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+    p.produce_proto(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS, data=pb_event)
 
     return str(event_uuid)
 
@@ -264,7 +257,7 @@ def get_event_count_for_last_month() -> int:
         SELECT
         COUNT(1) freq
         FROM events
-        WHERE 
+        WHERE
         toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
     """
     )[0][0]
@@ -289,9 +282,9 @@ def get_events_count_for_team_by_client_lib(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
+        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
         FROM events
-        WHERE team_id = %(team_id)s 
+        WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
         GROUP BY lib
     """,
@@ -305,11 +298,11 @@ def get_events_count_for_team_by_event_type(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT event, COUNT(1) as freq 
+        SELECT event, COUNT(1) as freq
         FROM events
         WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
-        GROUP BY event 
+        GROUP BY event
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )

@@ -1,9 +1,8 @@
 import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autoCaptureEventToDescription, average, successToast, sum } from 'lib/utils'
+import { autoCaptureEventToDescription, average, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -36,7 +35,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { BinCountAuto, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
@@ -64,8 +63,7 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CorrelationToast } from 'scenes/insights/InsightTabs/FunnelTab/FunnelCorrelationTable'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -109,15 +107,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            [
-                'filters',
-                'insight',
-                'insightLoading',
-                'insightMode',
-                'isViewedOnDashboard',
-                'hiddenLegendKeys',
-                'syncWithUrl',
-            ],
+            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1164,29 +1154,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
                     })
             })
-
-            // load correlation table after funnel. Maybe parallel?
-            if (
-                values.correlationAnalysisAvailable &&
-                insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
-                values.steps?.length > 1 &&
-                values.syncWithUrl
-            ) {
-                // syncWithUrl implies correlations are loaded only on insight view page
-                // and not in Experiments or dashboards
-                actions.loadCorrelations()
-                actions.setPropertyNames(values.allProperties) // select all properties by default
-            }
-        },
-        loadCorrelationsSuccess: async () => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
-                toast(CorrelationToast(), {
-                    toastId: 'correlation', // id prevents duplicates
-                    onClick: () => {
-                        window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })
-                    },
-                })
-            }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             values.visibleStepsWithConversionMetrics?.forEach((step) => {
@@ -1369,7 +1336,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             )
             actions.setCorrelationFeedbackRating(0)
             actions.setCorrelationDetailedFeedback('')
-            successToast('Thanks for your feedback!', 'Your comments help us improve.')
+            lemonToast.success('Thanks for your feedback! Your comments help us improve')
         },
         setCorrelationFeedbackRating: ({ rating }) => {
             const feedbackBoxVisible = rating > 0

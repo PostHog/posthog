@@ -1,6 +1,6 @@
 from typing import Type, cast
 
-from rest_framework import mixins, permissions, response, serializers, viewsets
+from rest_framework import mixins, response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey
 from posthog.models.user import User

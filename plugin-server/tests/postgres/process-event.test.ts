@@ -53,7 +53,7 @@ describe('process event (postgresql)', () => {
             })
         })
     })
-    describe('with new properties update', () => {
+    describe.skip('with new properties update', () => {
         createProcessEventTests('postgresql', true, { NEW_PERSON_PROPERTIES_UPDATE_ENABLED: true })
     })
 })

@@ -1,8 +1,9 @@
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Progress, Space, Tabs } from 'antd'
+import { Button, Progress, Space, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
+import { PlayCircleOutlined } from '@ant-design/icons'
 import {
     AsyncMigration,
     migrationStatusNumberToMessage,
@@ -20,7 +21,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
-import { IconPlay, IconRefresh, IconReplay } from 'lib/components/icons'
+import { IconRefresh, IconReplay } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -48,9 +49,14 @@ export function AsyncMigrations(): JSX.Element {
         {
             title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const link =
+                    'https://posthog.com/docs/self-host/configure/async-migrations/' +
+                    asyncMigration.name.split('_').join('-')
                 return (
                     <>
-                        <div className="row-name">{asyncMigration.name}</div>
+                        <div className="row-name">
+                            <a href={link}>{asyncMigration.name}</a>
+                        </div>
                         <div className="row-description">{asyncMigration.description}</div>
                     </>
                 )
@@ -74,7 +80,7 @@ export function AsyncMigrations(): JSX.Element {
                 const type: LemonTagPropsType =
                     status === AsyncMigrationStatus.Running
                         ? 'success'
-                        : status === AsyncMigrationStatus.Errored || AsyncMigrationStatus.FailedAtStartup
+                        : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
                         ? 'danger'
                         : status === AsyncMigrationStatus.Starting
                         ? 'warning'
@@ -121,12 +127,13 @@ export function AsyncMigrations(): JSX.Element {
                         {status === AsyncMigrationStatus.NotStarted ||
                         status === AsyncMigrationStatus.FailedAtStartup ? (
                             <Tooltip title="Start">
-                                <LemonButton
-                                    type="stealth"
-                                    icon={<IconPlay />}
+                                <Button
+                                    type="link"
+                                    icon={<PlayCircleOutlined />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
-                                    fullWidth
-                                />
+                                >
+                                    Run
+                                </Button>
                             </Tooltip>
                         ) : status === AsyncMigrationStatus.Running ? (
                             <More
@@ -161,13 +168,6 @@ export function AsyncMigrations(): JSX.Element {
                                             fullWidth
                                         >
                                             Resume
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="stealth"
-                                            onClick={() => triggerMigration(asyncMigration.id)}
-                                            fullWidth
-                                        >
-                                            Restart without rollback
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"

@@ -26,10 +26,10 @@ class Insight(models.Model):
     """
 
     dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
+        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
     )
-    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
@@ -49,22 +49,29 @@ class Insight(models.Model):
     short_id: models.CharField = models.CharField(
         max_length=12, blank=True, default=generate_short_id,
     )
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
-    # ----- DEPRECATED ATTRIBUTES BELOW
-
-    # Deprecated in favour of `display` within the Filter object
+    # TODO: dive dashboards have never been shipped, but they still may be in the future
+    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    # DEPRECATED: use `display` property of the Filter object instead
     type: models.CharField = deprecate_field(models.CharField(max_length=400, null=True, blank=True))
+    # DEPRECATED: we don't store funnels as a separate model any more
+    funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
 
-    # Deprecated as we don't store funnels as a separate model any more
-    funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    )
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
+    )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
@@ -83,6 +90,21 @@ class Insight(models.Model):
             return {**self.filters, **dashboard.filters}
         else:
             return self.filters
+
+    @property
+    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
+        return (
+            self.dashboard.effective_restriction_level
+            if self.dashboard is not None
+            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+    def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
+        return (
+            self.dashboard.get_effective_privilege_level(user_id)
+            if self.dashboard is not None
+            else Dashboard.PrivilegeLevel.CAN_EDIT
+        )
 
 
 @receiver(pre_save, sender=Dashboard)

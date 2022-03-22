@@ -1,6 +1,5 @@
-import dataclasses
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from math import exp, sqrt
 from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng
@@ -12,6 +11,7 @@ from ee.clickhouse.queries.experiments import (
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from posthog.constants import ExperimentSignificanceCode
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -19,7 +19,7 @@ from posthog.models.team import Team
 Probability = float
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     success_count: int
@@ -82,13 +82,16 @@ class ClickhouseFunnelExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significant = self.are_results_significant(control_variant, test_variants, probabilities)
+        significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": funnel_results,
             "probability": mapping,
-            "significant": significant,
+            "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.funnel._filter.to_dict(),
+            "significance_code": significance_code,
+            "expected_loss": loss,
+            "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, funnel_results):
@@ -112,10 +115,10 @@ class ClickhouseFunnelExperimentResult:
     ) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
-        
+
         Supports maximum 4 variants today
 
-        For each variant, we create a Beta distribution of conversion rates, 
+        For each variant, we create a Beta distribution of conversion rates,
         where alpha (successes) = success count of variant + prior success
         beta (failures) = failure count + variant + prior failures
 
@@ -139,31 +142,35 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
-    ) -> bool:
+    ) -> Tuple[ExperimentSignificanceCode, Probability]:
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
             # We need a feature flag distribution threshold because distribution of people
             # can skew wildly when there are few people in the experiment
             if variant.success_count + variant.failure_count < FF_DISTRIBUTION_THRESHOLD:
-                return False
+                return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
         if control_sample_size < FF_DISTRIBUTION_THRESHOLD:
-            return False
+            return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
-        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
-            return False
+        if (
+            probabilities[0] < MIN_PROBABILITY_FOR_SIGNIFICANCE
+            and sum(probabilities[1:]) < MIN_PROBABILITY_FOR_SIGNIFICANCE
+        ):
+            # Sum of probability of winning for all variants except control is less than 90%
+            return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1
 
         best_test_variant = max(
             test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
         )
 
-        expected_loss = calculate_expected_loss(
-            best_test_variant,
-            [control_variant, *[variant for variant in test_variants if variant != best_test_variant]],
-        )
+        expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
 
-        return expected_loss < EXPECTED_LOSS_SIGNIFICANCE_LEVEL
+        if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
+
+        return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
 
 
 def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:
@@ -239,12 +246,16 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     if len(variants) == 2:
         # simple case
         probability = simulate_winning_variant_for_conversion(variants[1], [variants[0]])
-        return [1 - probability, probability]
+        return [max(0, 1 - probability), probability]
 
     elif len(variants) == 3:
         probability_third_wins = simulate_winning_variant_for_conversion(variants[2], [variants[0], variants[1]])
         probability_second_wins = simulate_winning_variant_for_conversion(variants[1], [variants[0], variants[2]])
-        return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
+        return [
+            max(0, 1 - probability_third_wins - probability_second_wins),
+            probability_second_wins,
+            probability_third_wins,
+        ]
 
     elif len(variants) == 4:
         probability_second_wins = simulate_winning_variant_for_conversion(
@@ -257,7 +268,7 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
             variants[3], [variants[0], variants[1], variants[2]]
         )
         return [
-            1 - probability_second_wins - probability_third_wins - probability_fourth_wins,
+            max(0, 1 - probability_second_wins - probability_third_wins - probability_fourth_wins),
             probability_second_wins,
             probability_third_wins,
             probability_fourth_wins,

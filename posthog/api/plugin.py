@@ -136,6 +136,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
         validated_data["organization_id"] = self.context["organization_id"]
+        validated_data["updated_at"] = now()
         if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
             raise PermissionDenied("This organization can't manage global plugins!")
         plugin = Plugin.objects.install(**validated_data)
@@ -150,6 +151,7 @@ class PluginSerializer(serializers.ModelSerializer):
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
+        validated_data["updated_at"] = now()
         return super().update(plugin, validated_data)
 
 
@@ -175,9 +177,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return queryset.none()
 
     def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
         try:
-            return queryset.filter(Q(**parents_query_dict) | Q(is_global=True))
+            return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
         except ValueError:
             raise NotFound()
 
@@ -191,11 +192,14 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def check_for_updates(self, request: request.Request, **kwargs):
         if not can_install_plugins(self.organization):
             raise PermissionDenied("Plugin installation is not available for the current organization!")
+
         plugin = self.get_object()
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
-        plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
-        plugin.latest_tag_checked_at = now()
-        plugin.save()
+
+        # use update to not trigger the post_save signal and avoid telling the plugin server to reload vms
+        Plugin.objects.filter(id=plugin.id).update(
+            latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
+        )
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
@@ -269,6 +273,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         _fix_formdata_config_json(self.context["request"], validated_data)
+        existing_config = PluginConfig.objects.filter(team=validated_data["team"], plugin_id=validated_data["plugin"])
+        if existing_config.exists():
+            return self.update(existing_config.first(), validated_data)  # type: ignore
         plugin_config = super().create(validated_data)
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config

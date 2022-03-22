@@ -136,7 +136,7 @@ export default {
     setupFiles: ['../../jest.setup.ts'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['givens/setup'],
+    setupFilesAfterEnv: ['givens/setup', './mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,

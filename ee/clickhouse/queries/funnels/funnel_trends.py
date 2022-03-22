@@ -74,12 +74,18 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         if specific_entrance_period_start:
             self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
 
+        event_select_clause = ""
+        if self._filter.include_recordings:
+            max_steps = len(self._filter.entities)
+            event_select_clause = self._get_matching_event_arrays(max_steps)
+
         breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
                 aggregation_target,
                 {trunc_func}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
+                {event_select_clause}
                 {breakdown_clause}
             FROM (
                 {steps_per_person_query}

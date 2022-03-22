@@ -9,14 +9,14 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             --
             -- It's essentially a cross product of graph "ticks" and breakdown values.
             --
-            -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed 
-            --       in as a parameter. To reduce the coupling between here and the 
+            -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+            --       in as a parameter. To reduce the coupling between here and the
             --       calling code, we could perform calculations for these within the query
-            --       itself based on date_to/date_from. We could also pass in the intervals 
-            --       explicitly, although we'll be relying on the date handling between python 
+            --       itself based on date_to/date_from. We could also pass in the intervals
+            --       explicitly, although we'll be relying on the date handling between python
             --       and ClickHouse to be the same.
             --
-            -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd 
+            -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
             --       handle the edge cases:
             --
             --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
@@ -25,14 +25,14 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             SELECT
                 toUInt16(0) AS total,
                 ticks.day_start as day_start,
-                breakdown_value 
+                breakdown_value
 
             FROM (
                 -- Generates all the intervals/ticks in the date range
-                -- NOTE: we build this range by including successive intervals back from the 
+                -- NOTE: we build this range by including successive intervals back from the
                 --       upper bound, then including the lower bound in the query also.
 
-                SELECT 
+                SELECT
                     {interval}(
                         toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
                     ) as day_start
@@ -56,7 +56,9 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
     )
     GROUP BY day_start, breakdown_value
     ORDER BY breakdown_value, day_start
-) GROUP BY breakdown_value
+)
+GROUP BY breakdown_value
+ORDER BY breakdown_value
 """
 
 BREAKDOWN_INNER_SQL = """
@@ -77,7 +79,7 @@ SELECT
     toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
     breakdown_value
 FROM (
-    SELECT 
+    SELECT
         person_id,
         min(timestamp) as timestamp,
         breakdown_value
@@ -85,7 +87,7 @@ FROM (
         SELECT
         person_id,
         timestamp,
-        {breakdown_value} as breakdown_value 
+        {breakdown_value} as breakdown_value
         FROM
         events e
         {person_join}
@@ -127,6 +129,7 @@ FROM events e
 {groups_join}
 {breakdown_filter}
 GROUP BY breakdown_value
+ORDER BY breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """

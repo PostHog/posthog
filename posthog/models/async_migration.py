@@ -15,7 +15,7 @@ class MigrationStatus:
 class AsyncMigrationError(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    description: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    description: models.TextField = models.TextField(null=False, blank=False)
     async_migration: models.ForeignKey = models.ForeignKey("AsyncMigration", on_delete=models.CASCADE)
 
 

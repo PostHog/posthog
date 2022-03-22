@@ -2,7 +2,7 @@ import { Col, Dropdown, Input, Menu, Radio, Row, Select, Tabs } from 'antd'
 import { router } from 'kea-router'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React from 'react'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
@@ -10,11 +10,10 @@ import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
     IconArrowDropDown,
@@ -29,15 +28,17 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { InsightCard } from 'lib/components/InsightCard'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 const { TabPane } = Tabs
 
@@ -155,14 +156,48 @@ function NewInsightButton(): JSX.Element {
     )
 }
 
+function SavedInsightsGrid(): JSX.Element {
+    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
+    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
+    const { currentTeamId } = useValues(teamLogic)
+
+    const paginationState = usePagination(insights?.results || [], pagination)
+
+    return (
+        <>
+            <div className="saved-insights-grid">
+                {paginationState.dataSourcePage.map((insight: InsightModel) => (
+                    <InsightCard
+                        key={insight.short_id}
+                        insight={{ ...insight, color: null }}
+                        rename={() => renameInsight(insight)}
+                        duplicate={() => duplicateInsight(insight)}
+                        deleteWithUndo={() =>
+                            deleteWithUndo({
+                                object: insight,
+                                endpoint: `projects/${currentTeamId}/insights`,
+                                callback: loadInsights,
+                            })
+                        }
+                    />
+                ))}
+                {insightsLoading && <Loading />}
+            </div>
+            <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
+        </>
+    )
+}
+
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { members } = useValues(membersLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { meFirstMembers } = useValues(membersLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
 
     const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
@@ -173,7 +208,7 @@ export function SavedInsights(): JSX.Element {
         {
             key: 'id',
             className: 'icon-column',
-            width: 0,
+            width: 32,
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {
@@ -190,7 +225,16 @@ export function SavedInsights(): JSX.Element {
                     <>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                             <Link to={urls.insightView(insight.short_id)} className="row-name">
-                                {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
+                                {name || (
+                                    <i>
+                                        {summarizeInsightFilters(
+                                            insight.filters,
+                                            aggregationLabel,
+                                            cohortsById,
+                                            mathDefinitions
+                                        )}
+                                    </i>
+                                )}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
@@ -229,9 +273,13 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last modified',
             sorter: true,
-            dataIndex: 'updated_at',
-            render: function renderLastModified(updated_at: string) {
-                return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
+            dataIndex: 'last_modified_at',
+            render: function renderLastModified(last_modified_at: string) {
+                return (
+                    <div style={{ whiteSpace: 'nowrap' }}>
+                        {last_modified_at && <TZLabel time={last_modified_at} />}
+                    </div>
+                )
             },
         },
         {
@@ -241,11 +289,11 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} compact fullWidth>
+                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonSpacer />
-                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} compact fullWidth>
+                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
@@ -369,7 +417,7 @@ export function SavedInsights(): JSX.Element {
                                 }}
                             >
                                 <Select.Option value={'All users'}>All users</Select.Option>
-                                {members.map((member) => (
+                                {meFirstMembers.map((member) => (
                                     <Select.Option key={member.user.id} value={member.user.id}>
                                         {member.user.first_name}
                                     </Select.Option>
@@ -397,7 +445,7 @@ export function SavedInsights(): JSX.Element {
                         </Radio.Button>
                         <Radio.Button value={LayoutView.Card}>
                             <AppstoreFilled className="mr-05" />
-                            Card
+                            Cards
                         </Radio.Button>
                     </Radio.Group>
                 </div>
@@ -411,20 +459,7 @@ export function SavedInsights(): JSX.Element {
                             loading={insightsLoading}
                             columns={columns}
                             dataSource={insights.results}
-                            pagination={{
-                                controlled: true,
-                                pageSize: INSIGHTS_PER_PAGE,
-                                currentPage: page,
-                                entryCount: count,
-                                onBackward: () =>
-                                    setSavedInsightsFilters({
-                                        page: page - 1,
-                                    }),
-                                onForward: () =>
-                                    setSavedInsightsFilters({
-                                        page: page + 1,
-                                    }),
-                            }}
+                            pagination={pagination}
                             disableSortingCancellation
                             sorting={sorting}
                             onSort={(newSorting) =>
@@ -435,66 +470,11 @@ export function SavedInsights(): JSX.Element {
                                 })
                             }
                             rowKey="id"
+                            loadingSkeletonRows={15}
                             nouns={['insight', 'insights']}
                         />
-                    ) : featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? (
-                        <div className="saved-insights-grid">
-                            {insights?.results.map((insight: InsightModel) => (
-                                <InsightCard
-                                    key={insight.short_id}
-                                    insight={{ ...insight, color: null }}
-                                    rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicateInsight(insight)}
-                                    deleteWithUndo={() =>
-                                        deleteWithUndo({
-                                            object: insight,
-                                            endpoint: `projects/${currentTeamId}/insights`,
-                                            callback: loadInsights,
-                                        })
-                                    }
-                                />
-                            ))}
-                            {insightsLoading && <Loading />}
-                        </div>
                     ) : (
-                        <Row gutter={[16, 16]}>
-                            {insights &&
-                                insights.results.map((insight: InsightModel, index: number) => (
-                                    <Col
-                                        xs={24}
-                                        sm={24}
-                                        md={24}
-                                        lg={12}
-                                        xl={12}
-                                        xxl={8}
-                                        key={insight.short_id}
-                                        style={{ height: 340 }}
-                                    >
-                                        <DashboardItem
-                                            item={{ ...insight, color: null }}
-                                            key={insight.short_id + '_user'}
-                                            loadDashboardItems={() => {
-                                                loadInsights()
-                                            }}
-                                            dashboardMode={null}
-                                            index={index}
-                                            isOnEditMode={false}
-                                            footer={
-                                                <div className="dashboard-item-footer">
-                                                    {
-                                                        <>
-                                                            Saved {dayjs(insight.created_at).fromNow()} by{' '}
-                                                            {insight.created_by?.first_name ||
-                                                                insight.created_by?.email ||
-                                                                'unknown'}
-                                                        </>
-                                                    }
-                                                </div>
-                                            }
-                                        />
-                                    </Col>
-                                ))}
-                        </Row>
+                        <SavedInsightsGrid />
                     )}
                 </>
             )}

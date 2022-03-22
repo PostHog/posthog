@@ -1,57 +1,34 @@
 # name: TestEventQuery.test_account_filters
   '
   
-  SELECT DISTINCT p.id
+  SELECT count(*)
   FROM
-    (SELECT *
-     FROM person
-     JOIN
-       (SELECT id,
-               max(_timestamp) as _timestamp,
-               max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id) as person_max ON person.id = person_max.id
-     AND person._timestamp = person_max._timestamp
+    (SELECT 1
+     FROM cohortpeople
      WHERE team_id = 2
-       AND person_max.is_deleted = 0 ) AS p
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
-  WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['Jane'], trim(BOTH '"'
-                                         FROM JSONExtractRaw(properties, 'name')))) )) )
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
   '
 ---
 # name: TestEventQuery.test_account_filters.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestEventQuery.test_account_filters.2
   '
   
   SELECT e.timestamp as timestamp,
@@ -61,8 +38,7 @@
     AND event = 'event_name'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
     AND timestamp <= '2021-01-21 23:59:59'
-    AND has(['Jane'], trim(BOTH '"'
-                           FROM JSONExtractRaw(properties, 'name')))
+    AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -99,23 +75,22 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND pdi.person_id IN
-      (select id
-       from
-         (SELECT *
-          FROM person
-          JOIN
-            (SELECT id,
-                    max(_timestamp) as _timestamp,
-                    max(is_deleted) as is_deleted
-             FROM person
-             WHERE team_id = 2
-             GROUP BY id) as person_max ON person.id = person_max.id
-          AND person._timestamp = person_max._timestamp
-          WHERE team_id = 2
-            AND person_max.is_deleted = 0
-            AND (has(['test'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(properties, 'name')))) ))
+    AND (pdi.person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -128,8 +103,8 @@
     AND event = 'user signed up'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-14 23:59:59'
-    AND has(['hi'], mat_test_prop)
-    AND has(['hi'], mat_test_prop)
+    AND ((has(['hi'], "mat_test_prop"))
+         AND (has(['hi'], "mat_test_prop")))
   '
 ---
 # name: TestEventQuery.test_element
@@ -141,7 +116,7 @@
     AND event = 'event_name'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
     AND timestamp <= '2021-01-21 23:59:59'
-    AND ((match(elements_chain, '(^|;)label(\\.|$|;|:)')))
+    AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
   '
 ---
 # name: TestEventQuery.test_element.1
@@ -153,7 +128,7 @@
     AND event = 'event_name'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
     AND timestamp <= '2021-01-21 23:59:59'
-    AND 0 = 192
+    AND (0 = 192)
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_cohort
@@ -179,23 +154,22 @@
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND pdi.person_id IN
-      (select id
-       from
-         (SELECT *
-          FROM person
-          JOIN
-            (SELECT id,
-                    max(_timestamp) as _timestamp,
-                    max(is_deleted) as is_deleted
-             FROM person
-             WHERE team_id = 2
-             GROUP BY id) as person_max ON person.id = person_max.id
-          AND person._timestamp = person_max._timestamp
-          WHERE team_id = 2
-            AND person_max.is_deleted = 0
-            AND (has(['test'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(properties, 'name')))) ))
+    AND (pdi.person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
   '
 ---
 # name: TestEventQuery.test_event_properties_filter
@@ -208,8 +182,7 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND has(['test_val'], trim(BOTH '"'
-                               FROM JSONExtractRaw(properties, 'some_key')))
+    AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_event_properties_filter.1
@@ -221,8 +194,7 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND has(['test_val'], trim(BOTH '"'
-                               FROM JSONExtractRaw(properties, 'some_key')))
+    AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_groups_filters
@@ -236,22 +208,20 @@
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_1
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 1
-     GROUP BY group_key) groups_1 ON $group_1 == groups_1.group_key
+     GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
   WHERE team_id = 2
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-12 23:59:59'
-    AND has(['finance'], trim(BOTH '"'
-                              FROM JSONExtractRaw(group_properties_0, 'industry')))
-    AND has(['value'], trim(BOTH '"'
-                            FROM JSONExtractRaw(group_properties_1, 'another')))
+    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
+         AND has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_groups_filters_mixed
@@ -273,21 +243,19 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['test'], trim(BOTH '"'
-                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = pdi.person_id
+     AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
   WHERE team_id = 2
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-12 23:59:59'
-    AND has(['finance'], trim(BOTH '"'
-                              FROM JSONExtractRaw(group_properties_0, 'industry')))
+    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_static_cohort_filter
@@ -313,10 +281,10 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND person_id IN
-      (SELECT person_id
-       FROM person_static_cohort
-       WHERE cohort_id = 2
-         AND team_id = 2)
+    AND (pdi.person_id IN
+           (SELECT person_id
+            FROM person_static_cohort
+            WHERE cohort_id = 2
+              AND team_id = 2))
   '
 ---

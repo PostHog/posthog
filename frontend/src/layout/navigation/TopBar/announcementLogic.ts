@@ -1,7 +1,10 @@
 import { kea } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+import { navigationLogic } from '../navigationLogic'
 
 import { announcementLogicType } from './announcementLogicType'
 
@@ -9,15 +12,28 @@ export enum AnnouncementType {
     Demo = 'Demo',
     CloudFlag = 'CloudFlag',
     NewFeature = 'NewFeature',
+    AttentionRequired = 'AttentionRequired',
 }
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
+const ShowAttentionRequiredBanner = false
 
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            userLogic,
+            ['user'],
+            navigationLogic,
+            ['asyncMigrationsOk'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     },
     actions: {
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -62,12 +78,21 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.preflight],
-            (cloudAnnouncement, preflight): AnnouncementType | null => {
+            (s) => [s.currentTeam, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (currentTeam, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
+                } else if (!currentTeam || !currentTeam.completed_snippet_onboarding) {
+                    // Hide announcements during onboarding
+                    return null
+                } else if (
+                    ShowAttentionRequiredBanner &&
+                    !asyncMigrationsOk &&
+                    (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)
+                ) {
+                    return AnnouncementType.AttentionRequired
                 } else if (ShowNewFeatureAnnouncement) {
                     return AnnouncementType.NewFeature
                 }

@@ -1,13 +1,13 @@
-import React, { useState } from 'react'
-import { Button, Col, Input, Row, Select } from 'antd'
-import { CohortEntityFilterBox } from './CohortEntityFilterBox'
+import React from 'react'
+import { Col, Input, Row, Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { CohortGroupType, MatchType } from '~/types'
-import { ACTION_TYPE, ENTITY_MATCH_TYPE, EVENT_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { findActionName } from '~/models/actionsModel'
 
 const { Option } = Select
 
@@ -128,8 +128,6 @@ function EntityCriteriaRow({
     onEntityCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
-
     const { label, days, count_operator, count } = group
 
     const onOperatorChange = (newCountOperator: string): void => {
@@ -144,33 +142,31 @@ function EntityCriteriaRow({
         onEntityCriteriaChange({ count: newCount })
     }
 
-    const onEntityChange = (type: any, id: string | number, newLabel: string): void => {
-        if (type === EVENT_TYPE && typeof id === 'string') {
-            onEntityCriteriaChange({ event_id: id, label: newLabel })
-        } else if (type === ACTION_TYPE && typeof id === 'number') {
-            onEntityCriteriaChange({ action_id: id, label: newLabel })
+    const onEntityChange = (type: TaxonomicFilterGroupType, id: string | number): void => {
+        if (type === TaxonomicFilterGroupType.Events && typeof id === 'string') {
+            onEntityCriteriaChange({ event_id: id, action_id: undefined, label: id })
+        } else if (type === TaxonomicFilterGroupType.Actions && typeof id === 'number') {
+            onEntityCriteriaChange({
+                action_id: id,
+                event_id: undefined,
+                label: findActionName(id) || `Action #${id}`,
+            })
         }
-        setOpen(false)
     }
 
     return (
         <div style={{ marginTop: 16, width: '100%' }}>
             <Row gutter={8}>
                 <Col flex="auto">
-                    <Button
-                        onClick={() => setOpen(!open)}
-                        className="full-width"
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                        }}
-                        data-attr="edit-cohort-entity-filter"
-                    >
-                        <PropertyKeyInfo value={label || 'Select an event'} />
-                        <SelectDownIcon className="text-muted" />
-                    </Button>
-                    <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
+                    <TaxonomicPopup
+                        type="secondary"
+                        groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        groupType={group.action_id ? TaxonomicFilterGroupType.Actions : TaxonomicFilterGroupType.Events}
+                        value={group.action_id || group.event_id}
+                        onChange={(value, groupType) => onEntityChange(groupType, value)}
+                        renderValue={() => <PropertyKeyInfo value={label || 'Select an event'} disablePopover={true} />}
+                        dataAttr="edit-cohort-entity-filter"
+                    />
                 </Col>
                 <Col span={4}>
                     <OperatorSelect value={count_operator} onChange={onOperatorChange} />
@@ -204,6 +200,13 @@ function OperatorSelect({ onChange, value }: { onChange: (operator: string) => v
     )
 }
 
+export const COHORT_MATCHING_DAYS = {
+    '1': 'day',
+    '7': 'week',
+    '14': '2 weeks',
+    '30': 'month',
+}
+
 function DateIntervalSelect({
     onChange,
     value,
@@ -211,20 +214,13 @@ function DateIntervalSelect({
     onChange: (dateInterval: string) => void
     value?: string
 }): JSX.Element {
-    const PRESET_OPTIONS = {
-        '1': 'day',
-        '7': 'week',
-        '14': '2 weeks',
-        '30': 'month',
-    }
-
     const valueOrDefault = value ?? '1'
 
     return (
         <Select value={valueOrDefault} style={{ width: '100%' }} onChange={onChange}>
-            {Object.keys(PRESET_OPTIONS).map((key) => (
+            {Object.keys(COHORT_MATCHING_DAYS).map((key) => (
                 <Option value={key} key={key}>
-                    {PRESET_OPTIONS[key as '1' | '7' | '14' | '30']}
+                    {COHORT_MATCHING_DAYS[key as '1' | '7' | '14' | '30']}
                 </Option>
             ))}
         </Select>

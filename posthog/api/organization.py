@@ -1,15 +1,14 @@
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, response, serializers, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
-from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.event_usage import report_onboarding_completed, report_organization_deleted
+from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (
@@ -59,9 +58,6 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    setup = (
-        serializers.SerializerMethodField()
-    )  # Information related to the current state of the onboarding/setup process
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
 
@@ -74,13 +70,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "membership_level",
-            "personalization",
-            "setup",
-            "setup_section_2_completed",
             "plugins_access_level",
             "teams",
             "available_features",
-            "domain_whitelist",
             "is_member_join_email_enabled",
             "metadata",
         ]
@@ -91,9 +83,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "setup_section_2_completed": {"write_only": True},  # for reading this attribute, `setup` is used
             "slug": {
-                "required": False
+                "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
 
@@ -107,32 +98,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
-
-    def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
-        if not instance.is_onboarding_active:
-            # As Section 2 is the last one of the setup process (as of today),
-            # if it's completed it means the setup process is done
-            return {"is_active": False, "current_section": None}
-
-        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
-        any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
-        any_project_completed_snippet_onboarding = instance.teams.filter(
-            is_demo=False, completed_snippet_onboarding=True,
-        ).exists()
-
-        current_section = 1
-        if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding:
-            # All steps from section 1 completed, move on to section 2
-            current_section = 2
-
-        return {
-            "is_active": True,
-            "current_section": current_section,
-            "any_project_ingested_events": any_project_ingested_events,
-            "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
-            "non_demo_team_id": non_demo_team_id,
-            "has_invited_team_members": instance.invites.exists() or instance.members.count() > 1,
-        }
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         teams = cast(
@@ -152,9 +117,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
         except ImportError:
             return output
 
-        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(description="", tags=[]).count()
+        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
+            description="", tagged_items__isnull=True
+        ).count()
         output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-            description="", tags=[]
+            description="", tagged_items__isnull=True
         ).count()
         return output
 
@@ -199,28 +166,3 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         team_ids = [team.pk for team in organization.teams.all()]
         delete_clickhouse_data.delay(team_ids=team_ids)
         return super().perform_destroy(organization)
-
-
-class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
-
-    serializer_class = OrganizationSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-    ]
-    include_in_docs = False
-
-    def create(self, request, *args, **kwargs):
-        # Complete onboarding
-        instance: Organization = self.organization
-        self.check_object_permissions(request, instance)
-
-        if not instance.is_onboarding_active:
-            raise exceptions.ValidationError("Onboarding already completed.")
-
-        instance.complete_onboarding()
-
-        report_onboarding_completed(organization=instance, current_user=request.user)
-
-        serializer = self.get_serializer(instance=instance)
-        return response.Response(serializer.data)

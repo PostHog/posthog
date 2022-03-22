@@ -4,7 +4,7 @@ import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from './PreflightCheck/logic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
@@ -13,16 +13,17 @@ import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.InsightRouter]: Scene.Insight,
-    [Scene.Action]: Scene.Events,
-    [Scene.Actions]: Scene.Events,
-    [Scene.EventStats]: Scene.Events,
-    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Action]: Scene.DataManagement,
+    [Scene.Actions]: Scene.DataManagement,
+    [Scene.EventDefinitions]: Scene.DataManagement,
+    [Scene.EventPropertyDefinitions]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
+    [Scene.Experiment]: Scene.Experiments,
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
@@ -31,6 +32,10 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
 export const sceneLogic = kea<sceneLogicType>({
     props: {} as {
         scenes?: Record<Scene, () => any>
+    },
+    connect: {
+        logic: [router, userLogic, preflightLogic],
+        values: [featureFlagLogic, ['featureFlags']],
     },
     path: ['scenes', 'sceneLogic'],
     actions: {
@@ -260,8 +265,7 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/personalization')
+                        !location.pathname.startsWith('/ingestion')
                     ) {
                         console.log('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())
@@ -363,6 +367,15 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
+        },
+        [router.actionTypes.locationChanged]: () => {
+            // Remove trailing slash
+            const {
+                location: { pathname, search, hash },
+            } = router.values
+            if (pathname !== '/' && pathname.endsWith('/')) {
+                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+            }
         },
     }),
 })

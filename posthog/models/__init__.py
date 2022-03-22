@@ -1,5 +1,6 @@
 from .action import Action
 from .action_step import ActionStep
+from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
@@ -17,18 +18,22 @@ from .group_type_mapping import GroupTypeMapping
 from .insight import Insight
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
+from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
+from .tag import Tag
+from .tagged_item import TaggedItem
 from .team import Team
 from .user import User, UserManager
 
 __all__ = [
     "Action",
     "ActionStep",
+    "ActivityLog",
     "Annotation",
     "Cohort",
     "CohortPeople",
@@ -39,14 +44,15 @@ __all__ = [
     "Entity",
     "Event",
     "EventDefinition",
+    "EventProperty",
     "Experiment",
     "FeatureFlag",
     "Filter",
     "Group",
     "GroupTypeMapping",
-    "RetentionFilter",
     "MessagingRecord",
     "Organization",
+    "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
     "Person",
@@ -58,7 +64,10 @@ __all__ = [
     "PluginLogEntry",
     "Property",
     "PropertyDefinition",
+    "RetentionFilter",
     "SessionRecordingEvent",
+    "Tag",
+    "TaggedItem",
     "Team",
     "User",
     "UserManager",

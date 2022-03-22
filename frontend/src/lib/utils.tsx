@@ -1,30 +1,32 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
-import { toast } from 'react-toastify'
-import { Button } from 'antd'
 import {
     EventType,
     FilterType,
     ActionFilter,
     IntervalType,
-    ItemMode,
-    DashboardMode,
     dateMappingOption,
     GroupActorType,
     ActorType,
     ActionType,
     PropertyFilterValue,
+    PropertyType,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    AnyPropertyFilter,
+    PropertyFilter,
+    CohortType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
-import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-import { DashboardEventSource } from './utils/eventUsageLogic'
-import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
+import { isValidPropertyFilter } from './components/PropertyFilters/utils'
+import { IconCopy } from './components/icons'
+import { lemonToast } from './components/lemonToast'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -79,6 +81,18 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )
+}
+
+// taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
+export const humanizeBytes = (fileSizeInBytes: number): string => {
+    let i = -1
+    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    do {
+        fileSizeInBytes = fileSizeInBytes / 1024
+        i++
+    } while (fileSizeInBytes > 1024)
+
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -142,100 +156,6 @@ export function percentage(division: number): string {
         : ''
 }
 
-export function editingToast(
-    item: string,
-    setItemMode:
-        | ((mode: DashboardMode | null, source: DashboardEventSource) => void)
-        | ((mode: ItemMode | null, source: DashboardEventSource) => void)
-): any {
-    return toast(
-        <>
-            <h1>{item} edit mode</h1>
-            <p>Tap below when finished.</p>
-            <div className="text-right">
-                <Button>Finish editing</Button>
-            </div>
-        </>,
-        {
-            type: 'info',
-            autoClose: false,
-            onClick: () => setItemMode(null, DashboardEventSource.Toast),
-            closeButton: false,
-            className: 'drag-items-toast accent-border',
-        }
-    )
-}
-
-export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
-    /**
-     * Shows a standardized error toast when something goes wrong. Automated for any loader usage.
-     * @param title Title message of the toast
-     * @param message Body message on the toast
-     * @param errorDetail Error response returned from the server, or any other more specific error detail.
-     * @param errorCode Error code from the server that can help track the error.
-     */
-
-    const handleHelp = (): void => {
-        if (helpButtonLogic.isMounted()) {
-            helpButtonLogic.actions.showHelp()
-        } else {
-            window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
-        }
-    }
-
-    toast.dismiss('error') // This will ensure only the last error is shown
-
-    setTimeout(
-        () =>
-            toast.error(
-                <div>
-                    <h1>
-                        <ExclamationCircleOutlined /> {title || 'Something went wrong'}
-                    </h1>
-                    <p>
-                        {message || 'We could not complete your action. Detailed error:'}{' '}
-                        <span className="error-details">{errorDetail || 'Unknown exception.'}</span>
-                    </p>
-                    <p className="mt-05">
-                        Please <b>try again or contact us</b> if the error persists.
-                    </p>
-                    <div className="action-bar">
-                        {errorCode && <span>Code: {errorCode}</span>}
-                        <span className="help-button">
-                            <Button type="link" onClick={handleHelp}>
-                                <CustomerServiceOutlined /> Need help?
-                            </Button>
-                        </span>
-                    </div>
-                </div>,
-                {
-                    toastId: 'error', // will ensure only one error is displayed at a time
-                }
-            ),
-        100
-    )
-}
-
-export function successToast(title?: string, message?: string): void {
-    /**
-     * Shows a standardized success message.
-     * @param title Title message of the toast
-     * @param message Body message on the toast
-     */
-    setTimeout(
-        () =>
-            toast.success(
-                <div data-attr="success-toast">
-                    <h1>
-                        <ExclamationCircleOutlined /> {title || 'Success!'}
-                    </h1>
-                    <p>{message || 'Your action was completed successfully.'}</p>
-                </div>
-            ),
-        100
-    )
-}
-
 export function Loading(props: Record<string, any>): JSX.Element {
     return (
         <div className="loading-overlay" style={props.style}>
@@ -282,18 +202,21 @@ export function deleteWithUndo({
         deleted: !undo,
     }).then(() => {
         props.callback?.()
-        const response = (
-            <span>
-                <b>{props.object.name || <i>Unnnamed</i>}</b>
-                {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
-            </span>
+        lemonToast[undo ? 'success' : 'info'](
+            <>
+                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                {undo ? 'restored' : 'deleted'}
+            </>,
+            {
+                toastId: `delete-item-${props.object.id}-${undo}`,
+                button: undo
+                    ? undefined
+                    : {
+                          label: 'Undo',
+                          action: () => deleteWithUndo({ undo: true, ...props }),
+                      },
+            }
         )
-        toast(response, {
-            toastId: `delete-item-${props.object.id}-${undo}`,
-            onClick: () => {
-                deleteWithUndo({ undo: true, ...props })
-            },
-        })
     })
 }
 
@@ -371,16 +294,72 @@ export const genericOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const stringOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export const numericOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    gt: '> greater than',
+    lt: '< lower than',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const dateTimeOperatorMap: Record<string, string> = {
+    is_date_exact: '= equals',
     is_date_before: '< before',
     is_date_after: '> after',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
 
+export const booleanOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
+    ...stringOperatorMap,
+    ...numericOperatorMap,
     ...genericOperatorMap,
+    ...booleanOperatorMap,
+    // slight overkill to spread all of these into the map
+    // but gives freedom for them to diverge more over time
+}
+
+const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, string>> = {
+    DateTime: dateTimeOperatorMap,
+    String: stringOperatorMap,
+    Numeric: numericOperatorMap,
+    Boolean: booleanOperatorMap,
+}
+
+export function chooseOperatorMap(
+    propertyType: PropertyType | undefined,
+    allowQueryingEventsByDateTime: boolean
+): Record<string, string> {
+    let choice = genericOperatorMap
+    if (propertyType) {
+        choice = operatorMappingChoice[propertyType] || genericOperatorMap
+        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
+            choice = genericOperatorMap
+        }
+    }
+    return choice
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -397,18 +376,18 @@ export function isOperatorRegex(operator: string): boolean {
 }
 
 export function isOperatorDate(operator: string): boolean {
-    return ['is_date_before', 'is_date_after'].includes(operator)
+    return ['is_date_before', 'is_date_after', 'is_date_exact'].includes(operator)
 }
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohorts: Record<string, any>[],
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        ? cohortsById[value]?.name || `ID ${value}`
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
@@ -739,6 +718,11 @@ export const dateMapping: Record<string, dateMappingOption> = {
             `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
     },
+    'Last 3 days': {
+        values: ['-3d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
     'Last 7 days': {
         values: ['-7d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
@@ -837,21 +821,18 @@ export function dateFilterToText(
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {
     if (!navigator.clipboard) {
-        toast.info('Oops! Clipboard capabilities are only available over HTTPS or on localhost.')
+        lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
         return false
     }
 
     try {
         navigator.clipboard.writeText(value)
-        toast(
-            <div>
-                <h1 className="text-success">Copied to clipboard!</h1>
-                <p>{capitalizeFirstLetter(description)} has been copied to your clipboard.</p>
-            </div>
-        )
+        lemonToast.info(`Copied ${description} to clipboard`, {
+            icon: <IconCopy />,
+        })
         return true
     } catch (e) {
-        toast.error(`Could not copy ${description} to clipboard: ${e}`)
+        lemonToast.error(`Could not copy ${description} to clipboard: ${e}`)
         return false
     }
 }
@@ -1072,6 +1053,13 @@ export function compactNumber(value: number | null): string {
     return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
 }
 
+export function roundToDecimal(value: number | null, places: number = 2): string {
+    if (value === null) {
+        return '-'
+    }
+    return (Math.round(value * 100) / 100).toFixed(places)
+}
+
 export function sortedKeys(object: Record<string, any>): Record<string, any> {
     const newObject: Record<string, any> = {}
     for (const key of Object.keys(object).sort()) {
@@ -1274,6 +1262,59 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
+}
+
+export function isPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+): properties is PropertyGroupFilter {
+    if (properties) {
+        return (
+            (properties as PropertyGroupFilter).type !== undefined &&
+            (properties as PropertyGroupFilter).values !== undefined
+        )
+    }
+    return false
+}
+
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[]
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+export function convertPropertyGroupToProperties(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
+}
+
+export function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {}
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
+    }
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

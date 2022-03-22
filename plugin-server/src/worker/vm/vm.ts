@@ -27,11 +27,21 @@ export class TimeoutError extends Error {
     }
 }
 
-export async function createPluginConfigVM(
+export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
-): Promise<PluginConfigVMResponse> {
+): PluginConfigVMResponse {
+    const timer = new Date()
+
+    const statsdTiming = (metric: string) => {
+        hub.statsd?.timing(metric, timer, {
+            pluginConfigId: String(pluginConfig.id),
+            pluginName: String(pluginConfig.plugin?.name),
+            teamId: String(pluginConfig.team_id),
+        })
+    }
+
     const transformedCode = transformCode(indexJs, hub, imports)
 
     // Create virtual machine
@@ -226,16 +236,20 @@ export async function createPluginConfigVM(
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
-        await addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        statsdTiming('vm_setup_sync_section')
+        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+    } else {
+        statsdTiming('vm_setup_sync_section')
     }
 
     setupMetrics(hub, pluginConfig, metrics, exportEventsExists)
 
-    await vm.run(`${responseVar}.methods.setupPlugin?.()`)
+    statsdTiming('vm_setup_full')
 
     return {
         vm,
         methods,
         tasks,
+        vmResponseVariable: responseVar,
     }
 }

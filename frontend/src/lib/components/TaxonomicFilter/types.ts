@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { CohortType, EventDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -15,19 +15,26 @@ export interface TaxonomicFilterProps {
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
+    height?: number
+    width?: number
+    popoverEnabled?: boolean
+    selectFirstItem?: boolean
 }
-
-export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
 }
+
+export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterGroup {
     name: string
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
+    /** If present, will be used instead of "endpoint" until the user presses "expand results". */
+    scopedEndpoint?: string
+    expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
@@ -35,7 +42,10 @@ export interface TaxonomicFilterGroup {
     valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
+    getPopupHeader: (instance: any) => string
+    getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
+    getFullDetailUrl?: (instance: any) => string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -45,6 +55,7 @@ export enum TaxonomicFilterGroupType {
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
+    NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
     Screens = 'screens',
@@ -58,9 +69,10 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 }
 
 export interface ListStorage {
-    results: (EventDefinition | CohortType)[]
+    results: TaxonomicDefinitionTypes[]
     searchQuery?: string // Query used for the results currently in state
     count: number
+    expandedCount?: number
     queryChanged?: boolean
     first?: boolean
 }
@@ -74,3 +86,5 @@ export type ListFuse = Fuse<{
     name: string
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty

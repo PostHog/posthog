@@ -1,8 +1,8 @@
-import dataclasses
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
-from typing import List, Optional, Type
+from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
@@ -13,7 +13,7 @@ from ee.clickhouse.queries.experiments import (
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from posthog.constants import ACTIONS, EVENTS, TRENDS_CUMULATIVE
+from posthog.constants import ACTIONS, EVENTS, TRENDS_CUMULATIVE, ExperimentSignificanceCode
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -23,7 +23,7 @@ Probability = float
 P_VALUE_SIGNIFICANCE_LEVEL = 0.05
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     count: int
@@ -75,6 +75,7 @@ class ClickhouseTrendExperimentResult:
             {
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
+                "display": TRENDS_CUMULATIVE,
                 ACTIONS: [],
                 EVENTS: [
                     {
@@ -110,13 +111,16 @@ class ClickhouseTrendExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significant = self.are_results_significant(control_variant, test_variants, probabilities)
+        significance_code, p_value = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": insight_results,
             "probability": mapping,
-            "significant": significant,
+            "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.query_filter.to_dict(),
+            "significance_code": significance_code,
+            "p_value": p_value,
+            "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, insight_results, exposure_results):
@@ -164,10 +168,10 @@ class ClickhouseTrendExperimentResult:
     def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
-        
+
         Supports maximum 4 variants today
 
-        For each variant, we create a Gamma distribution of arrival rates, 
+        For each variant, we create a Gamma distribution of arrival rates,
         where alpha (shape parameter) = count of variant + 1
         beta (exposure parameter) = 1
         """
@@ -185,24 +189,31 @@ class ClickhouseTrendExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
-    ) -> bool:
+    ) -> Tuple[ExperimentSignificanceCode, Probability]:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
         for variant in test_variants:
             # We need a feature flag distribution threshold because distribution of people
             # can skew wildly when there are few people in the experiment
             if variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
-                return False
+                return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
         if control_variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
-            return False
+            return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
-        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
-            return False
+        if (
+            probabilities[0] < MIN_PROBABILITY_FOR_SIGNIFICANCE
+            and sum(probabilities[1:]) < MIN_PROBABILITY_FOR_SIGNIFICANCE
+        ):
+            # Sum of probability of winning for all variants except control is less than 90%
+            return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1
 
         p_value = calculate_p_value(control_variant, test_variants)
 
-        return p_value < P_VALUE_SIGNIFICANCE_LEVEL
+        if p_value >= P_VALUE_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_P_VALUE, p_value
+
+        return ExperimentSignificanceCode.SIGNIFICANT, p_value
 
 
 def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: List[Variant]) -> float:
@@ -236,12 +247,16 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     if len(variants) == 2:
         # simple case
         probability = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0]])
-        return [1 - probability, probability]
+        return [max(0, 1 - probability), probability]
 
     elif len(variants) == 3:
         probability_third_wins = simulate_winning_variant_for_arrival_rates(variants[2], [variants[0], variants[1]])
         probability_second_wins = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0], variants[2]])
-        return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
+        return [
+            max(0, 1 - probability_third_wins - probability_second_wins),
+            probability_second_wins,
+            probability_third_wins,
+        ]
 
     elif len(variants) == 4:
         probability_fourth_wins = simulate_winning_variant_for_arrival_rates(
@@ -254,7 +269,7 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
             variants[1], [variants[0], variants[2], variants[3]]
         )
         return [
-            1 - probability_fourth_wins - probability_third_wins - probability_second_wins,
+            max(0, 1 - probability_fourth_wins - probability_third_wins - probability_second_wins),
             probability_second_wins,
             probability_third_wins,
             probability_fourth_wins,

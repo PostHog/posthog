@@ -1,9 +1,15 @@
+import datetime
 import json
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test.utils import CaptureQueriesContext
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
@@ -123,6 +129,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_capture):
 
@@ -132,7 +139,8 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        flag_id = response.json()["id"]
+        instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
         # Assert analytics are sent
@@ -149,6 +157,20 @@ class TestFeatureFlag(APIBaseTest):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
             },
+        )
+
+        self.assert_feature_flag_activity(
+            flag_id,
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "alpha-feature"},
+                }
+            ],
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -283,32 +305,47 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
-        instance = self.feature_flag
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
-            {
-                "name": "Updated name",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
-                            ],
-                        }
-                    ]
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "Updated name",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    },
+                                ],
+                            }
+                        ]
+                    },
                 },
-            },
-            format="json",
-        )
+                format="json",
+            )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        instance.refresh_from_db()
-        self.assertEqual(instance.name, "Updated name")
-        self.assertEqual(instance.conditions[0]["rollout_percentage"], 65)
+
+        self.assertEqual(response.json()["name"], "Updated name")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_called_with(
             self.user,
             "feature flag updated",
             {
@@ -318,15 +355,70 @@ class TestFeatureFlag(APIBaseTest):
                 "has_rollout_percentage": True,
                 "has_filters": True,
                 "filter_count": 1,
-                "created_at": instance.created_at,
+                "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
             },
         )
 
+        self.assert_feature_flag_activity(
+            flag_id,
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "original name",
+                                "after": "Updated name",
+                            },
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [
+                                                {
+                                                    "key": "email",
+                                                    "type": "person",
+                                                    "value": "@posthog.com",
+                                                    "operator": "icontains",
+                                                }
+                                            ],
+                                            "rollout_percentage": 65,
+                                        }
+                                    ]
+                                },
+                            },
+                        ],
+                        "name": "a-feature-flag-that-is-updated",
+                    },
+                },
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated"},
+                },
+            ],
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
         self.client.force_login(new_user)
 
         with patch("posthog.mixins.report_user_action") as mock_capture:
@@ -349,6 +441,274 @@ class TestFeatureFlag(APIBaseTest):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
             },
+        )
+
+        flag_activity = self._get_feature_flag_activity()["results"]
+
+        self.assert_feature_flag_activity(
+            flag_id=None,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "new_annotations@posthog.com"},
+                    "activity": "deleted",
+                    "scope": "FeatureFlag",
+                    "item_id": str(instance.pk),
+                    "detail": {"changes": None, "name": "potato"},
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
+
+    def test_get_feature_flag_activity(self):
+        new_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="person_acting_and_then_viewing_activity@posthog.com",
+            password=None,
+            first_name="Potato",
+        )
+        self.client.force_login(new_user)
+
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "feature flag with activity", "key": "feature_with_activity"},
+            )
+
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            flag_id = create_response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "feature flag with activity",
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                },
+                format="json",
+            )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assert_feature_flag_activity(
+            flag_id,
+            [
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
+                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                            }
+                        ],
+                        "name": "feature_with_activity",
+                    },
+                },
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "feature_with_activity"},
+                },
+            ],
+        )
+
+    def test_get_feature_flag_activity_for_all_flags(self):
+        new_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="person_acting_and_then_viewing_activity@posthog.com",
+            password=None,
+            first_name="Potato",
+        )
+        self.client.force_login(new_user)
+
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "feature flag with activity", "key": "feature_with_activity"},
+            )
+
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            flag_id = create_response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "feature flag with activity",
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                },
+                format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            second_create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": "a second feature flag", "key": "flag-two"},
+            )
+
+            self.assertEqual(second_create_response.status_code, status.HTTP_201_CREATED)
+            second_flag_id = second_create_response.json()["id"]
+
+        self.assert_feature_flag_activity(
+            flag_id=None,
+            expected=[
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:29:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(second_flag_id),
+                    "detail": {"changes": None, "name": "flag-two"},
+                },
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
+                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                            }
+                        ],
+                        "name": "feature_with_activity",
+                    },
+                },
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "feature_with_activity"},
+                },
+            ],
+        )
+
+    def test_length_of_feature_flag_activity_does_not_change_number_of_db_queries(self):
+        new_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="person_acting_and_then_viewing_activity@posthog.com",
+            password=None,
+            first_name="Potato",
+        )
+        self.client.force_login(new_user)
+
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        # create the flag
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "feature flag with activity", "key": "feature_with_activity"},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        # get the activity and capture number of queries made
+        with CaptureQueriesContext(db_connection) as first_read_context:
+            self._get_feature_flag_activity(flag_id)
+
+        if isinstance(first_read_context.final_queries, int) and isinstance(first_read_context.initial_queries, int):
+            first_activity_read_query_count = first_read_context.final_queries - first_read_context.initial_queries
+        else:
+            raise AssertionError("must be able to read query numbers from first activity log query")
+
+        # update the flag
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "name": "feature flag with activity",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # get the activity and capture number of queries made
+        with CaptureQueriesContext(db_connection) as second_read_context:
+            self._get_feature_flag_activity(flag_id)
+
+        if isinstance(second_read_context.final_queries, int) and isinstance(second_read_context.initial_queries, int):
+            second_activity_read_query_count = second_read_context.final_queries - second_read_context.initial_queries
+        else:
+            raise AssertionError("must be able to read query numbers from second activity log query")
+
+        self.assertEqual(first_activity_read_query_count, second_activity_read_query_count)
+
+    def test_get_feature_flag_activity_only_from_own_team(self):
+        # two users in two teams
+        _, org_one_team, org_one_user = User.objects.bootstrap(
+            organization_name="Org 1", email="org1@posthog.com", password=None
+        )
+
+        _, org_two_team, org_two_user = User.objects.bootstrap(
+            organization_name="Org 2", email="org2@posthog.com", password=None
+        )
+
+        # two flags in team 1
+        self.client.force_login(org_one_user)
+        team_one_flag_one = self._create_flag_with_properties(
+            name="team-1-flag-1", team_id=org_one_team.id, properties=[],
+        ).json()["id"]
+        team_one_flag_two = self._create_flag_with_properties(
+            name="team-1-flag-2", team_id=org_one_team.id, properties=[],
+        ).json()["id"]
+
+        # two flags in team 2
+        self.client.force_login(org_two_user)
+        team_two_flag_one = self._create_flag_with_properties(
+            name="team-2-flag-1", team_id=org_two_team.id, properties=[],
+        ).json()["id"]
+        team_two_flag_two = self._create_flag_with_properties(
+            name="team-2-flag-2", team_id=org_two_team.id, properties=[],
+        ).json()["id"]
+
+        # user in org 1 gets activity
+        self.client.force_login(org_one_user)
+        self._get_feature_flag_activity(
+            flag_id=team_one_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_one_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_two_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_two_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+
+        # user in org 2 gets activity
+        self.client.force_login(org_two_user)
+        self._get_feature_flag_activity(
+            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_two_flag_one, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_activity(
+            flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -658,8 +1018,9 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
 
-        event_request = self._create_flag_with_properties("illegal-event-flag", [{"key": "id", "value": 5},])
-        self.assertEqual(event_request.status_code, status.HTTP_400_BAD_REQUEST)
+        event_request = self._create_flag_with_properties(
+            "illegal-event-flag", [{"key": "id", "value": 5},], expected_status=status.HTTP_400_BAD_REQUEST
+        )
         self.assertEqual(
             event_request.json(),
             {
@@ -671,9 +1032,10 @@ class TestFeatureFlag(APIBaseTest):
         )
 
         groups_request = self._create_flag_with_properties(
-            "illegal-groups-flag", [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]
+            "illegal-groups-flag",
+            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(groups_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             groups_request.json(),
             {
@@ -683,6 +1045,19 @@ class TestFeatureFlag(APIBaseTest):
                 "attr": "filters",
             },
         )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_is_calculated(self, calculate_cohort_ch):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag", [{"key": "id", "type": "cohort", "value": cohort.pk},]
+        )
+        self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(calculate_cohort_ch.call_count, 1)
 
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
@@ -696,8 +1071,8 @@ class TestFeatureFlag(APIBaseTest):
             "illegal-groups-flag",
             [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
             aggregation_group_type_index=3,
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(illegal_groups_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             illegal_groups_request.json(),
             {
@@ -712,8 +1087,8 @@ class TestFeatureFlag(APIBaseTest):
             "person-flag",
             [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},],
             aggregation_group_type_index=0,
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(person_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             person_request.json(),
             {
@@ -724,9 +1099,45 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    def _create_flag_with_properties(self, name, properties, **kwargs):
-        return self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
+    def _create_flag_with_properties(
+        self,
+        name: str,
+        properties,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+        **kwargs,
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        create_response = self.client.post(
+            f"/api/projects/{team_id}/feature_flags/",
             data={"name": name, "key": name, "filters": {**kwargs, "groups": [{"properties": properties,}],},},
             format="json",
+        )
+        self.assertEqual(create_response.status_code, expected_status)
+        return create_response
+
+    def _get_feature_flag_activity(
+        self, flag_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        if flag_id:
+            url = f"/api/projects/{team_id}/feature_flags/{flag_id}/activity"
+        else:
+            url = f"/api/projects/{team_id}/feature_flags/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_feature_flag_activity(flag_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
         )

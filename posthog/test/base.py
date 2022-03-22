@@ -5,8 +5,10 @@ from typing import Any, Dict, Optional
 
 import pytest
 import sqlparse
+from django.apps import apps
 from django.db import connection
-from django.test import TestCase
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
@@ -132,6 +134,18 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """
 
 
+class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
+    class for TestCase that doesn't implement this atomic wrapper.
+    Read more: https://avilpage.com/2020/01/disable-transactions-django-tests.html
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
@@ -221,8 +235,20 @@ class QueryMatchingTest:
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
-            f"organization_id\" = '[^']+'::uuid",
-            "organization_id\" = '00000000-0000-0000-0000-000000000000'::uuid",
+            fr"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
+            query,
+        )
+        query = re.sub(
+            fr"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace tag id lookups for postgres
+        query = re.sub(
+            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
 
@@ -254,3 +280,58 @@ def snapshot_postgres_queries(fn):
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
+
+
+class BaseTestMigrations(QueryMatchingTest):
+    @property
+    def app(self):
+        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
+
+    migrate_from = None
+    migrate_to = None
+    apps = None
+    assert_snapshots = False
+
+    def setUp(self):
+        assert (
+            self.migrate_from and self.migrate_to  # type: ignore
+        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
+        self.migrate_to = [(self.app, self.migrate_to)]
+        executor = MigrationExecutor(connection)
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+
+        # Reverse to the original migration
+        executor.migrate(self.migrate_from)
+
+        self.setUpBeforeMigration(old_apps)
+
+        # Run the migration to test
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()  # reload.
+
+        if self.assert_snapshots:
+            self._execute_migration_with_snapshots(executor)
+        else:
+            executor.migrate(self.migrate_to)
+
+        self.apps = executor.loader.project_state(self.migrate_to).apps
+
+    @snapshot_postgres_queries
+    def _execute_migration_with_snapshots(self, executor):
+        executor.migrate(self.migrate_to)
+
+    def setUpBeforeMigration(self, apps):
+        pass
+
+
+class TestMigrations(BaseTestMigrations, BaseTest):
+    """
+    Can be used to test migrations
+    """
+
+
+class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
+    """
+    Can be used to test migrations where atomic=False.
+    """

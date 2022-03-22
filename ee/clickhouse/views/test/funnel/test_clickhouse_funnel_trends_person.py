@@ -1,7 +1,6 @@
 import json
 from uuid import uuid4
 
-from django.core.cache import cache
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -12,19 +12,10 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    Event,
-    Filter,
-    Insight,
-    Person,
-    Team,
-    User,
-)
+from posthog.models import Cohort, Dashboard, Filter, Insight, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 def _create_person(**kwargs):
@@ -266,7 +257,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
-    @snapshot_postgres_queries
     def test_insights_does_not_nplus1(self):
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
@@ -280,8 +270,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 created_by=user,
             )
 
-        # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users
-        with self.assertNumQueries(8):
+        # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users + organization + tag
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/insights")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 20)
@@ -312,11 +302,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {
-                "name": "insight new name",
-                "tags": ["official", "engineering"],
-                "description": "Internal system metrics.",
-            },
+            {"name": "insight new name", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -324,11 +310,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["name"], "insight new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(response_data["tags"], ["official", "engineering"])
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
-        self.assertEqual(insight.tags, ["official", "engineering"])
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -421,7 +409,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
@@ -429,13 +417,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["last_refresh"], None)
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
@@ -496,8 +484,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             groups=[{"properties": [{"type": "person", "key": "foo", "value": "bar", "operator": "exact"}]}],
             last_calculation=timezone.now(),
         )
-        whatever_cohort.calculate_people()
-        whatever_cohort.calculate_people_ch()
+
+        whatever_cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             response_user_property = self.client.get(
@@ -553,7 +541,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("offset=20", response.json()["next"])
+        self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])
@@ -676,6 +664,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
+    def test_insight_trends_csv(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview'}])}&export_name=Pageview count&export_insight_id=test123",
+            )
+
+        lines = response.content.splitlines()
+
+        self.assertEqual(lines[0], b"http://localhost:8000/insights/test123/", lines[0])
+        self.assertEqual(
+            lines[1],
+            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
+            lines[0],
+        )
+        self.assertEqual(lines[2], b"$pageview,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(len(lines), 3, response.content)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -710,3 +720,34 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.insight.capture_exception")
+    def test_serializer(self, patch_capture_exception):
+        """
+        Various regression tests for the serializer
+        """
+        # Display
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+        # Properties with an array
+        events = [{"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps(events)}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+        # Breakdown with ints in funnels
+        events = [
+            {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
+            {"id": "$pageview"},
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
+        )
+        # self.assertEqual(response.status_code, 200)
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)

@@ -1,11 +1,9 @@
-import json
 import urllib.parse
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
-from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
+from ee.clickhouse.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.volume import (
     ACTIVE_USER_SQL,
@@ -17,19 +15,20 @@ from ee.clickhouse.sql.trends.volume import (
 from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.team import Team
 from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsTotalVolume:
-    def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
+    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity)
+        aggregate_operation, join_condition, math_params = process_math(entity, team)
 
         trend_event_query = TrendsEventQuery(
             filter=filter,
             entity=entity,
-            team_id=team_id,
+            team=team,
             should_join_distinct_ids=True
             if join_condition != "" or entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]
             else False,
@@ -41,13 +40,13 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team_id}
+        params: Dict = {"team_id": team.id}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
-            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team_id))
+            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
@@ -84,7 +83,7 @@ class ClickhouseTrendsTotalVolume:
             final_query = AGGREGATE_SQL.format(
                 null_sql=null_sql, content_sql=content_sql, smoothing_operation=smoothing_operation
             )
-            return final_query, params, self._parse_total_volume_result(filter, entity, team_id)
+            return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
 
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:

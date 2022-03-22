@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Union, cast
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -17,9 +16,10 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo import create_demo_team
-from posthog.event_usage import report_user_joined_organization, report_user_signed_up
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -66,11 +66,6 @@ class SignupSerializer(serializers.Serializer):
         )
         user = self._user
 
-        # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
-        if self.enable_new_onboarding(user):
-            self._organization.setup_section_2_completed = False
-            self._organization.save()
-
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
@@ -107,22 +102,15 @@ class SignupSerializer(serializers.Serializer):
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if settings.DEMO or self.enable_new_onboarding(user):
+        if settings.DEMO:
             return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = (
-            "/personalization" if self.enable_new_onboarding() else "/ingestion" if not settings.DEMO else "/"
-        )
+        data["redirect_url"] = "/ingestion" if not settings.DEMO else "/"
         return data
-
-    def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
-        if user is None:
-            user = self._user
-        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id)
 
 
 class SignupViewset(generics.CreateAPIView):
@@ -210,6 +198,8 @@ class InviteSignupSerializer(serializers.Serializer):
         else:
             report_user_joined_organization(organization=invite.organization, current_user=user)
 
+        alias_invite_id(user, str(invite.id))
+
         # Update user props
         user_identify.identify_task.delay(user_id=user.id)
 
@@ -249,8 +239,8 @@ class InviteSignupViewset(generics.CreateAPIView):
         )
 
 
-## Social Signup
-## views & serializers
+# Social Signup
+# views & serializers
 class SocialSignupSerializer(serializers.Serializer):
     """
     Signup serializer when the account is created using social authentication.
@@ -306,7 +296,7 @@ def finish_social_signup(request):
     TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
     if not get_can_create_org():
-        return redirect("/login?error=no_new_organizations")
+        return redirect("/login?error_code=no_new_organizations")
 
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
@@ -353,20 +343,19 @@ def process_social_invite_signup(
 
 
 def process_social_domain_whitelist_signup(email: str, full_name: str) -> Optional[User]:
-    domain_organization: Optional[Organization] = None
     user: Optional[User] = None
 
-    # TODO: This feature is currently available only in self-hosted
-    if not settings.MULTI_TENANCY:
-        # Check if the user is on a whitelisted domain
-        domain = email.split("@")[-1]
-        # TODO: Handle multiple organizations with the same whitelisted domain
-        domain_organization = Organization.objects.filter(domain_whitelist__contains=[domain]).first()
-
-    if domain_organization:
-        user = User.objects.create_and_join(
-            organization=domain_organization, email=email, password=None, first_name=full_name
-        )
+    # Check if the user is on a whitelisted domain
+    domain = email.split("@")[-1]
+    try:
+        domain_instance = OrganizationDomain.objects.get(domain=domain)
+    except OrganizationDomain.DoesNotExist:
+        return user
+    else:
+        if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
+            user = User.objects.create_and_join(
+                organization=domain_instance.organization, email=email, password=None, first_name=full_name
+            )
 
     return user
 
@@ -422,7 +411,6 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
 
         # SAML
         if not user:
-            # Domain whitelist?
             user = process_social_saml_signup(backend, user_email, user_name)
             if user:
                 backend_processor = "saml"

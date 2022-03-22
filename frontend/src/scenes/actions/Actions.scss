@@ -40,10 +40,6 @@
 
 // ActionEditV2.js
 .action-edit-container {
-    .match-group-section {
-        margin-top: 32px;
-    }
-
     .match-group-add-skeleton {
         background-color: #f0f0f0;
         border-radius: 2px;
@@ -53,6 +49,14 @@
         display: flex;
         align-items: center;
         justify-content: center;
+    }
+
+    .action-description {
+        margin-top: 1rem;
+    }
+
+    .action-tags {
+        margin-top: 1rem;
     }
 }
 

@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import User
+from posthog.utils import get_sso_enforced_provider
 
 
 @csrf_protect
@@ -57,8 +58,8 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        if getattr(settings, "SAML_ENFORCED", False):
-            raise serializers.ValidationError("This instance only allows SAML login.", code="saml_enforced")
+        if get_sso_enforced_provider():
+            raise serializers.ValidationError("This instance only allows SSO login.", code="sso_enforced")
 
         request = self.context["request"]
         user = cast(
@@ -94,10 +95,9 @@ class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(write_only=True)
 
     def create(self, validated_data):
-
-        if getattr(settings, "SAML_ENFORCED", False):
+        if get_sso_enforced_provider():
             raise serializers.ValidationError(
-                "Password reset is disabled because SAML login is enforced.", code="saml_enforced"
+                "Password reset is disabled because SSO login is enforced.", code="sso_enforced"
             )
 
         if not is_email_available():
@@ -108,7 +108,7 @@ class PasswordResetSerializer(serializers.Serializer):
 
         email = validated_data.pop("email")
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.filter(is_active=True).get(email=email)
         except User.DoesNotExist:
             user = None
 
@@ -145,7 +145,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             return True
 
         try:
-            user = User.objects.get(uuid=self.context["view"].kwargs["user_uuid"])
+            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
@@ -196,7 +196,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.get(uuid=user_uuid)
+            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 

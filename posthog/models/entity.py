@@ -88,7 +88,7 @@ class Entity(PropertyMixin):
             "math": self.math,
             "math_property": self.math_property,
             "math_group_type_index": self.math_group_type_index,
-            "properties": [prop.to_dict() for prop in self.properties],
+            "properties": self.property_groups.to_dict(),
         }
 
     def equals(self, other) -> bool:
@@ -101,8 +101,10 @@ class Entity(PropertyMixin):
         if self.type != other.type:
             return False
 
-        self_properties = sorted(str(prop) for prop in self.properties)
-        other_properties = sorted(str(prop) for prop in other.properties)
+        # TODO: Check operators as well, not just the properties.
+        # Effectively check within each property group, that they're the same.
+        self_properties = sorted(str(prop) for prop in self.property_groups.flat)
+        other_properties = sorted(str(prop) for prop in other.property_groups.flat)
         if self_properties != other_properties:
             return False
 
@@ -111,8 +113,8 @@ class Entity(PropertyMixin):
     def is_superset(self, other) -> bool:
         """ Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
 
-        self_properties = Counter([str(prop) for prop in self.properties])
-        other_properties = Counter([str(prop) for prop in other.properties])
+        self_properties = Counter([str(prop) for prop in self.property_groups.flat])
+        other_properties = Counter([str(prop) for prop in other.property_groups.flat])
 
         return self.id == other.id and len(self_properties - other_properties) == 0
 

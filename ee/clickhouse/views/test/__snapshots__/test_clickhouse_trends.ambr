@@ -1,6 +1,6 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT count(*) as data
   FROM
     (SELECT e.timestamp as timestamp
@@ -45,7 +45,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -113,7 +113,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -135,8 +135,7 @@
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
              AND timestamp <= '2012-01-15 23:59:59'
-             AND has(['val'], trim(BOTH '"'
-                                   FROM JSONExtractRaw(properties, 'key'))) )
+             AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -170,8 +169,7 @@
        AND event = '$pageview'
        AND timestamp >= '2012-01-14 00:00:00'
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -179,7 +177,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -239,7 +237,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -311,11 +309,10 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, 'key')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -330,7 +327,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -357,15 +354,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
-                            trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'key')) as breakdown_value
+                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
              AND timestamp <= '2012-01-15 23:59:59'
-             AND trim(BOTH '"'
-                      FROM JSONExtractRaw(properties, 'key')) in (['val', 'notval'])
+             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -373,6 +368,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
@@ -403,8 +399,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -412,11 +407,10 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, 'key')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -431,7 +425,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -466,8 +460,7 @@
               FROM
                 (SELECT person_id,
                         timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key')) as breakdown_value
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -480,8 +473,7 @@
                    AND event = '$pageview'
                    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
                    AND timestamp <= '2012-01-15 23:59:59'
-                   AND trim(BOTH '"'
-                            FROM JSONExtractRaw(properties, 'key')) in (['val', 'notval']) )
+                   AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
                        breakdown_value)
            GROUP BY day_start,
@@ -491,6 +483,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
@@ -521,8 +514,7 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -530,7 +522,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -552,7 +544,7 @@
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-12 23:59:59'
-             AND NOT has([''], $group_0) )
+             AND (NOT has([''], "$group_0")) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -570,8 +562,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
-       AND NOT has([''], $group_0)
-       AND NOT has([''], $group_0) )
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0")) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

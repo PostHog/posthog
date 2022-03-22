@@ -1,26 +1,28 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Input, Row, Tabs } from 'antd'
+import { Button, Card, Col, Input, Row, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
-import { NewDashboard } from 'scenes/dashboard/NewDashboard'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
+import { HomeIcon } from 'lib/components/icons'
+import { teamLogic } from 'scenes/teamLogic'
+import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -29,11 +31,12 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
-    const { setNewDashboardDrawer, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
+    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { showNewDashboardModal, addDashboard } = useActions(newDashboardForm)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -58,6 +61,7 @@ export function Dashboards(): JSX.Element {
             dataIndex: 'name',
             width: '40%',
             render: function Render(name, { id, description, _highlight, is_shared }) {
+                const isPrimary = id === currentTeam?.primary_dashboard
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
@@ -69,6 +73,11 @@ export function Dashboards(): JSX.Element {
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
                                 </Tooltip>
                             )}
+                            {isPrimary && (
+                                <Tooltip title="Primary dashboards are shown on the project home page">
+                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
+                                </Tooltip>
+                            )}
                         </div>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
                             <span className="row-description">{description}</span>
@@ -78,13 +87,13 @@ export function Dashboards(): JSX.Element {
             },
             sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
-        ...(hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
                   {
                       title: 'Tags',
                       dataIndex: 'tags' as keyof DashboardType,
                       render: function Render(tags: DashboardType['tags']) {
-                          return <ObjectTags tags={tags} staticOnly />
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
                       },
                   } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
               ]
@@ -97,7 +106,7 @@ export function Dashboards(): JSX.Element {
                 return (
                     <More
                         overlay={
-                            <>
+                            <div style={{ maxWidth: 250 }}>
                                 <LemonButton
                                     type="stealth"
                                     to={urls.dashboard(id)}
@@ -130,15 +139,22 @@ export function Dashboards(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
+                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
+                                    <span>
+                                        Change the default dashboard on the{' '}
+                                        <Link to={urls.projectHomepage()}>project home page</Link>.
+                                    </span>
+                                </LemonRow>
+                                <LemonSpacer />
                                 <LemonButton
                                     type="stealth"
-                                    style={{ color: 'var(--danger)' }}
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
+                                    status="danger"
                                 >
                                     Delete dashboard
                                 </LemonButton>
-                            </>
+                            </div>
                         }
                     />
                 )
@@ -148,12 +164,13 @@ export function Dashboards(): JSX.Element {
 
     return (
         <div>
+            <NewDashboardModal />
             <PageHeader
                 title="Dashboards"
                 buttons={
                     <Button
                         data-attr={'new-dashboard'}
-                        onClick={() => setNewDashboardDrawer(true)}
+                        onClick={showNewDashboardModal}
                         type="primary"
                         icon={<PlusOutlined />}
                     >
@@ -183,28 +200,12 @@ export function Dashboards(): JSX.Element {
                 />
             </div>
             <LemonSpacer large />
-            <Drawer
-                title="New Dashboard"
-                width={400}
-                onClose={() => setNewDashboardDrawer(false)}
-                destroyOnClose={true}
-                visible={newDashboardDrawer}
-            >
-                <NewDashboard />
-            </Drawer>
-
-            {dashboardsLoading ? (
-                <div className="flex-center" style={{ flexDirection: 'column' }}>
-                    <Spinner />
-                    <div className="mt">
-                        <b>Loading dashboards</b>
-                    </div>
-                </div>
-            ) : dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
                     columns={columns}
+                    loading={dashboardsLoading}
                     defaultSorting={{ columnKey: 'name', order: 1 }}
                     emptyState={
                         searchTerm ? (
@@ -245,7 +246,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'New Dashboard',
-                                        show: true,
                                         useTemplate: '',
                                     })
                                 }
@@ -263,7 +263,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'Web App Dashboard',
-                                        show: true,
                                         useTemplate: 'DEFAULT_APP',
                                     })
                                 }

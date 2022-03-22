@@ -6,7 +6,9 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
+from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from posthog.api import (
     api_not_found,
@@ -14,6 +16,8 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    organizations_router,
+    project_dashboards_router,
     projects_router,
     router,
     signup,
@@ -21,20 +25,44 @@ from posthog.api import (
 )
 from posthog.demo import demo
 
-from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, stats
+from .utils import get_sso_enforced_provider, render_template
+from .views import health, login_required, preflight_check, robots_txt, sso_login, stats
+
+ee_urlpatterns: List[Any] = []
+try:
+    from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+except ImportError:
+    pass
+else:
+    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
 
+try:
+    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
+    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
+except ImportError:
+    pass
+else:
+    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
+
+
+@csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
 def login_view(request):
     """
-    Checks if SAML is enforced and prevents using password authentication if it's the case.
+    Checks if SSO is enforced and prevents using password authentication if it's the case.
     """
-    if getattr(settings, "SAML_ENFORCED", False):
-        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+    enforced_sso = get_sso_enforced_provider()
+    if enforced_sso:
+        if enforced_sso == "saml":
+            return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+        else:
+            return redirect(reverse("social:begin", kwargs={"backend": enforced_sso}))
+
     return home(request)
 
 
@@ -49,28 +77,21 @@ def authorize_and_redirect(request):
     )
 
 
-# Try to include EE endpoints
-ee_urlpatterns: List[Any] = []
-from ee.urls import extend_api_router
-from ee.urls import urlpatterns as ee_urlpatterns
-
-extend_api_router(router, projects_router=projects_router)
-
-
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
     return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
-
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
     path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
-    # internals
+    # Health check probe endpoints for K8s
+    # NOTE: We have _health, livez, and _readyz. _health is deprecated and
+    # is only included for compatability with old installations. For new
+    # operations livez and readyz should be used.
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -99,21 +120,26 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
-    opt_slash_path("robots.txt", robots_txt),
+    path("robots.txt", robots_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
+    path(
+        "login/<str:backend>/", sso_login, name="social_begin"
+    ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("login", login_view),
 ]
 
 if settings.TEST:
 
+    # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.models import Event
+        from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
 
-        Event.objects.all().delete()
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

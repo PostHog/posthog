@@ -12,6 +12,8 @@ from typing import (
 
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.constants import PropertyOperatorType
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
@@ -30,6 +32,7 @@ OperatorType = Literal[
     "lt",
     "is_set",
     "is_not_set",
+    "is_date_exact",
     "is_date_after",
     "is_date_before",
 ]
@@ -98,8 +101,17 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
+            from posthog.models.cohort import Cohort
+
             cohort_id = int(cast(Union[str, int], value))
-            return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
+            cohort = Cohort.objects.get(pk=cohort_id)
+            return Q(
+                Exists(
+                    CohortPeople.objects.filter(
+                        cohort_id=cohort.pk, person_id=OuterRef("id"), version=cohort.version
+                    ).only("id")
+                )
+            )
 
         column = "group_properties" if self.type == "group" else "properties"
 
@@ -131,3 +143,54 @@ def lookup_q(key: str, value: Any) -> Q:
     if isinstance(value, list):
         return Q(**{f"{key}__in": value})
     return Q(**{key: value})
+
+
+class PropertyGroup:
+    type: PropertyOperatorType
+    values: Union[List[Property], List["PropertyGroup"]]
+
+    def __init__(self, type: PropertyOperatorType, values: Union[List[Property], List["PropertyGroup"]]) -> None:
+        self.type = type
+        self.values = values
+
+    def combine_properties(self, operator: PropertyOperatorType, properties: List[Property]) -> "PropertyGroup":
+        if not properties:
+            return self
+
+        if len(self.values) == 0:
+            return PropertyGroup(PropertyOperatorType.AND, properties)
+
+        return PropertyGroup(operator, [self, PropertyGroup(PropertyOperatorType.AND, properties)])
+
+    def combine_property_group(
+        self, operator: PropertyOperatorType, property_group: Optional["PropertyGroup"]
+    ) -> "PropertyGroup":
+        if not property_group or not property_group.values:
+            return self
+
+        if len(self.values) == 0:
+            return property_group
+
+        return PropertyGroup(operator, [self, property_group])
+
+    def to_dict(self):
+        result: Dict = {}
+        if not self.values:
+            return result
+
+        return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
+
+    def __repr__(self):
+        params_repr = ", ".join(f"{repr(prop)}" for prop in self.values)
+        return f"PropertyGroup(type={self.type}-{params_repr})"
+
+    @cached_property
+    def flat(self) -> List[Property]:
+        return list(self._property_groups_flat(self))
+
+    def _property_groups_flat(self, prop_group: "PropertyGroup"):
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                yield from self._property_groups_flat(value)
+            else:
+                yield value

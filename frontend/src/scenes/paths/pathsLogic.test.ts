@@ -1,9 +1,9 @@
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType } from '~/types'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 
 jest.mock('lib/api')
 
@@ -12,29 +12,25 @@ const Insight123 = '123' as InsightShortId
 describe('pathsLogic', () => {
     let logic: ReturnType<typeof pathsLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights/path`,
-                `api/projects/${MOCK_TEAM_ID}/insights/paths/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
-            ].includes(pathname)
-        ) {
-            return { result: ['result from api'] }
-        } else if (
-            String(searchParams.short_id) === Insight123 ||
-            [`api/projects/${MOCK_TEAM_ID}/insights`].includes(pathname)
-        ) {
-            return { results: ['result from api'] }
-        }
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/insights/paths/': { result: ['result from api'] },
+                '/api/projects/:team/insights/trend/': { result: ['result from api'] },
+                '/api/projects/:team/insights': { result: ['result from api'] },
+            },
+            post: {
+                '/api/projects/:team/insights/path/': { result: ['result from api'] },
+            },
+        })
     })
 
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: Insight123 }
-        initKeaTestLogic({
-            logic: pathsLogic,
-            props,
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            initKeaTests()
+            logic = pathsLogic(props)
+            logic.mount()
         })
 
         it('setFilter calls insightLogic.setFilters', async () => {

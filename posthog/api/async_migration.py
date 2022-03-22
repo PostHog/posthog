@@ -3,12 +3,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
-from posthog.async_migrations.utils import (
-    can_resume_migration,
-    force_stop_migration,
-    rollback_migration,
-    trigger_migration,
-)
+from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
 from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
@@ -66,7 +61,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = AsyncMigration.objects.all()
+    queryset = AsyncMigration.objects.all().order_by("name")
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
@@ -108,9 +103,10 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {"success": False, "error": "Can't resume a migration that isn't in errored state",}, status=400,
             )
-        resumable, error = can_resume_migration(migration_instance)
-        if not resumable:
-            return response.Response({"success": False, "error": error,}, status=400,)
+
+        migration_instance.status = MigrationStatus.Running
+        migration_instance.save()
+
         trigger_migration(migration_instance, fresh_start=False)
         return response.Response({"success": True}, status=200)
 
@@ -162,6 +158,6 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(
             [
                 AsyncMigrationErrorsSerializer(e).data
-                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
+                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance).order_by("-created_at")
             ]
         )

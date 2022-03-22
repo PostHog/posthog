@@ -5,9 +5,8 @@ import { EditableField as EditableFieldComponent } from './EditableField'
 import { PageHeader } from '../PageHeader'
 
 export default {
-    title: 'PostHog/Components/EditableField',
+    title: 'Forms/EditableField',
     component: EditableFieldComponent,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof EditableFieldComponent>
 
 export function TitleAndDescription(): JSX.Element {

@@ -1,5 +1,9 @@
 @import '~/vars';
 
+.performance-popup {
+    max-width: 300px;
+}
+
 .performance-waterfall {
     line-height: 32px;
     padding-right: 3em;
@@ -43,6 +47,11 @@
             position: absolute;
             min-width: 2px;
             height: 32px;
+        }
+
+        .reduced-height {
+            height: 16px;
+            margin-top: 7px;
         }
 
         .vertical-marker {

@@ -1,14 +1,13 @@
 import dataclasses
-from typing import Any, Dict, List
+from typing import Dict
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Element, Event, Person, Team
+from posthog.models import Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.paths import Paths
 from posthog.test.base import APIBaseTest
 
 

@@ -2,13 +2,14 @@ import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytz
-from django.conf import settings
+from constance import config
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
@@ -16,7 +17,6 @@ from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
-    from posthog.models.user import User
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -60,10 +60,11 @@ class TeamManager(models.Manager):
         team = Team.objects.create(**kwargs)
 
         # Create default dashboards (skipped for demo projects)
-        # TODO: Support multiple dashboard flavors based on #2822 personalization
         if default_dashboards:
             dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
+            team.primary_dashboard = dashboard
+            team.save()
         return team
 
     def create(self, *args, **kwargs) -> "Team":
@@ -112,6 +113,15 @@ class Team(UUIDClassicModel):
     path_cleaning_filters: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
+    primary_dashboard: models.ForeignKey = models.ForeignKey(
+        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
+    )  # Dashboard shown on project homepage
+
+    # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
+    # Switches _most_ queries to using distinct_id as aggregator instead of person_id
+    @property
+    def aggregate_users_by_distinct_id(self) -> bool:
+        return str(self.pk) in get_list(config.AGGREGATE_BY_DISTINCT_IDS_TEAMS)
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
@@ -138,7 +148,7 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def get_effective_membership_level(self, user: "User") -> Optional["OrganizationMembership.Level"]:
+    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
         """Return an effective membership level.
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
@@ -147,7 +157,7 @@ class Team(UUIDClassicModel):
         try:
             requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
                 "organization"
-            ).get(organization_id=self.organization_id, user=user)
+            ).get(organization_id=self.organization_id, user_id=user_id)
         except OrganizationMembership.DoesNotExist:
             return None
         if (

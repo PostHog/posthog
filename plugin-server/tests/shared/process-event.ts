@@ -11,6 +11,7 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
+    PropertyType,
     PropertyUpdateOperation,
     Team,
 } from '../../src/types'
@@ -343,7 +344,7 @@ export const createProcessEventTests = (
                     $browser: 'Chrome',
                     $current_url: 'https://test.com',
                     $os: 'Mac OS X',
-                    $browser_version: false,
+                    $browser_version: '95',
                     $initial_referring_domain: 'https://google.com',
                     $initial_referrer_url: 'https://google.com/?q=posthog',
                     utm_medium: 'twitter',
@@ -367,7 +368,7 @@ export const createProcessEventTests = (
         expect(persons[0].created_at).toEqual(now)
         let expectedProps = {
             $initial_browser: 'Chrome',
-            $initial_browser_version: false,
+            $initial_browser_version: '95',
             $initial_utm_medium: 'twitter',
             $initial_current_url: 'https://test.com',
             $initial_os: 'Mac OS X',
@@ -394,13 +395,13 @@ export const createProcessEventTests = (
                 $initial_browser: 'Chrome',
                 $initial_utm_medium: 'twitter',
                 $initial_current_url: 'https://test.com',
-                $initial_browser_version: false,
+                $initial_browser_version: '95',
                 $initial_gclid: 'GOOGLE ADS ID',
             },
             utm_medium: 'twitter',
             distinct_id: 2,
             $current_url: 'https://test.com',
-            $browser_version: false,
+            $browser_version: '95',
             gclid: 'GOOGLE ADS ID',
             $initial_referrer_url: 'https://google.com/?q=posthog',
             $initial_referring_domain: 'https://google.com',
@@ -441,7 +442,7 @@ export const createProcessEventTests = (
         expect(persons[0].version).toEqual(1)
         expectedProps = {
             $initial_browser: 'Chrome',
-            $initial_browser_version: false,
+            $initial_browser_version: '95',
             $initial_utm_medium: 'twitter',
             $initial_current_url: 'https://test.com',
             $initial_os: 'Mac OS X',
@@ -607,9 +608,9 @@ export const createProcessEventTests = (
             },
             {
                 id: expect.any(String),
-                is_numerical: false,
+                is_numerical: true,
                 name: '$browser_version',
-                property_type: null,
+                property_type: PropertyType.Numeric,
                 property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,

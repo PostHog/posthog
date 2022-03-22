@@ -41,6 +41,7 @@ describe('ActionMatcher', () => {
             id: actionCounter++,
             team_id: 2,
             name: 'Test',
+            description: '',
             created_at: new Date().toISOString(),
             created_by_id: commonUserId,
             deleted: false,
@@ -90,7 +91,6 @@ describe('ActionMatcher', () => {
 
     /** Return a test person created on a common base using provided property overrides. */
     function createTestPerson(overrides: Partial<Person> = {}): Person {
-        const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
         return {
             id: 2,
             team_id: 2,
@@ -751,7 +751,7 @@ describe('ActionMatcher', () => {
                 new UUIDT().toString(),
                 ['cohort']
             )
-            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id)
+            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 
             const eventExamplePersonBad: PluginEvent = createTestEvent({
                 event: 'meow',
@@ -931,16 +931,6 @@ describe('ActionMatcher', () => {
             const actionDefinitionArraySelectorProp: Action = await createTestAction([
                 {
                     properties: [{ type: 'element', key: 'selector', value: ['main h1.headline'] }],
-                },
-            ])
-            const actionDefinitionEmptySelectorProp: Action = await createTestAction([
-                {
-                    properties: [{ type: 'element', key: 'selector', value: '' }],
-                },
-            ])
-            const actionDefinitionCompletelyInvalidSelectorProp: Action = await createTestAction([
-                {
-                    properties: [{ type: 'element', key: 'selector', value: null as unknown as string }],
                 },
             ])
 

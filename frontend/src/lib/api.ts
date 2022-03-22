@@ -1,16 +1,35 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, ActorType, CohortType, EventType, FilterType, PluginLogEntry, TeamType } from '../types'
+import {
+    ActionType,
+    ActorType,
+    CohortType,
+    DashboardCollaboratorType,
+    DashboardType,
+    EventDefinition,
+    EventType,
+    FilterType,
+    PluginLogEntry,
+    PropertyDefinition,
+    TeamType,
+    UserType,
+} from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
+import { DashboardPrivilegeLevel } from './constants'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
 }
+
+const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
     let cookieValue: string | null = null
@@ -62,8 +81,8 @@ class ApiRequest {
 
     // Generic endpoint composition
 
-    private addPathComponent(component: string): ApiRequest {
-        this.pathComponents.push(component)
+    private addPathComponent(component: string | number): ApiRequest {
+        this.pathComponents.push(component.toString())
         return this
     }
 
@@ -83,33 +102,63 @@ class ApiRequest {
     }
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.projects().addPathComponent(id.toString())
+        return this.projects().addPathComponent(id)
     }
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
-        return this.addPathComponent('plugin_configs')
-            .addPathComponent(pluginConfigId.toString())
-            .addPathComponent('logs')
+        return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
 
-    public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
 
-    public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.actions(teamId).addPathComponent(actionId.toString())
+    public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.actions(teamId).addPathComponent(actionId)
     }
 
-    public events(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
-    public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('event_definitions')
+    }
+
+    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
+    public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
 
-    public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.cohorts(teamId).addPathComponent(cohortId.toString())
+    public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+
+    public dashboards(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboards')
+    }
+
+    public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboards(teamId).addPathComponent(dashboardId)
+    }
+
+    public dashboardCollaborators(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
+    }
+
+    public dashboardCollaboratorsDetail(
+        dashboardId: DashboardType['id'],
+        userUuid: UserType['uuid'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
     }
 
     // Request finalization
@@ -213,8 +262,102 @@ const api = {
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: Record<string, any> = { ...filters, limit }
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            filters: Partial<FilterType>,
+            limit: number = 10,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    eventDefinitions: {
+        async list({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<EventDefinition>> {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .get()
+        },
+        determineListEndpoint({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .assembleFullUrl()
+        },
+    },
+
+    propertyDefinitions: {
+        async list({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
+        },
+        determineListEndpoint({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .assembleFullUrl()
         },
     },
 
@@ -241,6 +384,35 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
+        },
+    },
+
+    dashboards: {
+        collaborators: {
+            async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
+                return await new ApiRequest().dashboardCollaborators(dashboardId).get()
+            },
+            async create(
+                dashboardId: DashboardType['id'],
+                userUuid: UserType['uuid'],
+                level: DashboardPrivilegeLevel
+            ): Promise<DashboardCollaboratorType> {
+                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
+                    data: {
+                        user_uuid: userUuid,
+                        level,
+                    },
+                })
+            },
+            async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
+            },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 
@@ -302,7 +474,7 @@ const api = {
             method: 'PATCH',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
         })
@@ -327,7 +499,7 @@ const api = {
             method: 'POST',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
@@ -351,7 +523,7 @@ const api = {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
         })
 

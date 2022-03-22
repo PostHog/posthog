@@ -1,8 +1,5 @@
-from dateutil.relativedelta import relativedelta
-from django.db.models import Q
 from freezegun.api import freeze_time
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.test.base import BaseTest
 
@@ -32,7 +29,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
                 "target_entity": {
@@ -43,7 +40,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
             },
@@ -74,7 +71,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
                 "target_entity": {
@@ -85,7 +82,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
             },

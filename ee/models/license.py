@@ -64,12 +64,15 @@ class License(models.Model):
         AvailableFeature.GROUP_ANALYTICS,
         AvailableFeature.MULTIVARIATE_FLAGS,
         AvailableFeature.EXPERIMENTATION,
+        AvailableFeature.TAGGING,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
+        AvailableFeature.DASHBOARD_PERMISSIONING,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
+        AvailableFeature.SSO_ENFORCEMENT,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
 

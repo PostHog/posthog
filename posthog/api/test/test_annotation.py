@@ -5,8 +5,7 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, Insight, Organization, User, organization
-from posthog.models.team import Team
+from posthog.models import Annotation, Dashboard, Insight, Organization, User
 from posthog.test.base import APIBaseTest
 
 

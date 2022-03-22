@@ -43,7 +43,7 @@ export function PathItemFilters({
         <div className="mb" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filtersWithNew?.length &&
-                    filtersWithNew.map((filter, index) => {
+                    filtersWithNew.map((filter: AnyPropertyFilter, index: number) => {
                         return (
                             <div key={index} style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
                                 <PathItemSelector
@@ -65,7 +65,7 @@ export function PathItemFilters({
                                         </Button>
                                     ) : (
                                         <Row align="middle">
-                                            <FilterButton>{filter.value as string}</FilterButton>
+                                            <FilterButton item={filter}>{filter.value as string}</FilterButton>
                                             {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {

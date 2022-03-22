@@ -3,34 +3,45 @@ import secrets
 from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import Http404, HttpRequest
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import exceptions, mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
-from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
 
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
-from posthog.exceptions import ObjectExistsInOtherProject
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, Insight, Team
+from posthog.models import Dashboard, Insight, Organization, Team
 from posthog.models.user import User
+from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
 
-class DashboardSerializer(serializers.ModelSerializer):
+class CanEditDashboard(BasePermission):
+    message = "You don't have edit permissions for this dashboard."
+
+    def has_object_permission(self, request: Request, view, dashboard) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        return dashboard.can_user_edit(cast(User, request.user).id)
+
+
+class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
+    effective_privilege_level = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -50,8 +61,14 @@ class DashboardSerializer(serializers.ModelSerializer):
             "use_dashboard",
             "filters",
             "tags",
+            "restriction_level",
+            "effective_restriction_level",
+            "effective_privilege_level",
         ]
-        read_only_fields = ("creation_mode",)
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -60,6 +77,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -80,15 +98,17 @@ class DashboardSerializer(serializers.ModelSerializer):
                         "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
-                    insight_serializer = InsightSerializer(
-                        data={
-                            **InsightSerializer(dashboard_item, context=self.context,).data,
-                            **override_dashboard_item_data,
-                        },
-                        context=self.context,
-                    )
+                    new_data = {
+                        **InsightSerializer(dashboard_item, context=self.context,).data,
+                        **override_dashboard_item_data,
+                    }
+                    new_tags = new_data.pop("tags", None)
+                    insight_serializer = InsightSerializer(data=new_data, context=self.context,)
                     insight_serializer.is_valid()
                     insight_serializer.save()
+
+                    # Create new insight's tags separately. Force create tags on dashboard duplication.
+                    self._attempt_set_tags(new_tags, insight_serializer.instance, force_create=True)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -100,6 +120,9 @@ class DashboardSerializer(serializers.ModelSerializer):
                     dashboard=dashboard,
                     team=team,
                 )
+
+        # Manual tag creation since this create method doesn't call super()
+        self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -116,6 +139,13 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
+        user = cast(User, self.context["request"].user)
+        can_user_restrict = instance.can_user_restrict(user.id)
+        if "restriction_level" in validated_data and not can_user_restrict:
+            raise exceptions.PermissionDenied(
+                "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
+            )
+
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
@@ -123,16 +153,9 @@ class DashboardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if "request" in self.context:
-            report_user_action(self.context["request"].user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
-
-    def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
-        item_as_list = list(i for i in items if i.id == dive_source_id)
-        if not item_as_list:
-            item_as_list = [Insight.objects.get(pk=dive_source_id)]
-        others = list(i for i in items if i.id != dive_source_id)
-        return item_as_list + others
 
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
@@ -141,17 +164,16 @@ class DashboardSerializer(serializers.ModelSerializer):
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
 
-        dive_source_id = self.context["request"].GET.get("dive_source_id")
-        if dive_source_id is not None:
-            items = self.add_dive_source_item(items, int(dive_source_id))
-
-        #  Make sure all items have an insight set
+        #  Make sure all items have an insight set
         # This should have only happened historically
         for item in items:
             if not item.filters.get("insight"):
                 item.filters["insight"] = INSIGHT_TRENDS
                 item.save()
         return InsightSerializer(items, many=True, context=self.context).data
+
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+        return dashboard.get_effective_privilege_level(self.context["request"].user.id)
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
@@ -167,40 +189,45 @@ class DashboardSerializer(serializers.ModelSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Dashboard.objects.all()
+class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
     authentication_classes = [
         PersonalAPIKeyAuthentication,
         SessionAuthentication,
         BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+        CanEditDashboard,
+    ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().order_by("name")
-        if self.action == "list":
+        queryset = super().get_queryset()
+        if not self.action.endswith("update"):
+            # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
-        queryset = queryset.prefetch_related(
-            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"),)
+
+        deferred_fields = set.union(
+            get_deferred_field_set_for_model(
+                Organization, fields_not_deferred={"available_features"}, field_prefix="team__organization__"
+            ),
+            get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
+        )
+
+        queryset = (
+            queryset.select_related("team__organization", "created_by")
+            .defer(*deferred_fields)
+            .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
         )
         return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
-        try:
-            dashboard = get_object_or_404(queryset, pk=pk)
-        except Http404 as e:
-            user = cast(User, request.user)
-            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams, pk=pk)
-            if alternative_team.exists():
-                raise ObjectExistsInOtherProject(
-                    alternative_team_id=alternative_team.first().team_id,  # type: ignore
-                    feature="Dashboard",
-                )
-            raise e
-
+        dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save()
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})

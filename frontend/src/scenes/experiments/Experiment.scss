@@ -2,10 +2,10 @@
 
 .experiment-form {
     .metrics-selection {
-        width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
-        margin-top: $default_spacing;
+
+        width: 100%;
 
         .action-filters-bordered {
             .draggable-action-filter {
@@ -17,6 +17,14 @@
                 color: $primary_alt;
             }
         }
+    }
+
+    .person-selection {
+        width: 100%;
+        border-top: 1px solid $border;
+        padding-top: $default_spacing;
+        align-items: center;
+        justify-content: space-between;
     }
 
     .insights-graph-container {
@@ -73,10 +81,8 @@
         }
 
         .graph-container {
-            // hacky because container not respecting position: relative;
-            width: calc(100% - 48px);
-            height: calc(100% - 48px);
-            margin-top: $default_spacing * 2;
+            width: calc(100% - 2rem);
+            height: calc(100% - 3rem);
         }
     }
 
@@ -104,17 +110,64 @@
     }
 
     .variants {
-        border: 1px solid $border;
-        border-radius: 4px;
-        padding-left: $default_spacing;
         margin-top: $default_spacing / 2;
-        margin-bottom: $default_spacing;
+        padding-bottom: 1rem;
+        .ant-form-horizontal {
+            min-height: 32px;
+        }
+
+        .border-top {
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+
+        .border-bottom {
+            border-bottom-left-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
         .feature-flag-variant {
-            margin-top: 20px;
+            flex-direction: row;
+            align-items: baseline;
+            padding: 12px 8px;
+            background: #ffffff;
+            border-width: 1px;
+            border-color: $border;
+            border-top-style: solid;
+            border-left-style: solid;
+            border-right-style: solid;
+
             .ant-form-item-explain-error {
-                padding-top: $default_spacing / 2;
+                margin-top: $default_spacing / 2;
+                color: $error_red;
+            }
+
+            .ant-form-item-label {
+                padding: 0px;
             }
         }
+
+        .variant-label {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            border-radius: 4px;
+            color: #ffffff;
+            min-width: 52px;
+            padding: 2px 6px;
+            margin-right: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+    }
+
+    .secondary-metrics {
+        margin-top: $default_spacing;
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+        margin-bottom: $default_spacing;
     }
 
     .ant-input-number-disabled {
@@ -141,7 +194,7 @@
         color: $danger;
     }
 
-    .description {
+    .exp-description {
         font-style: italic;
         color: $text_muted;
     }
@@ -186,10 +239,53 @@
     .not-significant-results {
         padding: $default_spacing / 2;
         width: 100%;
-        background: rgba(249, 97, 50, 0.1);
+        background: rgba(83, 117, 255, 0.1);
         border-radius: 4px;
-        text-align: center;
         margin-bottom: $default_spacing;
+    }
+
+    .feature-flag-mods {
+        padding: $default_spacing / 2;
+        width: 100%;
+        background: #f6ebf8;
+        border-radius: 4px;
+        margin-bottom: $default_spacing;
+    }
+
+    .ant-collapse-content-box {
+        display: flex;
+        flex-flow: column;
+    }
+
+    .secondary-progress {
+        margin-top: $default_spacing / 2;
+
+        li::before {
+            content: '\2022';
+            display: inline-block;
+            font-weight: 900;
+            margin-right: 4px;
+        }
+
+        .ant-progress-inner {
+            border-radius: 4px;
+
+            .ant-progress-bg {
+                border-radius: 4px;
+            }
+        }
+    }
+
+    .no-experiment-results {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: $default_spacing;
+        background-color: $bg_side;
+        border: 1px solid $border;
+        width: 100%;
+        min-height: 320px;
+        font-size: 24px;
     }
 }
 
@@ -211,5 +307,39 @@
         border-bottom: none;
         padding-bottom: 0;
         margin-bottom: 0;
+    }
+}
+
+.metric-name {
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 8px 8px 8px 16px;
+    margin-left: $default_spacing / 2;
+    flex: 1;
+}
+
+.experiment-implementation-details,
+.experiment-workflow {
+    border-color: $dark-grey;
+    .ant-card-head {
+        padding-left: $default_spacing;
+        padding-right: $default_spacing;
+        border: none;
+    }
+
+    .ant-card-head-title {
+        border-bottom: 1px solid $border;
+    }
+    .exp-workflow-step {
+        margin-bottom: $default_spacing / 2;
+        padding: $default_spacing / 2;
+        border-radius: 4px;
+        &:hover {
+            cursor: pointer;
+        }
+    }
+
+    .step-completed {
+        background-color: #e5ebff;
     }
 }

@@ -4,15 +4,38 @@ import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
+
+export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
+    no_new_organizations:
+        'Your email address is not associated with an account. Please ask your administrator for an invite.',
+    invalid_sso_provider: (
+        <>
+            The SSO provider you specified is invalid. Visit{' '}
+            <a href="https://posthog.com/sso" target="_blank">
+                https://posthog.com/sso
+            </a>{' '}
+            for details.
+        </>
+    ),
+    improperly_configured_sso: (
+        <>
+            Cannot login with SSO provider because the provider is not configured, or your instance does not have the
+            required license. Please visit{' '}
+            <a href="https://posthog.com/sso" target="_blank">
+                https://posthog.com/sso
+            </a>{' '}
+            for details.
+        </>
+    ),
+}
 
 export const scene: SceneExport = {
     component: Login,
@@ -85,7 +108,6 @@ export function Login(): JSX.Element {
                             </Form.Item>
                         </Form>
                         <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
-                            &nbsp;
                             {preflight?.cloud && (
                                 <Link to="/signup" data-attr="signup" className="lhs">
                                     Create an account

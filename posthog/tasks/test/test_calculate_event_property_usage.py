@@ -4,7 +4,7 @@ from typing import Callable
 from freezegun import freeze_time
 
 from posthog.demo import create_demo_team
-from posthog.models import Event, Insight, Organization, Team
+from posthog.models import Insight, Organization
 from posthog.models.event_definition import EventDefinition
 from posthog.models.property_definition import PropertyDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team

@@ -2,9 +2,10 @@ from rest_framework import serializers
 
 from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 
-class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
+class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -20,7 +21,6 @@ class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
             "query_usage_30_day",
             "is_event_property",
             "property_type",
-            "property_type_format",
         )
         read_only_fields = ["id", "name", "is_numerical", "query_usage_30_day", "is_event_property"]
 

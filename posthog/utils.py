@@ -42,7 +42,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 
-from posthog.constants import AnalyticsDBMS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -259,6 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
 
@@ -276,15 +277,18 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     return HttpResponse(html)
 
 
-def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    try:
+    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
         team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.only("api_token").first()
+    else:
+        try:
+            team = Team.objects.only("api_token").first()
+        except Exception:
+            pass
 
     if team:
         return team.api_token
@@ -353,7 +357,7 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"
@@ -599,7 +603,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
-    
+
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
@@ -644,7 +648,11 @@ def get_can_create_org() -> bool:
     return False
 
 
-def get_available_social_auth_providers() -> Dict[str, bool]:
+def get_available_sso_providers() -> Dict[str, bool]:
+    """
+    Returns a dictionary containing final determination whether certain SSO providers are available.
+    Validates configuration settings and license validity (if applicable).
+    """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
@@ -679,8 +687,29 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(l: Union[List, Tuple]) -> Generator:
-    for el in l:
+def get_sso_enforced_provider() -> Optional[str]:
+    """
+    Returns the enforced SSO provider handle for the instance if SSO is properly configured and required license is present.
+        => response: `saml`, `google-oaut2`, `github`, `gitlab`, `None`.
+    """
+    sso_enforcement = getattr(settings, "SSO_ENFORCEMENT", None)
+
+    if sso_enforcement:
+        sso_providers = get_available_sso_providers()
+        if not sso_providers[settings.SSO_ENFORCEMENT]:
+            print_warning(
+                [
+                    f"You have configured `SSO_ENFORCEMENT` with value `{settings.SSO_ENFORCEMENT}`,"
+                    " but that provider is not properly configured or your instance does not have the required license."
+                ]
+            )
+            return None
+
+    return sso_enforcement
+
+
+def flatten(i: Union[List, Tuple]) -> Generator:
+    for el in i:
         if isinstance(el, list):
             yield from flatten(el)
         else:
@@ -804,10 +833,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 
 def should_refresh(request: Request) -> bool:
-    key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
-        key, False
-    ) == True
+    query_param = request.query_params.get("refresh")
+    data_value = request.data.get("refresh")
+    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
 def str_to_bool(value: Any) -> bool:

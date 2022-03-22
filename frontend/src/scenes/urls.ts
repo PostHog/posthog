@@ -2,24 +2,33 @@
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
+/*
+To add a new URL to the front end:
+ - add a URL function here
+ - add a scene to the enum in sceneTypes.ts
+ - add a scene configuration in scenes.ts
+ - add a route to scene mapping in scenes.ts
+ - and add a scene import in appScenes.ts
+
+   Sync the paths with AutoProjectMiddleware!
+ */
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
     sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
-    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
-    action: (id: string | number) => `/action/${id}`,
-    actions: () => '/events/actions',
-    eventStats: () => '/events/stats',
-    eventPropertyStats: () => '/events/properties',
+    createAction: () => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
+    action: (id: string | number) => `/data-management/actions/${id}`,
+    actions: () => '/data-management/actions',
+    eventDefinitions: () => '/data-management/events',
+    eventDefinition: (id: string | number) => `/data-management/events/${id}`,
+    eventPropertyDefinitions: () => '/data-management/event-properties',
+    eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightRouter: (id: string) => `/i/${id}`,
-    insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
+    insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
+    insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
     sessionRecordings: () => '/recordings',
@@ -38,6 +47,7 @@ export const urls = {
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
+    projectHomepage: () => '/home',
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
@@ -50,15 +60,16 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
+    instanceStatus: () => '/instance/status',
+    instanceStaffUsers: () => '/instance/staff_users',
+    instanceSettings: () => '/instance/settings',
+    instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',
+    deadLetterQueue: () => '/instance/dead_letter_queue',
 }

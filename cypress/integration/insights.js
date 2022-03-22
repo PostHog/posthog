@@ -6,18 +6,8 @@ describe('Insights', () => {
         cy.visit(urls.insightNew())
     })
 
-    it('Opens insight with short URL', () => {
-        cy.visit('/i/TEST1234') // Insight `TEST1234` is created in demo data (revenue_data_generator.py)
-        cy.location('pathname').should('eq', '/insights/TEST1234') // User is taken to the insights page
-        cy.get('[data-attr=insight-edit-button]').click()
-        cy.get('[data-attr=trend-element-subject-0]').contains('Pageview').should('exist') // Funnel is properly loaded
-        cy.get('[data-attr=trend-element-subject-1]').contains('Purchase').should('exist')
-
-        cy.get('[data-attr=funnel-bar-graph]').should('exist')
-    })
-
     it('Create new insight and save copy', () => {
-        cy.visit('/saved_insights')
+        cy.visit('/saved_insights/') // Should work with trailing slash just like without it
         cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
@@ -50,16 +40,15 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-as-new-insight"]').click()
 
         cy.get('.ant-modal .ant-btn-primary').click()
-        cy.get('[data-attr="insight-name"').contains('(copy)').should('exist')
+        cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
         // Check we're in edit mode
         cy.get('[data-attr="insight-save-button"]').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('eq', '/i/i_dont_exist')
-        cy.get('h1.page-title').contains('Insight not found').should('exist')
-        cy.get('.not-found-component').get('.graphic').should('exist')
+        cy.location('pathname').should('eq', '/insights/i_dont_exist')
+        cy.get('.ant-skeleton-title').should('exist')
     })
 
     it('Stickiness graph', () => {
@@ -80,7 +69,8 @@ describe('Insights', () => {
     })
 
     it('Loads default filters correctly', () => {
-        cy.visit('/events') // Test that default params are set correctly even if the app doesn't start on insights
+        // Test that default params are set correctly even if the app doesn't start on insights
+        cy.visit('/events/') // Should work with trailing slash just like without it
         cy.reload()
 
         cy.clickNavMenu('insight')
@@ -91,8 +81,7 @@ describe('Insights', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    xit('Cannot see tags or description (non-FOSS feature)', () => {
-        cy.get('h1').should('contain', 'Insights')
+    it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')
     })

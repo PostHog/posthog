@@ -78,6 +78,7 @@ export interface ActionFilterProps {
     /** Which tabs to show for property filters */
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hideDeleteBtn?: boolean
+    readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
         prefix,
@@ -121,6 +122,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideDeleteBtn,
             renderRow,
             buttonType = 'dashed',
+            readOnly = false,
         },
         ref
     ): JSX.Element => {
@@ -174,6 +176,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             propertiesTaxonomicGroupTypes,
             hideDeleteBtn,
             disabled,
+            readOnly,
             renderRow,
             hideRename,
             onRenameClick: showModal,
@@ -183,7 +186,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
         return (
             <div ref={ref}>
-                {!hideRename && (
+                {!hideRename && !readOnly && (
                     <BindLogic
                         logic={entityFilterLogic}
                         props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
@@ -214,7 +217,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 key={index}
                                 singleFilter={singleFilter}
                                 showOr={showOr}
-                                hideFilter={hideFilter}
+                                hideFilter={hideFilter || readOnly}
                                 horizontalUI={horizontalUI}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}
@@ -234,7 +237,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<PlusCircleOutlined />}
-                                disabled={reachedLimit || disabled}
+                                disabled={reachedLimit || disabled || readOnly}
                                 className="add-action-event-button"
                             >
                                 {!reachedLimit

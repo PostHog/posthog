@@ -127,8 +127,8 @@ def decompress_chunked_snapshot_data(
     """
     Before data is stored in clickhouse, it is compressed and then chunked. This function
     gets back to the original data by unchunking the events and then decompressing the data.
-    
-    If limit + offset is provided, then it will paginate the decompression by chunks (not by events, because 
+
+    If limit + offset is provided, then it will paginate the decompression by chunks (not by events, because
     you can't decompress an incomplete chunk).
 
     Depending on the size of the recording, this function can return a lot of data. To decrease the
@@ -219,7 +219,7 @@ def get_active_segments_from_event_list(
 ) -> List[RecordingSegment]:
     """
     Processes a list of events for a specific window_id to determine
-    the segments of the recording where the user is "active". And active segment ends 
+    the segments of the recording where the user is "active". And active segment ends
     when there isn't another active event for activity_threshold_seconds seconds
     """
     active_event_timestamps = [event.timestamp for event in event_list if event.is_active]

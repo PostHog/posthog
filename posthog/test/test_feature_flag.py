@@ -83,11 +83,13 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_1").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
@@ -132,11 +134,13 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_2").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
@@ -306,12 +310,12 @@ class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_person_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team, "distinct_id")
+        flags = get_overridden_feature_flags(self.team.pk, "distinct_id")
         self.assertEqual(flags, {"feature-all": True, "feature-posthog": True, "feature-disabled": True})
 
     @snapshot_postgres_queries
     def test_group_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team, "distinct_id", {"organization": "PostHog"})
+        flags = get_overridden_feature_flags(self.team.pk, "distinct_id", {"organization": "PostHog"})
         self.assertEqual(
             flags,
             {

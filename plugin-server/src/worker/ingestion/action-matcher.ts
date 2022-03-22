@@ -22,7 +22,8 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/utils'
-import { stringify, stringToBoolean } from '../../utils/utils'
+import { stringToBoolean } from '../../utils/env-utils'
+import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
@@ -115,7 +116,16 @@ export class ActionMatcher {
             elements = rawElements ? extractElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkAction(event, elements, person, action))
+            teamActions.map((action) => {
+                const timer = new Date()
+                const res = this.checkAction(event, elements, person, action)
+                this.statsd?.timing('checkAction', timer, {
+                    event: String(event.event),
+                    teamId: String(event.team_id),
+                    action: String(action.name),
+                })
+                return res
+            })
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {

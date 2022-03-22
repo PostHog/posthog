@@ -18,13 +18,15 @@ import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 interface Props {
     view: InsightType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insightProps, insightMode } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
+    const { insightProps } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {
@@ -46,7 +48,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph filters={_filters} />
+            return <ActionsLineGraph />
         }
         if (_filters.display === ACTIONS_TABLE) {
             return (
@@ -56,15 +58,16 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         showTotalCount
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
+                        isMainInsightView={true}
                     />
                 </BindLogic>
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} />
+            return <ActionsPie />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsHorizontalBar filters={_filters} />
+            return <ActionsHorizontalBar />
         }
     }
 

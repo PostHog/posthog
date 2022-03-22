@@ -13,7 +13,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest
 
 
 def _create_person(**kwargs):
@@ -42,7 +42,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
-    @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_person_query_includes_recording_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
@@ -132,7 +131,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(serialized_actors[0].get("matched_recordings"), None)
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

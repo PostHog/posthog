@@ -6,6 +6,8 @@ on:
             - master
             - main
 
+concurrency: 'publish_latest_image' # Ensure only one of this runs at a time
+
 jobs:
     build-push:
         name: Build Docker images and push them

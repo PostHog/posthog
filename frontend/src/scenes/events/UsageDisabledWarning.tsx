@@ -6,7 +6,7 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
         <Alert
             type="info"
             showIcon
-            message={`${tab} is not enabled for your instance.`}
+            message={`${tab} are not enabled for your instance.`}
             description={
                 <>
                     You will still see the list of events and properties, but usage information will be unavailable. If

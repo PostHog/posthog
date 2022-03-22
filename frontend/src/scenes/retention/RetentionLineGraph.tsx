@@ -8,17 +8,15 @@ import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/reten
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './RetentionLineGraph.scss'
 import { RetentionModal } from './RetentionModal'
+import { roundToDecimal } from 'lib/utils'
 
 interface RetentionLineGraphProps {
-    dashboardItemId?: number | null
-    color?: string
-    inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
+    inCardView?: boolean
+    inSharedMode?: boolean
 }
 
 export function RetentionLineGraph({
-    dashboardItemId = null,
-    color = 'white',
+    inCardView = false,
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -48,12 +46,12 @@ export function RetentionLineGraph({
             <LineGraph
                 data-attr="trend-line-graph"
                 type={GraphType.Line}
-                color={color}
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={incompletenessOffsetFromEnd < 0}
-                insightId={insight.id}
+                insightNumericId={insight.id}
                 inSharedMode={!!inSharedMode}
+                showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
                 percentage={true}
                 tooltip={{
@@ -67,9 +65,12 @@ export function RetentionLineGraph({
                         )
                     },
                     showHeader: false,
+                    renderCount: (count) => {
+                        return `${roundToDecimal(count)}%`
+                    },
                 }}
                 onClick={
-                    dashboardItemId
+                    inCardView
                         ? undefined
                         : (payload) => {
                               const { points } = payload
@@ -100,6 +101,6 @@ export function RetentionLineGraph({
             )}
         </>
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState />
     )
 }

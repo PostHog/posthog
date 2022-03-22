@@ -70,6 +70,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
             "access_control",
             "has_group_types",
+            "primary_dashboard",
         )
         read_only_fields = (
             "id",
@@ -85,12 +86,15 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user)
+        return team.get_effective_membership_level(self.context["request"].user.id)
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
 
     def validate(self, attrs: Any) -> Any:
+        if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
+            raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private
             # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
@@ -141,7 +145,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             for team in super()
             .get_queryset()
             .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user) is not None
+            if team.get_effective_membership_level(self.request.user.id) is not None
         ]
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
@@ -186,8 +190,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return team
 
     def perform_destroy(self, team: Team):
+        team_id = team.pk
         super().perform_destroy(team)
-        delete_clickhouse_data.delay(team_ids=[team.pk])
+        delete_clickhouse_data.delay(team_ids=[team_id])
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:

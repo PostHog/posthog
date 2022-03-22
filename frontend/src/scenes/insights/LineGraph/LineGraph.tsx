@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext, useActions, useValues } from 'kea'
 import {
+    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -21,21 +22,23 @@ import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType, IntervalType } from '~/types'
-import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
+if (registerables) {
+    // required for storybook to work, not found in esbuild
+    Chart.register(...registerables)
+}
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
@@ -45,18 +48,14 @@ interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
-    color: string
     type: GraphType
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    insightId?: number
+    insightNumericId?: number
     inSharedMode?: boolean
     percentage?: boolean
-    interval?: IntervalType // TODO: Depecrate once LEGACY_LineGraph is removed
-    totalValue?: number // TODO: Depecrate once LEGACY_LineGraph is removed
     showPersonsModal?: boolean
-    tooltipPreferAltTitle?: boolean // TODO: Depecrate once LEGACY_LineGraph is removed
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
@@ -65,36 +64,31 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
-export function LineGraph(props: LineGraphProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
-        return <LineGraphV2 {...props} />
-    } else {
-        // @ts-expect-error
-        return <LEGACY_LineGraph {...props} />
-    }
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            <LineGraph_ {...props} />
+        </ErrorBoundary>
+    )
 }
 
-function LineGraphV2(props: LineGraphProps): JSX.Element {
-    const {
-        datasets: _datasets,
-        hiddenLegendKeys,
-        labels,
-        color,
-        type,
-        isInProgress = false,
-        onClick,
-        ['data-attr']: dataAttr,
-        insightId,
-        inSharedMode = false,
-        percentage = false,
-        showPersonsModal = true,
-        isCompare = false,
-        incompletenessOffsetFromEnd = -1,
-        tooltip: tooltipConfig,
-        labelGroupType,
-    } = props
+export function LineGraph_({
+    datasets: _datasets,
+    hiddenLegendKeys,
+    labels,
+    type,
+    isInProgress = false,
+    onClick,
+    ['data-attr']: dataAttr,
+    insightNumericId,
+    inSharedMode = false,
+    percentage = false,
+    showPersonsModal = true,
+    isCompare = false,
+    incompletenessOffsetFromEnd = -1,
+    tooltip: tooltipConfig,
+    labelGroupType,
+}: LineGraphProps): JSX.Element {
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -110,31 +104,32 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
     const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightId }))
+        ? useActions(annotationsLogic({ insightNumericId }))
         : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightId }))
+        ? useValues(annotationsLogic({ insightNumericId }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
-    const size = useWindowSize()
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
-    const annotationsCondition =
-        type === GraphType.Line && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
-
-    const colors = getGraphColors(color === 'white')
+    const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
+    const isAnnotated = [GraphType.Line, GraphType.Bar].includes(type)
+
+    const annotationsCondition =
+        isAnnotated && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // exclude stickiness graphs
 
     useEscapeKey(() => setFocused(false), [focused])
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, hiddenLegendKeys])
+    }, [datasets, hiddenLegendKeys])
 
     // annotation related effects
 
@@ -169,7 +164,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
         if (annotationsCondition) {
             calculateBoundaries()
         }
-    }, [myLineChart.current, size, type, annotationsCondition])
+    }, [myLineChart.current, chartWidth, chartHeight, type, annotationsCondition])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -181,11 +176,16 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
 
     function calculateBoundaries(): void {
         if (myLineChart.current) {
-            const boundaryLeftExtent = myLineChart.current.scales.x.left
+            let boundaryLeftExtent = myLineChart.current.scales.x.left
             const boundaryRightExtent = myLineChart.current.scales.x.right
             const boundaryTicks = myLineChart.current.scales.x.ticks.length
             const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-            const _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+            let _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+            if (type === GraphType.Bar) {
+                // With Bar graphs we want the annotations to be in the middle
+                _boundaryInterval = boundaryDelta / boundaryTicks
+                boundaryLeftExtent += _boundaryInterval / 2
+            }
             const boundaryTopExtent = myLineChart.current.scales.x.top + 8
             setLeftExtent(boundaryLeftExtent)
             setBoundaryInterval(_boundaryInterval)
@@ -194,7 +194,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const colorList = getChartColors('white', _datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
@@ -358,9 +358,10 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
                                         groupTypeLabel={
                                             labelGroupType === 'people'
                                                 ? 'people'
@@ -630,12 +631,18 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                         return
                     }
 
-                    const xAxis = myLineChart.current.scales.x,
-                        _leftExtent = xAxis.left,
-                        _rightExtent = xAxis.right,
-                        ticks = xAxis.ticks.length,
-                        delta = _rightExtent - _leftExtent,
-                        _interval = delta / (ticks - 1)
+                    const xAxis = myLineChart.current.scales.x
+                    let _leftExtent = xAxis.left
+                    const _rightExtent = xAxis.right
+                    const ticks = xAxis.ticks.length
+                    const delta = _rightExtent - _leftExtent
+                    let _interval = delta / (ticks - 1)
+
+                    if (type === GraphType.Bar) {
+                        // With Bar graphs we want the annotations to be in the middle
+                        _interval = delta / ticks
+                        _leftExtent += _interval / 2
+                    }
                     if (offsetX < _leftExtent - _interval / 2) {
                         return
                     }
@@ -649,66 +656,69 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
-            <div className="annotations-root" ref={annotationsRoot} />
-            {annotationsCondition && (
-                <Annotations
-                    dates={datasets[0].days ?? []}
-                    leftExtent={leftExtent}
-                    interval={boundaryInterval}
-                    topExtent={topExtent}
-                    insightId={insightId}
-                    currentDateMarker={
-                        focused || annotationsFocused
-                            ? selectedDayLabel
-                            : enabled && labelIndex
-                            ? datasets[0].days?.[labelIndex]
-                            : null
-                    }
-                    onClick={() => {
-                        setFocused(false)
-                        setAnnotationsFocused(true)
-                    }}
-                    onClose={() => {
-                        setAnnotationsFocused(false)
-                    }}
-                    graphColor={color}
-                    color={colors.annotationColor}
-                    accessoryColor={colors.annotationAccessoryColor}
-                />
-            )}
-            {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
-                <AnnotationMarker
-                    insightId={insightId}
-                    currentDateMarker={focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null}
-                    onClick={() => {
-                        setFocused(true)
-                        setHoldLeft(left)
-                        setHoldLabelIndex(labelIndex)
-                        setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
-                    }}
-                    getPopupContainer={
-                        annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
-                    }
-                    onCreateAnnotation={(textInput, applyAll) => {
-                        const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
-                        if (date) {
-                            if (applyAll) {
-                                createGlobalAnnotation(textInput, date, insightId)
-                            } else {
-                                createAnnotation(textInput, date)
-                            }
+            <div className="annotations-root" ref={annotationsRoot}>
+                {annotationsCondition && (
+                    <Annotations
+                        dates={datasets[0].days ?? []}
+                        leftExtent={leftExtent}
+                        interval={boundaryInterval}
+                        topExtent={topExtent}
+                        insightNumericId={insightNumericId}
+                        currentDateMarker={
+                            focused || annotationsFocused
+                                ? selectedDayLabel
+                                : enabled && labelIndex
+                                ? datasets[0].days?.[labelIndex]
+                                : null
                         }
-                    }}
-                    onClose={() => setFocused(false)}
-                    dynamic={true}
-                    left={(focused ? holdLeft : left) - 12.5}
-                    top={topExtent}
-                    label={'Add Note'}
-                    graphColor={color}
-                    color={colors.annotationColor}
-                    accessoryColor={colors.annotationAccessoryColor}
-                />
-            )}
+                        onClick={() => {
+                            setFocused(false)
+                            setAnnotationsFocused(true)
+                        }}
+                        onClose={() => {
+                            setAnnotationsFocused(false)
+                        }}
+                        graphColor={'white'}
+                        color={colors.annotationColor}
+                        accessoryColor={colors.annotationAccessoryColor}
+                    />
+                )}
+                {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
+                    <AnnotationMarker
+                        insightNumericId={insightNumericId}
+                        currentDateMarker={
+                            focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
+                        }
+                        onClick={() => {
+                            setFocused(true)
+                            setHoldLeft(left)
+                            setHoldLabelIndex(labelIndex)
+                            setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
+                        }}
+                        getPopupContainer={
+                            annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
+                        }
+                        onCreateAnnotation={(textInput, applyAll) => {
+                            const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
+                            if (date) {
+                                if (applyAll) {
+                                    createGlobalAnnotation(textInput, date, insightNumericId)
+                                } else {
+                                    createAnnotation(textInput, date)
+                                }
+                            }
+                        }}
+                        onClose={() => setFocused(false)}
+                        dynamic={true}
+                        left={(focused ? holdLeft : left) - 12.5}
+                        top={topExtent}
+                        label="Add note"
+                        graphColor={'white'}
+                        color={colors.annotationColor}
+                        accessoryColor={colors.annotationAccessoryColor}
+                    />
+                )}
+            </div>
         </div>
     )
 }

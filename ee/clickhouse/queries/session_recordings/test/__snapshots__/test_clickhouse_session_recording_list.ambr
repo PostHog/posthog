@@ -12,8 +12,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            "$session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -69,8 +68,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            "$session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -115,54 +113,16 @@
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
   '
   
-  SELECT DISTINCT p.id
+  SELECT count(*)
   FROM
-    (SELECT *
-     FROM person
-     JOIN
-       (SELECT id,
-               max(_timestamp) as _timestamp,
-               max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id) as person_max ON person.id = person_max.id
-     AND person._timestamp = person_max._timestamp
+    (SELECT 1
+     FROM cohortpeople
      WHERE team_id = 2
-       AND person_max.is_deleted = 0 ) AS p
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
-  WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['some_val'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
@@ -181,74 +141,6 @@
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.3
-  '
-  
-  SELECT DISTINCT p.id
-  FROM
-    (SELECT *
-     FROM person
-     JOIN
-       (SELECT id,
-               max(_timestamp) as _timestamp,
-               max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id) as person_max ON person.id = person_max.id
-     AND person._timestamp = person_max._timestamp
-     WHERE team_id = 2
-       AND person_max.is_deleted = 0 ) AS p
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
-  WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['some_val'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
-  '
----
-# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.4
   '
   
   SELECT session_recordings.session_id,
@@ -286,15 +178,15 @@
      GROUP BY id
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
-    AND person_id IN
-      (SELECT person_id
-       FROM cohortpeople
-       WHERE team_id = 2
-         AND cohort_id = 2
-       GROUP BY person_id,
-                cohort_id,
-                team_id
-       HAVING sum(sign) > 0)
+    AND (pdi.person_id IN
+           (SELECT person_id
+            FROM cohortpeople
+            WHERE team_id = 2
+              AND cohort_id = 2
+            GROUP BY person_id,
+                     cohort_id,
+                     team_id
+            HAVING sum(sign) > 0))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51
@@ -315,8 +207,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            "$session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -372,8 +263,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            "$session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -452,8 +342,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['bla'], trim(BOTH '"'
-                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')))) person ON person.id = pdi.person_id
+     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE 1 = 1
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC

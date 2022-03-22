@@ -2,12 +2,11 @@ from typing import Callable
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import datetime, now
+from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.models import Event, Organization, Person, Plugin, Team
+from posthog.models import Organization, Plugin, Team
 from posthog.models.plugin import PluginConfig
-from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION

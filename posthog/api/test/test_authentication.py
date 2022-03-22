@@ -3,6 +3,7 @@ import uuid
 from unittest.mock import ANY, patch
 
 import pytest
+from constance.test import override_config
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
@@ -119,7 +120,7 @@ class TestAuthenticationAPI(APIBaseTest):
                 {
                     "type": "authentication_error",
                     "code": "too_many_failed_attempts",
-                    "detail": "Too many failed login attempts. Please try again in 15 minutes.",
+                    "detail": "Too many failed login attempts. Please try again in 10 minutes.",
                     "attr": None,
                 },
             )
@@ -130,10 +131,11 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
+    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
         with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+            CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -162,6 +164,7 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
+    @override_config(EMAIL_HOST="localhost")
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
@@ -179,7 +182,7 @@ class TestPasswordResetAPI(APIBaseTest):
         )
 
         with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+            CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -204,9 +207,10 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
+    @override_config(EMAIL_HOST="localhost")
     def test_success_response_even_on_invalid_email(self):
         with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+            CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -215,7 +219,11 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @pytest.mark.ee
-    def test_cant_reset_with_saml_enforced(self):
+    @patch("posthog.api.authentication.get_sso_enforced_provider")
+    def test_cant_reset_with_sso_enforced(self, get_sso_enforced_provider):
+        # Mock-up enforcement to bypass license requirements
+        get_sso_enforced_provider.return_value = "saml"
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True,
             EMAIL_HOST="localhost",
@@ -223,7 +231,7 @@ class TestPasswordResetAPI(APIBaseTest):
             SAML_ENTITY_ID="entityID",
             SAML_ACS_URL="https://saml.posthog.com",
             SAML_X509_CERT="certificate",
-            SAML_ENFORCED=True,
+            SSO_ENFORCEMENT="saml",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -231,8 +239,8 @@ class TestPasswordResetAPI(APIBaseTest):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "saml_enforced",
-                "detail": "Password reset is disabled because SAML login is enforced.",
+                "code": "sso_enforced",
+                "detail": "Password reset is disabled because SSO login is enforced.",
                 "attr": None,
             },
         )

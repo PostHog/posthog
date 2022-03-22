@@ -5,7 +5,7 @@ import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
-const HTTP_SERVER_PORT = 6738
+export const HTTP_SERVER_PORT = 6738
 
 export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -25,6 +25,14 @@ export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServ
                 res.statusCode = 503
                 res.end(JSON.stringify(responseBody))
             }
+        } else if (req.url === '/_ready' && req.method === 'GET') {
+            // if the http server was setup correctly, we're ready to start ingesting events
+            status.info('💚', 'Server readiness check')
+            const responseBody = {
+                status: 'ok',
+            }
+            res.statusCode = 200
+            res.end(JSON.stringify(responseBody))
         }
     })
 

@@ -4,12 +4,12 @@ from unittest.mock import MagicMock, patch
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, Event, Filter, Insight
+from posthog.models import Dashboard, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
@@ -98,7 +98,7 @@ class TestUpdateCache(APIBaseTest):
                     ENTITY_ID: "watched movie",
                 },
                 team=self.team,
-                get_earliest_timestamp=Event.objects.earliest_timestamp,
+                get_earliest_timestamp=get_earliest_timestamp,
             ),
             CacheType.STICKINESS,
             patch_update_cache_item,
@@ -144,55 +144,54 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(PRIMARY_DB="clickhouse"):
-            filter = base_filter
-            funnel_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_mock.assert_called_once()
+        filter = base_filter
+        funnel_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_mock.assert_called_once()
 
-            # trends funnel
-            filter = base_filter.with_data({"funnel_viz_type": "trends"})
-            funnel_trends_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_trends_mock.assert_called_once()
+        # trends funnel
+        filter = base_filter.with_data({"funnel_viz_type": "trends"})
+        funnel_trends_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_trends_mock.assert_called_once()
 
-            # time to convert funnel
-            filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
-            funnel_time_to_convert_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_time_to_convert_mock.assert_called_once()
+        # time to convert funnel
+        filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
+        funnel_time_to_convert_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_time_to_convert_mock.assert_called_once()
 
-            # strict funnel
-            filter = base_filter.with_data({"funnel_order_type": "strict"})
-            funnel_strict_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_strict_mock.assert_called_once()
+        # strict funnel
+        filter = base_filter.with_data({"funnel_order_type": "strict"})
+        funnel_strict_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_strict_mock.assert_called_once()
 
-            # unordered funnel
-            filter = base_filter.with_data({"funnel_order_type": "unordered"})
-            funnel_unordered_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_unordered_mock.assert_called_once()
+        # unordered funnel
+        filter = base_filter.with_data({"funnel_order_type": "unordered"})
+        funnel_unordered_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_unordered_mock.assert_called_once()
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
@@ -240,7 +239,7 @@ class TestUpdateCache(APIBaseTest):
                 "shown_as": "Stickiness",
             },
             team=self.team,
-            get_earliest_timestamp=Event.objects.earliest_timestamp,
+            get_earliest_timestamp=get_earliest_timestamp,
         )
         filter = Filter(
             data={
@@ -254,7 +253,6 @@ class TestUpdateCache(APIBaseTest):
 
         Insight.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
         Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 

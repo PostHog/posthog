@@ -4,7 +4,8 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
     flex-direction: column;
-    align-items: start;
+    flex-shrink: 0;
+    align-items: flex-start;
     justify-content: center;
     min-height: 2.5rem;
     padding: 0.25rem 1rem;
@@ -41,6 +42,10 @@
             color: var(--success);
         }
     }
+
+    &.LemonRow--status-muted {
+        background: $bg_side;
+    }
 }
 
 .LemonRow__main-area {
@@ -55,6 +60,10 @@
     flex-direction: column;
     font-size: 0.8125rem;
     margin-left: 2rem;
+}
+
+.LemonRow--outlined {
+    border: 1px solid var(--border);
 }
 
 .LemonRow--full-width {
@@ -82,6 +91,7 @@
     display: block;
     min-height: 0;
     height: 1.5rem;
+    width: 1.5rem;
     padding: 0;
 }
 
@@ -109,6 +119,10 @@
     color: var(--muted-alt);
     &:not(:first-child):last-child {
         margin-right: -0.5rem;
+    }
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
     }
 }
 

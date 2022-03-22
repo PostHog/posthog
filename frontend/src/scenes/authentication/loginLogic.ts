@@ -10,7 +10,14 @@ interface AuthenticateResponseType {
 }
 
 export function afterLoginRedirect(): string {
-    return router.values.searchParams['next'] || '/'
+    try {
+        const nextPath = router.values.searchParams['next'] || '/'
+        const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+            return location.origin + url.pathname + url.search + url.hash
+        }
+    } catch (e) {}
+    return location.origin
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
@@ -38,9 +45,9 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
         },
     },
     urlToAction: ({ actions }) => ({
-        '/login': ({}, { error, errorDetail }) => {
-            if (error) {
-                actions.authenticateSuccess({ success: false, errorCode: error, errorDetail })
+        '/login': ({}, { error_code, error_detail }) => {
+            if (error_code) {
+                actions.authenticateSuccess({ success: false, errorCode: error_code, errorDetail: error_detail })
             }
         },
     }),

@@ -1,6 +1,7 @@
 import json
 
 from dateutil import parser
+from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -8,27 +9,57 @@ from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
 from posthog.models.organization import Organization
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
 
 
-class TestDashboard(APIBaseTest):
+class TestDashboard(APIBaseTest, QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    @snapshot_postgres_queries
+    def test_retrieve_dashboard_list(self):
+        dashboard_names = ["a dashboard", "b dashboard"]
+        for dashboard_name in dashboard_names:
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": dashboard_name})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], dashboard_names)
+
+    @snapshot_postgres_queries
+    def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self):
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "a dashboard"})
+
+        # Get the query count when there is only a single dashboard
+        start_query_count = len(connection.queries)
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        expected_query_count = len(connection.queries) - start_query_count
+
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "b dashboard"})
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "c dashboard"})
+
+        # Verify that the query count is the same when there are multiple dashboards
+        with self.assertNumQueries(expected_query_count):
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+
+    @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
-        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
-        self.assertEqual(response_data["tags"], ["deprecated"])
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
     def test_create_basic_dashboard(self):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard"})
@@ -38,6 +69,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], [])
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
@@ -48,12 +83,7 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {
-                "name": "dashboard new name",
-                "creation_mode": "duplicate",
-                "tags": ["official", "engineering"],
-                "description": "Internal system metrics.",
-            },
+            {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -62,11 +92,13 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
         self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(response_data["tags"], ["official", "engineering"])
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
-        self.assertEqual(dashboard.tags, ["official", "engineering"])
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
@@ -103,9 +135,7 @@ class TestDashboard(APIBaseTest):
 
     def test_share_token_lookup_is_shared_false(self):
         _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        dashboard = Dashboard.objects.create(
-            team=other_team, share_token="testtoken", name="public dashboard", is_shared=False
-        )
+        Dashboard.objects.create(team=other_team, share_token="testtoken", name="public dashboard", is_shared=False)
         # Shared dashboards endpoint while logged out (dashboards should be unavailable as it's not shared)
         response = self.client.get(f"/api/shared_dashboards/testtoken")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -152,10 +182,10 @@ class TestDashboard(APIBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
-            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item
+            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -244,12 +274,19 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
         self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
-        # delete (soft)
+        # soft-delete
         self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": "true"},
+            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": True},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 0)
+
+        # restore after soft-deletion
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": False},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
+        self.assertEqual(len(response["results"]), 1)
 
     def test_dashboard_items(self):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
@@ -493,26 +530,6 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
         self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
-
-    def test_retrieve_dashboard_different_project_with_access(self):
-        team2 = Team.objects.create(organization=self.organization)
-        # Regression, make sure we grab the right dashboard
-        Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
-
-        dashboard = Dashboard.objects.create(team=self.team, name="correct dashboard", created_by=self.user)
-
-        response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "object_exists_in_other_project",
-                "type": "validation_error",
-                "extra": {"project_id": self.team.pk},
-                "detail": "Dashboard exists in a different project.",
-            },
-        )
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))

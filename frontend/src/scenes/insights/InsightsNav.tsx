@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 const { TabPane } = Tabs
 
@@ -26,7 +27,7 @@ interface Tab {
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView, createInsightUrl } = useValues(insightLogic)
+    const { activeView, filters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const funnelTab = useRef<HTMLSpanElement>(null)
 
@@ -102,7 +103,8 @@ export function InsightsNav(): JSX.Element {
                             tab={
                                 <Link
                                     className={clsx('tab-text', className)}
-                                    to={createInsightUrl(type)}
+                                    to={urls.insightNew({ ...filters, insight: type })}
+                                    preventClick
                                     data-attr={dataAttr}
                                 >
                                     <Outer>

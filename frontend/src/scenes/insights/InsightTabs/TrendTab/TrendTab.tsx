@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
@@ -17,7 +16,11 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export interface TrendTabProps {
     view: string
@@ -28,6 +31,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
         { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
@@ -51,8 +55,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
+                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
                     <ActionFilter
                         horizontalUI
                         filters={filters}
@@ -78,7 +82,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         }
                     />
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col
+                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
+                    xs={24}
+                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
+                >
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
@@ -106,21 +114,44 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            <GlobalFiltersTitle />
-                            <PropertyFilters
-                                propertyFilters={filters.properties}
-                                onChange={(properties) => setFilters({ properties })}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                pageKey="trends-filters"
-                                eventNames={allEventNames}
-                            />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
+                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
+                                <PropertyGroupFilters
+                                    propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                                    onChange={(properties) => {
+                                        setFilters({ properties })
+                                    }}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    pageKey="trends-filters"
+                                    eventNames={allEventNames}
+                                    filters={filters}
+                                    setTestFilters={(testFilters) => setFilters(testFilters)}
+                                />
+                            ) : (
+                                <>
+                                    <GlobalFiltersTitle />
+                                    <PropertyFilters
+                                        propertyFilters={convertPropertyGroupToProperties(filters.properties)}
+                                        onChange={(properties) => setFilters({ properties })}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            ...groupsTaxonomicTypes,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                        pageKey="trends-filters"
+                                        eventNames={allEventNames}
+                                    />
+                                    <TestAccountFilter filters={filters} onChange={setFilters} />
+                                </>
+                            )}
+
                             {formulaAvailable && (
                                 <>
                                     <hr />

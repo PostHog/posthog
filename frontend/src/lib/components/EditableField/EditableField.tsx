@@ -7,25 +7,32 @@ import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
-import { useValues } from 'kea'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
 
 interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
     onChange?: (value: string) => void
-    onSave: (value: string) => void
+    onSave?: (value: string) => void
     placeholder?: string
     minLength?: number
     maxLength?: number
+    autoFocus?: boolean
     multiline?: boolean
     compactButtons?: boolean
-    /** Whether this field should be gated based on AvailableFeature.DASHBOARD_COLLABORATION. */
+    /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
+    /** Controlled mode. */
+    mode?: 'view' | 'edit'
     className?: string
+    style?: React.CSSProperties
     'data-attr'?: string
+    saveButtonText?: string
+    /** Extra information shown next to the field. */
+    notice?: {
+        icon: React.ReactElement
+        tooltip: string
+    }
 }
 
 export function EditableField({
@@ -36,33 +43,37 @@ export function EditableField({
     placeholder,
     minLength,
     maxLength,
+    autoFocus = true,
     multiline = false,
     compactButtons = false,
     paywall = false,
+    mode,
     className,
+    style,
     'data-attr': dataAttr,
+    saveButtonText = 'Save',
+    notice,
 }: EditableFieldProps): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const [isEditing, setIsEditing] = useState(false)
+    const [localIsEditing, setLocalIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
         setTentativeValue(value)
     }, [value])
 
-    const isGated = paywall && !hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
     const isSaveable = !minLength || tentativeValue.length >= minLength
 
     const cancel = (): void => {
-        setIsEditing(false)
+        setLocalIsEditing(false)
         setTentativeValue(value)
     }
 
     const save = (): void => {
         onSave?.(tentativeValue)
-        setIsEditing(false)
+        setLocalIsEditing(false)
     }
+
+    const isEditing = !paywall && (mode === 'edit' || localIsEditing)
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (isEditing) {
@@ -88,11 +99,12 @@ export function EditableField({
                 className
             )}
             data-attr={dataAttr}
+            style={style}
         >
             <Tooltip
                 placement="right"
                 title={
-                    isGated
+                    paywall
                         ? "This field is part of PostHog's collaboration feature set and requires a premium plan."
                         : undefined
                 }
@@ -112,7 +124,7 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                 />
                             ) : (
                                 <AutosizeInput
@@ -126,43 +138,61 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                     className="EditableField__autosize"
                                     injectStyles={false}
                                 />
                             )}
-                            <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                title={
-                                    !minLength
-                                        ? 'Save'
-                                        : `Save (at least ${pluralize(minLength, 'character', 'characters')} required)`
-                                }
-                                compact
-                                disabled={!isSaveable}
-                                onClick={save}
-                                type="primary"
-                            >
-                                Save
-                            </LemonButton>
+                            {!mode && (
+                                <>
+                                    <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        title={
+                                            !minLength
+                                                ? 'Save'
+                                                : `Save (at least ${pluralize(
+                                                      minLength,
+                                                      'character',
+                                                      'characters'
+                                                  )} required)`
+                                        }
+                                        compact
+                                        disabled={!isSaveable}
+                                        onClick={save}
+                                        type="primary"
+                                    >
+                                        {saveButtonText}
+                                    </LemonButton>
+                                </>
+                            )}
                         </>
                     ) : (
                         <>
                             {tentativeValue || <i>{placeholder}</i>}
-                            <LemonButton
-                                title="Edit"
-                                icon={<IconEdit />}
-                                compact={compactButtons}
-                                onClick={() => setIsEditing(true)}
-                                data-attr={`edit-prop-${name}`}
-                                disabled={isGated}
-                            />
+                            {!mode && (
+                                <LemonButton
+                                    title="Edit"
+                                    icon={<IconEdit />}
+                                    compact={compactButtons}
+                                    onClick={() => setLocalIsEditing(true)}
+                                    data-attr={`edit-prop-${name}`}
+                                    disabled={paywall}
+                                />
+                            )}
                         </>
                     )}
                 </div>
             </Tooltip>
+            {!isEditing && notice && (
+                <Tooltip title={notice.tooltip} placement="right">
+                    {React.cloneElement(notice.icon, {
+                        ...notice.icon.props,
+                        className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                    })}
+                </Tooltip>
+            )}
         </div>
     )
 }

@@ -51,7 +51,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]
 
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
+        query, params = TrendsEventQuery(filter=filter, entity=entity, team=self.team).get_query()
 
         result = sync_execute(query, params)
 
@@ -207,7 +207,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
         cohort = Cohort.objects.create(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
 
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
         self.team.save()

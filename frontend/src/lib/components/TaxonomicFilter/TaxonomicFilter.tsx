@@ -7,7 +7,7 @@ import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { DefinitionPanel } from 'lib/components/DefinitionPanel/DefinitionPanel'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -20,6 +20,10 @@ export function TaxonomicFilter({
     taxonomicGroupTypes,
     optionsFromProp,
     eventNames,
+    height,
+    width,
+    popoverEnabled = true,
+    selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -38,7 +42,10 @@ export function TaxonomicFilter({
         taxonomicGroupTypes,
         optionsFromProp,
         eventNames,
+        popoverEnabled,
+        selectFirstItem,
     }
+
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
@@ -47,63 +54,68 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
+    const style = {
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+    }
+
     return (
-        <>
-            <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-                <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
-                    <div style={{ position: 'relative' }}>
-                        <Input
-                            style={{ flexGrow: 1 }}
-                            data-attr="taxonomic-filter-searchfield"
-                            placeholder={`Search ${searchPlaceholder}`}
-                            prefix={
-                                <IconMagnifier
-                                    className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`}
-                                />
+        <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+            <div
+                className={clsx(
+                    'taxonomic-filter',
+                    taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
+                    !width && 'force-minimum-width'
+                )}
+                style={style}
+            >
+                <div style={{ position: 'relative' }}>
+                    <Input
+                        style={{ flexGrow: 1 }}
+                        data-attr="taxonomic-filter-searchfield"
+                        placeholder={`Search ${searchPlaceholder}`}
+                        prefix={
+                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
+                        }
+                        value={searchQuery}
+                        ref={(ref) => (searchInputRef.current = ref)}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp') {
+                                e.preventDefault()
+                                moveUp()
                             }
-                            value={searchQuery}
-                            ref={(ref) => (searchInputRef.current = ref)}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'ArrowUp') {
-                                    e.preventDefault()
-                                    moveUp()
-                                }
-                                if (e.key === 'ArrowDown') {
-                                    e.preventDefault()
-                                    moveDown()
-                                }
-                                if (e.key === 'ArrowLeft') {
-                                    e.preventDefault()
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault()
+                                moveDown()
+                            }
+                            if (e.key === 'ArrowLeft') {
+                                e.preventDefault()
+                                tabLeft()
+                            }
+                            if (e.key === 'ArrowRight') {
+                                e.preventDefault()
+                                tabRight()
+                            }
+                            if (e.key === 'Tab') {
+                                e.preventDefault()
+                                if (e.shiftKey) {
                                     tabLeft()
-                                }
-                                if (e.key === 'ArrowRight') {
-                                    e.preventDefault()
+                                } else {
                                     tabRight()
                                 }
-                                if (e.key === 'Tab') {
-                                    e.preventDefault()
-                                    if (e.shiftKey) {
-                                        tabLeft()
-                                    } else {
-                                        tabRight()
-                                    }
-                                }
+                            }
 
-                                if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    selectSelected()
-                                }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    onClose?.()
-                                }
-                            }}
-                        />
-                        <span
-                            className="text-muted-alt cursor-pointer"
-                            style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
-                        >
+                            if (e.key === 'Enter') {
+                                e.preventDefault()
+                                selectSelected()
+                            }
+                            if (e.key === 'Escape') {
+                                e.preventDefault()
+                                onClose?.()
+                            }
+                        }}
+                        suffix={
                             <Tooltip
                                 title={
                                     <>
@@ -117,17 +129,13 @@ export function TaxonomicFilter({
                                     </>
                                 }
                             >
-                                <IconKeyboard />
+                                <IconKeyboard style={{ fontSize: '1.2em' }} className="text-muted-alt cursor-pointer" />
                             </Tooltip>
-                        </span>
-                    </div>
-                    <InfiniteSelectResults
-                        focusInput={focusInput}
-                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        }
                     />
                 </div>
-            </BindLogic>
-            <DefinitionPanel />
-        </>
+                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
+            </div>
+        </BindLogic>
     )
 }
