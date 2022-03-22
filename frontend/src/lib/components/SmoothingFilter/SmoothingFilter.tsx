@@ -3,13 +3,11 @@ import { Select } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'
-import { smoothingFilterLogic } from './smoothingFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(smoothingFilterLogic(insightProps))
-    const { setSmoothing } = useActions(smoothingFilterLogic(insightProps))
+    const { filters } = useValues(insightLogic)
+    const { setFilters } = useActions(insightLogic)
     const { interval, smoothing_intervals } = filters
 
     if (!interval) {
@@ -36,7 +34,7 @@ export function SmoothingFilter(): JSX.Element | null {
             value={smoothing_intervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
-                setSmoothing(key)
+                setFilters({ ...filters, smoothing_intervals: key })
             }}
             data-attr="smoothing-filter"
             options={options}

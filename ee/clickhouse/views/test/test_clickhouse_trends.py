@@ -8,7 +8,6 @@ import pytest
 from django.core.cache import cache
 from django.test import Client
 from freezegun import freeze_time
-from freezegun.api import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
@@ -336,8 +335,8 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                 {
                     "action": ANY,
                     "label": "$pageview",
-                    "count": 6.5,
-                    "data": [3.0, 1.5, 2.0],
+                    "count": 6.0,
+                    "data": [3.0, 1.0, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "persons_urls": ANY,

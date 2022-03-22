@@ -73,17 +73,20 @@ class ClickhouseTrendsTotalVolume:
             # nessacary optimization.
             if filter.smoothing_intervals > 1:
                 smoothing_operation = f"""
-                    AVG(SUM(total)) 
+                    AVG(SUM(total))
                     OVER (
-                        ORDER BY day_start 
-                        ROWS BETWEEN {filter.smoothing_intervals - 1} PRECEDING 
+                        ORDER BY day_start
+                        ROWS BETWEEN {filter.smoothing_intervals - 1} PRECEDING
                         AND CURRENT ROW
                     )"""
             else:
                 smoothing_operation = "SUM(total)"
 
             final_query = AGGREGATE_SQL.format(
-                null_sql=null_sql, content_sql=content_sql, smoothing_operation=smoothing_operation
+                null_sql=null_sql,
+                content_sql=content_sql,
+                smoothing_operation=smoothing_operation,
+                aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
             )
             return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
 

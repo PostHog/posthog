@@ -7,7 +7,6 @@ from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.api.test.test_trends import get_time_series_ok
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
