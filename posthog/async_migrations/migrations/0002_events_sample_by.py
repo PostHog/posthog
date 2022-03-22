@@ -4,13 +4,13 @@ from typing import List
 from constance import config
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import (
     ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,

@@ -22,7 +22,7 @@ from posthog.version import VERSION
 from .utils import UUIDModel, sane_repr
 
 try:
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 except ImportError:
     pass
 

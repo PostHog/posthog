@@ -1,7 +1,7 @@
 import unittest
 
-from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from posthog.models.filters import Filter
+from posthog.queries.property_optimizer import PropertyOptimizer
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},

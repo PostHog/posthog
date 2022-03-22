@@ -2,11 +2,12 @@ from typing import Counter, Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, Entity, Filter
+from posthog.models import Entity, Filter
+from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.property import Property, PropertyIdentifier
+from posthog.models.utils import PersonPropertiesMode
 
 
 def format_action_filter(

@@ -132,14 +132,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = {"kind": "celery", "id": task.name}
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = None
 
@@ -165,7 +165,7 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -180,7 +180,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -195,7 +195,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -211,7 +211,7 @@ def clickhouse_part_count():
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """

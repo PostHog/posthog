@@ -2,11 +2,11 @@ import dataclasses
 from typing import List
 from uuid import uuid4
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import filter_event, format_action_filter
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.client import sync_execute
 from posthog.models.action import Action
+from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
 from posthog.models.person import Person
 from posthog.test.base import BaseTest
