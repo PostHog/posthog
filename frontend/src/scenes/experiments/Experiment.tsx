@@ -124,6 +124,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
     const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
     const exposure = recommendedExposureForCountData(trendCount)
+    const secondaryColumnSpan = Math.floor(24 / (variants.length + 2)) // +2 for the names column
 
     // Parameters for experiment results
     // don't use creation variables in results
@@ -203,6 +204,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     <Col span={12} style={{ paddingRight: 24 }}>
                                         <Row className="full-width">
                                             <Form.Item
+                                                style={{ marginRight: 16 }}
                                                 label="Name"
                                                 name="name"
                                                 rules={[{ required: true, message: 'You have to enter a name.' }]}
@@ -210,7 +212,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <Input data-attr="experiment-name" className="ph-ignore-input" />
                                             </Form.Item>
                                             <Form.Item
-                                                style={{ paddingLeft: 16 }}
+                                                style={{ marginBottom: '1rem' }}
                                                 label={
                                                     <div>
                                                         Feature flag key{' '}
@@ -772,11 +774,17 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 !!experimentData?.secondary_metrics.length && (
                                                     <Col className="border-bottom">
                                                         <Row align="middle" justify="space-between" className="mb-05">
-                                                            <div className="card-secondary">Secondary metrics</div>
+                                                            <Col
+                                                                className="card-secondary"
+                                                                span={2 * secondaryColumnSpan}
+                                                            >
+                                                                Secondary metrics
+                                                            </Col>
                                                             {experimentData?.parameters?.feature_flag_variants?.map(
                                                                 (variant, idx) => (
-                                                                    <li
+                                                                    <Col
                                                                         key={idx}
+                                                                        span={secondaryColumnSpan}
                                                                         style={{
                                                                             color: `${
                                                                                 experimentInsightType ===
@@ -795,12 +803,11 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                       ]
                                                                             }`,
                                                                         }}
-                                                                        className="pr"
                                                                     >
                                                                         <span className="text-default">
                                                                             {capitalizeFirstLetter(variant.key)}
                                                                         </span>
-                                                                    </li>
+                                                                    </Col>
                                                                 )
                                                             )}
                                                         </Row>
@@ -819,18 +826,48 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                     paddingBottom: 8,
                                                                                 }}
                                                                             >
-                                                                                <div>
+                                                                                <Col span={2 * secondaryColumnSpan}>
                                                                                     {capitalizeFirstLetter(metric.name)}
-                                                                                </div>
+                                                                                </Col>
                                                                                 {experimentData?.parameters?.feature_flag_variants?.map(
                                                                                     (variant, index) => (
-                                                                                        <div key={index}>
-                                                                                            {
-                                                                                                secondaryMetricResults?.[
-                                                                                                    idx
-                                                                                                ][variant.key]
-                                                                                            }
-                                                                                        </div>
+                                                                                        <Col
+                                                                                            key={index}
+                                                                                            span={secondaryColumnSpan}
+                                                                                        >
+                                                                                            {secondaryMetricResults?.[
+                                                                                                idx
+                                                                                            ][variant.key] ? (
+                                                                                                metric.filters
+                                                                                                    .insight ===
+                                                                                                InsightType.FUNNELS ? (
+                                                                                                    <>
+                                                                                                        {(
+                                                                                                            secondaryMetricResults?.[
+                                                                                                                idx
+                                                                                                            ][
+                                                                                                                variant
+                                                                                                                    .key
+                                                                                                            ] * 100
+                                                                                                        ).toFixed(1)}
+                                                                                                        %
+                                                                                                    </>
+                                                                                                ) : (
+                                                                                                    <>
+                                                                                                        {
+                                                                                                            secondaryMetricResults?.[
+                                                                                                                idx
+                                                                                                            ][
+                                                                                                                variant
+                                                                                                                    .key
+                                                                                                            ]
+                                                                                                        }
+                                                                                                    </>
+                                                                                                )
+                                                                                            ) : (
+                                                                                                <>--</>
+                                                                                            )}
+                                                                                        </Col>
                                                                                     )
                                                                                 )}
                                                                             </Row>
@@ -850,12 +887,17 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                     paddingBottom: 8,
                                                                                 }}
                                                                             >
-                                                                                <div>
+                                                                                <Col span={2 * secondaryColumnSpan}>
                                                                                     {capitalizeFirstLetter(metric.name)}
-                                                                                </div>
+                                                                                </Col>
                                                                                 {experimentData?.parameters?.feature_flag_variants?.map(
                                                                                     (_, index) => (
-                                                                                        <div key={index}>--</div>
+                                                                                        <Col
+                                                                                            key={index}
+                                                                                            span={secondaryColumnSpan}
+                                                                                        >
+                                                                                            --
+                                                                                        </Col>
                                                                                     )
                                                                                 )}
                                                                             </Row>
