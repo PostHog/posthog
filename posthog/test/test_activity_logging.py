@@ -1,5 +1,6 @@
 import unittest
 
+import pytest
 from dateutil import parser
 from django.db.utils import IntegrityError
 
@@ -68,6 +69,19 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    def test_does_not_save_an_updated_activity_that_has_no_changes(self):
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            item_id=None,
+            scope="dinglehopper",
+            activity="updated",
+            detail=Detail(),
+        )
+        with pytest.raises(ActivityLog.DoesNotExist):
+            ActivityLog.objects.latest("id")
 
     def test_can_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self):
         # even when there are logs with team id or org id saved

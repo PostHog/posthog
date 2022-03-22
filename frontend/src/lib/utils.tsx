@@ -204,7 +204,8 @@ export function deleteWithUndo({
         props.callback?.()
         lemonToast[undo ? 'success' : 'info'](
             <>
-                <b>{props.object.name || <i>Unnnamed</i>}</b> has been {undo ? 'restored' : 'deleted'}
+                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                {undo ? 'restored' : 'deleted'}
             </>,
             {
                 toastId: `delete-item-${props.object.id}-${undo}`,

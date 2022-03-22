@@ -3,7 +3,6 @@ import { urls } from 'scenes/urls'
 describe('Trends', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
-        cy.location('pathname').should('include', '/edit')
     })
 
     it('Can load a graph from a URL directly', () => {
@@ -130,6 +129,7 @@ describe('Trends', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
+        cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()
         cy.get('[data-attr=add-to-dashboard-select]').click()
         cy.get('[data-attr=add-to-dashboard-option-0').click()

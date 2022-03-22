@@ -142,7 +142,8 @@
 .LemonSpacer {
     width: 100%;
     height: 1px;
-    background: var(--border);
+    opacity: 0.17;
+    background: currentColor;
     margin: 0.5rem 0;
     flex-shrink: 0;
     &--large {
