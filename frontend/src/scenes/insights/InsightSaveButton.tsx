@@ -28,14 +28,16 @@ export function InsightSaveButton({
                 popup: {
                     overlay: (
                         <>
-                            <LemonButton
-                                onClick={() => saveInsight(false)}
-                                data-attr="insight-save-and-continue"
-                                type="stealth"
-                                fullWidth
-                            >
-                                {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
-                            </LemonButton>
+                            {!disabled && (
+                                <LemonButton
+                                    onClick={() => saveInsight(false)}
+                                    data-attr="insight-save-and-continue"
+                                    type="stealth"
+                                    fullWidth
+                                >
+                                    {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
+                                </LemonButton>
+                            )}
                             {saveAsAvailable && (
                                 <LemonButton
                                     onClick={saveAs}
