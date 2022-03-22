@@ -730,8 +730,9 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(
             first_page_json["next"],
-            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?offset=10&limit=10",
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10",
         )
+        self.assertEqual(first_page_json["previous"], None)
 
         # check the second page of data
         second_page_response = self.client.get(first_page_json["next"])
@@ -743,6 +744,10 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(
             second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10",
         )
 
     def test_paging_specific_feature_flag_activity(self):
@@ -769,8 +774,9 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(
             first_page_json["next"],
-            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?offset=10&limit=10",
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10",
         )
+        self.assertEqual(first_page_json["previous"], None)
 
         # check the second page of data
         second_page_response = self.client.get(first_page_json["next"])
@@ -784,6 +790,10 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(
             second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10",
         )
 
     @patch("posthog.api.feature_flag.report_user_action")

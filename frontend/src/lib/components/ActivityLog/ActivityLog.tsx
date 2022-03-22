@@ -6,12 +6,14 @@ import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { Button, Skeleton } from 'antd'
 import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
+import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 
 export interface ActivityLogProps {
     scope: 'FeatureFlag'
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer
+    startingPage?: number
 }
 
 const Empty = (): JSX.Element => <div className="text-muted">There is no history for this item</div>
@@ -38,13 +40,13 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, describer })
-    const { humanizedActivity, activityAPILoading, hasNextPage } = useValues(logic)
-    const { fetchActivity } = useActions(logic)
+export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+    const logic = activityLogLogic({ scope, id, describer, startingPage })
+    const { humanizedActivity, nextPageLoading, previousPageLoading, hasNextPage, hasPreviousPage } = useValues(logic)
+    const { fetchNextPage, fetchPreviousPage } = useActions(logic)
     return (
         <div className="activity-log">
-            {activityAPILoading && humanizedActivity.length === 0 ? (
+            {nextPageLoading && humanizedActivity.length === 0 ? (
                 <Loading />
             ) : humanizedActivity.length > 0 ? (
                 <>
@@ -63,17 +65,26 @@ export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Ele
                             </div>
                         )
                     })}
-                    <div className="activity-log-row">
+                    <div className="activity-log-row footer">
                         <Button
-                            type="primary"
-                            onClick={fetchActivity}
-                            loading={activityAPILoading}
-                            disabled={!hasNextPage}
-                            style={{
-                                margin: 'auto',
+                            type="link"
+                            loading={previousPageLoading}
+                            disabled={!hasPreviousPage}
+                            onClick={() => {
+                                fetchPreviousPage()
                             }}
                         >
-                            Load more activity
+                            <LeftOutlined /> Previous
+                        </Button>
+                        <Button
+                            type="link"
+                            loading={nextPageLoading}
+                            disabled={!hasNextPage}
+                            onClick={() => {
+                                fetchNextPage()
+                            }}
+                        >
+                            Next <RightOutlined />
                         </Button>
                     </div>
                 </>

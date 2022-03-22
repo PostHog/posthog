@@ -10,7 +10,7 @@ describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
 
     describe('when not scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
                     '/api/projects/@current/feature_flags/activity/': {
@@ -29,12 +29,28 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+
+        it('increments the page when loading the next page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [] })
+                logic.actions.fetchNextPageSuccess({ results: [] })
+            }).toMatchValues({ page: 3 })
+        })
+
+        it('decrements the page when loading the previous page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [] })
+                logic.actions.fetchNextPageSuccess({ results: [] })
+                logic.actions.fetchPreviousPageSuccess({ results: [] })
+            }).toMatchValues({ page: 2 })
         })
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityAPILoading: false,
+                nextPageLoading: false,
+                previousPageLoading: false,
                 nextPageURL: 'a provided url',
             })
 
@@ -64,16 +80,44 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+    })
+
+    describe('when starting at page 4', () => {
+        beforeAll(() => {
+            useMocks({
+                get: {
+                    '/api/projects/@current/feature_flags/7/activity/': (req) => {
+                        const isOnPageFour = req.url.searchParams.get('page') === '4'
+
+                        return [
+                            200,
+                            {
+                                results: isOnPageFour ? featureFlagsActivityResponseJson : [],
+                                next: 'a provided url',
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({
+                scope: ActivityScope.FEATURE_FLAG,
+                id: 7,
+                describer: flagActivityDescriber,
+                startingPage: 4,
+            })
+            logic.mount()
         })
 
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityAPILoading: false,
-                nextPageURL: 'a provided url',
-            })
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/FeatureFlag/7')
+        })
 
-            // react fragments confuse equality check so stringify to confirm this value has the humanized version of the response
+        it('loads data from page 4 on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )

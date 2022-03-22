@@ -85,15 +85,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     },
     actionToUrl: ({ values }) => ({
         setActiveTab: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    tab: values.activeTab,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ]
+            const searchParams = {
+                ...router.values.searchParams,
+                tab: values.activeTab,
+            }
+            if (values.activeTab !== FeatureFlagsTabs.HISTORY) {
+                delete searchParams['page']
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values }) => ({

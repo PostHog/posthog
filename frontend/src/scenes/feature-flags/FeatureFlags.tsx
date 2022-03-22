@@ -224,7 +224,11 @@ export function FeatureFlags(): JSX.Element {
                         <OverViewTab />
                     </Tabs.TabPane>
                     <Tabs.TabPane tab="History" key="history">
-                        <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                        <ActivityLog
+                            scope={ActivityScope.FEATURE_FLAG}
+                            describer={flagActivityDescriber}
+                            startingPage={1}
+                        />
                     </Tabs.TabPane>
                 </Tabs>
             ) : (

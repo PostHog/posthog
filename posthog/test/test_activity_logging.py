@@ -5,34 +5,9 @@ from dateutil import parser
 from django.db.utils import IntegrityError
 
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
-    ActivityPage,
-    Change,
-    Detail,
-    changes_between,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
-
-
-class TestActivityPaging(unittest.TestCase):
-    def test_first_page_of_small_dataset(self):
-        actual = ActivityPage(total_count=9, offset=0, limit=10, results=[])
-        self.assertEqual(actual.has_next(), False)
-
-    def test_first_page_of_larger_dataset(self):
-        actual = ActivityPage(total_count=20, offset=0, limit=10, results=[])
-        self.assertEqual(actual.has_next(), True)
-
-    def test_middle_page_of_dataset(self):
-        actual = ActivityPage(total_count=30, offset=10, limit=10, results=[])
-        self.assertEqual(actual.has_next(), True)
-
-    def test_last_page_of_dataset(self):
-        actual = ActivityPage(total_count=110, offset=100, limit=10, results=[])
-        self.assertEqual(actual.has_next(), False)
 
 
 class TestActivityLogModel(BaseTest):

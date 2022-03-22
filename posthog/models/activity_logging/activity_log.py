@@ -3,6 +3,7 @@ import json
 from typing import Any, List, Literal, Optional, Union
 
 import structlog
+from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
@@ -128,16 +129,14 @@ def log_activity(
 @dataclasses.dataclass(frozen=True)
 class ActivityPage:
     total_count: int
-    offset: int
     limit: int
+    has_next: bool
+    has_previous: bool
     results: List[ActivityLog]
-
-    def has_next(self):
-        return self.offset < self.total_count - self.limit
 
 
 def load_activity(
-    scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None, limit: int = 10, offset: int = 0,
+    scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 0,
 ) -> ActivityPage:
     # TODO in follow-up to posthog#8931 selecting specific fields into a return type from this query
     activity_query = (
@@ -147,10 +146,13 @@ def load_activity(
     if item_id is not None:
         activity_query.filter(item_id=item_id)
 
-    page_start = offset
-    page_end = offset + limit
-    activities = list(activity_query[page_start:page_end])
+    paginator = Paginator(activity_query, limit)
+    activity_page = paginator.page(page)
 
-    total_count = activity_query.count()
-
-    return ActivityPage(results=activities, total_count=total_count, offset=offset, limit=limit)
+    return ActivityPage(
+        results=list(activity_page.object_list),
+        total_count=paginator.count,
+        limit=limit,
+        has_next=activity_page.has_next(),
+        has_previous=activity_page.has_previous(),
+    )
