@@ -126,6 +126,15 @@ def log_activity(
             detail=detail,
         )
     except Exception as e:
+        logger.warn(
+            "failed to write activity log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=e,
+        )
+
         with push_scope() as sentry_scope:
             sentry_scope.set_tag("team-id", team_id)
             sentry_scope.set_tag("scope", scope)
