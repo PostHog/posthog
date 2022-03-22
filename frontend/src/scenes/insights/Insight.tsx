@@ -70,7 +70,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportHotkeyNavigation('insights', hotkey)
     }
 
-    useUnloadConfirmation(insightMode === ItemMode.Edit && filtersChanged)
+    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
     useKeyboardHotkeys({
         t: {

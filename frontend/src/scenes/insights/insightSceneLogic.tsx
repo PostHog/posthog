@@ -16,7 +16,7 @@ export function confirmDiscardingInsightChanges(): boolean {
     const mountedInsightSceneLogic = insightSceneLogic.findMounted()
     if (
         mountedInsightSceneLogic?.values.insightMode === ItemMode.Edit &&
-        mountedInsightSceneLogic?.values.insightCache?.logic.values.filtersChanged
+        mountedInsightSceneLogic?.values.insightCache?.logic.values.insightChanged
     ) {
         shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
         if (shouldDiscardChanges) {
