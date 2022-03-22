@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 describe('the feature flags logic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
-    beforeAll(() => {
+    beforeEach(() => {
         initKeaTests()
         logic = featureFlagsLogic()
         logic.mount()
