@@ -28,7 +28,6 @@ import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
-import equal from 'fast-deep-equal'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
