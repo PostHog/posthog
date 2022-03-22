@@ -37,7 +37,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import equal from 'fast-deep-equal'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -481,9 +480,9 @@ export const insightLogic = kea<insightLogicType>({
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
             (insight, savedInsight, filters) =>
-                insight.name !== savedInsight.name ||
-                insight.description !== savedInsight.description ||
-                !equal(insight.tags, savedInsight.tags) ||
+                (insight.name || '') !== (savedInsight.name || '') ||
+                (insight.description || '') !== (savedInsight.description || '') ||
+                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
                 (filters &&
                     savedInsight.filters &&
                     !objectsEqual(cleanFilters(savedInsight.filters), cleanFilters(filters))),
