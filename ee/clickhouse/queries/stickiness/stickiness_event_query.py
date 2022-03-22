@@ -1,7 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import EE_EventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
@@ -9,7 +9,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_trunc_func_ch
 
 
-class StickinessEventsQuery(EE_EventQuery):
+class StickinessEventsQuery(EnterpriseEventQuery):
     _entity: Entity
     _filter: StickinessFilter
 

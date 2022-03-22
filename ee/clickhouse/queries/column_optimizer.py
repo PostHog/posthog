@@ -11,7 +11,7 @@ from posthog.models.property import PropertyIdentifier
 from posthog.queries.column_optimizer import ColumnOptimizer
 
 
-class EE_ColumnOptimizer(ColumnOptimizer):
+class EnterpriseColumnOptimizer(ColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")

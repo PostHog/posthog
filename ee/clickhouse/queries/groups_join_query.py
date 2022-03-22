@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Tuple, Union
 
-from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -14,18 +14,18 @@ class GroupsJoinQuery:
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
-    _column_optimizer: EE_ColumnOptimizer
+    _column_optimizer: EnterpriseColumnOptimizer
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
-        column_optimizer: Optional[EE_ColumnOptimizer] = None,
+        column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
-        self._column_optimizer = column_optimizer or EE_ColumnOptimizer(self._filter, self._team_id)
+        self._column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
 
     def get_join_query(self) -> Tuple[str, Dict]:

@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
-from ee.clickhouse.queries.event_query import EE_EventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
@@ -24,7 +24,7 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
-class ClickhouseSessionRecordingList(EE_EventQuery):
+class ClickhouseSessionRecordingList(EnterpriseEventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 

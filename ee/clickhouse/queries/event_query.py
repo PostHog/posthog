@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -13,9 +13,9 @@ from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
 
 
-class EE_EventQuery(EventQuery):
+class EnterpriseEventQuery(EventQuery):
 
-    _column_optimizer: EE_ColumnOptimizer
+    _column_optimizer: EnterpriseColumnOptimizer
 
     def __init__(
         self,
@@ -44,7 +44,7 @@ class EE_EventQuery(EventQuery):
             **kwargs,
         )
 
-        self._column_optimizer = EE_ColumnOptimizer(self._filter, self._team_id)
+        self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
         return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()

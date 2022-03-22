@@ -7,7 +7,7 @@ from ee.clickhouse.models.property import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
@@ -31,14 +31,14 @@ def get_breakdown_prop_values(
     team_id: int,
     limit: int = BREAKDOWN_VALUES_LIMIT,
     extra_params={},
-    column_optimizer: Optional[EE_ColumnOptimizer] = None,
+    column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
 ):
     """
     Returns the top N breakdown prop values for event/person breakdown
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-    column_optimizer = column_optimizer or EE_ColumnOptimizer(filter, team_id)
+    column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team_id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
     props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)

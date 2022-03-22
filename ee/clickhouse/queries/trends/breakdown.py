@@ -8,7 +8,7 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
 )
-from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
@@ -43,14 +43,14 @@ from posthog.utils import encode_get_request_params
 
 class ClickhouseTrendsBreakdown:
     def __init__(
-        self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EE_ColumnOptimizer] = None
+        self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EnterpriseColumnOptimizer] = None
     ):
         self.entity = entity
         self.filter = filter
         self.team = team
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
-        self.column_optimizer = column_optimizer or EE_ColumnOptimizer(self.filter, self.team_id)
+        self.column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self.filter, self.team_id)
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
         interval_annotation = get_trunc_func_ch(self.filter.interval)

@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
@@ -448,7 +448,7 @@ class FunnelCorrelation:
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
             person_query, person_query_params = PersonQuery(
-                self._filter, self._team.pk, EE_ColumnOptimizer(self._filter, self._team.pk)
+                self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
             ).get_query()
 
             return (

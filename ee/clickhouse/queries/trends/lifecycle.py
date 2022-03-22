@@ -6,7 +6,7 @@ from rest_framework.request import Request
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.queries.event_query import EE_EventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.client import sync_execute
@@ -80,7 +80,7 @@ class ClickhouseLifecycle:
         return PersonSerializer(people, many=True).data
 
 
-class LifecycleEventQuery(EE_EventQuery):
+class LifecycleEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self):
