@@ -171,8 +171,8 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                 {
                     "action": ANY,
                     "label": "$pageview",
-                    "count": 5.5,
-                    "data": [2.0, 1.5, 2.0],
+                    "count": 5,
+                    "data": [2.0, 1, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "persons_urls": ANY,
@@ -212,8 +212,8 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                 {
                     "action": ANY,
                     "label": "$pageview",
-                    "count": 5.5,
-                    "data": [2.0, 1.5, 2.0],
+                    "count": 5,
+                    "data": [2.0, 1, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "persons_urls": ANY,
@@ -456,7 +456,9 @@ def get_trends_time_series_ok(
                 person_url=item["persons_urls"][idx]["url"],
                 breakdown_value=item.get("breakdown_value", None),
             )
-        res[item["label"]] = collect_dates
+        res[
+            "{}{}".format(item["label"], " - {}".format(item["compare_label"]) if item["compare_label"] else "")
+        ] = collect_dates
 
     return res
 
