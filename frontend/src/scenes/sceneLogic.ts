@@ -15,6 +15,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightSceneLogic, confirmDiscardingInsightChanges } from './insights/insightSceneLogic'
+import { UPGRADE_LINK } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -205,11 +206,12 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
-            if (preflightLogic.values.preflight?.cloud) {
-                return router.actions.push('/organization/billing')
+            const link = UPGRADE_LINK(preflightLogic.values.preflight?.cloud)
+            if (link.target) {
+                window.open(link.url, link.target)
+            } else {
+                router.actions.push(link.url)
             }
-            const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
-            window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')

@@ -58,7 +58,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
-        addGraph: (type: string) => ({ type }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
         duplicateInsight: (insight: InsightModel) => ({ insight }),
@@ -198,9 +197,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         ],
     }),
     listeners: ({ actions, values, selectors }) => ({
-        addGraph: ({ type }) => {
-            router.actions.push(`/insights?insight=${encodeURIComponent(String(type).toUpperCase())}`)
-        },
         setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
