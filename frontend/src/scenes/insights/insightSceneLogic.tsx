@@ -12,11 +12,18 @@ import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export function confirmDiscardingInsightChanges(): boolean {
-    const shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
-    if (shouldDiscardChanges) {
-        insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.cancelChanges()
-    } else {
-        history.back()
+    let shouldDiscardChanges = true
+    const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+    if (
+        mountedInsightSceneLogic?.values.insightMode === ItemMode.Edit &&
+        mountedInsightSceneLogic?.values.insightCache?.logic.values.filtersChanged
+    ) {
+        shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
+        if (shouldDiscardChanges) {
+            mountedInsightSceneLogic?.values.insightCache?.logic.actions.cancelChanges()
+        } else {
+            history.back()
+        }
     }
     return shouldDiscardChanges
 }
@@ -131,7 +138,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (
                 sceneLogic.findMounted()?.values.scene === Scene.Insight &&
                 insightId !== values.insightId &&
-                values.insightCache?.logic.values.filtersChanged &&
                 !confirmDiscardingInsightChanges()
             ) {
                 return
