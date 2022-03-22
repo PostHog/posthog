@@ -1,5 +1,4 @@
-from ctypes import Union
-from typing import List
+from typing import List, Union
 
 from django.utils import timezone
 
