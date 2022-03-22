@@ -11,21 +11,24 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
-export function confirmDiscardingInsightChanges(): boolean {
-    let shouldDiscardChanges = true
+/** Return null if there are no changes to be discarded, false if user confirmed discarding, and true if rejected. */
+export function preventDiscardingInsightChanges(): boolean | null {
+    let shouldPreventNavigatingAway: boolean | null = null
+    let shouldCancelChanges: boolean = false
     const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-    if (
-        mountedInsightSceneLogic?.values.insightMode === ItemMode.Edit &&
-        mountedInsightSceneLogic?.values.insightCache?.logic.values.insightChanged
-    ) {
-        shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
-        if (shouldDiscardChanges) {
+    if (mountedInsightSceneLogic?.values.insightCache?.logic.values.insightChanged) {
+        // Cancel changes automatically if not in edit mode
+        shouldCancelChanges = mountedInsightSceneLogic?.values.insightMode !== ItemMode.Edit
+        if (!shouldCancelChanges) {
+            // If in edit mode, make sure cancelling changes is OK, and prevent navigation if it isn't
+            shouldCancelChanges = confirm('Leave insight? Changes you made will be discarded.')
+            shouldPreventNavigatingAway = !shouldCancelChanges
+        }
+        if (shouldCancelChanges) {
             mountedInsightSceneLogic?.values.insightCache?.logic.actions.cancelChanges()
-        } else {
-            history.back()
         }
     }
-    return shouldDiscardChanges
+    return shouldPreventNavigatingAway
 }
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
@@ -137,8 +140,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             // If navigating from an unsaved insight to a different insight within the scene, prompt the user
             if (
                 sceneLogic.findMounted()?.values.scene === Scene.Insight &&
-                insightId !== values.insightId &&
-                !confirmDiscardingInsightChanges()
+                method === 'PUSH' &&
+                (values.insightId === 'new' || insightId !== values.insightId) &&
+                preventDiscardingInsightChanges()
             ) {
                 return
             }

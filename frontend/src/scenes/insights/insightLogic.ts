@@ -483,9 +483,7 @@ export const insightLogic = kea<insightLogicType>({
                 (insight.name || '') !== (savedInsight.name || '') ||
                 (insight.description || '') !== (savedInsight.description || '') ||
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                (!!filters &&
-                    !!savedInsight.filters &&
-                    !objectsEqual(cleanFilters(savedInsight.filters), cleanFilters(filters))),
+                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
         isViewedOnDashboard: [
             () => [router.selectors.location],

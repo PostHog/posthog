@@ -14,7 +14,7 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { confirmDiscardingInsightChanges } from './insights/insightSceneLogic'
+import { preventDiscardingInsightChanges } from './insights/insightSceneLogic'
 import { UPGRADE_LINK } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
@@ -225,7 +225,8 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         openScene: ({ scene, params, method }) => {
             // If navigating from an Insight scene to a non-Insight scene and changes are unsaved, prompt the user
-            if (values.scene === Scene.Insight && scene !== Scene.Insight && !confirmDiscardingInsightChanges()) {
+            if (values.scene === Scene.Insight && scene !== Scene.Insight && preventDiscardingInsightChanges()) {
+                history.back()
                 return
             }
 
