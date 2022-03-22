@@ -31,11 +31,11 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
-export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
+export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
-    const logic = insightLogic({ dashboardItemId: insightId })
+    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
         insightProps,
         insightLoading,
@@ -44,7 +44,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         canEditInsight,
         activeView,
         insight,
-        filtersChanged,
+        insightChanged,
         tagLoading,
         sourceDashboardId,
     } = useValues(logic)
@@ -96,7 +96,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightLoading && !filtersKnown) {
+    if (insightId !== 'new' && insightLoading && !filtersKnown) {
         return <InsightSkeleton />
     }
 
@@ -159,8 +159,8 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!sourceDashboardId}
-                                filtersChanged={filtersChanged}
+                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                insightChanged={insightChanged}
                             />
                         )}
                     </div>
