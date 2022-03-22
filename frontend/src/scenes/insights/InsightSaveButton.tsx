@@ -9,7 +9,7 @@ export function InsightSaveButton({
     addingToDashboard,
 }: {
     saveAs: () => void
-    saveInsight: (options: Record<string, any>) => void
+    saveInsight: (redirect: boolean) => void
     isSaved: boolean | undefined
     filtersChanged: boolean
     addingToDashboard: boolean
@@ -21,21 +21,23 @@ export function InsightSaveButton({
         <LemonButtonWithSideAction
             style={{ marginLeft: 8 }}
             type="primary"
-            onClick={() => saveInsight({ setViewMode: true })}
+            onClick={() => saveInsight(true)}
             data-attr="insight-save-button"
             disabled={disabled}
             sideAction={{
                 popup: {
                     overlay: (
                         <>
-                            <LemonButton
-                                onClick={saveInsight}
-                                data-attr="insight-save-and-continue"
-                                type="stealth"
-                                fullWidth
-                            >
-                                {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
-                            </LemonButton>
+                            {!disabled && (
+                                <LemonButton
+                                    onClick={() => saveInsight(false)}
+                                    data-attr="insight-save-and-continue"
+                                    type="stealth"
+                                    fullWidth
+                                >
+                                    {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
+                                </LemonButton>
+                            )}
                             {saveAsAvailable && (
                                 <LemonButton
                                     onClick={saveAs}

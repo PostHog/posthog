@@ -16,7 +16,7 @@ export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string) =>
-        `/dashboard/${id}${highlightInsightId ? `?highlightInsightId=${highlightInsightId}` : ''}`,
+        combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/data-management/actions/${id}`,
@@ -27,9 +27,8 @@ export const urls = {
     eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null) =>
-        `/insights/new${filters || dashboardId ? combineUrl('', '', { filters, dashboard: dashboardId }).hash : ''}`,
-    insightEdit: (id: InsightShortId, dashboardId?: DashboardType['id'] | null) =>
-        `/insights/${id}/edit${dashboardId ? combineUrl('', '', { dashboard: dashboardId }).hash : ''}`,
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
+    insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
     insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
