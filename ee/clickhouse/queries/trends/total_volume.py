@@ -30,7 +30,8 @@ class ClickhouseTrendsTotalVolume:
             entity=entity,
             team=team,
             should_join_distinct_ids=True
-            if join_condition != "" or entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]
+            if join_condition != ""
+            or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
         )
         event_query, event_query_params = trend_event_query.get_query()
@@ -55,6 +56,7 @@ class ClickhouseTrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":

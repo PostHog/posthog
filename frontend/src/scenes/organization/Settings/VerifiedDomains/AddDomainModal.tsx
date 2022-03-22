@@ -36,7 +36,7 @@ export function AddDomainModal(): JSX.Element {
     return (
         <LemonModal onCancel={handleClose} visible={addModalShown} destroyOnClose>
             <section>
-                <h5>Add verified domain</h5>
+                <h5>Add authentication domain</h5>
 
                 <Input
                     placeholder="posthog.com"

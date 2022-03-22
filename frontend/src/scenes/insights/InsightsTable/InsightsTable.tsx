@@ -68,7 +68,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportUrl } = useValues(insightLogic)
+    const { insightProps, csvExportUrl, isViewedOnDashboard } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -268,7 +268,7 @@ export function InsightsTable({
 
     return (
         <>
-            {csvExportUrl && (
+            {csvExportUrl && !isViewedOnDashboard && (
                 <Tooltip title="Export this table as csv." placement="left">
                     <LemonButton
                         type="secondary"

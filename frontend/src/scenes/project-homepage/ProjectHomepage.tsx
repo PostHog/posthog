@@ -5,7 +5,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { DashboardPlacement, InsightType } from '~/types'
+import { DashboardPlacement } from '~/types'
 import { Button, Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
@@ -37,7 +37,7 @@ export function ProjectHomepage(): JSX.Element {
             <Button
                 data-attr="project-home-new-insight"
                 onClick={() => {
-                    router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
+                    router.actions.push(urls.insightNew())
                 }}
             >
                 New insight

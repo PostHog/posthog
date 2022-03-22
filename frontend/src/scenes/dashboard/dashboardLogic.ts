@@ -89,8 +89,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
-        /** Take the user to insights to add a graph. */
-        addGraph: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -180,12 +178,20 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                    return state
-                        ? ({
-                              ...state,
-                              items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                          } as DashboardType)
-                        : null
+                    if (state) {
+                        const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
+                        const newItems = state.items.slice(0)
+                        if (itemIndex >= 0) {
+                            newItems[itemIndex] = item
+                        } else {
+                            newItems.push(item)
+                        }
+                        return {
+                            ...state,
+                            items: newItems,
+                        } as DashboardType
+                    }
+                    return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
@@ -648,11 +654,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
             if (mode) {
                 eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
-            }
-        },
-        addGraph: () => {
-            if (values.dashboard) {
-                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }
         },
         setAutoRefresh: () => {
