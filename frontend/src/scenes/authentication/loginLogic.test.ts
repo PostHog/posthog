@@ -1,4 +1,4 @@
-import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
+import { handleLoginRedirect } from 'scenes/authentication/loginLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 
@@ -7,7 +7,7 @@ describe('loginLogic', () => {
         initKeaTests()
     })
 
-    describe('afterLoginRedirect', () => {
+    describe('parseLoginRedirectURL', () => {
         const origin = `http://localhost`
         const matches = [
             [null, '/'],
@@ -24,7 +24,10 @@ describe('loginLogic', () => {
         for (const [next, result] of matches) {
             it(`for next param "${next}" it returns "${result}"`, () => {
                 router.actions.push(next ? `${origin}/?next=${encodeURIComponent(next)}` : origin)
-                expect(afterLoginRedirect()).toEqual(result)
+                handleLoginRedirect()
+                const newPath =
+                    router.values.location.pathname + router.values.location.search + router.values.location.hash
+                expect(newPath).toEqual(result)
             })
         }
     })

@@ -9,15 +9,17 @@ interface AuthenticateResponseType {
     errorDetail?: string
 }
 
-export function afterLoginRedirect(): string {
+export function handleLoginRedirect(): void {
+    let nextURL = '/'
     try {
         const nextPath = router.values.searchParams['next'] || '/'
         const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
         if (url.protocol === 'http:' || url.protocol === 'https:') {
-            return url.pathname + url.search + url.hash
+            nextURL = url.pathname + url.search + url.hash
         }
     } catch (e) {}
-    return '/'
+    // A safe way to redirect to a new page. Calls history.replaceState() ensuring the URLs origin does not change.
+    router.actions.replace(nextURL)
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
@@ -40,7 +42,9 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
-                window.location.href = afterLoginRedirect()
+                handleLoginRedirect()
+                // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+                window.location.reload()
             }
         },
     },
