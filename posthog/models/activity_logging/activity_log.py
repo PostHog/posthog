@@ -105,25 +105,35 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
-    if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
-        logger.warn(
-            "ignore_update_activity_no_changes",
-            team_id=team_id,
-            organization_id=organization_id,
-            user_id=user.id,
-            scope=scope,
-        )
-        return
+    try:
+        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+            logger.warn(
+                "ignore_update_activity_no_changes",
+                team_id=team_id,
+                organization_id=organization_id,
+                user_id=user.id,
+                scope=scope,
+            )
+            return
 
-    ActivityLog.objects.create(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        item_id=str(item_id),
-        scope=scope,
-        activity=activity,
-        detail=detail,
-    )
+        ActivityLog.objects.create(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=str(item_id),
+            scope=scope,
+            activity=activity,
+            detail=detail,
+        )
+    except Exception as e:
+        logger.warn(
+            "failed to write activity log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=e,
+        )
 
 
 @dataclasses.dataclass(frozen=True)
