@@ -2,13 +2,14 @@ import json
 from datetime import datetime
 
 from ee.api.test.base import LicensedTestMixin
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
+from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -79,3 +80,51 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
         assert len(actors) == 2
+
+    @snapshot_clickhouse_queries
+    def test_funnel_can_handle_multiple_materialized_steps(self):
+        """
+        ClickHouse 21.9 introduces heredoc syntax which means that if we have
+        any queries that include two strings of the format `$ some string
+        literal $` without being quoted, we will end up with an invalid query,
+        and anything between these two instances will be treated as a string
+        literal.
+        
+        At the time of writing, the materialized columns implementation can end
+        up creating materialized columns of the form `mat_$browser`. It is also
+        common to include in select queries something of the form
+        `events.{field_name} as {field_name}`.
+
+        Combine these two and we end up with 
+        
+        ```
+        events.mat_$browser as mat_$browser
+        ```
+
+        If we happen to have this repeated, we end up potentially producing an
+        invalid query.
+
+        This test is somewhat assuming the implementation here, and guarding
+        against the issue above. The issue here was resolved by
+        https://github.com/PostHog/posthog/pull/8846/files#diff-782315fe61efe1c884c97570f57361871f482c417927d4ab9a375c677fde1135
+        as a result of a similar path being hit with `$group_0` in place of a
+        generic materialized column but I'm adding this test to be explicit
+        about the pattern I'm trying to guard against.
+        """
+        materialize("events", "$browser")
+        params = FunnelRequest(
+            events=json.dumps(
+                [
+                    EventPattern(id="user signed up", type="events", order=0, properties={"$browser": "val"}),
+                    EventPattern(id="paid", type="events", order=1, properties={"$browser": "val"}),
+                ]
+            ),
+            date_from="2020-01-01",
+            date_to="2020-01-14",
+            aggregation_group_type_index=0,
+            funnel_order_type="unordered",
+            insight=INSIGHT_FUNNELS,
+        )
+
+        response = get_funnel(self.client, self.team.pk, params)
+        assert response.status_code == 200
