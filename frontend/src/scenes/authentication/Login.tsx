@@ -12,6 +12,8 @@ import clsx from 'clsx'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SSOProviderNames } from 'lib/constants'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -45,8 +47,13 @@ export const scene: SceneExport = {
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
     const { authenticate, precheck } = useActions(loginLogic)
-    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
-        useValues(loginLogic)
+    const {
+        authenticateResponseLoading,
+        authenticateResponse,
+        precheckResponse,
+        precheckResponseLoading,
+        shouldPrecheckResponse,
+    } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -97,19 +104,41 @@ export function Login(): JSX.Element {
                                     autoComplete="off"
                                 />
                             </Form.Item>
-                            <div className={clsx('password-wrapper', !precheckResponse && 'hidden')}>
+                            <div
+                                className={clsx(
+                                    'password-wrapper',
+                                    shouldPrecheckResponse &&
+                                        (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
+                                        'hidden'
+                                )}
+                            >
                                 <PasswordInput />
                             </div>
                             <Form.Item>
-                                <Button
-                                    className="btn-bridge"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    loading={authenticateResponseLoading || precheckResponseLoading}
-                                    block
-                                >
-                                    Login
-                                </Button>
+                                {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                                    <Button
+                                        className="btn-bridge"
+                                        htmlType="submit"
+                                        data-attr="password-login"
+                                        loading={authenticateResponseLoading || precheckResponseLoading}
+                                        block
+                                    >
+                                        Login
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        className="btn-bridge"
+                                        data-attr="sso-login"
+                                        htmlType="button"
+                                        block
+                                        onClick={() =>
+                                            (window.location.href = `/login/${precheckResponse.sso_enforcement}/`)
+                                        }
+                                    >
+                                        {SocialLoginIcon(precheckResponse.sso_enforcement)} Login with{' '}
+                                        {SSOProviderNames[precheckResponse.sso_enforcement]}
+                                    </Button>
+                                )}
                             </Form.Item>
                         </Form>
                         <div className={clsx('helper-links', { cloud: preflight?.cloud })}>

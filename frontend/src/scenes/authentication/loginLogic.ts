@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
 import { SSOProviders } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface AuthenticateResponseType {
     success: boolean
@@ -11,7 +12,8 @@ interface AuthenticateResponseType {
 }
 
 interface PrecheckResponseType {
-    sso_enforcement: SSOProviders | null
+    sso_enforcement?: SSOProviders | null
+    status: 'pending' | 'completed'
 }
 
 export function afterLoginRedirect(): string {
@@ -27,11 +29,25 @@ export function afterLoginRedirect(): string {
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
     path: ['scenes', 'authentication', 'loginLogic'],
-    loaders: {
+    connect: {
+        values: [preflightLogic, ['preflight']],
+    },
+    loaders: ({ values }) => ({
         precheckResponse: [
-            null as PrecheckResponseType | null,
+            { status: 'pending' } as PrecheckResponseType,
             {
-                precheck: async ({ email }: { email: string }) => await api.create('api/login/precheck', { email }),
+                precheck: async ({ email }: { email: string }) => {
+                    if (!values.shouldPrecheckResponse) {
+                        return { status: 'completed' }
+                    }
+
+                    if (!email) {
+                        return { status: 'pending' }
+                    }
+
+                    const response = await api.create('api/login/precheck', { email })
+                    return { status: 'completed', ...response }
+                },
             },
         ],
         authenticateResponse: [
@@ -42,23 +58,25 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
                         await api.create('api/login', { email, password })
                         return { success: true }
                     } catch (e) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
+                        return {
+                            success: false,
+                            errorCode: (e as Record<string, any>).code,
+                            errorDetail: (e as Record<string, any>).detail,
+                        }
                     }
                 },
             },
         ],
-    },
+    }),
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
                 window.location.href = afterLoginRedirect()
             }
         },
-        precheckSuccess: ({ precheckResponse }) => {
-            if (precheckResponse?.sso_enforcement) {
-                window.location.href = `/login/${precheckResponse.sso_enforcement}/`
-            }
-        },
+    },
+    selectors: {
+        shouldPrecheckResponse: [(s) => [s.preflight], (preflight): boolean => !!preflight?.cloud],
     },
     urlToAction: ({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {
