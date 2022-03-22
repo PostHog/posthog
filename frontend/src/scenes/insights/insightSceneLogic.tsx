@@ -9,7 +9,6 @@ import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export function confirmDiscardingInsightChanges(): boolean {
@@ -25,7 +24,7 @@ export function confirmDiscardingInsightChanges(): boolean {
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
     connect: {
-        logic: [eventUsageLogic, featureFlagLogic],
+        logic: [eventUsageLogic],
     },
     actions: {
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
