@@ -392,6 +392,7 @@ export const eventUsageLogic = kea<
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
         // Definition Popup
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
@@ -940,6 +941,9 @@ export const eventUsageLogic = kea<
         },
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionHovered: ({ type }) => {
+            posthog.capture('definition hovered', { type })
         },
         reportDataManagementDefinitionClickView: ({ type }) => {
             posthog.capture('definition click view', { type })
