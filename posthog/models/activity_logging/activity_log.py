@@ -106,7 +106,7 @@ def log_activity(
 ) -> None:
     if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
         logger.warn(
-            "'updated' activity was logged with no changes and was ignored",
+            "ignore_update_activity_no_changes",
             team_id=team_id,
             organization_id=organization_id,
             user_id=user.id,
