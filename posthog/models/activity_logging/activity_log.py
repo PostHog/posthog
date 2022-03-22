@@ -2,11 +2,14 @@ import dataclasses
 import json
 from typing import Any, List, Literal, Optional, Union
 
+import structlog
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,6 +104,16 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
+    if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+        logger.warn(
+            "ignore_update_activity_no_changes",
+            team_id=team_id,
+            organization_id=organization_id,
+            user_id=user.id,
+            scope=scope,
+        )
+        return
+
     ActivityLog.objects.create(
         organization_id=organization_id,
         team_id=team_id,
@@ -112,12 +125,14 @@ def log_activity(
     )
 
 
-def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: int):
+def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None):
     # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
-    activities = list(
-        ActivityLog.objects.select_related("user")
-        .filter(team_id=team_id, scope=scope, item_id=item_id)
-        .order_by("-created_at")[:10]
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
+
+    if item_id is not None:
+        activity_query.filter(item_id=item_id)
+    activities = list(activity_query[:10])
 
     return activities

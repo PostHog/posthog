@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Form, Group } from 'kea-forms'
+import { Group } from 'kea-forms'
 import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
@@ -29,6 +29,7 @@ import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Field } from 'lib/forms/Field'
+import { VerticalForm } from 'lib/forms/VerticalForm'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -83,12 +84,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <Form
-                    logic={featureFlagLogic}
-                    props={logicProps}
-                    formKey="featureFlag"
-                    className="ant-form-vertical ant-form-hide-required-mark"
-                >
+                <VerticalForm logic={featureFlagLogic} props={logicProps} formKey="featureFlag">
                     <PageHeader
                         title="Feature Flag"
                         buttons={
@@ -563,7 +559,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             Save changes
                         </Button>
                     </div>
-                </Form>
+                </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
                 <SceneLoading />
