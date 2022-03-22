@@ -29,7 +29,7 @@ function getPersistedFeatureFlags(): FeatureFlagsSet {
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const persistedFlags = getPersistedFeatureFlags()
-    const availableFlags = { ...persistedFlags, featureFlags }
+    const availableFlags = getAppContext()?.preflight.cloud ? { ...persistedFlags, featureFlags } : persistedFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
