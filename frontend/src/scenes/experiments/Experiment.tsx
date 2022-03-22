@@ -683,23 +683,34 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                     <Row>
                         {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="significant-results">
-                                <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>.{' '}
-                                    {experimentData.end_date
-                                        ? ''
-                                        : 'You can end this experiment now or let it run to completion.'}
+                                <Col span={20} style={{ fontWeight: 500, color: '#497342' }}>
+                                    <div>
+                                        Experiment results are significant.{' '}
+                                        {experimentData.end_date
+                                            ? ''
+                                            : 'You can end your experiment now or let it run until complete.'}
+                                    </div>
                                 </Col>
-                                <Col span={5}>
-                                    <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
-                                        Dismiss
-                                    </Button>
+                                <Col span={4}>
+                                    {experimentData.end_date ? (
+                                        <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                    ) : (
+                                        <LemonButton
+                                            type="highlighted"
+                                            className="end-experiment-btn"
+                                            onClick={() => endExperiment()}
+                                        >
+                                            End experiment
+                                        </LemonButton>
+                                    )}
                                 </Col>
                             </Row>
                         )}
                         {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
-                            <Row align="middle" className="not-significant-results">
-                                <Col span={23} style={{ color: '#2D2D2D' }}>
-                                    <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
+                            <Row align="top" className="not-significant-results">
+                                <Col span={23} style={{ fontWeight: 500, color: '#2D2D2D' }}>
+                                    <strong>Your results are not statistically significant</strong>.{' '}
+                                    {significanceBannerDetails}{' '}
                                     {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
                                     See our{' '}
                                     <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
@@ -714,10 +725,10 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             </Row>
                         )}
                         {showWarning && experimentData.end_date && (
-                            <Row align="middle" className="feature-flag-mods">
-                                <Col span={23}>
-                                    <b>Your experiment is complete.</b> We recommend removing the feature flag from your
-                                    code completely, instead of relying on this distribution:{' '}
+                            <Row align="top" className="feature-flag-mods">
+                                <Col span={23} style={{ fontWeight: 500 }}>
+                                    <strong>Your experiment is complete.</strong> We recommend removing the feature flag
+                                    from your code completely, instead of relying on this distribution.{' '}
                                     <Link
                                         to={
                                             experimentData.feature_flag
@@ -725,7 +736,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 : undefined
                                         }
                                     >
-                                        <b>Adjust feature flag distribution.</b>
+                                        <b>Adjust feature flag distribution</b>
                                     </Link>
                                 </Col>
                                 <Col span={1}>
@@ -750,7 +761,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             }
                                         />
                                     </Col>
-                                    {!experimentResults && experimentData.start_date && (
+                                    {!experimentResultsLoading && !experimentResults && experimentData.start_date && (
                                         <Col span={12}>
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
