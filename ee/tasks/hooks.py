@@ -1,14 +1,8 @@
 import json
-from urllib.parse import urlparse
 
 import requests
 from celery.task import Task
 from django.core.serializers.json import DjangoJSONEncoder
-
-
-def valid_domain(url) -> bool:
-    target_domain = urlparse(url).netloc
-    return bool(target_domain == "hooks.zapier.com")
 
 
 class DeliverHook(Task):
@@ -16,10 +10,6 @@ class DeliverHook(Task):
     ignore_result = True
 
     def run(self, target: str, payload: dict, hook_id: str) -> None:
-
-        if not valid_domain(target):
-            return
-
         try:
             response = requests.post(
                 url=target,
