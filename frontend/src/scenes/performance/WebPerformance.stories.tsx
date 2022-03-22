@@ -1,19 +1,22 @@
 import { Meta } from '@storybook/react'
 import eventsResponse from './__mocks__/eventsResponse.json'
 
-import { PerfBlock, WebPerformance } from 'scenes/performance/WebPerformance'
-import React from 'react'
+import { PerfBlock } from 'scenes/performance/WebPerformance'
+import React, { useEffect } from 'react'
 import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 import { mswDecorator } from '~/mocks/browser'
+import { router } from 'kea-router'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
 
 export default {
-    title: 'Scenes/Web Performance',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    title: 'Scenes-App/Web Performance',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/1/events': {
+                '/api/projects/:projectId/events': {
                     results: eventsResponse,
                 },
             },
@@ -21,7 +24,12 @@ export default {
     ],
 } as Meta
 
-export const WebPerformance_ = WebPerformance
+export const WebPerformance_ = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.webPerformance())
+    })
+    return <App />
+}
 
 export const PerformanceBlockWithNoPerformanceDetails = (): JSX.Element => (
     <div className="performance-waterfall">

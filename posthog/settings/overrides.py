@@ -36,12 +36,3 @@ if runner:
         print("Running in test mode. Setting DEBUG and TEST environment variables.")
         os.environ["DEBUG"] = "1"
         os.environ["TEST"] = "1"
-
-        try:
-            path = sys.argv[2] if cmd == "test" else sys.argv[3]
-            if path.startswith("ee"):
-                print("Running EE tests. Setting clickhouse as primary database.")
-                os.environ["PRIMARY_DB"] = "clickhouse"
-        except IndexError:
-            # there was no path, we don't want to set PRIMARY_DB
-            pass

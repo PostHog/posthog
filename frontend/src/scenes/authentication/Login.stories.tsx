@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export default {
-    title: 'Scenes/Authentication/Login',
+    title: 'Scenes-Other/Login',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 

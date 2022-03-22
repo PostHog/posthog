@@ -1,3 +1,4 @@
+import { urls } from 'scenes/urls'
 import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
@@ -104,7 +105,6 @@ export const FEATURE_FLAGS = {
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
-    EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
+    FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -164,3 +165,8 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
     gitlab: 'GitLab',
     saml: 'Single sign-on (SAML)',
 }
+
+// TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
+// pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
+export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
+    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }

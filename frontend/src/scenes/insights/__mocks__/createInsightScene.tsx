@@ -2,7 +2,7 @@ import { InsightModel } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import React, { useEffect } from 'react'
 import { router } from 'kea-router'
-import { InsightScene } from 'scenes/insights/InsightScene'
+import { App } from 'scenes/App'
 
 let shortCounter = 0
 export function createInsightScene(insight: Partial<InsightModel>): () => JSX.Element {
@@ -27,6 +27,6 @@ export function createInsightScene(insight: Partial<InsightModel>): () => JSX.El
             router.actions.push(`/insights/${insight.short_id}${count}`)
         }, [])
 
-        return <InsightScene />
+        return <App />
     }
 }

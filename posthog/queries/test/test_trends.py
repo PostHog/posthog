@@ -2405,4 +2405,19 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 self.assertEqual(daily_response[1]["data"][0], 2)
                 self.assertEqual(daily_response[1]["label"], "sign up - some_val")
 
+                # MAU
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    monthly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "monthly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    weekly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "weekly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
     return TestTrends

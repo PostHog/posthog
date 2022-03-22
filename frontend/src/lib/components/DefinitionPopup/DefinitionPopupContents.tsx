@@ -51,7 +51,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
             </DefinitionPopup.Grid>
             <DefinitionPopup.Section>
                 <Link
-                    to="https://posthog.com/docs/user-guides"
+                    to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
                     style={{ fontWeight: 600, marginTop: 8 }}

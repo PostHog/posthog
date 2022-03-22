@@ -110,18 +110,25 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
-    try:
-        ActivityLog.objects.create(
-            organization_id=organization_id,
+    if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+        logger.warn(
+            "ignore_update_activity_no_changes",
             team_id=team_id,
-            user=user,
-            item_id=str(item_id),
+            organization_id=organization_id,
+            user_id=user.id,
             scope=scope,
-            activity=activity,
-            detail=detail,
         )
-    except Exception as e:
-        logger.warn("failed to write activity log", scope=scope, team=team_id, exception=e, activity=activity)
+        return
+
+    ActivityLog.objects.create(
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        item_id=str(item_id),
+        scope=scope,
+        activity=activity,
+        detail=detail,
+    )
 
 
 def load_activity(scope: Literal["FeatureFlag", "Insight"], team_id: int, item_id: Optional[int] = None):

@@ -49,7 +49,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
-        loadCorrelations()
+        loadCorrelations({})
     }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {

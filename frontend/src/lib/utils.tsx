@@ -27,6 +27,7 @@ import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
+import equal from 'fast-deep-equal'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -204,7 +205,8 @@ export function deleteWithUndo({
         props.callback?.()
         lemonToast[undo ? 'success' : 'info'](
             <>
-                <b>{props.object.name || <i>Unnnamed</i>}</b> has been {undo ? 'restored' : 'deleted'}
+                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                {undo ? 'restored' : 'deleted'}
             </>,
             {
                 toastId: `delete-item-${props.object.id}-${undo}`,
@@ -416,7 +418,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return JSON.stringify(obj1) === JSON.stringify(obj2)
+    return equal(obj1, obj2)
 }
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */

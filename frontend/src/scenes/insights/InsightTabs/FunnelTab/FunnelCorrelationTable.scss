@@ -14,9 +14,7 @@
     .funnel-correlation-header {
         background: #f2f2f2;
         display: flex;
-        order: 0;
         align-self: stretch;
-        flex-grow: 1;
         justify-content: space-between;
         align-content: space-between;
         border-top-left-radius: $radius;
@@ -36,15 +34,11 @@
             text-transform: uppercase;
 
             color: $text_default;
-            flex: none;
-            flex-grow: 4;
             margin-left: $default_spacing;
-            margin-right: $default_spacing;
             margin-top: $default_spacing/2;
         }
 
         .table-options {
-            float: right;
             display: flex;
             flex-grow: 1;
             justify-content: flex-end;
@@ -64,8 +58,6 @@
                 letter-spacing: 0.02em;
                 text-transform: uppercase;
                 margin: 5px;
-
-                /* text/muted */
 
                 color: rgba(0, 0, 0, 0.5);
             }

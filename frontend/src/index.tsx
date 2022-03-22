@@ -25,14 +25,19 @@ if (typeof window !== 'undefined') {
 }
 
 function renderApp(): void {
-    ReactDOM.render(
-        <Provider store={getContext().store}>
-            <ErrorBoundary>
-                <App />
-            </ErrorBoundary>
-        </Provider>,
-        document.getElementById('root')
-    )
+    const root = document.getElementById('root')
+    if (root) {
+        ReactDOM.render(
+            <Provider store={getContext().store}>
+                <ErrorBoundary>
+                    <App />
+                </ErrorBoundary>
+            </Provider>,
+            root
+        )
+    } else {
+        console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+    }
 }
 
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.

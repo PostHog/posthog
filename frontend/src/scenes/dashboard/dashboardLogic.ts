@@ -1,7 +1,6 @@
 import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
@@ -64,7 +63,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
             receivedErrors,
         }),
-        addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
         }: {
@@ -91,8 +89,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
-        /** Take the user to insights to add a graph. */
-        addGraph: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -182,12 +178,20 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                    return state
-                        ? ({
-                              ...state,
-                              items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                          } as DashboardType)
-                        : null
+                    if (state) {
+                        const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
+                        const newItems = state.items.slice(0)
+                        if (itemIndex >= 0) {
+                            newItems[itemIndex] = item
+                        } else {
+                            newItems.push(item)
+                        }
+                        return {
+                            ...state,
+                            items: newItems,
+                        } as DashboardType
+                    }
+                    return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
@@ -519,19 +523,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache, props }) => ({
-        addNewDashboard: async () => {
-            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
-                title: 'New dashboard',
-                placeholder: 'Please enter a name',
-                value: '',
-                error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
-            })
-        },
-        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
-        },
+    listeners: ({ actions, values, cache, props }) => ({
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
             eventUsageLogic.actions.reportDashboardShareToggled(isShared)
@@ -662,11 +654,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
             if (mode) {
                 eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
-            }
-        },
-        addGraph: () => {
-            if (values.dashboard) {
-                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }
         },
         setAutoRefresh: () => {
