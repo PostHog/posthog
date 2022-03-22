@@ -45,4 +45,4 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 def valid_domain(url) -> bool:
     target_domain = urlparse(url).netloc
-    return bool(target_domain == "hooks.zapier.com")
+    return target_domain == "hooks.zapier.com"
