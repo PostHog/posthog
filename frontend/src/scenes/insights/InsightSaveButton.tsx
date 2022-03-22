@@ -5,16 +5,16 @@ export function InsightSaveButton({
     saveAs,
     saveInsight,
     isSaved,
-    filtersChanged,
+    insightChanged,
     addingToDashboard,
 }: {
     saveAs: () => void
     saveInsight: (redirect: boolean) => void
     isSaved: boolean | undefined
-    filtersChanged: boolean
+    insightChanged: boolean
     addingToDashboard: boolean
 }): JSX.Element {
-    const disabled = isSaved && !filtersChanged
+    const disabled = isSaved && !insightChanged
     const saveAsAvailable = isSaved && !addingToDashboard
 
     return (
