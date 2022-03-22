@@ -57,7 +57,7 @@ class TestCapture(BaseTest):
             "sent_at": args["sent_at"],
         }
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
@@ -90,7 +90,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.api.capture.configure_scope")
-    @patch("ee.kafka_client.client._KafkaProducer.produce", MagicMock())
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
     def test_capture_event_adds_library_to_sentry(self, patched_scope):
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
@@ -115,7 +115,7 @@ class TestCapture(BaseTest):
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
     @patch("posthog.api.capture.configure_scope")
-    @patch("ee.kafka_client.client._KafkaProducer.produce", MagicMock())
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
     def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
@@ -137,7 +137,7 @@ class TestCapture(BaseTest):
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_personal_api_key(self, kafka_produce):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
@@ -172,7 +172,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_personal_api_key_from_batch_request(self, kafka_produce):
         # Originally issue POSTHOG-2P8
         key = PersonalAPIKey(label="X", user=self.user)
@@ -221,7 +221,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):
         self.client.post(
             "/track/",
@@ -237,7 +237,7 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 2)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_emojis_in_text(self, kafka_produce):
         self.team.api_token = "xp9qT2VLY76JJg"
         self.team.save()
@@ -254,7 +254,7 @@ class TestCapture(BaseTest):
             properties["$elements"][0]["$el_text"], "💻 Writing code",
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_gzip(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
@@ -273,7 +273,7 @@ class TestCapture(BaseTest):
             data["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_gzip_with_no_content_type(self, kafka_produce):
         "IE11 sometimes does not send content_type"
 
@@ -294,7 +294,7 @@ class TestCapture(BaseTest):
             data["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_invalid_gzip(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
@@ -313,7 +313,7 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_invalid_lz64(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
@@ -329,7 +329,7 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_incorrect_padding(self, kafka_produce):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
@@ -340,7 +340,7 @@ class TestCapture(BaseTest):
         data = json.loads(kafka_produce.call_args[1]["data"]["data"])
         self.assertEqual(data["event"], "whatevefr")
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_empty_request_returns_an_error(self, kafka_produce):
         """
         Empty requests that fail silently cause confusion as to whether they were successful or not.
@@ -356,7 +356,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch(self, kafka_produce):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
         response = self.client.post(
@@ -376,7 +376,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_with_invalid_event(self, kafka_produce):
         data = [
             {"type": "capture", "event": "event1", "distinct_id": "2"},
@@ -396,7 +396,7 @@ class TestCapture(BaseTest):
         events_processed = [json.loads(call.kwargs["data"]["data"])["event"] for call in kafka_produce.call_args_list]
         self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
@@ -425,7 +425,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_param(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
@@ -453,7 +453,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_lzstring(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
@@ -482,7 +482,7 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_lz64_with_emoji(self, kafka_produce):
         self.team.api_token = "KZZZeIpycLH-tKobLBET2NOg7wgJF2KqDL5yWU_7tZw"
         self.team.save()
@@ -550,7 +550,7 @@ class TestCapture(BaseTest):
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_distinct_id"}})
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_engage(self, kafka_produce):
         response = self.client.get(
             "/engage/?data=%s"
@@ -578,7 +578,7 @@ class TestCapture(BaseTest):
             {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
         )
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_python_library(self, kafka_produce):
         self.client.post(
             "/track/",
@@ -590,7 +590,7 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_base64_decode_variations(self, kafka_produce):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
@@ -615,7 +615,7 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_library_underscore_sent_at(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -644,7 +644,7 @@ class TestCapture(BaseTest):
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_long_distinct_id(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -664,7 +664,7 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(len(arguments["distinct_id"]), 200)
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_sent_at_field(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -760,7 +760,7 @@ class TestCapture(BaseTest):
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
         self.assertListEqual(self.team.event_properties_numerical, [])
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
@@ -774,7 +774,7 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_with_overrides_if_missing(self, kafka_produce) -> None:
         feature_flag_instance = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="test-ff", rollout_percentage=0
