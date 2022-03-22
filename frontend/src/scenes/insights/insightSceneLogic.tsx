@@ -17,7 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 export function confirmDiscardingInsightChanges(): boolean {
     const shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
     if (shouldDiscardChanges) {
-        insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.discardChanges()
+        insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.cancelChanges()
     } else {
         history.back()
     }
