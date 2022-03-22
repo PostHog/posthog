@@ -4,10 +4,18 @@ import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
-from ctypes import Union
 from enum import Enum, auto
 from time import time
-from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Set,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import pytz
 from dateutil.parser import isoparse
