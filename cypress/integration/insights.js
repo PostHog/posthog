@@ -19,7 +19,6 @@ describe('Insights', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         // Save
-        cy.wait(500) // TODO: hoxfix until we disable "save" when loading
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 
@@ -45,6 +44,57 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
         // Check we're in edit mode
         cy.get('[data-attr="insight-save-button"]').should('exist')
+    })
+
+    it('Requires confirmation when navigating away from an insight with unsaved changes', () => {
+        let count = 0
+        cy.on('window:confirm', () => {
+            count += 1
+            switch (count) {
+                case 1:
+                    return false
+                case 2:
+                    return true
+            }
+        })
+
+        // Can move away from an unchanged new insight without confirm()
+        cy.get('[data-attr="menu-item-insight"]').click()
+        // Navigate away
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+
+        // Can navigate away from unchanged saved insight without confirm()
+        cy.get('[data-attr="menu-item-insight"]').click()
+        // Add series
+        cy.get('[data-attr=add-action-event-button]').click()
+        // Save
+        cy.get('[data-attr="insight-save-button"]').click()
+        // Navigate away
+        cy.get('[data-attr="menu-item-annotations"]').click()
+        cy.wait(200)
+        // We should be on the Annotations page now
+        cy.get('h1').contains('Annotations').should('exist')
+
+        // Can keep editing changed new insight after navigating away with confirm() rejection (case 1)
+        cy.get('[data-attr="menu-item-insight"]').click()
+        // Add series
+        cy.get('[data-attr=add-action-event-button]').click()
+        // Navigate away
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+        // Save button should still be here because case 1 rejects confirm()
+        cy.get('[data-attr="insight-save-button"]').should('exist')
+
+        // Can navigate away from changed new insight with confirm() acceptance (case 2)
+        cy.get('[data-attr="menu-item-insight"]').click()
+        // Add series
+        cy.get('[data-attr=add-action-event-button]').click()
+        // Navigate away
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+        // Save button should be gone because case 2 rejects accepts()
+        cy.get('[data-attr="insight-save-button"]').should('not.exist')
+        cy.wait(200)
+        // We should be on the Feature Flags page now
+        cy.get('h1').contains('Feature Flags').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
