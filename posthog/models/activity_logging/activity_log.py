@@ -5,6 +5,7 @@ from typing import Any, List, Literal, Optional, Union
 import structlog
 from django.db import models
 from django.utils import timezone
+from sentry_sdk import capture_exception, push_scope
 
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
@@ -125,14 +126,11 @@ def log_activity(
             detail=detail,
         )
     except Exception as e:
-        logger.warn(
-            "failed to write activity log",
-            team=team_id,
-            organization_id=organization_id,
-            scope=scope,
-            activity=activity,
-            exception=e,
-        )
+        with push_scope() as scope:
+            scope.set_tag("team-id", team_id)
+            scope.set_tag("scope", scope)
+            scope.set_tag("activity", activity)
+            capture_exception(e)
 
 
 def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None):

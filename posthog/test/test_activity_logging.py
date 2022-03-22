@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pytest
 from dateutil import parser
@@ -71,30 +72,25 @@ class TestActivityLogModel(BaseTest):
             error.exception.args[0],
         )
 
-    def test_does_not_throw_if_cannot_log_activity(self):
-        with self.assertLogs(level="WARN") as log:
-            try:
-                log_activity(
-                    organization_id=UUIDT(),
-                    team_id=1,
-                    # will cause logging to raise exception because user is unsaved
-                    # avoids needing to mock anything to force the exception
-                    user=User(first_name="testy", email="test@example.com"),
-                    item_id="12345",
-                    scope="testing throwing exceptions on create",
-                    activity="does not explode",
-                    detail=Detail(),
-                )
-            except Exception as e:
-                raise pytest.fail(f"Should not have raised exception: {e}")
+    @patch("posthog.models.activity_logging.activity_log.capture_exception")
+    def test_does_not_throw_if_cannot_log_activity(self, patch_capture_exception):
+        try:
+            log_activity(
+                organization_id=UUIDT(),
+                team_id=1,
+                # will cause logging to raise exception because user is unsaved
+                # avoids needing to mock anything to force the exception
+                user=User(first_name="testy", email="test@example.com"),
+                item_id="12345",
+                scope="testing throwing exceptions on create",
+                activity="does not explode",
+                detail=Detail(),
+            )
+        except Exception as e:
+            raise pytest.fail(f"Should not have raised exception: {e}")
 
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(logged_warning["msg"]["event"], "failed to write activity log")
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+        capture_expection_args = patch_capture_exception.call_args.args
+        self.assertIsInstance(capture_expection_args[0], ValueError)
 
 
 class TestChangesBetweenFeatureFlags(unittest.TestCase):
