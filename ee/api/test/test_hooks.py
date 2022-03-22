@@ -1,5 +1,6 @@
 from typing import Type, cast
 
+from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
@@ -7,7 +8,7 @@ from ee.models.hook import Hook
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
     def test_create_hook(self):
-        data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created"}
+        data = {"target": "https://hooks.zapier.com/abcd/", "event": "annotation_created"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         self.assertEqual(response.status_code, 201)
         hook: Type[Hook] = Hook.objects.first()
@@ -27,7 +28,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         )
 
     def test_create_hook_with_resource_id(self):
-        data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created", "resource_id": "66"}
+        data = {"target": "https://hooks.zapier.com/abcd/", "event": "annotation_created", "resource_id": "66"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         self.assertEqual(response.status_code, 201)
         hook: Type[Hook] = Hook.objects.first()
@@ -51,3 +52,26 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
         response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
         self.assertEqual(response.status_code, 204)
+
+    def test_invalid_target(self):
+        data = {"target": "https://hooks.non-zapier.com/abcd/", "event": "annotation_created"}
+        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        self.assertEqual(response.status_code, 400)
+
+
+def test_valid_domain() -> None:
+
+    test_cases = {
+        "http://hooks.zapier.com": True,
+        "https://hooks.zapier.com": True,
+        "http://hooks.zapier.com/something": True,
+        "https://hooks.zapier.com/something": True,
+        "http://hooks.zapierz.com": False,
+        "https://hooks.zapierz.com": False,
+        "http://hoos.zapier.com/something": False,
+        "https://hoos.zapier.com/something": False,
+    }
+
+    for test_input, expected_test_output in test_cases.items():
+        test_output = valid_domain(test_input)
+        assert test_output == expected_test_output

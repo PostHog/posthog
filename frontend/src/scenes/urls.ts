@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { FilterType, InsightShortId } from '~/types'
+import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
 /*
@@ -15,7 +15,8 @@ To add a new URL to the front end:
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
-    dashboard: (id: string | number) => `/dashboard/${id}`,
+    dashboard: (id: string | number, highlightInsightId?: string) =>
+        combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/data-management/actions/${id}`,
@@ -25,8 +26,8 @@ export const urls = {
     eventPropertyDefinitions: () => '/data-management/event-properties',
     eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
-    insightNew: (filters?: Partial<FilterType>) =>
-        `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
+    insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null) =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
     insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',

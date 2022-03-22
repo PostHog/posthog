@@ -80,7 +80,10 @@ class BreakdownField(serializers.Field):
 class BreakdownMixin(serializers.Serializer):
     breakdown = BreakdownField(
         required=False,
-        help_text="A property or cohort to break down on. You can select the type of the property with breakdown_type.\n- **event** (default): A property key\n- **person**: A person property key\n- **cohort**: An array of cohort IDs (ie [9581,5812])",
+        help_text="""A property or cohort to break down on. You can select the type of the property with breakdown_type.
+- `event` (default): a property key
+- `person`: a person property key
+- `cohort`: an array of cohort IDs (ie `[9581,5812]`)""",
     )
     breakdown_type = serializers.ChoiceField(
         choices=get_args(BREAKDOWN_TYPES),
