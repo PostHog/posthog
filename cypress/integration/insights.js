@@ -69,11 +69,11 @@ describe('Insights', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         // Save
         cy.get('[data-attr="insight-save-button"]').click()
+        cy.wait(200)
         // Navigate away
         cy.get('[data-attr="menu-item-annotations"]').click()
-        cy.wait(200)
         // We should be on the Annotations page now
-        cy.get('h1').contains('Annotations').should('exist')
+        cy.get('h1.page-title').contains('Annotations').should('exist')
 
         // Can keep editing changed new insight after navigating away with confirm() rejection (case 1)
         cy.get('[data-attr="menu-item-insight"]').click()
@@ -92,9 +92,8 @@ describe('Insights', () => {
         cy.get('[data-attr="menu-item-featureflags"]').click()
         // Save button should be gone because case 2 rejects accepts()
         cy.get('[data-attr="insight-save-button"]').should('not.exist')
-        cy.wait(200)
         // We should be on the Feature Flags page now
-        cy.get('h1').contains('Feature Flags').should('exist')
+        cy.get('h1.page-title').contains('Feature Flags').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
