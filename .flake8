@@ -64,6 +64,7 @@ per-file-ignores =
     ./posthog/apps.py: T001
     ./posthog/celery.py: T001
     ./posthog/email.py: T001
+    ./posthog/idl/gen/events_pb2.pyi: E704 E301 E305
     ./posthog/management/commands/api_keys.py: T001
     ./posthog/management/commands/merge_distinct_emails.py: T001
     ./posthog/management/commands/migrate_elementgroup.py: T001
