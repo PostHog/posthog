@@ -7,6 +7,7 @@ import { kea } from 'kea'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { AppContext } from '~/types'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string
@@ -22,14 +23,18 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
     }
 }
 
-function getPersistedFeatureFlags(): FeatureFlagsSet {
-    const persistedFeatureFlags = getAppContext()?.persisted_feature_flags || []
+function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
+    const persistedFeatureFlags = appContext?.persisted_feature_flags || []
     return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const persistedFlags = getPersistedFeatureFlags()
-    const availableFlags = getAppContext()?.preflight.cloud ? { ...persistedFlags, featureFlags } : persistedFlags
+    const appContext = getAppContext()
+    const persistedFlags = getPersistedFeatureFlags(appContext)
+    const availableFlags =
+        appContext?.preflight.cloud || appContext?.preflight.is_debug
+            ? { ...persistedFlags, featureFlags }
+            : persistedFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
