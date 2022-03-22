@@ -11,6 +11,7 @@ import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useFeatures } from '~/mocks/features'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -539,6 +540,18 @@ describe('insightLogic', () => {
             savedFilters: partial({ insight: InsightType.TRENDS }),
             filtersChanged: false,
         })
+    })
+
+    test('saveInsight saves new insight and redirects to view mode', async () => {
+        logic = insightLogic({
+            dashboardItemId: 'new',
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters(cleanFilters({}))
+            logic.actions.saveInsight()
+        }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
     test('saveInsight and updateInsight reload the saved insights list', async () => {
