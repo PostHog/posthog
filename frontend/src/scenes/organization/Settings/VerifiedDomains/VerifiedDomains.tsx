@@ -24,8 +24,8 @@ export function VerifiedDomains(): JSX.Element {
             <div className="flex-center">
                 <div style={{ flexGrow: 1 }}>
                     <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 2022-06-01. */}
-                    <h2 id="verified-domains" className="subtitle">
-                        Verified domains
+                    <h2 id="authentication-domains" className="subtitle">
+                        Authentication domains
                     </h2>
                     <p className="text-muted-alt">
                         Enable users to sign up automatically with an email address on verified domains and enforce SSO
@@ -188,7 +188,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 columns={columns}
                 loading={verifiedDomainsLoading}
                 rowKey="id"
-                emptyState="You haven't registered any verified domains."
+                emptyState="You haven't registered any authentication domains yet."
             />
             <AddDomainModal />
             <VerifyDomainModal />

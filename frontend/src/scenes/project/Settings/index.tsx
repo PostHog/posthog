@@ -224,7 +224,7 @@ export function ProjectSettings(): JSX.Element {
                     </>
                 )}
                 <Divider />
-                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jan 1, 2022 */}
+                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
                 <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
                     Authorized URLs
