@@ -714,10 +714,10 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             </Row>
                         )}
                         {showWarning && experimentData.end_date && (
-                            <Row align="middle" className="feature-flag-mods">
-                                <Col span={23}>
-                                    <b>Your experiment is complete.</b> We recommend removing the feature flag from your
-                                    code completely, instead of relying on this distribution:{' '}
+                            <Row align="top" className="feature-flag-mods">
+                                <Col span={23} style={{ fontWeight: 500 }}>
+                                    <strong>Your experiment is complete.</strong> We recommend removing the feature flag
+                                    from your code completely, instead of relying on this distribution.{' '}
                                     <Link
                                         to={
                                             experimentData.feature_flag
@@ -725,7 +725,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 : undefined
                                         }
                                     >
-                                        <b>Adjust feature flag distribution.</b>
+                                        <b>Adjust feature flag distribution</b>
                                     </Link>
                                 </Col>
                                 <Col span={1}>
