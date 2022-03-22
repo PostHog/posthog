@@ -110,24 +110,23 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             { shortId, mode }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters }, // hash params
-            { method, initial } // change event
+            { method, initial } // "location changed" event payload
         ) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
-            const oldInsightId = values.insightId
+
+            // this makes sure we have "values.insightCache?.logic" below
+            if (insightId !== values.insightId || insightMode !== values.insightMode) {
+                actions.setSceneState(insightId, insightMode)
+            }
 
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
-            const insightStateChanged = insightId !== oldInsightId || insightMode !== values.insightMode
-            const forceChange = method === 'PUSH' || filters || initial
-
-            if (insightStateChanged || forceChange) {
-                actions.setSceneState(insightId, insightMode)
-
-                const resetNewInsight = insightId === 'new' && forceChange
-                if (resetNewInsight) {
+            // reset the insight's state if we have to
+            if (initial || method === 'PUSH' || filters) {
+                if (insightId === 'new') {
                     values.insightCache?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new'),
@@ -145,19 +144,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 } else if (filters) {
                     values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
+            }
 
-                if (filters) {
-                    if (insightMode === ItemMode.Edit && insightId !== 'new') {
-                        lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
-                    }
-                    router.actions.replace(
-                        insightId === 'new'
-                            ? urls.insightNew(undefined, dashboard)
-                            : insightMode === ItemMode.Edit
-                            ? urls.insightEdit(insightId)
-                            : urls.insightView(insightId)
-                    )
-                }
+            // Redirect to a simple URL if we had filters in the URL
+            if (filters) {
+                router.actions.replace(
+                    insightId === 'new'
+                        ? urls.insightNew(undefined, dashboard)
+                        : insightMode === ItemMode.Edit
+                        ? urls.insightEdit(insightId)
+                        : urls.insightView(insightId)
+                )
+            }
+
+            // show a warning toast if opened `/edit#filters={...}`
+            if (filters && insightMode === ItemMode.Edit && insightId !== 'new') {
+                lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
             }
         },
     }),
