@@ -18,7 +18,7 @@ export function handleLoginRedirect(): void {
             nextURL = url.pathname + url.search + url.hash
         }
     } catch (e) {}
-    // A safe way to redirect to a new page. Calls history.replaceState() ensuring the URLs origin does not change.
+    // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change.
     router.actions.replace(nextURL)
 }
 
