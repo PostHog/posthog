@@ -1,5 +1,4 @@
 import unittest
-from unittest.mock import patch
 
 import pytest
 from dateutil import parser
@@ -72,8 +71,7 @@ class TestActivityLogModel(BaseTest):
             error.exception.args[0],
         )
 
-    @patch("posthog.models.activity_logging.activity_log.capture_exception")
-    def test_does_not_throw_if_cannot_log_activity(self, patch_capture_exception):
+    def test_does_not_throw_if_cannot_log_activity(self):
         with self.assertLogs(level="WARN") as log:
             try:
                 log_activity(
@@ -89,9 +87,6 @@ class TestActivityLogModel(BaseTest):
                 )
             except Exception as e:
                 raise pytest.fail(f"Should not have raised exception: {e}")
-
-            capture_expection_args = patch_capture_exception.call_args.args
-            self.assertIsInstance(capture_expection_args[0], ValueError)
 
             logged_warning = log.records[0].__dict__
             self.assertEqual(logged_warning["levelname"], "WARNING")
