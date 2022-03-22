@@ -1,6 +1,6 @@
-import { Button, Modal, Switch } from 'antd'
+import { Button, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
+import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber, IconLock } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -14,6 +14,10 @@ import { AddDomainModal } from './AddDomainModal'
 import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from 'lib/components/Link'
+import { UPGRADE_LINK } from 'lib/constants'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading, isFeatureAvailable } = useValues(verifiedDomainsLogic)
@@ -53,9 +57,15 @@ export function VerifiedDomains(): JSX.Element {
 }
 
 function VerifiedDomainsTable(): JSX.Element {
-    const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
-        useValues(verifiedDomainsLogic)
+    const {
+        verifiedDomains,
+        verifiedDomainsLoading,
+        currentOrganization,
+        updatingDomainLoading,
+        isSSOEnforcementAvailable,
+    } = useValues(verifiedDomainsLogic)
     const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -63,29 +73,40 @@ function VerifiedDomainsTable(): JSX.Element {
             title: 'Domain name',
             dataIndex: 'domain',
             render: function RenderDomainName(_, { domain }) {
-                return <LemonTag>{domain}</LemonTag>
+                return <LemonTag style={{ textTransform: 'lowercase' }}>{domain}</LemonTag>
             },
         },
-        {
-            key: 'is_verified',
-            title: 'Verification',
-            render: function Verified(_, { is_verified, verified_at }) {
-                const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
-                return is_verified ? (
-                    <div className="flex-center text-success">
-                        <IconCheckmark style={iconStyle} /> Verified
-                    </div>
-                ) : verified_at ? (
-                    <div className="flex-center text-danger">
-                        <IconExclamation style={iconStyle} /> Verification expired
-                    </div>
-                ) : (
-                    <div className="flex-center text-warning">
-                        <IconWarningAmber style={iconStyle} /> Pending verification
-                    </div>
-                )
-            },
-        },
+        ...(preflight?.cloud
+            ? ([
+                  {
+                      key: 'is_verified',
+                      title: (
+                          <>
+                              Verification
+                              <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
+                                  <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                              </Tooltip>
+                          </>
+                      ),
+                      render: function Verified(_, { is_verified, verified_at }) {
+                          const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
+                          return is_verified ? (
+                              <div className="flex-center text-success">
+                                  <IconCheckmark style={iconStyle} /> Verified
+                              </div>
+                          ) : verified_at ? (
+                              <div className="flex-center text-danger">
+                                  <IconExclamation style={iconStyle} /> Verification expired
+                              </div>
+                          ) : (
+                              <div className="flex-center text-warning">
+                                  <IconWarningAmber style={iconStyle} /> Pending verification
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<OrganizationDomainType>)
+            : []),
         {
             key: 'jit_provisioning_enabled',
             title: (
@@ -102,38 +123,61 @@ function VerifiedDomainsTable(): JSX.Element {
             ),
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
                 return is_verified ? (
-                    <Switch
-                        checked={jit_provisioning_enabled}
-                        disabled={updatingDomainLoading || !is_verified}
-                        onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
-                    />
+                    <div className="flex-center">
+                        Enable automatic provisioning
+                        <LemonSwitch
+                            style={{ marginLeft: 8 }}
+                            checked={jit_provisioning_enabled}
+                            disabled={updatingDomainLoading || !is_verified}
+                            onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
+                        />
+                    </div>
                 ) : (
-                    <span className="text-muted-alt">Verify domain to enable</span>
+                    <i className="text-muted-alt">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
-        {
-            key: 'sso_enforcement',
-            title: (
-                <>
-                    Enforce SSO{' '}
-                    <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                        <InfoCircleOutlined />
-                    </Tooltip>
-                </>
-            ),
-            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }) {
-                return is_verified ? (
-                    <SSOSelect
-                        value={sso_enforcement}
-                        loading={updatingDomainLoading}
-                        onChange={(val) => updateDomain({ id, sso_enforcement: val })}
-                    />
-                ) : (
-                    <span className="text-muted-alt">Verify domain to enable</span>
-                )
-            },
-        },
+        // TODO: This attribute is not connected yet, hide to avoid confusion
+        ...(preflight?.cloud
+            ? ([
+                  {
+                      key: 'sso_enforcement',
+                      title: (
+                          <>
+                              Enforce SSO{' '}
+                              <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
+                                  <InfoCircleOutlined />
+                              </Tooltip>
+                          </>
+                      ),
+                      render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }, index) {
+                          if (!isSSOEnforcementAvailable) {
+                              return index === 0 ? (
+                                  <Link
+                                      to={UPGRADE_LINK(preflight?.cloud).url}
+                                      target={UPGRADE_LINK(preflight?.cloud).target}
+                                      className="flex-center"
+                                  >
+                                      <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable
+                                      SSO enforcement
+                                  </Link>
+                              ) : (
+                                  <></>
+                              )
+                          }
+                          return is_verified ? (
+                              <SSOSelect
+                                  value={sso_enforcement}
+                                  loading={updatingDomainLoading}
+                                  onChange={(val) => updateDomain({ id, sso_enforcement: val })}
+                              />
+                          ) : (
+                              <i className="text-muted-alt">Verify domain to enable</i>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<OrganizationDomainType>)
+            : []),
         {
             key: 'actions',
             width: 32,
