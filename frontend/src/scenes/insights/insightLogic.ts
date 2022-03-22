@@ -662,6 +662,7 @@ export const insightLogic = kea<insightLogicType>({
                 throw error
             }
 
+            // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
             const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
             const insightRequest: Partial<InsightModel> = {
                 name,
