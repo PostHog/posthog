@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { Skeleton } from 'antd'
@@ -43,7 +43,12 @@ const Loading = (): JSX.Element => {
 export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, describer, startingPage })
     const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
+    const { addPageChangeCallback } = useActions(logic)
     const paginationState = usePagination(humanizedActivity || [], pagination)
+
+    useEffect(() => {
+        addPageChangeCallback(paginationState.setCurrentPage)
+    }, [paginationState.setCurrentPage])
 
     return (
         <div className="activity-log">

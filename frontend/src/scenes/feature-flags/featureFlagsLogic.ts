@@ -22,6 +22,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: string) => ({ tabKey }),
+        setHistoryPage: (page: number) => ({ page }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -82,6 +83,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,
             },
         ],
+        historyPage: [null as number | null, { setHistoryPage: (_, { page }) => page }],
     },
     actionToUrl: ({ values }) => ({
         setActiveTab: () => {
@@ -100,6 +102,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             const tabInURL = searchParams['tab']
             if (tabInURL && tabInURL !== values.activeTab) {
                 actions.setActiveTab(tabInURL)
+            }
+            const pageInURL = searchParams['page']
+            if (pageInURL && values.activeTab === FeatureFlagsTabs.HISTORY) {
+                actions.setHistoryPage(pageInURL)
             }
         },
     }),

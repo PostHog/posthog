@@ -50,4 +50,22 @@ describe('the feature flags logic', () => {
             activeTab: FeatureFlagsTabs.HISTORY,
         })
     })
+
+    it('sets the page from the URL when on history tab', async () => {
+        router.actions.push(urls.featureFlags(), { page: '4' })
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
+        }).toMatchValues({
+            historyPage: 4,
+        })
+    })
+
+    it('does not set the page from the URL when on overview tab', async () => {
+        router.actions.push(urls.featureFlags(), { page: '4' })
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
+        }).toMatchValues({
+            historyPage: null,
+        })
+    })
 })

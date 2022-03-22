@@ -191,7 +191,7 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
 
-    const { activeTab } = useValues(featureFlagsLogic)
+    const { activeTab, historyPage } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
 
     return (
@@ -227,7 +227,7 @@ export function FeatureFlags(): JSX.Element {
                         <ActivityLog
                             scope={ActivityScope.FEATURE_FLAG}
                             describer={flagActivityDescriber}
-                            startingPage={1}
+                            startingPage={historyPage ?? 1}
                         />
                     </Tabs.TabPane>
                 </Tabs>

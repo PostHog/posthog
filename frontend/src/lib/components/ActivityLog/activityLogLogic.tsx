@@ -14,17 +14,16 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
     props: {} as ActivityLogProps,
     key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
+    actions: {
+        addPageChangeCallback: (callback: (page: number) => void) => ({ callback }),
+    },
     loaders: ({ values }) => ({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
                 fetchNextPage: async () => {
                     const url = values.nextPageURL
-                    if (url === null) {
-                        return null
-                    } else {
-                        return await api.get(url)
-                    }
+                    return url === null ? null : await api.get(url)
                 },
             },
         ],
@@ -33,11 +32,7 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             {
                 fetchPreviousPage: async () => {
                     const url = values.previousPageURL
-                    if (url === null) {
-                        return null
-                    } else {
-                        return await api.get(url)
-                    }
+                    return url === null ? null : await api.get(url)
                 },
             },
         ],
@@ -48,6 +43,12 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             {
                 fetchNextPageSuccess: (state) => state + 1,
                 fetchPreviousPageSuccess: (state) => state - 1,
+            },
+        ],
+        pageChangeCallback: [
+            null as null | ((page: number) => void),
+            {
+                addPageChangeCallback: (_, { callback }) => callback,
             },
         ],
         humanizedActivity: [
@@ -99,6 +100,14 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                 }
             },
         ],
+    }),
+    listeners: ({ values }) => ({
+        fetchNextPageSuccess: () => {
+            values.pageChangeCallback?.(values.page)
+        },
+        fetchPreviousPageSuccess: () => {
+            values.pageChangeCallback?.(values.page)
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
