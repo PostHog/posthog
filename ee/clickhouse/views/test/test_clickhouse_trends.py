@@ -457,7 +457,7 @@ def get_trends_time_series_ok(
                 breakdown_value=item.get("breakdown_value", None),
             )
         res[
-            "{}{}".format(item["label"], " - {}".format(item["compare_label"]) if item["compare_label"] else "")
+            "{}{}".format(item["label"], " - {}".format(item["compare_label"]) if item.get("compare_label") else "")
         ] = collect_dates
 
     return res
