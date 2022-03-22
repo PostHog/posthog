@@ -479,12 +479,12 @@ export const insightLogic = kea<insightLogicType>({
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
-            (insight, savedInsight, filters) =>
+            (insight, savedInsight, filters): boolean =>
                 (insight.name || '') !== (savedInsight.name || '') ||
                 (insight.description || '') !== (savedInsight.description || '') ||
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                (filters &&
-                    savedInsight.filters &&
+                (!!filters &&
+                    !!savedInsight.filters &&
                     !objectsEqual(cleanFilters(savedInsight.filters), cleanFilters(filters))),
         ],
         isViewedOnDashboard: [
@@ -776,7 +776,7 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: () => {
-            actions.setFilters(values.savedInsight.filters)
+            actions.setFilters(values.savedInsight.filters || {})
             insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             eventUsageLogic.actions.reportInsightsTabReset()
         },
