@@ -7,7 +7,6 @@ export NO_RESTART_LOOP=1
 export CYPRESS_BASE_URL=http://localhost:8080
 export OPT_OUT_CAPTURE=1
 export SECURE_COOKIES=0
-export PRIMARY_DB=clickhouse
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export KAFKA_URL=kafka://kafka:9092
 export CLICKHOUSE_DATABASE=posthog_test

@@ -196,12 +196,7 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton
-                            icon={<IconExperiment />}
-                            identifier={Scene.Experiments}
-                            to={urls.experiments()}
-                            highlight="beta"
-                        />
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
@@ -216,7 +211,6 @@ function Pages(): JSX.Element {
                         icon={<EventStackGearIcon />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
-                        highlight="beta"
                     />
                     <PageButton
                         icon={<IconPerson />}

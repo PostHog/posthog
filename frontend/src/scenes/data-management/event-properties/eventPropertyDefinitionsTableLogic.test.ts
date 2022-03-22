@@ -17,7 +17,7 @@ describe('eventPropertyDefinitionsTableLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/property_definitions': (req) => {
+                '/api/projects/:team/property_definitions/': (req) => {
                     if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
                         return [
                             200,

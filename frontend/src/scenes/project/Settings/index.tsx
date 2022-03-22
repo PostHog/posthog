@@ -224,17 +224,22 @@ export function ProjectSettings(): JSX.Element {
                     </>
                 )}
                 <Divider />
-                <div id="permitted-domains" />
+                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
+                <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
-                    Permitted domains/URLs
+                    Authorized URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
+                    These are the URLs where the{' '}
+                    <b>
+                        <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    </b>{' '}
+                    (if you're logged in) and where we'll <b>record sessions</b> (if{' '}
+                    <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
-                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
-                    top-level domains as this could present a security risk.
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
@@ -273,7 +278,7 @@ export function ProjectSettings(): JSX.Element {
                         posthog-js
                     </a>{' '}
                     <b>directly</b> installed, and the domains you wish to record must be set in{' '}
-                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
+                    <a href="#authorized-urls">Authorized URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

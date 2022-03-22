@@ -9,7 +9,6 @@ from freezegun import freeze_time
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import AnalyticsDBMS
 from posthog.models import Organization, Person, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
@@ -74,7 +73,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(org_report["group_types_total"], 0)
             self.assertEqual(org_report["event_count_with_groups_month"], 0)
 
-        with self.settings(USE_TZ=False, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE):
+        with self.settings(USE_TZ=False):
             with freeze_time("2020-11-02"):
                 _create_person("old_user1", team=default_team)
                 _create_person("old_user2", team=default_team)

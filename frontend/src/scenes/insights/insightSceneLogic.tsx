@@ -17,7 +17,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         logic: [eventUsageLogic],
     },
     actions: {
-        createNewInsight: (filters: Partial<FilterType>) => ({ filters }),
+        createNewInsight: (filters: Partial<FilterType>, dashboardId: number | null) => ({ filters, dashboardId }),
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
         setSceneState: (insightId: InsightShortId, insightMode: ItemMode) => ({
@@ -85,7 +85,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         ],
     }),
     listeners: ({ sharedListeners }) => ({
-        createNewInsight: async ({ filters }, breakpoint) => {
+        createNewInsight: async ({ filters, dashboardId }, breakpoint) => {
             const createdInsight: InsightModel = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 {
@@ -94,11 +94,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     tags: [],
                     filters: cleanFilters(filters || {}),
                     result: null,
+                    // Not using the dashboard ID here to avoid the draft insight appearing on the dashboard IMMEDIATELY
                 }
             )
             breakpoint()
             eventUsageLogic.actions.reportInsightCreated(createdInsight.filters?.insight || null)
-            router.actions.replace(urls.insightEdit(createdInsight.short_id))
+            router.actions.replace(urls.insightEdit(createdInsight.short_id, dashboardId))
         },
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
@@ -111,7 +112,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
                 if (insightId) {
-                    const logic = insightLogic({ dashboardItemId: insightId })
+                    const logic = insightLogic.build({ dashboardItemId: insightId }, false)
                     const unmount = logic.mount()
                     const selector = logic.selectors.insight
                     actions.setInsightLogic(logic, selector, unmount)
@@ -125,17 +126,23 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters }) => {
+        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters, dashboard }) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
             if (insightId !== oldInsightId || insightMode !== values.insightMode) {
                 actions.setSceneState(insightId, insightMode)
                 if (insightId !== oldInsightId && insightId === 'new') {
-                    actions.createNewInsight(filters)
+                    actions.createNewInsight(filters, dashboard)
                     return
                 }
-                // Redirect #filters={} to just /edit.
+                if (dashboard) {
+                    // Handle "Add insight" from dashboards by setting the dashboard ID locally
+                    // Usually it's better to keep this hash param instead of stripping it after usage,
+                    // just in case the user reloads the page or navigates away
+                    values.insightCache?.logic.actions.setSourceDashboardId(dashboard)
+                }
+                // Redirect old format with filters in hash params to just /edit without params
                 if (filters && Object.keys(filters).length > 0) {
                     values.insightCache?.logic.actions.setFilters(filters)
                     router.actions.replace(urls.insightEdit(insightId))

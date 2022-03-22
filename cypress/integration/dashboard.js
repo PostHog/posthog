@@ -48,7 +48,7 @@ describe('Dashboard', () => {
 
         cy.get('[data-attr=dashboard-share-button]').click()
         cy.get('[data-attr=share-dashboard-switch]').click()
-        cy.wait(200)
+        cy.contains('Share dashboard publicly').should('exist')
         cy.get('[data-attr=share-dashboard-link-button]').click()
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {
@@ -136,5 +136,18 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
         cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
+    })
+
+    it('Add insight from empty dashboard', () => {
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr=dashboard-name-input]').clear().type('Watermelon')
+        cy.get('button').contains('Create').click()
+
+        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add Insight').click()
+        cy.get('[data-attr=toast-close-button]').click()
+        cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
+
+        cy.wait(200)
+        cy.get('.page-title').contains('Watermelon').should('exist')
     })
 })

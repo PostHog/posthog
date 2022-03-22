@@ -4,6 +4,7 @@ import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
+import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
 
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     path: (key) => ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic', key],
@@ -12,6 +13,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         fromDashboard?: number
     },
     key: ({ id }) => id || 'none',
+    connect: () => [newDashboardForm, dashboardsModel, eventUsageLogic],
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
@@ -45,7 +47,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
+                success: (name: string) => newDashboardForm.actions.addDashboard({ name, show: false }),
             })
         },
 

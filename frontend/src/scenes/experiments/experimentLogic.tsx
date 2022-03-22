@@ -340,10 +340,19 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             {
                 loadExperiment: async () => {
                     if (props.experimentId && props.experimentId !== 'new') {
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
-                        )
-                        return response as Experiment
+                        try {
+                            const response = await api.get(
+                                `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
+                            )
+                            return response as Experiment
+                        } catch (error) {
+                            if (error.status === 404) {
+                                router.actions.push(urls.experiments())
+                            } else {
+                                lemonToast.error(`Failed to load experiment ${props.experimentId}`)
+                                throw new Error(`Failed to load experiment ${props.experimentId}`)
+                            }
+                        }
                     }
                     return null
                 },

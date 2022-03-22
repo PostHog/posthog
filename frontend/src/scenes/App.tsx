@@ -106,7 +106,7 @@ function Models(): null {
 }
 
 function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
-    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} />
+    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
 }
 
 function AppScene(): JSX.Element | null {

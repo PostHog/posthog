@@ -5,8 +5,7 @@ import os
 from typing import Dict, List
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.constants import AnalyticsDBMS
-from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, TEST, get_from_env
 from posthog.utils import print_warning, str_to_bool
 
 # Zapier REST hooks
@@ -72,9 +71,8 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 
 SSO_ENFORCEMENT = get_from_env("SSO_ENFORCEMENT", "saml" if SAML_ENFORCED else None, optional=True)
 
-
 # ClickHouse and Kafka
-KAFKA_ENABLED = PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and not TEST
+KAFKA_ENABLED = not TEST
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing

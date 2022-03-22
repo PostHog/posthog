@@ -1,6 +1,6 @@
-import { Meta } from '@storybook/addon-docs';
+import { Meta } from '@storybook/addon-docs'
 
-<Meta title="Forms/ How to build a form?" />
+<Meta title=" How to build a form?" />
 
 # How to build a form?
 
@@ -24,8 +24,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagModel,
             {
-                loadFeatureFlag: () => api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
-            }
+                loadFeatureFlag: () => api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`),
+            },
         ],
     }),
 
@@ -36,15 +36,24 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
 
             // sync validation, will be shown as errors in the form
             validator: (featureFlag) => ({
-                key: !featureFlag.key ? 'Must have a key' : undefined
+                key: !featureFlag.key ? 'Must have a key' : undefined,
             }),
 
             // called on the form's onSubmit, unless a validation fails
-            submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+            submit: async (featureFlag, breakpoint) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { created_at, id, ...flag } = featureFlag
+                const newFeatureFlag = updatedFlag.id
+                    ? await api.update(`api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`, flag)
+                    : await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                breakpoint()
+                actions.setFeatureFlagValues(newFeatureFlag)
+                lemonToast.success('Feature flag saved')
+                featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+                router.actions.replace(urls.featureFlag(featureFlag.id))
             },
-        }
-    })
+        },
+    }),
 })
 ```
 

@@ -22,6 +22,7 @@ import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
 import { HomeIcon } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -30,10 +31,10 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
-    const { showNewDashboardModal, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
+    const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { showNewDashboardModal, addDashboard } = useActions(newDashboardForm)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -245,7 +246,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'New Dashboard',
-                                        show: true,
                                         useTemplate: '',
                                     })
                                 }
@@ -263,7 +263,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'Web App Dashboard',
-                                        show: true,
                                         useTemplate: 'DEFAULT_APP',
                                     })
                                 }
