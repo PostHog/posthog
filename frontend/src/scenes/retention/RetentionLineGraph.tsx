@@ -15,10 +15,7 @@ interface RetentionLineGraphProps {
     inSharedMode?: boolean
 }
 
-export function RetentionLineGraph({
-    inCardView = false,
-    inSharedMode = false,
-}: RetentionLineGraphProps): JSX.Element | null {
+export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
@@ -69,21 +66,17 @@ export function RetentionLineGraph({
                         return `${roundToDecimal(count)}%`
                     },
                 }}
-                onClick={
-                    inCardView
-                        ? undefined
-                        : (payload) => {
-                              const { points } = payload
-                              const datasetIndex = points.clickedPointNotLine
-                                  ? points.pointsIntersectingClick[0].dataset.index
-                                  : points.pointsIntersectingLine[0].dataset.index
-                              if (datasetIndex) {
-                                  loadPeople(datasetIndex) // start from 0
-                                  selectRow(datasetIndex)
-                              }
-                              setModalVisible(true)
-                          }
-                }
+                onClick={(payload) => {
+                    const { points } = payload
+                    const datasetIndex = points.clickedPointNotLine
+                        ? points.pointsIntersectingClick[0].dataset.index
+                        : points.pointsIntersectingLine[0].dataset.index
+                    if (datasetIndex) {
+                        loadPeople(datasetIndex) // start from 0
+                        selectRow(datasetIndex)
+                    }
+                    setModalVisible(true)
+                }}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             />
             {results && (
