@@ -683,23 +683,34 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                     <Row>
                         {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="significant-results">
-                                <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>.{' '}
-                                    {experimentData.end_date
-                                        ? ''
-                                        : 'You can end this experiment now or let it run to completion.'}
+                                <Col span={20} style={{ fontWeight: 500, color: '#497342' }}>
+                                    <div>
+                                        Experiment results are significant.{' '}
+                                        {experimentData.end_date
+                                            ? ''
+                                            : 'You can end your experiment now or let it run until complete.'}
+                                    </div>
                                 </Col>
-                                <Col span={5}>
-                                    <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
-                                        Dismiss
-                                    </Button>
+                                <Col span={4}>
+                                    {experimentData.end_date ? (
+                                        <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                    ) : (
+                                        <LemonButton
+                                            type="highlighted"
+                                            className="end-experiment-btn"
+                                            onClick={() => endExperiment()}
+                                        >
+                                            End experiment
+                                        </LemonButton>
+                                    )}
                                 </Col>
                             </Row>
                         )}
                         {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
-                            <Row align="middle" className="not-significant-results">
-                                <Col span={23} style={{ color: '#2D2D2D' }}>
-                                    <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
+                            <Row align="top" className="not-significant-results">
+                                <Col span={23} style={{ fontWeight: 500, color: '#2D2D2D' }}>
+                                    <strong>Your results are not statistically significant</strong>.{' '}
+                                    {significanceBannerDetails}{' '}
                                     {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
                                     See our{' '}
                                     <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
