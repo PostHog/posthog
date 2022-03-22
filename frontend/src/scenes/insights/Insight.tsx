@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -30,6 +30,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -69,17 +70,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportHotkeyNavigation('insights', hotkey)
     }
 
-    useEffect(() => {
-        const beforeUnloadHandler = (e: BeforeUnloadEvent): void => {
-            // Cancel the event to show unsaved changes dialog
-            e.preventDefault()
-            e.returnValue = ''
-        }
-        if (filtersChanged) {
-            window.addEventListener('beforeunload', beforeUnloadHandler)
-            return () => window.removeEventListener('beforeunload', beforeUnloadHandler)
-        }
-    }, [filtersChanged])
+    useUnloadConfirmation(insightMode === ItemMode.Edit && filtersChanged)
 
     useKeyboardHotkeys({
         t: {
