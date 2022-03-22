@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from .team import Team
+from posthog.models.team import Team
 
 
 class SessionRecordingEvent(models.Model):
