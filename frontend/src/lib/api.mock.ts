@@ -57,7 +57,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
-    primary_dashboard: 20464,
+    primary_dashboard: 1,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
