@@ -104,7 +104,7 @@ function Description({ description }: { description: React.ReactNode }): JSX.Ele
 
 function DescriptionEmpty(): JSX.Element {
     const { singularType } = useValues(definitionPopupLogic)
-    return <div className="definition-popup-description empty">There is no description for this {singularType}</div>
+    return <div className="definition-popup-description empty">Add a description for this {singularType}</div>
 }
 
 function Example({ value }: { value: string }): JSX.Element {
