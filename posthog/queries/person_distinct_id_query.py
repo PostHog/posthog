@@ -9,7 +9,7 @@ using_new_table = TEST or BENCHMARK
 
 
 def get_team_distinct_ids_query(team_id: int) -> str:
-    from ee.clickhouse.client import substitute_params
+    from posthog.client import substitute_params
 
     global using_new_table
 

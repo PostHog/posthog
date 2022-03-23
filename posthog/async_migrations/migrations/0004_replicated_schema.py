@@ -9,14 +9,14 @@ from constance import config
 from django.conf import settings
 from django.utils.timezone import now
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.errors import lookup_error_code
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
+from posthog.client import sync_execute
+from posthog.errors import lookup_error_code
 from posthog.utils import flatten
 
 logger = structlog.get_logger(__name__)

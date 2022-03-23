@@ -1,3 +1,4 @@
+import { urls } from 'scenes/urls'
 import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
@@ -98,9 +99,7 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
-    STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
@@ -116,6 +115,7 @@ export const FEATURE_FLAGS = {
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
+    TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -164,3 +164,8 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
     gitlab: 'GitLab',
     saml: 'Single sign-on (SAML)',
 }
+
+// TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
+// pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
+export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
+    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }

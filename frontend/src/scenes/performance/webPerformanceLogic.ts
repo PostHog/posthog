@@ -232,14 +232,14 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     let maxTime = 0
 
     const pointsInTime = {}
-    if (navTiming.domComplete) {
+    if (navTiming?.domComplete) {
         pointsInTime['domComplete'] = { time: navTiming.domComplete, color: colorForEntry('domComplete') }
     }
-    if (navTiming.domInteractive) {
+    if (navTiming?.domInteractive) {
         pointsInTime['domInteractive'] = { time: navTiming.domInteractive, color: colorForEntry('domInteractive') }
     }
 
-    if (navTiming.duration) {
+    if (navTiming?.duration) {
         pointsInTime['pageLoaded'] = { time: navTiming.duration, color: colorForEntry('pageLoaded') }
         maxTime = navTiming.duration > maxTime ? navTiming.duration : maxTime
     }

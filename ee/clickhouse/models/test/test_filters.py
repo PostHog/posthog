@@ -2,13 +2,12 @@ import json
 from typing import Optional
 from uuid import uuid4
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
@@ -16,6 +15,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
+from posthog.models.utils import PersonPropertiesMode
 
 
 def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
