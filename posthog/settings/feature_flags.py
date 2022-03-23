@@ -8,7 +8,5 @@ from posthog.settings.utils import get_list
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     # Add hard-coded feature flags for static self-hosted releases here
     "invite-teammates-prompt",
-    "stale-events",
-    "unseen-event-properties",
     "insight-legends",
 ]
