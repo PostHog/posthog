@@ -10,6 +10,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.api.person import get_person_name
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
@@ -295,6 +296,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     @mock.patch("posthog.api.capture.capture_internal")
     def test_merge_people(self, mock_capture_internal) -> None:
         # created first
@@ -330,6 +332,63 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 201)
         self.assertCountEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
+
+        person_three_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "was_merged_into_person",
+            "scope": "Person",
+            "item_id": str(person3.pk),
+            "detail": {
+                "changes": [{"type": "Person", "before": None, "field": None, "action": "merged", "after": person1.pk}],
+                "name": get_person_name(person3),
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+        person_one_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "people_merged_into",
+            "scope": "Person",
+            # don't store deleted person's name, so user primary key
+            "item_id": str(person1.pk),
+            "detail": {
+                "changes": [
+                    {
+                        "type": "Person",
+                        "before": None,
+                        "field": None,
+                        "action": "merged",
+                        "after": [person2.pk, person3.pk],
+                    }
+                ],
+                "name": get_person_name(person1),
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+        person_two_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "was_merged_into_person",
+            "scope": "Person",
+            "item_id": str(person2.pk),
+            "detail": {
+                "changes": [{"type": "Person", "before": None, "field": None, "action": "merged", "after": person1.pk}],
+                "name": get_person_name(person2),
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+
+        self._assert_person_activity(
+            person_id=None,  # changes for all three people
+            expected=[person_three_log, person_one_log, person_two_log,],
+        )
+        self._assert_person_activity(
+            person_id=person1.pk, expected=[person_one_log,],
+        )
+        self._assert_person_activity(
+            person_id=person2.pk, expected=[person_two_log,],
+        )
+        self._assert_person_activity(
+            person_id=person3.pk, expected=[person_three_log,],
+        )
 
     def test_split_people_keep_props(self) -> None:
         # created first

@@ -53,7 +53,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -421,6 +421,31 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for p in people:
             for distinct_id in p.distinct_ids:
                 data["distinct_ids"].append(distinct_id)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            item_id=person.id,
+            scope="Person",
+            activity="people_merged_into",
+            detail=Detail(
+                changes=[Change(type="Person", action="merged", after=request.data.get("ids"))],
+                name=get_person_name(person),
+            ),
+        )
+        for p in people:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                item_id=p.id,
+                scope="Person",
+                activity="was_merged_into_person",
+                detail=Detail(
+                    changes=[Change(type="Person", action="merged", after=person.id)], name=get_person_name(p)
+                ),
+            )
 
         return response.Response(data, status=201)
 

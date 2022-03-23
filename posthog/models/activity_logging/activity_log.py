@@ -14,8 +14,8 @@ logger = structlog.get_logger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag"]
-    action: Literal["changed", "created", "deleted"]
+    type: Literal["FeatureFlag", "Person"]
+    action: Literal["changed", "created", "deleted", "merged"]
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
@@ -142,7 +142,7 @@ def load_activity(scope: Literal["FeatureFlag", "Person"], team_id: int, item_id
     )
 
     if item_id is not None:
-        activity_query.filter(item_id=item_id)
+        activity_query = activity_query.filter(item_id=item_id)
     activities = list(activity_query[:10])
 
     return activities
