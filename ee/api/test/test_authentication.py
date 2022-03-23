@@ -165,14 +165,14 @@ class TestEEAuthenticationAPI(APILicensedTest):
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "This instance only allows SSO login.",
+                "detail": "You can only login with SSO for this account (google-oauth2).",
                 "attr": None,
             },
         )
 
     def test_can_enforce_sso_on_cloud_enviroment(self):
         self.client.logout()
-        License.objects.delete()  # No instance licenses
+        License.objects.filter(pk=-1).delete()  # No instance licenses
         self.create_enforced_domain()
         self.organization.available_features = ["sso_enforcement"]
         self.organization.save()
@@ -185,7 +185,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "This instance only allows SSO login.",
+                "detail": "You can only login with SSO for this account (google-oauth2).",
                 "attr": None,
             },
         )
@@ -202,13 +202,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "Password reset is disabled because SSO login is enforced.",
+                "detail": "Password reset is disabled because SSO login is enforced for this domain.",
                 "attr": None,
             },
         )
         self.assertEqual(len(mail.outbox), 0)
 
-    @patch("posthog.utils.print_warning")
+    @patch("posthog.models.organization_domain.print_warning")
     def test_cannot_enforce_sso_without_a_license(self, mock_warning):
         self.client.logout()
         self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
@@ -217,18 +217,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.create_enforced_domain()
 
         # Enforcement is ignored
-        with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
-        # Client is not redirected to SAML login (even though it's enforced), enforcement is ignored
-        with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
-            response = self.client.get("/login")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         # Attempting to use SAML fails
-        with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.get("/login/google-oauth2/")
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -236,9 +231,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         # Ensure warning is properly logged for debugging
         mock_warning.assert_any_call(
-            [
-                "You have configured `SSO_ENFORCEMENT` with value `google-oauth2`, but that provider is not properly configured or your instance does not have the required license."
-            ]
+            ["🤑🚪 SSO is enforced for domain posthog.com but the organization does not have the proper license."]
         )
 
 
@@ -524,7 +517,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(User.objects.count(), user_count)
 
     def test_saml_can_be_enforced(self):
-        # TODO TODO TODO
         self.client.logout()
 
         # Can log in regularly with SAML configured
@@ -534,7 +526,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing only SAML disables regular API password login
-        with self.settings(**SAML_MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now(), sso_enforcement="saml"
+        )
+        with self.settings(**SAML_MOCK_SETTINGS):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -542,16 +537,16 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "This instance only allows SSO login.",
+                "detail": "You can only login with SSO for this account (saml).",
                 "attr": None,
             },
         )
 
-        # Client is automatically redirected to SAML login
-        with self.settings(**SAML_MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
-            response = self.client.get("/login")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], "/login/saml/?idp=posthog_custom")
+        # Login precheck returns SAML info
+        with self.settings(**SAML_MOCK_SETTINGS):
+            response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": "saml"})
 
     def test_cannot_use_saml_without_enterprise_license(self):
         self.client.logout()

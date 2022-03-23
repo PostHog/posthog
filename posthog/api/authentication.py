@@ -59,9 +59,10 @@ class LoginSerializer(serializers.Serializer):
     def create(self, validated_data: Dict[str, str]) -> Any:
 
         # Check SSO enforcement (which happens at the domain level)
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"]):
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        if sso_enforcement:
             raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
+                f"You can only login with SSO for this account ({sso_enforcement}).", code="sso_enforced"
             )
 
         request = self.context["request"]

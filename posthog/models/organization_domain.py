@@ -22,34 +22,34 @@ class OrganizationDomainManager(models.Manager):
         return self.exclude(verified_at__isnull=True)
 
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
-        # TODO: Pay gate
-        # Available providers
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
             .filter(domain=domain)
             .exclude(sso_enforcement="")
-            .values("sso_enforcement", "organization")
-            .prefetch_related(models.Prefetch("organization_domains_set", to_attr="available_features"))
+            .values("sso_enforcement", "organization__available_features")
             .first()
         )
-        if not query.exists():
+
+        if not query:
             return None
 
-        candidate_sso_enforcement = query[0].sso_enforcement
+        candidate_sso_enforcement = query["sso_enforcement"]
+
+        # Check organization has a license to enforce SSO
+        if AvailableFeature.SSO_ENFORCEMENT not in query["organization__available_features"]:
+            print_warning(
+                [f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license."]
+            )
+            return None
 
         # Check SSO provider is properly configured
         sso_providers = get_available_sso_providers()
         if not sso_providers[candidate_sso_enforcement]:
             print_warning(
-                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured."
-            )
-            return None
-
-        # Check organization has a license to enforce SSO
-        if not query[0].organization.is_feature_available(AvailableFeature.SSO_ENFORCEMENT):
-            print_warning(
-                f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license."
+                [
+                    f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured."
+                ]
             )
             return None
 
