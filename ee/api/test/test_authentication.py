@@ -207,7 +207,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(len(mail.outbox), 0)
 
-    @patch("posthog.models.organization_domain.print_warning")
+    @patch("posthog.models.organization_domain.logger.warning")
     def test_cannot_enforce_sso_without_a_license(self, mock_warning):
         self.client.logout()
         self.license.valid_until = timezone.now() - datetime.timedelta(days=1)

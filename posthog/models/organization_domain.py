@@ -2,6 +2,7 @@ import secrets
 from typing import Optional, Tuple
 
 import dns.resolver
+import structlog
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -9,7 +10,9 @@ from django.utils import timezone
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
-from posthog.utils import get_available_sso_providers, print_warning
+from posthog.utils import get_available_sso_providers
+
+logger = structlog.get_logger(__name__)
 
 
 def generate_verification_challenge() -> str:
@@ -38,7 +41,7 @@ class OrganizationDomainManager(models.Manager):
 
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in query["organization__available_features"]:
-            print_warning(
+            logger.warning(
                 [f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license."]
             )
             return None
@@ -46,7 +49,7 @@ class OrganizationDomainManager(models.Manager):
         # Check SSO provider is properly configured
         sso_providers = get_available_sso_providers()
         if not sso_providers[candidate_sso_enforcement]:
-            print_warning(
+            logger.warning(
                 [
                     f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured."
                 ]
