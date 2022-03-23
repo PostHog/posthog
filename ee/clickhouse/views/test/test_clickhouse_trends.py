@@ -260,7 +260,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "math": None,
                         "math_property": None,
                         "math_group_type_index": ANY,
-                        "properties": [],
+                        "properties": {},
                     },
                     "label": "$pageview",
                     "count": 6.0,
