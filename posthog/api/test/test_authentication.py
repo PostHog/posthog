@@ -2,7 +2,6 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
-import pytest
 from constance.test import override_config
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
@@ -255,25 +254,6 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
-
-    @pytest.mark.ee
-    @patch("posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address")
-    def test_cant_reset_with_sso_enforced(self, get_sso_enforced_provider):
-        # Mock-up enforcement to bypass license requirements
-        get_sso_enforced_provider.return_value = "google-oauth2"
-
-        response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "Password reset is disabled because SSO login is enforced for this domain.",
-                "attr": None,
-            },
-        )
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

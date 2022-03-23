@@ -6,8 +6,10 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
+from posthog.utils import get_available_sso_providers, print_warning
 
 
 def generate_verification_challenge() -> str:
@@ -21,17 +23,37 @@ class OrganizationDomainManager(models.Manager):
 
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
         # TODO: Pay gate
+        # Available providers
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
             .filter(domain=domain)
             .exclude(sso_enforcement="")
-            .values_list("sso_enforcement", flat=True)
+            .values("sso_enforcement", "organization")
+            .prefetch_related(models.Prefetch("organization_domains_set", to_attr="available_features"))
+            .first()
         )
         if not query.exists():
             return None
 
-        return list(query)[0]
+        candidate_sso_enforcement = query[0].sso_enforcement
+
+        # Check SSO provider is properly configured
+        sso_providers = get_available_sso_providers()
+        if not sso_providers[candidate_sso_enforcement]:
+            print_warning(
+                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured."
+            )
+            return None
+
+        # Check organization has a license to enforce SSO
+        if not query[0].organization.is_feature_available(AvailableFeature.SSO_ENFORCEMENT):
+            print_warning(
+                f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license."
+            )
+            return None
+
+        return candidate_sso_enforcement
 
 
 class OrganizationDomain(UUIDModel):

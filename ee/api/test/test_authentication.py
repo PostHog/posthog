@@ -15,6 +15,7 @@ from rest_framework import status
 from social_core.exceptions import AuthFailed
 
 from ee.api.test.base import APILicensedTest
+from ee.models.license import License
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -80,7 +81,8 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         )
         User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
 
-        response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sso_enforcement": "google-oauth2"})
 
@@ -92,9 +94,10 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             sso_enforcement="google-oauth2",
         )
 
-        response = self.client.post(
-            "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
-        )  # Note we didn't create a user that matches, only domain is matched
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.post(
+                "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
+            )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sso_enforcement": None})
 
@@ -107,16 +110,42 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         )
         User.objects.create_and_join(self.organization, "i_do_not_exist@anotherdomain.com", self.CONFIG_PASSWORD)
 
-        response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
+        with self.settings(**GITHUB_MOCK_SETTINGS):
+            response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sso_enforcement": "github"})
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
-        pass
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
+
+        response = self.client.post(
+            "/api/login/precheck", {"email": "spain@witw.app"}
+        )  # Note Google OAuth is not configured
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None})
 
 
 # TODO: REDO THIS ENTIRE TEST CLASS
 class TestEEAuthenticationAPI(APILicensedTest):
+    CONFIG_EMAIL = "user7@posthog.com"
+
+    def create_enforced_domain(self, **kwargs) -> OrganizationDomain:
+        OrganizationDomain.objects.create(
+            **{
+                "domain": "posthog.com",
+                "organization": self.organization,
+                "verified_at": timezone.now(),
+                "sso_enforcement": "google-oauth2",
+                **kwargs,
+            }
+        )
+
     def test_can_enforce_sso(self):
         self.client.logout()
 
@@ -127,7 +156,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing SSO disables regular API password login
-        with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+        self.create_enforced_domain()
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -140,18 +170,30 @@ class TestEEAuthenticationAPI(APILicensedTest):
             },
         )
 
-        # Client is automatically redirected to SAML login
-        with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
-            response = self.client.get("/login")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], "/login/google-oauth2/")
+    def test_can_enforce_sso_on_cloud_enviroment(self):
+        self.client.logout()
+        License.objects.delete()  # No instance licenses
+        self.create_enforced_domain()
+        self.organization.available_features = ["sso_enforcement"]
+        self.organization.save()
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "sso_enforced",
+                "detail": "This instance only allows SSO login.",
+                "attr": None,
+            },
+        )
 
     def test_cannot_reset_password_with_enforced_sso(self):
+        self.create_enforced_domain()
         with self.settings(
-            **GOOGLE_MOCK_SETTINGS,
-            SSO_ENFORCEMENT="google-oauth2",
-            EMAIL_HOST="localhost",
-            SITE_URL="https://my.posthog.net",
+            **GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -171,6 +213,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.client.logout()
         self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
         self.license.save()
+
+        self.create_enforced_domain()
 
         # Enforcement is ignored
         with self.settings(**GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
