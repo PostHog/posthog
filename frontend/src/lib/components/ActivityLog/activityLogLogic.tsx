@@ -14,9 +14,6 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
     props: {} as ActivityLogProps,
     key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
-    actions: {
-        addPageChangeCallback: (callback: (page: number) => void) => ({ callback }),
-    },
     loaders: ({ values }) => ({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
@@ -43,12 +40,6 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             {
                 fetchNextPageSuccess: (state) => state + 1,
                 fetchPreviousPageSuccess: (state) => state - 1,
-            },
-        ],
-        pageChangeCallback: [
-            null as null | ((page: number) => void),
-            {
-                addPageChangeCallback: (_, { callback }) => callback,
             },
         ],
         humanizedActivity: [
@@ -95,19 +86,11 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                     pageSize: 10,
                     currentPage: page,
                     entryCount: totalCount || 0,
-                    onBackward: () => actions.fetchPreviousPage(),
-                    onForward: () => actions.fetchNextPage(),
+                    onBackward: actions.fetchPreviousPage,
+                    onForward: actions.fetchNextPage,
                 }
             },
         ],
-    }),
-    listeners: ({ values }) => ({
-        fetchNextPageSuccess: () => {
-            values.pageChangeCallback?.(values.page)
-        },
-        fetchPreviousPageSuccess: () => {
-            values.pageChangeCallback?.(values.page)
-        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {

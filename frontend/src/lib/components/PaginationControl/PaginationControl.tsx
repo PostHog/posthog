@@ -46,21 +46,19 @@ export function PaginationControl<T>({
                 icon={<IconChevronLeft />}
                 type="stealth"
                 disabled={!isPreviousAvailable}
-                onClick={
-                    pagination?.controlled
-                        ? pagination.onBackward
-                        : () => setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
-                }
+                onClick={() => {
+                    pagination?.controlled && pagination.onBackward?.()
+                    setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                }}
             />
             <LemonButton
                 icon={<IconChevronRight />}
                 type="stealth"
                 disabled={!isNextAvailable}
-                onClick={
-                    pagination?.controlled
-                        ? pagination.onForward
-                        : () => setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
-                }
+                onClick={() => {
+                    pagination?.controlled && pagination.onForward?.()
+                    setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                }}
             />
         </div>
     ) : null

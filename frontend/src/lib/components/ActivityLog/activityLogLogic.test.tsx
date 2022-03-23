@@ -54,21 +54,6 @@ describe('the activity log logic', () => {
             }).toMatchValues({ page: 1 })
         })
 
-        it('calls the set page change callback', async () => {
-            const seenPages: number[] = []
-            logic.actions.addPageChangeCallback((page) => seenPages.push(page))
-            await expectLogic(logic, () => {
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 3
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 4
-                logic.actions.fetchPreviousPageSuccess({ results: [], total_count: 0 }) // page 3
-                logic.actions.fetchPreviousPageSuccess({ results: [], total_count: 0 }) // page 2
-            }).toMatchValues({ page: 2 })
-
-            expect(seenPages).toEqual([1, 2, 3, 4, 3, 2])
-        })
-
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 nextPageLoading: false,
