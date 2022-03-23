@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
+from posthog.client import sync_execute
 from posthog.models import Person, PersonDistinctId, Team
 
 

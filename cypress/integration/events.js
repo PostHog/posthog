@@ -103,16 +103,6 @@ describe('Events', () => {
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
 
-    it('use before and after with a DateTime property', () => {
-        cy.wait('@featureFlagsLoaded').then(() => {
-            selectNewTimestampPropertyFilter()
-
-            cy.get('.taxonomic-operator').click()
-            cy.get('.operator-value-option').should('contain.text', '> after')
-            cy.get('.operator-value-option').should('contain.text', '< before')
-        })
-    })
-
     /**
      * Test fails because property filters act on properties.$time but not all events have that property
      *

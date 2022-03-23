@@ -2,11 +2,18 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
+import { SSOProviders } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
+}
+
+interface PrecheckResponseType {
+    sso_enforcement?: SSOProviders | null
+    status: 'pending' | 'completed'
 }
 
 export function handleLoginRedirect(): void {
@@ -22,9 +29,26 @@ export function handleLoginRedirect(): void {
     router.actions.replace(nextURL)
 }
 
-export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
+export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
     path: ['scenes', 'authentication', 'loginLogic'],
-    loaders: {
+    connect: {
+        values: [preflightLogic, ['preflight']],
+    },
+    loaders: () => ({
+        precheckResponse: [
+            { status: 'pending' } as PrecheckResponseType,
+            {
+                precheck: async ({ email }: { email: string }, breakpoint) => {
+                    if (!email) {
+                        return { status: 'pending' }
+                    }
+
+                    await breakpoint()
+                    const response = await api.create('api/login/precheck', { email })
+                    return { status: 'completed', ...response }
+                },
+            },
+        ],
         authenticateResponse: [
             null as AuthenticateResponseType | null,
             {
@@ -33,12 +57,16 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
                         await api.create('api/login', { email, password })
                         return { success: true }
                     } catch (e) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
+                        return {
+                            success: false,
+                            errorCode: (e as Record<string, any>).code,
+                            errorDetail: (e as Record<string, any>).detail,
+                        }
                     }
                 },
             },
         ],
-    },
+    }),
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {

@@ -389,14 +389,18 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             null as SecondaryMetricResult[] | null,
             {
                 loadSecondaryMetricResults: async () => {
-                    const results = []
-                    for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
-                        const secResults = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/secondary_results?id=${i}`
-                        )
-                        results.push(secResults.result)
-                    }
-                    return results
+                    return await Promise.all(
+                        (values.experimentData?.secondary_metrics || []).map(async (_, index) => {
+                            try {
+                                const secResults = await api.get(
+                                    `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/secondary_results?id=${index}`
+                                )
+                                return secResults.result
+                            } catch (error) {
+                                return {}
+                            }
+                        })
+                    )
                 },
             },
         ],

@@ -188,18 +188,6 @@ $funnel_canvas_background: #fff;
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-end;
-
-        .btn-reset {
-            color: rgba($danger, 0.8);
-        }
-        .btn-save {
-            border-color: $primary;
-            color: $primary;
-            &:hover {
-                border-color: darken($primary, 30%);
-                color: darken($primary, 30%);
-            }
-        }
     }
 
     .action-filters-bordered {

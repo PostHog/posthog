@@ -392,6 +392,7 @@ export const eventUsageLogic = kea<
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
         // Definition Popup
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
@@ -896,6 +897,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
@@ -904,6 +906,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -912,6 +915,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
             })
         },
@@ -921,6 +925,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
@@ -940,6 +945,9 @@ export const eventUsageLogic = kea<
         },
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionHovered: ({ type }) => {
+            posthog.capture('definition hovered', { type })
         },
         reportDataManagementDefinitionClickView: ({ type }) => {
             posthog.capture('definition click view', { type })

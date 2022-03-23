@@ -15,9 +15,8 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.errors import wrap_query_error
-from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
+from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -32,6 +31,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
     TEST,
 )
+from posthog.timer import get_timer_thread
 from posthog.utils import get_safe_cache
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -40,7 +40,7 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
-QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
+QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
 
 _request_information: Optional[Dict] = None
 

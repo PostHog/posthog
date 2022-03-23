@@ -3,7 +3,7 @@ from typing import Any, List, Optional, Union
 
 from rest_framework import mixins, permissions, serializers, viewsets
 
-from ee.clickhouse.client import sync_execute
+from posthog.client import sync_execute
 from posthog.permissions import IsStaffUser
 
 # keep in sync with posthog/frontend/src/scenes/instance/DeadLetterQueue/MetricsTab.tsx

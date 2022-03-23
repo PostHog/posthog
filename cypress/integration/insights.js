@@ -14,6 +14,7 @@ describe('Insights', () => {
         // apply filter
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=expand-list-event_properties]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
@@ -30,6 +31,8 @@ describe('Insights', () => {
         cy.get('[data-attr=breadcrumb-3]').should('not.have.text', '')
 
         // Save and continue editing
+        cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="add-action-event-button"]').click()
         cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="insight-save-and-continue"]').click()
         cy.get('[data-attr="add-action-event-button"]').should('exist')
