@@ -1,5 +1,5 @@
 import secrets
-from typing import Tuple
+from typing import Optional, Tuple
 
 import dns.resolver
 from django.conf import settings
@@ -18,6 +18,19 @@ class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return self.exclude(verified_at__isnull=True)
+
+    def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        domain = email[email.index("@") + 1 :]
+        query = (
+            self.verified_domains()
+            .filter(domain=domain)
+            .exclude(sso_enforcement="")
+            .values_list("sso_enforcement", flat=True)
+        )
+        if not query.exists():
+            return None
+
+        return list(query)[0]
 
 
 class OrganizationDomain(UUIDModel):
