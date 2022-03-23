@@ -14,6 +14,9 @@ import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/Refe
 import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelBinsPicker } from './FunnelTab/FunnelBinsPicker'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -84,6 +87,7 @@ export function InsightDisplayConfig({
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="display-config-inner">
@@ -121,7 +125,8 @@ export function InsightDisplayConfig({
                 {activeView === InsightType.TRENDS &&
                 !filters.breakdown_type &&
                 !filters.compare &&
-                (!filters.display || filters.display === ACTIONS_LINE_GRAPH_LINEAR) ? (
+                (!filters.display || filters.display === ACTIONS_LINE_GRAPH_LINEAR) &&
+                featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
                     <SmoothingFilter />
                 ) : null}
 
