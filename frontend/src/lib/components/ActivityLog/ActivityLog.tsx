@@ -8,7 +8,7 @@ import { Skeleton } from 'antd'
 import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 
 export interface ActivityLogProps {
-    scope: 'FeatureFlag'
+    scope: 'FeatureFlag' | 'Person'
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer

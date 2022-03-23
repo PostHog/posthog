@@ -49,3 +49,5 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-02-08T16:28:39.594Z',
     },
 ]
+
+export const personActivityResponseJson: ActivityLogItem[] = []

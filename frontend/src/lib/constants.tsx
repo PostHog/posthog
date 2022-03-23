@@ -118,6 +118,7 @@ export const FEATURE_FLAGS = {
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

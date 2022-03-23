@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { PersonType } from '~/types'
 
 export interface ActivityChange {
     type: 'FeatureFlag'
@@ -8,7 +9,14 @@ export interface ActivityChange {
     after?: string | Record<string, any> | boolean
 }
 
+export interface PersonMerge {
+    type: 'Person'
+    source: PersonType[]
+    target: PersonType
+}
+
 export interface ActivityLogDetail {
+    merge: PersonMerge | null
     changes: ActivityChange[] | null
     name: string
 }
@@ -20,6 +28,7 @@ export interface ActivityUser {
 
 export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
 }
 
 export interface ActivityLogItem {

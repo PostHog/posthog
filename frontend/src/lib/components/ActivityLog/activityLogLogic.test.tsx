@@ -7,8 +7,12 @@ import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
+import {
+    featureFlagsActivityResponseJson,
+    personActivityResponseJson,
+} from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 
 const aHumanizedPageOfHistory: HumanizedActivityLogItem[] = [
     {
@@ -91,5 +95,28 @@ describe('the activity log logic', () => {
                 activity: aHumanizedPageOfHistory,
             })
         })
+    })
+
+    describe('when scoped to person', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/person/7/': { results: personActivityResponseJson },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({ scope: ActivityScope.PERSON, id: 7, describer: personActivityDescriber })
+            logic.mount()
+        })
+
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/Person/7')
+        })
+
+        it('loads on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchActivity', 'fetchActivitySuccess'])
+        })
+
+        it.todo('can load a page of activity')
     })
 })
