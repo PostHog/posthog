@@ -26,7 +26,7 @@ class MergeSerializer(serializers.Serializer):
 class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
-    merge = MergeSerializer()
+    merge = MergeSerializer(required=False)
     name = serializers.CharField(read_only=True)
 
 
