@@ -2,17 +2,17 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
-from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
-class TrendsEventQuery(ClickhouseEventQuery):
+class TrendsEventQuery(EnterpriseEventQuery):
     _entity: Entity
     _filter: Filter
 
@@ -122,7 +122,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     @cached_property
     def _person_query(self):
-        return ClickhousePersonQuery(
+        return PersonQuery(
             self._filter,
             self._team_id,
             self._column_optimizer,

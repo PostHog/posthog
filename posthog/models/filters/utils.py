@@ -16,7 +16,7 @@ GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 def earliest_timestamp_func(team_id: int):
-    from ee.clickhouse.queries.util import get_earliest_timestamp
+    from posthog.queries.util import get_earliest_timestamp
 
     return get_earliest_timestamp(team_id)
 

@@ -2,8 +2,8 @@ from typing import List
 
 import structlog
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
+from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 logger = structlog.get_logger(__name__)

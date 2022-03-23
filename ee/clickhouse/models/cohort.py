@@ -8,9 +8,6 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -28,8 +25,11 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
+from posthog.client import sync_execute
 from posthog.models import Action, Cohort, Filter, Team
+from posthog.models.action.util import format_action_filter
 from posthog.models.property import Property
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")

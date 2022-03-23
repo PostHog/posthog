@@ -17,7 +17,7 @@ class CHQueries(object):
         then do it now.
 
         """
-        from ee.clickhouse import client
+        from posthog import client
 
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"

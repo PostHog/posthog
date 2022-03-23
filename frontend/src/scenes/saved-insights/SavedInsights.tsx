@@ -145,7 +145,7 @@ function NewInsightButton(): JSX.Element {
             style={{ marginLeft: 8 }}
             type="primary"
             onClick={() => {
-                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
+                router.actions.push(urls.insightNew())
             }}
             overlay={menu}
             icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}

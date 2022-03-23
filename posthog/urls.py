@@ -26,7 +26,7 @@ from posthog.api import (
 from posthog.demo import demo
 
 from .utils import get_sso_enforced_provider, render_template
-from .views import health, login_required, preflight_check, robots_txt, sso_login, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -120,7 +120,8 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
-    path("robots.txt", robots_txt),
+    opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
@@ -136,8 +137,8 @@ if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
+        from posthog.client import sync_execute
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()

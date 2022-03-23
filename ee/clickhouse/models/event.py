@@ -7,12 +7,12 @@ from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from posthog.client import sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team

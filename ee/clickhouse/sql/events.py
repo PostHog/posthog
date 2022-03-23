@@ -225,10 +225,6 @@ SELECT
 FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
-GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
-"""
-
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start

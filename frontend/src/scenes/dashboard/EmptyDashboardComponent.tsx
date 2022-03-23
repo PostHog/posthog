@@ -7,7 +7,6 @@ import { useValues } from 'kea'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { InsightType } from '~/types'
 
 function SkeletonCardOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
     return (
@@ -89,7 +88,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                         <h3 className="l3">Dashboard empty</h3>
                         <p>This dashboard sure would look better with some graphs!</p>
                         <div className="mt text-center">
-                            <Link to={urls.insightNew({ insight: InsightType.TRENDS }, dashboard?.id)}>
+                            <Link to={urls.insightNew(undefined, dashboard?.id)}>
                                 <HotkeyButton data-attr="dashboard-add-graph-header" icon={<PlusOutlined />} hotkey="n">
                                     Add Insight
                                 </HotkeyButton>
