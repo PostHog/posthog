@@ -32,15 +32,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
     connect: {
         values: [preflightLogic, ['preflight']],
     },
-    loaders: ({ values }) => ({
+    loaders: () => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
                 precheck: async ({ email }: { email: string }, breakpoint) => {
-                    if (!values.shouldPrecheckResponse) {
-                        return { status: 'completed' }
-                    }
-
                     if (!email) {
                         return { status: 'pending' }
                     }
@@ -75,9 +71,6 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
                 window.location.href = afterLoginRedirect()
             }
         },
-    },
-    selectors: {
-        shouldPrecheckResponse: [(s) => [s.preflight], (preflight): boolean => !!preflight?.cloud],
     },
     urlToAction: ({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {
