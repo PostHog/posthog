@@ -110,13 +110,10 @@ const renderItemContents = ({
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
-            listGroupType === TaxonomicFilterGroupType.Events &&
-            !parsedLastSeen) ||
+        (listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
     const isUnusedEventProperty =
-        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties) &&
         (item as PropertyDefinition).is_event_property !== null &&

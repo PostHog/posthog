@@ -12,8 +12,6 @@ PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "invite-teammates-prompt",
-    "stale-events",
-    "unseen-event-properties",
     "insight-legends",
 ]
 
