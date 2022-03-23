@@ -5,6 +5,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/components/LemonInput'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
@@ -70,6 +71,7 @@ export function TaxonomicFilter({
                 style={style}
             >
                 <div style={{ position: 'relative' }}>
+                    <LemonInput />
                     <Input
                         style={{ flexGrow: 1 }}
                         data-attr="taxonomic-filter-searchfield"

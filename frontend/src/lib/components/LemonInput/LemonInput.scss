@@ -1,0 +1,31 @@
+.LemonInput {
+    color: var(--primary);
+    cursor: text;
+
+    &:not(:disabled):active,
+    &:not(:disabled):focus {
+        background: var(--primary-bg-active);
+    }
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .LemonRow__icon--prefix {
+        .magnifier-icon {
+            font-size: 18px;
+            color: var(--text-muted);
+            &.magnifier-icon-active {
+                color: var(--primary);
+            }
+        }
+    }
+}
+
+.LemonInput--stealth {
+    color: var(--text-default);
+    font-weight: 400;
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
