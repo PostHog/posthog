@@ -31,7 +31,12 @@ class StickinessEventsQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        person_query, person_params = self._get_person_query()
+        distinct_id_query, distinct_id_params = self._get_distinct_id_query(
+            entity_query=actions_query, date_query=date_query
+        )
+        self.params.update(distinct_id_params)
+
+        person_query, person_params = self._get_person_query(entity_query=actions_query, date_query=date_query)
         self.params.update(person_params)
 
         groups_query, groups_params = self._get_groups_query()
@@ -42,7 +47,7 @@ class StickinessEventsQuery(ClickhouseEventQuery):
                 {self.aggregation_target()} AS aggregation_target,
                 countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {distinct_id_query}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

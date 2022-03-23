@@ -91,16 +91,22 @@ class LifecycleEventQuery(ClickhouseEventQuery):
 
         self.params.update(prop_params)
 
-        person_query, person_params = self._get_person_query()
-        self.params.update(person_params)
-
-        groups_query, groups_params = self._get_groups_query()
-        self.params.update(groups_params)
-
         entity_params, entity_format_params = get_entity_filtering_params(
             entity=self._filter.entities[0], team_id=self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
         self.params.update(entity_params)
+        entity_query = entity_format_params.get("entity_query")
+
+        distinct_id_query, distinct_id_params = self._get_distinct_id_query(
+            entity_query=entity_query, date_query=date_query
+        )
+        self.params.update(distinct_id_params)
+
+        person_query, person_params = self._get_person_query(entity_query=entity_query, date_query=date_query)
+        self.params.update(person_params)
+
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
 
         return (
             f"""
@@ -109,7 +115,7 @@ class LifecycleEventQuery(ClickhouseEventQuery):
                 toDateTime(dateTrunc(%(interval)s, events.timestamp)) AS period,
                 person.created_at AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {distinct_id_query}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

@@ -7,7 +7,7 @@ from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query_with_extra_where
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from posthog.models import Cohort, Filter, Property
@@ -84,14 +84,24 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_distinct_id_query(self) -> str:
+    def _get_distinct_id_query(self, entity_query: Optional[str], date_query: Optional[str]) -> Tuple[str, Dict]:
+        extra_where = (
+            f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {entity_query} {date_query} GROUP BY distinct_id)"
+            if entity_query and date_query
+            else ""
+        )
+        distinct_id_query, distinct_id_params = get_team_distinct_ids_query_with_extra_where(self._team_id, extra_where)
+
         if self._should_join_distinct_ids:
-            return f"""
-            INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            return (
+                f"""
+            INNER JOIN ({distinct_id_query}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """
+            """,
+                distinct_id_params,
+            )
         else:
-            return ""
+            return "", {}
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:
@@ -138,15 +148,26 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields
         )
 
-    def _get_person_query(self) -> Tuple[str, Dict]:
+    def _get_person_query(self, *, entity_query: Optional[str], date_query: Optional[str]) -> Tuple[str, Dict]:
         if self._should_join_persons:
-            person_query, params = self._person_query.get_query()
+            distinct_id_extra_where = (
+                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {entity_query} {date_query} GROUP BY distinct_id)"
+                if entity_query and date_query
+                else ""
+            )
+            distinct_id_query, distinct_id_params = get_team_distinct_ids_query_with_extra_where(
+                self._team_id, extra_where=distinct_id_extra_where
+            )
+
+            person_extra_where = f"AND id IN (SELECT person_id FROM ({distinct_id_query}))"
+            person_query, params = self._person_query.get_query(person_extra_where)
+
             return (
                 f"""
             INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """,
-                params,
+                {**distinct_id_params, **params},
             )
         else:
             return "", {}
