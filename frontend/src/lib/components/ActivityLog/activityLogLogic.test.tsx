@@ -76,7 +76,7 @@ describe('the activity log logic', () => {
         })
     })
     describe('when scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
                     '/api/projects/@current/feature_flags/7/activity/': {
@@ -100,7 +100,7 @@ describe('the activity log logic', () => {
     })
 
     describe('when starting at page 4', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
                     '/api/projects/@current/feature_flags/7/activity/': (req) => {
