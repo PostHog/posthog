@@ -897,6 +897,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics: experiment.secondary_metrics,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
