@@ -94,8 +94,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         setup_async_migrations()
         migration = get_async_migration_definition(MIGRATION_NAME)
 
-        self.assertEqual(len(migration.operations), 53)
-        migration.operations[30].sql = "THIS WILL FAIL!"  # type: ignore
+        self.assertEqual(len(migration.operations), 56)
+        migration.operations[31].sql = "THIS WILL FAIL!"  # type: ignore
 
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertFalse(migration_successful)
