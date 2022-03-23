@@ -21,9 +21,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export interface TrendTabProps {
-    view: string
+    view: InsightType
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
@@ -65,7 +66,13 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         buttonCopy="Add graph series"
                         showSeriesIndicator
                         entitiesLimit={filters.insight === InsightType.LIFECYCLE ? 1 : alphabet.length}
-                        hideMathSelector={filters.insight === InsightType.LIFECYCLE}
+                        mathAvailability={
+                            filters.insight === InsightType.LIFECYCLE
+                                ? MathAvailability.None
+                                : filters.insight === InsightType.STICKINESS
+                                ? MathAvailability.ActorsOnly
+                                : MathAvailability.All
+                        }
                         propertiesTaxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,
