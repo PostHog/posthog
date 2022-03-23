@@ -69,6 +69,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
+    # delete InsightViewed objects older than 30 days every day at 1am
+    sender.add_periodic_task(crontab(minute=0, hour=1), delete_old_insight_viewed_objects.s())
+
     sender.add_periodic_task(
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
@@ -363,6 +366,13 @@ def sync_all_organization_available_features():
     from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
 
     sync_all_organization_available_features()
+
+
+@app.task(ignore_result=True)
+def delete_old_insight_viewed_objects():
+    from posthog.tasks.delete_old_insight_viewed_objects import delete_old_insight_viewed_objects
+
+    delete_old_insight_viewed_objects()
 
 
 @app.task(ignore_result=False, track_started=True, max_retries=0)
