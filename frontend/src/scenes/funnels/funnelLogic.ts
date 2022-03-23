@@ -1209,13 +1209,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         clearFunnel: ({}) => {
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
-        saveFunnelInsight: async ({ name }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                filters: values.filters,
-                name,
-                saved: true,
-            })
-        },
         openPersonsModalForStep: ({ step, converted }) => {
             if (!values.isModalActive) {
                 return
