@@ -319,9 +319,9 @@ class Migration(AsyncMigrationDefinition):
             ShardedTableMigrationData(
                 name="events",
                 new_table_engine=EVENTS_DATA_TABLE_ENGINE(),
-                materialized_view_name="events_mv",
+                materialized_view_name="events_json_mv",
                 rename_to="sharded_events",
-                kafka_table_name="kafka_events",
+                kafka_table_name="kafka_json_events",
                 create_kafka_table=KAFKA_EVENTS_TABLE_SQL(),
                 create_materialized_view=EVENTS_TABLE_MV_SQL(),
                 extra_tables={"writable_events": WRITABLE_EVENTS_TABLE_SQL(), "events": DISTRIBUTED_EVENTS_TABLE_SQL()},
