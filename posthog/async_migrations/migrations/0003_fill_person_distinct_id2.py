@@ -1,7 +1,7 @@
 from functools import cached_property
 
-from ee.clickhouse.client import sync_execute
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_DATABASE
 

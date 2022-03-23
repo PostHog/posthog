@@ -12,10 +12,64 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models import User
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 
 
-class TestAuthenticationAPI(APIBaseTest):
+class TestLoginPrecheckAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_login_precheck_with_enforced_sso(self):
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": "google-oauth2"})
+
+    def test_login_precheck_with_unverified_domain(self):
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=None,  # note domain is not verified
+            sso_enforcement="google-oauth2",
+        )
+
+        response = self.client.post(
+            "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
+        )  # Note we didn't create a user that matches, only domain is matched
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None})
+
+    def test_login_precheck_with_unenforced_sso(self):
+        OrganizationDomain.objects.create(
+            domain="witw.app", organization=self.organization, verified_at=timezone.now(),
+        )
+
+        response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None})
+
+    def test_login_precheck_with_inexistent_account(self):
+        OrganizationDomain.objects.create(
+            domain="anotherdomain.com",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="github",
+        )
+        User.objects.create_and_join(self.organization, "i_do_not_exist@anotherdomain.com", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": "github"})
+
+
+class TestLoginAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @patch("posthoganalytics.capture")

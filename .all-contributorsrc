@@ -1788,6 +1788,25 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "hspotorno",
+      "name": "Henrique Spotorno",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3391820?v=4",
+      "profile": "https://github.com/hspotorno",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bnomei",
+      "name": "Bruno Meilick",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3265642?v=4",
+      "profile": "https://github.com/bnomei",
+      "contributions": [
+        "ideas",
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,

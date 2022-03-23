@@ -44,7 +44,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         canEditInsight,
         activeView,
         insight,
-        filtersChanged,
+        insightChanged,
         tagLoading,
         sourceDashboardId,
     } = useValues(logic)
@@ -160,7 +160,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboard && !insight.id}
-                                filtersChanged={filtersChanged}
+                                insightChanged={insightChanged}
                             />
                         )}
                     </div>

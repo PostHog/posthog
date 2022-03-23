@@ -1,4 +1,3 @@
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE,
@@ -10,6 +9,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
+from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement

@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
-from posthog.models import User
+from posthog.models import OrganizationDomain, User
 from posthog.utils import get_sso_enforced_provider
 
 
@@ -74,6 +74,26 @@ class LoginSerializer(serializers.Serializer):
         return user
 
 
+class LoginPrecheckSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def to_representation(self, instance: Dict[str, str]) -> Dict[str, Any]:
+        return instance
+
+    def create(self, validated_data: Dict[str, str]) -> Any:
+        email = validated_data.get("email", "")
+        domain = email[email.index("@") + 1 :]
+        domain_query = (
+            OrganizationDomain.objects.verified_domains()
+            .filter(domain=domain)
+            .exclude(sso_enforcement="")
+            .values_list("sso_enforcement", flat=True)
+        )
+        if not domain_query.exists():
+            return {"sso_enforcement": None}
+        return {"sso_enforcement": list(domain_query)[0]}
+
+
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -88,6 +108,12 @@ class NonCreatingViewSetMixin(mixins.CreateModelMixin):
 class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
+    permission_classes = (permissions.AllowAny,)
+
+
+class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    queryset = User.objects.none()
+    serializer_class = LoginPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
 
 
