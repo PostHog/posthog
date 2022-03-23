@@ -11035,10 +11035,10 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
-kea-forms@^0.2.2:
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-0.2.2.tgz#aa47cd3849b31615ca28b6e5ececd7eb567e5674"
-  integrity sha512-a/FSZj0r0b47y8okg4a4MJigWMG92VWcqJ62wAqUPyFz1ic5MUp5HryQT+UyiaTGvPRm2B6lBw/meiS9NO11ng==
+kea-forms@^0.2.3:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-0.2.3.tgz#2480a510034690af5e0e98b9a52e094f272a2803"
+  integrity sha512-Z3tOmju2EEllBNiQd2tvSlbJERttHzUXDBzCirLoH9Op7ASVyTryaFSMZ/cUYMUhj8SyxM0kQaeNXaTxo6qduA==
 
 kea-loaders@^0.5.1:
   version "0.5.1"

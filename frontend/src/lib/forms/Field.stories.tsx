@@ -1,10 +1,11 @@
 import React from 'react'
-import { kea, useValues } from 'kea'
+import { kea, useAllValues } from 'kea'
 import { ComponentMeta } from '@storybook/react'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field, FieldProps } from './Field'
-import type { formLogicType, textFieldLogicType } from './Field.storiesType'
+import type { formLogicType } from './Field.storiesType'
 import { Input } from 'antd'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
     title: 'Forms-Core/Field',
@@ -37,41 +38,54 @@ export default {
         },
     },
 } as ComponentMeta<typeof Field>
+
 const formLogic = kea<formLogicType>({
     path: ['lib', 'forms', 'Field', 'stories'],
-    forms: {
+    forms: ({ actions }) => ({
         myForm: {
             defaults: {
                 name: '',
                 email: '',
-
                 pineappleOnPizza: false,
             },
             validator: ({ name, email }) => ({
                 name: !name ? 'Please enter your name' : null,
-                email: !email ? 'Please enter your email' : null,
+                email: !email ? 'Please enter your email' : !email.includes('@') ? 'not a valid email' : null,
             }),
+            submit: async (_, breakpoint) => {
+                await breakpoint(3000)
+                console.log('Form Submitted')
+                actions.resetMyForm()
+            },
         },
-    },
-})
-const textFieldLogic = kea<textFieldLogicType>({
-    path: ['lib', 'forms', 'Field', 'stories'],
-    forms: {
-        myForm: {
+        simpleForm: {
             defaults: {
                 name: '',
             },
             validator: ({ name }) => ({
-                name: !name ? 'Please enter your name' : null,
+                name: !name ? 'Please enter your name' : undefined,
             }),
+            submit: async (_, breakpoint) => {
+                await breakpoint(3000)
+                console.log('Form Submitted')
+                actions.resetSimpleForm()
+            },
         },
-    },
+    }),
 })
+
+function useSpecificFormValues(formKey: string): Record<string, any> {
+    const allValues = useAllValues(formLogic)
+    return Object.fromEntries(
+        Object.entries(allValues).filter(([key]) => key.toLowerCase().includes(formKey.toLowerCase()))
+    )
+}
+
 export function Field_(props: FieldProps): JSX.Element {
-    const { myForm, myFormValidationErrors } = useValues(formLogic)
+    const formKey = 'myForm'
+    const formValues = useSpecificFormValues(formKey)
     return (
-        <VerticalForm logic={formLogic} formKey="myForm">
-            <pre>{JSON.stringify({ myForm, myFormValidationErrors }, null, 2)}</pre>
+        <VerticalForm logic={formLogic} formKey={formKey}>
             <Field {...props} name={props.name || 'name'} label={props.label || 'Name'}>
                 <input />
             </Field>
@@ -86,22 +100,38 @@ export function Field_(props: FieldProps): JSX.Element {
                 name={props.name || 'pineappleOnPizza'}
                 label={props.label || 'Pineapple on pizza preference'}
             >
-                <input />
+                {({ value, onValueChange }) => (
+                    <input type="checkbox" checked={value} onChange={(e) => onValueChange(e.target.checked)} />
+                )}
             </Field>
-            <input type="submit" value="Submit" />
+            <input
+                type="submit"
+                value={formValues[`is${capitalizeFirstLetter(formKey)}Submitting`] ? 'Submitting...' : 'Submit'}
+                disabled={formValues[`is${capitalizeFirstLetter(formKey)}Submitting`]}
+            />
+            <pre>
+                {'\n'}formLogic.values = {JSON.stringify(formValues, null, 2)}
+            </pre>
         </VerticalForm>
     )
 }
 
 export function TextField(props: FieldProps): JSX.Element {
-    const { myForm, myFormValidationErrors } = useValues(formLogic)
+    const formKey = 'simpleForm'
+    const formValues = useSpecificFormValues(formKey)
     return (
-        <VerticalForm logic={textFieldLogic} formKey="myForm">
-            <pre>{JSON.stringify({ myForm, myFormValidationErrors }, null, 2)}</pre>
+        <VerticalForm logic={formLogic} formKey={formKey}>
             <Field {...props} name={props.name || 'name'} label={props.label || 'Name'}>
                 <Input />
             </Field>
-            <input type="submit" value="Submit" />
+            <input
+                type="submit"
+                value={formValues[`is${capitalizeFirstLetter(formKey)}Submitting`] ? 'Submitting...' : 'Submit'}
+                disabled={formValues[`is${capitalizeFirstLetter(formKey)}Submitting`]}
+            />
+            <pre>
+                {'\n'}formLogic.values = {JSON.stringify(formValues, null, 2)}
+            </pre>
         </VerticalForm>
     )
 }
