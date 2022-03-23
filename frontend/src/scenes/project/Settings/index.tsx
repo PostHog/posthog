@@ -234,8 +234,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>
                         <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
                     </b>{' '}
-                    (if you're logged in) and where we'll <b>record sessions</b> (if{' '}
-                    <a href="#session-recording">enabled</a>).
+                    (if you're logged in) and where we'll <b>record sessions</b> (if <a href="#recordings">enabled</a>).
                 </p>
                 <p>
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).

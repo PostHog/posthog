@@ -36,7 +36,7 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
-                precheck: async ({ email }: { email: string }) => {
+                precheck: async ({ email }: { email: string }, breakpoint) => {
                     if (!values.shouldPrecheckResponse) {
                         return { status: 'completed' }
                     }
@@ -45,6 +45,7 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
                         return { status: 'pending' }
                     }
 
+                    await breakpoint()
                     const response = await api.create('api/login/precheck', { email })
                     return { status: 'completed', ...response }
                 },
