@@ -120,14 +120,8 @@ class ClickhouseTrendsBreakdown:
 
         # If the breakdown_filter is in the form of "WHERE XXX"
         # (true for everything but cohorts)
-        event_extra_where = substitute_params(
-            f"{breakdown_filter_params['event_filter']} {breakdown_filter_params['actions_query']} {breakdown_filter_params['parsed_date_from']} {breakdown_filter_params['parsed_date_to']}",
-            {**self.params, **_params},
-        )
-        distinct_ids_extra_where = substitute_params(
-            f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE e.team_id = %(team_id)s {event_extra_where} GROUP BY distinct_id)",
-            {"team_id": self.team_id},
-        )
+        event_extra_where = f"{breakdown_filter_params['event_filter']} {breakdown_filter_params['actions_query']} {breakdown_filter_params['parsed_date_from']} {breakdown_filter_params['parsed_date_to']}"
+        distinct_ids_extra_where = f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE e.team_id = %(team_id)s {event_extra_where} GROUP BY distinct_id)"
 
         person_join_condition, person_join_params = self._person_join_condition(distinct_ids_extra_where)
         groups_join_condition, groups_join_params = GroupsJoinQuery(
@@ -350,8 +344,9 @@ class ClickhouseTrendsBreakdown:
         # For an event performed 1000 times in a database with 10 million
         # people, it speeds it up from taking 10s to about 0.5s in a 8vCPU,
         # 128GB memory server
-        distinct_ids_query = get_team_distinct_ids_query(self.team_id, extra_where=distinct_ids_extra_where,)
+        distinct_ids_query = get_team_distinct_ids_query(self.team_id, extra_where=distinct_ids_extra_where)
         event_join = EVENT_JOIN_PERSON_SQL.format(GET_TEAM_PERSON_DISTINCT_IDS=distinct_ids_query)
+
         if person_query.is_used:
             query, params = person_query.get_query(
                 extra_where=f"AND id IN (SELECT person_id FROM ({distinct_ids_query}))"

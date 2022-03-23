@@ -250,7 +250,7 @@ INSERT_PERSON_STATIC_COHORT = (
 # Other queries
 #
 
-GET_TEAM_PERSON_DISTINCT_IDS = f"""
+GET_TEAM_PERSON_DISTINCT_IDS = """
 SELECT distinct_id, argMax(person_id, _timestamp) as person_id
 FROM (
     SELECT distinct_id, person_id, max(_timestamp) as _timestamp
