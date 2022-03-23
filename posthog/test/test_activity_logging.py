@@ -4,7 +4,7 @@ import pytest
 from dateutil import parser
 from django.db.utils import IntegrityError
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
@@ -70,6 +70,31 @@ class TestActivityLogModel(BaseTest):
             'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id',
             error.exception.args[0],
         )
+
+    def test_does_not_throw_if_cannot_log_activity(self):
+        with self.assertLogs(level="WARN") as log:
+            try:
+                log_activity(
+                    organization_id=UUIDT(),
+                    team_id=1,
+                    # will cause logging to raise exception because user is unsaved
+                    # avoids needing to mock anything to force the exception
+                    user=User(first_name="testy", email="test@example.com"),
+                    item_id="12345",
+                    scope="testing throwing exceptions on create",
+                    activity="does not explode",
+                    detail=Detail(),
+                )
+            except Exception as e:
+                raise pytest.fail(f"Should not have raised exception: {e}")
+
+            logged_warning = log.records[0].__dict__
+            self.assertEqual(logged_warning["levelname"], "WARNING")
+            self.assertEqual(logged_warning["msg"]["event"], "failed to write activity log")
+            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
+            self.assertEqual(logged_warning["msg"]["team"], 1)
+            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
+            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
 
 
 class TestChangesBetweenFeatureFlags(unittest.TestCase):

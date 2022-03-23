@@ -134,6 +134,8 @@ describe('Trends', () => {
         cy.get('[data-attr=add-to-dashboard-select]').click()
         cy.get('[data-attr=add-to-dashboard-option-0').click()
         cy.contains('Add insight to dashboard').click()
+
+        cy.wait(200)
         cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')
     })
 })

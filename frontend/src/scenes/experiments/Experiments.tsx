@@ -136,13 +136,7 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div
-                        style={{
-                            borderBottom: '1px solid var(--border)',
-                            paddingBottom: '0.5rem',
-                            marginBottom: '1rem',
-                        }}
-                    >
+                    <div className="mb">
                         Check out our
                         <a
                             data-attr="experiment-help"
