@@ -123,6 +123,14 @@
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
                     "value": "1"
+                },
+                {
+                    "name": "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS",
+                    "value": "60"
+                },
+                {
+                    "name": "PARALLEL_DASHBOARD_ITEM_CACHE",
+                    "value": "7"
                 }
             ],
             "secrets": [
