@@ -24,7 +24,7 @@ from posthog.api import (
 from posthog.demo import demo
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, sso_login, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -136,6 +136,7 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "login",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
