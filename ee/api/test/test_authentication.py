@@ -136,7 +136,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     CONFIG_EMAIL = "user7@posthog.com"
 
     def create_enforced_domain(self, **kwargs) -> OrganizationDomain:
-        OrganizationDomain.objects.create(
+        return OrganizationDomain.objects.create(
             **{
                 "domain": "posthog.com",
                 "organization": self.organization,
