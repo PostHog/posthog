@@ -48,7 +48,9 @@ export function PaginationControl<T>({
                 disabled={!isPreviousAvailable}
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
-                    setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                    if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
+                        setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                    }
                 }}
             />
             <LemonButton
@@ -57,7 +59,9 @@ export function PaginationControl<T>({
                 disabled={!isNextAvailable}
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
-                    setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                    if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
+                        setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                    }
                 }}
             />
         </div>
