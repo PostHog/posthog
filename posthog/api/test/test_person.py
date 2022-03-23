@@ -1,9 +1,11 @@
 import json
 import unittest
+from typing import Dict, List, Optional
 from unittest import mock
 from uuid import uuid4
 
 from django.utils import timezone
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
@@ -251,6 +253,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["results"], [])
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person(self):
         person = _create_person(
             team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
@@ -267,6 +270,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        self._assert_person_activity(
+            person_id=None,  # can't query directly for deleted person
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "deleted",
+                    "scope": "Person",
+                    "item_id": str(person.pk),
+                    # don't store deleted person's name, so user primary key
+                    "detail": {"changes": None, "name": str(person.pk)},
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
 
     def test_filter_uuid(self) -> None:
         person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
@@ -442,3 +460,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             )
         response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 10)
+
+    def _get_person_activity(self, person_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK):
+        if person_id:
+            url = f"/api/person/{person_id}/activity"
+        else:
+            url = f"/api/person/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def _assert_person_activity(self, person_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_person_activity(person_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
+        )

@@ -443,8 +443,6 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        flag_activity = self._get_feature_flag_activity()["results"]
-
         self.assert_feature_flag_activity(
             flag_id=None,
             expected=[
