@@ -12,9 +12,10 @@ logger = structlog.get_logger(__name__)
 
 
 def alias_column(table, current_name, new_name):
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
     sync_execute(
         f"""
-        ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        ALTER TABLE {table} {execute_on_cluster}
         ADD COLUMN IF NOT EXISTS \"{new_name}\"
         VARCHAR ALIAS \"{current_name}\"
     """
@@ -31,10 +32,10 @@ def alias_column(table, current_name, new_name):
 
 
 def alias_column_if_exists(table, current_name, new_name):
-    if current_name in get_column_names(table):
+    if current_name in get_column_names(table) and new_name not in get_column_names(table):
         alias_column(table, current_name, new_name)
     else:
-        logger.info("No need to rename column, ignoring.", table=table, current_name=current_name, new_name=new_name)
+        logger.info("No need to ALIAS column, ignoring.", table=table, current_name=current_name, new_name=new_name)
 
 
 @lru_cache(maxsize=None)
@@ -47,9 +48,10 @@ def get_column_names(table: str):
 
 
 def comment_column(table, name, comment):
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
     sync_execute(
         f"""
-        ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        ALTER TABLE {table} {execute_on_cluster}
         COMMENT COLUMN \"{name}\" %(comment)s
         """,
         {"comment": comment},
