@@ -136,11 +136,14 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         self.params.update(entity_params)
 
         distinct_id_query, distinct_id_params = self._get_distinct_id_query(
-            entity_query=entity_query, date_query=date_query
+            # It's tricky to filter these because they're of a different
+            # format: date_query might use MIN(e.timestamp) across all items
+            entity_query=None,
+            date_query=None,
         )
         self.params.update(distinct_id_params)
 
-        person_query, person_params = self._get_person_query(entity_query=entity_query, date_query=date_query)
+        person_query, person_params = self._get_person_query(entity_query=None, date_query=None)
         self.params.update(person_params)
 
         groups_query, groups_params = self._get_groups_query()

@@ -32,11 +32,11 @@ class StickinessEventsQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         distinct_id_query, distinct_id_params = self._get_distinct_id_query(
-            entity_query=actions_query, date_query=date_query
+            entity_query=f"AND {actions_query}", date_query=date_query
         )
         self.params.update(distinct_id_params)
 
-        person_query, person_params = self._get_person_query(entity_query=actions_query, date_query=date_query)
+        person_query, person_params = self._get_person_query(entity_query=f"AND {actions_query}", date_query=date_query)
         self.params.update(person_params)
 
         groups_query, groups_params = self._get_groups_query()
