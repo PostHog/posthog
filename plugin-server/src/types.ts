@@ -111,6 +111,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
+    CLICKHOUSE_EVENTS_KAFKA_TOPIC: string
 }
 
 export interface Hub extends PluginsServerConfig {

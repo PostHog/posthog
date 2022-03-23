@@ -214,6 +214,14 @@ export class EventsProcessor {
         return this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED ?? false
     }
 
+    public clickhouseExternalSchemasEnabled(teamId: number): boolean {
+        if (this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS) {
+            return false
+        }
+        const teams = this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
+        return !teams.includes(teamId)
+    }
+
     private async updatePersonProperties(
         teamId: number,
         distinctId: string,
@@ -655,12 +663,12 @@ export class EventsProcessor {
         let eventId: Event['id'] | undefined
 
         if (this.kafkaProducer) {
-            const message = this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS
-                ? Buffer.from(JSON.stringify(eventPayload))
-                : (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+            const message = this.clickhouseExternalSchemasEnabled(teamId)
+                ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+                : Buffer.from(JSON.stringify(eventPayload))
 
             await this.kafkaProducer.queueMessage({
-                topic: KAFKA_EVENTS,
+                topic: this.pluginsServer.CLICKHOUSE_EVENTS_KAFKA_TOPIC,
                 messages: [
                     {
                         key: uuid,
