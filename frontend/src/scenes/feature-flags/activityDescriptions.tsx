@@ -57,12 +57,12 @@ const featureFlagActionsMapping: {
                     if (properties?.length > 0) {
                         changedFilters.push(
                             <>
-                                <span>{rollout_percentage ?? 0}% of</span>
+                                <span>{rollout_percentage ?? 100}% of</span>
                                 <PropertyFiltersDisplay filters={properties} />
                             </>
                         )
                     } else {
-                        changedFilters.push(<>{rollout_percentage}% of all users</>)
+                        changedFilters.push(<>{rollout_percentage ?? 100}% of all users</>)
                     }
                 })
             if (changedFilters.length > 1) {

@@ -219,7 +219,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.activity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with cohort to apply to 0% ofID 98, and 100% ofID 411'
+                'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
             )
         })
 
@@ -255,6 +255,66 @@ describe('the activity log logic', () => {
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                 'set the flag with simple rollout change to apply to 77% of all users'
+            )
+        })
+
+        it('describes a null rollout percentage as 100%', async () => {
+            await testSetup(
+                makeAPIItem('with null rollout change', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                                {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: 'person',
+                                            value: 'someone@somewhere.dev',
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                    },
+                ])
+            )
+            const actual = logic.values.activity
+
+            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
             )
         })
 
