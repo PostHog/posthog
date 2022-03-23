@@ -5,6 +5,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
 from rest_framework import serializers
 
+from posthog.models.entity import MATH_TYPE
 from posthog.models.property import OperatorType, PropertyType
 
 
@@ -31,17 +32,43 @@ class PropertySerializer(serializers.Serializer):
 
 
 class PropertiesSerializer(serializers.Serializer):
-    properties = PropertySerializer(required=False, many=True)
+    properties = PropertySerializer(
+        required=False, many=True, help_text="Filter events by event property, person property, cohort and more."
+    )
+
+
+math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
+- `total` (default): no aggregation, count by events
+- `dau`: count by unique users. Despite the name, if you select the `interval` to be weekly or monthly, this will show weekly or monthly active users respectively
+- `weekly_active`: rolling average of users of the last 7 days.
+- `monthly_active`: rolling average of users of the last month.
+- `unique_group`: count by group. Requires `math_group_type_index` to be sent. You can get the index by hitting `/api/projects/@current/groups_types/`.
+
+All of the below are property aggregations, and require `math_property` to be sent with an event property.
+- `sum`: sum of a numeric property.
+- `min`: min of a numeric property.
+- `max`: max of a numeric property.
+- `median`: median of a numeric property.
+- `p90`: 90th percentile of a numeric property.
+- `p95` 95th percentile of a numeric property.
+- `p99`: 99th percentile of a numeric property.
+"""
 
 
 class FilterEventSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
     properties = PropertySerializer(many=True, required=False)
+    math = serializers.ChoiceField(
+        help_text=math_help_text, choices=get_args(MATH_TYPE), default="total", required=False
+    )
 
 
 class FilterActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
+    id = serializers.CharField(help_text="ID of the action to filter on. For example `2841`.")
     properties = PropertySerializer(many=True, required=False)
+    math = serializers.ChoiceField(
+        help_text=math_help_text, choices=get_args(MATH_TYPE), default="total", required=False
+    )
 
 
 def preprocess_exclude_path_format(endpoints, **kwargs):

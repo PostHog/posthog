@@ -1,7 +1,7 @@
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
+from posthog.client import sync_execute
 from posthog.models import PluginLogEntry
 from posthog.models.utils import UUIDT
 from posthog.test.test_plugin_log_entry import factory_test_plugin_log_entry

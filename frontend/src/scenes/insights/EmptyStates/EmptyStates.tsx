@@ -15,6 +15,8 @@ import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { urls } from 'scenes/urls'
+import { Link } from 'lib/components/Link'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -283,7 +285,6 @@ const SAVED_INSIGHTS_COPY = {
 }
 
 export function SavedInsightsEmptyState(): JSX.Element {
-    const { addGraph } = useActions(savedInsightsLogic)
     const {
         filters: { tab },
         insights,
@@ -309,16 +310,17 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 </h2>
                 <p className="empty-state__description">{description}</p>
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Button
-                        size="large"
-                        type="primary"
-                        onClick={() => addGraph('Trends')} // Add trends graph by default
-                        data-attr="add-insight-button-empty-state"
-                        icon={<PlusCircleOutlined />}
-                        className="add-insight-button"
-                    >
-                        New Insight
-                    </Button>
+                    <Link to={urls.insightNew()}>
+                        <Button
+                            size="large"
+                            type="primary"
+                            data-attr="add-insight-button-empty-state"
+                            icon={<PlusCircleOutlined />}
+                            className="add-insight-button"
+                        >
+                            New Insight
+                        </Button>
+                    </Link>
                 )}
             </div>
         </div>

@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagType } from '~/types'
 import React from 'react'
-import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -31,30 +31,68 @@ const featureFlagActionsMapping: {
         )
     },
     filters: function onChangedFilter(item, change) {
-        // "string value (multivariate test)" looks like {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test_sticky", "rollout_percentage": 50}]}
-        // "boolean value" with condition looks like {"groups":[{"properties":[{"key":"$initial_browser_version","type":"person","value":["100"],"operator":"exact"}],"rollout_percentage":35}],"multivariate":null}
-        // "boolean value" with no condition looks like {"groups":[{"properties":[],"rollout_percentage":99}],"multivariate":null}
+        const filtersBefore = change?.before as FeatureFlagFilters
+        const filtersAfter = change?.after as FeatureFlagFilters
 
-        const filters = change?.after as FeatureFlagFilters
-
-        const isBooleanValueFlag = Array.isArray(filters.groups) && filters.groups.length >= 1
+        const isBooleanValueFlag = Array.isArray(filtersAfter.groups)
 
         if (isBooleanValueFlag) {
-            //simple flag with no condition
+            if (
+                filtersAfter.groups.length === 0 ||
+                !filtersAfter.groups.some((group) => group.rollout_percentage !== 0)
+            ) {
+                // there are no rollout groups or all are at 0%
+                return <>set the flag {nameOrLinkToFlag(item)} to apply to no users</>
+            }
+
+            const changedFilters: JSX.Element[] = [<>set the flag {nameOrLinkToFlag(item)} to apply to </>]
+            filtersAfter.groups
+                .filter((groupAfter, index) => {
+                    const groupBefore = filtersBefore?.groups?.[index]
+                    // only keep changes with no before state, or those where before and after are different
+                    return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
+                })
+                .forEach((groupAfter) => {
+                    const { properties, rollout_percentage = null } = groupAfter
+                    if (properties?.length > 0) {
+                        changedFilters.push(
+                            <>
+                                <span>{rollout_percentage ?? 0}% of</span>
+                                <PropertyFiltersDisplay filters={properties} />
+                            </>
+                        )
+                    } else {
+                        changedFilters.push(<>{rollout_percentage}% of all users</>)
+                    }
+                })
+            if (changedFilters.length > 1) {
+                // always starts with a single label, must have 2 or more to include descriptions
+                return (
+                    <>
+                        {changedFilters.map((changedFilter, index) => (
+                            <span key={index}>
+                                {index > 1 && index !== changedFilters.length - 1 && ', '}
+                                {index === changedFilters.length - 1 && changedFilters.length > 2 && ', and '}
+                                {changedFilter}
+                            </span>
+                        ))}
+                    </>
+                )
+            }
+        }
+
+        if (filtersAfter.multivariate) {
             return (
                 <>
-                    changed the rollout percentage to {groupFilters(filters.groups)} on {nameOrLinkToFlag(item)}
+                    changed the rollout percentage for the variants to{' '}
+                    {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')} on{' '}
+                    {nameOrLinkToFlag(item)}
                 </>
             )
         }
-        // TODO is it true that it must be multivariate now
-        return (
-            <>
-                changed the rollout percentage for the variants to{' '}
-                {filters.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}`).join(', ')} on{' '}
-                {nameOrLinkToFlag(item)}
-            </>
-        )
+
+        console.error({ item, change }, 'could not describe log item')
+        return null
     },
     deleted: function onSoftDelete(item) {
         return <>deleted the flag: {item.detail.name}</>

@@ -562,21 +562,23 @@
                         "properties": [],
                         "filter_test_accounts": false
                     },
-                    "savedFilters": {
-                        "insight": "TRENDS",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "name": "$pageview",
-                                "type": "events",
-                                "order": 0
-                            }
-                        ],
-                        "actions": [],
-                        "display": "ActionsLineGraph",
-                        "interval": "day",
-                        "properties": [],
-                        "filter_test_accounts": false
+                    "savedInsight": {
+                        "filters": {
+                            "insight": "TRENDS",
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "actions": [],
+                            "display": "ActionsLineGraph",
+                            "interval": "day",
+                            "properties": [],
+                            "filter_test_accounts": false
+                        }
                     },
                     "showTimeoutMessage": true,
                     "maybeShowTimeoutMessage": true,

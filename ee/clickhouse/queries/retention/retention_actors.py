@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Dict, List, Optional, Tuple
 
-from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.retention.clickhouse_retention import (
     BreakdownValues,
@@ -9,6 +8,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import (
     build_target_event_query,
 )
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL
+from posthog.client import substitute_params, sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
