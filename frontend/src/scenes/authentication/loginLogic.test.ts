@@ -1,13 +1,19 @@
-import { handleLoginRedirect } from 'scenes/authentication/loginLogic'
+import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
+import { initKea } from '~/initKea'
+import { testUtilsPlugin } from 'kea-test-utils'
 
 describe('loginLogic', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
-
     describe('parseLoginRedirectURL', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
         const origin = `http://localhost`
         const matches = [
             [null, '/'],
@@ -32,5 +38,18 @@ describe('loginLogic', () => {
                 expect(newPath).toEqual(result)
             })
         }
+    })
+
+    describe('redirect vulnerability', () => {
+        beforeEach(() => {
+            // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
+            initKea({ beforePlugins: [testUtilsPlugin] })
+        })
+        it('should throw an exception on redirecting to a different origin', () => {
+            router.actions.push(`${origin}/login?next=//google.com`)
+            expect(() => {
+                handleLoginRedirect()
+            }).toThrow()
+        })
     })
 })
