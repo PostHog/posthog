@@ -663,12 +663,13 @@ export class EventsProcessor {
         let eventId: Event['id'] | undefined
 
         if (this.kafkaProducer) {
-            const message = this.clickhouseExternalSchemasEnabled(teamId)
+            const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+            const message = useExternalSchemas
                 ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
                 : Buffer.from(JSON.stringify(eventPayload))
 
             await this.kafkaProducer.queueMessage({
-                topic: this.pluginsServer.CLICKHOUSE_EVENTS_KAFKA_TOPIC,
+                topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 messages: [
                     {
                         key: uuid,

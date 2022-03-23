@@ -85,7 +85,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
-        CLICKHOUSE_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS,
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS,
     }
 }
 
@@ -156,7 +156,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) how many kafka partitions the plugin server should consume from concurrently',
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
             '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
-        CLICKHOUSE_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
     }
 }
 
