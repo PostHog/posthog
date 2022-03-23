@@ -17,9 +17,16 @@ class ChangeSerializer(serializers.Serializer):
     after = serializers.JSONField(read_only=True)
 
 
+class MergeSerializer(serializers.Serializer):
+    type = serializers.CharField(read_only=True)
+    source = serializers.JSONField(read_only=True)
+    target = serializers.JSONField(read_only=True)
+
+
 class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
+    merge = MergeSerializer()
     name = serializers.CharField(read_only=True)
 
 

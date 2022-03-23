@@ -10,7 +10,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.api.person import get_person_name
+from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
@@ -299,6 +299,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     @mock.patch("posthog.api.capture.capture_internal")
     def test_merge_people(self, mock_capture_internal) -> None:
+
         # created first
         person3 = _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={"oh": "hello"})
         person1 = _create_person(
@@ -333,14 +334,19 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 201)
         self.assertCountEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
 
+        person_one_dict = PersonSerializer(person1).data
+        person_two_dict = PersonSerializer(person2).data
+        person_three_dict = PersonSerializer(person3).data
+
         person_three_log = {
             "user": {"first_name": "", "email": "user1@posthog.com"},
             "activity": "was_merged_into_person",
             "scope": "Person",
             "item_id": str(person3.pk),
             "detail": {
-                "changes": [{"type": "Person", "before": None, "field": None, "action": "merged", "after": person1.pk}],
-                "name": get_person_name(person3),
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": person_three_dict, "target": person_one_dict},
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }
@@ -351,16 +357,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             # don't store deleted person's name, so user primary key
             "item_id": str(person1.pk),
             "detail": {
-                "changes": [
-                    {
-                        "type": "Person",
-                        "before": None,
-                        "field": None,
-                        "action": "merged",
-                        "after": [person2.pk, person3.pk],
-                    }
-                ],
-                "name": get_person_name(person1),
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": [person_three_dict, person_two_dict], "target": person_one_dict},
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }
@@ -370,8 +369,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             "scope": "Person",
             "item_id": str(person2.pk),
             "detail": {
-                "changes": [{"type": "Person", "before": None, "field": None, "action": "merged", "after": person1.pk}],
-                "name": get_person_name(person2),
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": person_two_dict, "target": person_one_dict},
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }

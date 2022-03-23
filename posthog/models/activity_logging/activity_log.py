@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import json
 from typing import Any, List, Literal, Optional, Union
 
@@ -22,8 +23,16 @@ class Change:
 
 
 @dataclasses.dataclass(frozen=True)
+class Merge:
+    type: Literal["Person"]
+    source: Optional[Any] = None
+    target: Optional[Any] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
+    merge: Optional[Merge] = None
     name: Optional[str] = None
 
 
@@ -33,6 +42,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.__dict__
         if isinstance(obj, Change):
             return obj.__dict__
+        if isinstance(obj, Merge):
+            return obj.__dict__
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        if isinstance(obj, UUIDT):
+            return str(obj)
 
         return json.JSONEncoder.default(self, obj)
 
