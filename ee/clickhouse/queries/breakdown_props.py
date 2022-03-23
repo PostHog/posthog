@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import (
@@ -11,7 +11,10 @@ from ee.clickhouse.models.property import (
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.person_distinct_id_query import (
+    get_team_distinct_ids_query,
+    get_team_distinct_ids_query_with_extra_where,
+)
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -67,11 +70,9 @@ def get_breakdown_prop_values(
         # relevant to our query
         entity_query = entity_format_params["entity_query"]
         extra_where = f"{entity_query} {parsed_date_from} {parsed_date_to}"
-        distinct_ids_query = get_team_distinct_ids_query(
+        distinct_ids_query, distinct_ids_params = get_team_distinct_ids_query_with_extra_where(
             team_id,
-            extra_where=(
-                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {extra_where} GROUP BY distinct_id)",
-            ),
+            extra_where=f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {extra_where} GROUP BY distinct_id)",
         )
         person_subquery, person_join_params = person_query.get_query(
             extra_where=f"AND id IN (SELECT person_id FROM ({distinct_ids_query}))"
@@ -80,6 +81,7 @@ def get_breakdown_prop_values(
             INNER JOIN ({get_team_distinct_ids_query(team_id)}) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
+        person_join_params = {**person_join_params, **distinct_ids_params}
 
     groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team_id, column_optimizer).get_join_query()
 

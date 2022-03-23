@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Dict, Tuple
 
 from ee.clickhouse.materialized_columns.util import cache_for
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS, GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE
@@ -8,7 +9,7 @@ from posthog.settings import BENCHMARK, TEST
 using_new_table = TEST or BENCHMARK
 
 
-def get_team_distinct_ids_query(team_id: int, extra_where: str = "") -> str:
+def get_team_distinct_ids_query(team_id: int) -> str:
     from ee.clickhouse.client import substitute_params
 
     global using_new_table
@@ -16,11 +17,19 @@ def get_team_distinct_ids_query(team_id: int, extra_where: str = "") -> str:
     using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
 
     if using_new_table:
-        return substitute_params(
-            GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE.format(extra_where=extra_where), {"team_id": team_id,}
-        )
+        return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE.format(extra_where=""), {"team_id": team_id,})
     else:
-        return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS.format(extra_where=extra_where), {"team_id": team_id,})
+        return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS.format(extra_where=""), {"team_id": team_id,})
+
+
+def get_team_distinct_ids_query_with_extra_where(team_id: int, extra_where: str = "") -> Tuple[str, Dict]:
+    global using_new_table
+    using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
+
+    if using_new_table:
+        return GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE.format(extra_where=extra_where), {"team_id": team_id,}
+    else:
+        return GET_TEAM_PERSON_DISTINCT_IDS.format(extra_where=extra_where), {"team_id": team_id,}
 
 
 is_ready = False

@@ -86,7 +86,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
             else ""
         )
 
-        event_join_query = self._funnel_correlation._get_events_join_query()
+        event_join_query, event_join_params = self._funnel_correlation._get_events_join_query()
 
         recording_event_select_statement = (
             ", any(actors.matching_events) AS matching_events" if self._filter.include_recordings else ""
@@ -116,6 +116,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         params = {
             **funnel_persons_params,
             **prop_params,
+            **event_join_params,
             "target_event": self._filter.correlation_person_entity.id,
             "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),

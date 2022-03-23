@@ -20,7 +20,7 @@ from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query_with_extra_where
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -169,7 +169,7 @@ class FunnelCorrelation:
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
-        event_join_query = self._get_events_join_query()
+        event_join_query, event_join_params = self._get_events_join_query()
 
         query = f"""
             WITH
@@ -222,6 +222,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
+            **event_join_params,
             "funnel_step_names": self._get_funnel_step_names(),
             "target_step": len(self._filter.entities),
             "exclude_event_names": self._filter.correlation_event_exclude_names,
@@ -236,7 +237,7 @@ class FunnelCorrelation:
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
-        event_join_query = self._get_events_join_query()
+        event_join_query, event_join_params = self._get_events_join_query()
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
@@ -301,6 +302,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
+            **event_join_params,
             "funnel_step_names": self._get_funnel_step_names(),
             "target_step": len(self._filter.entities),
             "event_names": self._filter.correlation_event_names,
@@ -383,9 +385,13 @@ class FunnelCorrelation:
 
         return query, params
 
-    def _get_aggregation_target_join_query(self) -> str:
+    def _get_aggregation_target_join_query(self) -> Tuple[str, Dict]:
+        distinct_ids_query, distinct_ids_params = get_team_distinct_ids_query_with_extra_where(
+            self._team.pk,
+            extra_where=f"AND distinct_id IN (SELECT distinct_id FROM events {self._get_events_where()} GROUP BY distinct_id)",
+        )
         aggregation_person_join = f"""
-            JOIN ({get_team_distinct_ids_query(self._team.pk, extra_where=f"AND distinct_id IN (SELECT distinct_id FROM events {self._get_events_where()} GROUP BY distinct_id)")}) AS pdi
+            JOIN ({distinct_ids_query}) AS pdi
                     ON pdi.distinct_id = events.distinct_id
 
                 -- NOTE: I would love to right join here, so we count get total
@@ -405,7 +411,12 @@ class FunnelCorrelation:
             """
 
         return (
-            aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join
+            (
+                aggregation_group_join
+                if self._filter.aggregation_group_type_index is not None
+                else aggregation_person_join
+            ),
+            distinct_ids_params,
         )
 
     def _get_events_where(self) -> str:
@@ -438,7 +449,7 @@ class FunnelCorrelation:
             AND event.event NOT IN funnel_step_names
         """
 
-    def _get_events_join_query(self) -> str:
+    def _get_events_join_query(self) -> Tuple[str, Dict]:
         """
         This query is used to join and filter the events table corresponding to the funnel_actors CTE.
         It expects the following variables to be present in the CTE expression:
@@ -448,10 +459,15 @@ class FunnelCorrelation:
             - funnel_step_names
         """
 
-        return f"""
-            {self._get_aggregation_target_join_query()}
+        aggregation_query, aggregation_params = self._get_aggregation_target_join_query()
+
+        return (
+            f"""
+            {aggregation_query}
             {self._get_events_where()}
-        """
+        """,
+            aggregation_params,
+        )
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:

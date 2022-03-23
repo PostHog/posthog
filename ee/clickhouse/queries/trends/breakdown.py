@@ -1,7 +1,6 @@
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.client import substitute_params
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -13,7 +12,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query_with_extra_where
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -159,7 +158,7 @@ class ClickhouseTrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
-                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(
+                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query_with_extra_where(
                         self.team_id, extra_where=distinct_ids_extra_where
                     ),
                     **active_user_params,
@@ -344,7 +343,9 @@ class ClickhouseTrendsBreakdown:
         # For an event performed 1000 times in a database with 10 million
         # people, it speeds it up from taking 10s to about 0.5s in a 8vCPU,
         # 128GB memory server
-        distinct_ids_query = get_team_distinct_ids_query(self.team_id, extra_where=distinct_ids_extra_where)
+        distinct_ids_query, distinct_ids_params = get_team_distinct_ids_query_with_extra_where(
+            self.team_id, extra_where=distinct_ids_extra_where
+        )
         event_join = EVENT_JOIN_PERSON_SQL.format(GET_TEAM_PERSON_DISTINCT_IDS=distinct_ids_query)
 
         if person_query.is_used:
@@ -357,7 +358,7 @@ class ClickhouseTrendsBreakdown:
             INNER JOIN ({query}) person
             ON person.id = pdi.person_id
             """,
-                params,
+                {**distinct_ids_params, **params},
             )
         elif self.entity.math == "dau":
             # Only join distinct_ids
