@@ -177,16 +177,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                               }).url
                             : undefined,
                     expandLabel: ({ count, expandedCount }) =>
-                        `Show ${pluralize(
-                            expandedCount - count,
-                            'property',
-                            'properties'
-                        )} that haven't been seen with ${pluralize(
+                        `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                             eventNames.length,
-                            'this event',
-                            'these events',
+                            'has',
+                            'have',
                             false
-                        )}`,
+                        )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     ...propertyTaxonomicGroupProps(),
