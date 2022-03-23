@@ -99,9 +99,7 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
-    STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
