@@ -96,5 +96,9 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
         detectUnixTimestamps()
     }
 
+    if (typeof value === 'boolean' || (typeof value === 'string' && ['true', 'false'].includes(value.toLowerCase()))) {
+        propertyType = PropertyType.Boolean
+    }
+
     return propertyType
 }
