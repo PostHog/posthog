@@ -525,6 +525,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_patch_user_property(self):
+        person = _create_person(
+            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+
+        created_person = self.client.get("/api/person/%s/" % person.pk).json()
+        created_person["properties"]["a"] = "b"
+        response = self.client.patch("/api/person/%s/" % person.pk, created_person)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        updated_person_response = self.client.get("/api/person/%s/" % person.pk)
+        person = updated_person_response.json()
+
+        self.assertEqual(person["properties"], {"$browser": "whatever", "$os": "Mac OS X", "a": "b"})
+
+        self._assert_person_activity(
+            person_id=person["id"],
+            expected=[
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Person",
+                    "item_id": str(person["id"]),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Person",
+                                "action": "changed",
+                                "field": "properties",
+                                "before": {"$browser": "whatever", "$os": "Mac OS X"},
+                                "after": {"$browser": "whatever", "$os": "Mac OS X", "a": "b"},
+                            },
+                        ],
+                        "merge": None,
+                        "name": None,
+                    },
+                }
+            ],
+        )
+
     def test_csv_export(self):
         _create_person(
             team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}

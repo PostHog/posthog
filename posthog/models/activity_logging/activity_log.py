@@ -82,7 +82,7 @@ class ActivityLog(UUIDModel):
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag"], previous: Optional[models.Model], current: Optional[models.Model]
+    model_type: Literal["FeatureFlag", "Person"], previous: Optional[models.Model], current: Optional[models.Model]
 ) -> List[Change]:
     """
     Identifies changes between two models by comparing fields

@@ -53,7 +53,14 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    Merge,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -584,6 +591,32 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
             status=status.HTTP_200_OK,
         )
+
+    def partial_update(self, request, *args, **kwargs):
+
+        instance_id = kwargs["pk"]
+        try:
+            before_update = self.get_queryset().get(pk=instance_id)
+        except Person.DoesNotExist:
+            before_update = None
+
+        kwargs["partial"] = True
+        response = self.update(request, *args, **kwargs)
+
+        updated_instance = self.get_object()
+
+        changes = changes_between(model_type="Person", previous=before_update, current=updated_instance)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,
+            item_id=instance_id,
+            scope="Person",
+            activity="updated",
+            detail=Detail(changes=changes),
+        )
+
+        return response
 
 
 def paginated_result(
