@@ -86,6 +86,7 @@ projects_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
