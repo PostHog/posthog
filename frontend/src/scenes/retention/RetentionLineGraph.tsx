@@ -11,7 +11,6 @@ import { RetentionModal } from './RetentionModal'
 import { roundToDecimal } from 'lib/utils'
 
 interface RetentionLineGraphProps {
-    inCardView?: boolean
     inSharedMode?: boolean
 }
 
