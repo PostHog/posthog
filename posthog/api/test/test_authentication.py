@@ -34,8 +34,18 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(response.json(), {"sso_enforcement": None})
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
-        # TODO
-        pass
+        # Note no Enterprise license can be found
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None})
 
 
 class TestLoginAPI(APIBaseTest):
@@ -247,21 +257,12 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @pytest.mark.ee
-    @patch("posthog.api.authentication.get_sso_enforced_provider")
+    @patch("posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address")
     def test_cant_reset_with_sso_enforced(self, get_sso_enforced_provider):
         # Mock-up enforcement to bypass license requirements
-        get_sso_enforced_provider.return_value = "saml"
+        get_sso_enforced_provider.return_value = "google-oauth2"
 
-        with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="https://my.posthog.net",
-            SAML_ENTITY_ID="entityID",
-            SAML_ACS_URL="https://saml.posthog.com",
-            SAML_X509_CERT="certificate",
-            SSO_ENFORCEMENT="saml",
-        ):
-            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
+        response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -269,7 +270,7 @@ class TestPasswordResetAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "Password reset is disabled because SSO login is enforced for this instance.",
+                "detail": "Password reset is disabled because SSO login is enforced for this domain.",
                 "attr": None,
             },
         )
