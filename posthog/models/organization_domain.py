@@ -30,7 +30,7 @@ class OrganizationDomainManager(models.Manager):
             self.verified_domains()
             .filter(domain=domain)
             .exclude(sso_enforcement="")
-            .values("sso_enforcement", "organization__available_features")
+            .values("sso_enforcement", "organization_id", "organization__available_features")
             .first()
         )
 
@@ -42,7 +42,9 @@ class OrganizationDomainManager(models.Manager):
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in query["organization__available_features"]:
             logger.warning(
-                [f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license."]
+                f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license.",
+                domain=domain,
+                organization=str(query["organization_id"]),
             )
             return None
 
@@ -50,9 +52,9 @@ class OrganizationDomainManager(models.Manager):
         sso_providers = get_available_sso_providers()
         if not sso_providers[candidate_sso_enforcement]:
             logger.warning(
-                [
-                    f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured."
-                ]
+                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
+                domain=domain,
+                candidate_sso_enforcement=candidate_sso_enforcement,
             )
             return None
 

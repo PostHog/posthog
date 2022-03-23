@@ -229,8 +229,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])
 
         # Ensure warning is properly logged for debugging
-        mock_warning.assert_any_call(
-            ["🤑🚪 SSO is enforced for domain posthog.com but the organization does not have the proper license."]
+        mock_warning.assert_called_with(
+            "🤑🚪 SSO is enforced for domain posthog.com but the organization does not have the proper license.",
+            domain="posthog.com",
+            organization=str(self.organization.id),
         )
 
 
