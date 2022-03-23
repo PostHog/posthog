@@ -395,7 +395,8 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                 })
             })
 
-            const notBoolTestCases = [0, 1, '0', '1', 'yes', 'no', null, undefined]
+            // i.e. not using truthiness to detect whether something is boolean
+            const notBoolTestCases = [0, 1, '0', '1', 'yes', 'no', null, undefined, '', [], ' ']
             notBoolTestCases.forEach((testcase) => {
                 it(`does not identify ${testcase} as a boolean`, async () => {
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
