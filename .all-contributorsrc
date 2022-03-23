@@ -1797,6 +1797,16 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "bnomei",
+      "name": "Bruno Meilick",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3265642?v=4",
+      "profile": "https://github.com/bnomei",
+      "contributions": [
+        "ideas",
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,

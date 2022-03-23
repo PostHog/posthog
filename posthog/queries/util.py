@@ -6,10 +6,10 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
+from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.queries.base import TIME_IN_SECONDS
+from posthog.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.types import FilterType
 
 EARLIEST_TIMESTAMP = "2015-01-01"

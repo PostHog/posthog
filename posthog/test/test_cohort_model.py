@@ -1,6 +1,6 @@
 import pytest
 
-from ee.clickhouse.client import sync_execute
+from posthog.client import sync_execute
 from posthog.models import Cohort, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
 from posthog.test.base import BaseTest

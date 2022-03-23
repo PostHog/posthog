@@ -2,60 +2,85 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
-        user: {
-            first_name: 'Neil',
-            email: 'neil@posthog.com',
-        },
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1846',
+        item_id: '1825',
+        detail: { changes: [], name: '8545-ff-activity-log' },
+        created_at: '2022-03-21T16:01:54.776439Z',
+    },
+    {
+        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1474',
         detail: {
             changes: [
                 {
                     type: 'FeatureFlag',
                     action: 'changed',
-                    field: 'deleted',
-                    before: false,
-                    after: true,
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                rollout_percentage: null,
+                            },
+                            {
+                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
+                                rollout_percentage: 50,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                rollout_percentage: null,
+                            },
+                            {
+                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                        multivariate: null,
+                    },
                 },
             ],
+            name: 'data-management',
+        },
+        created_at: '2022-03-21T15:58:55.792014Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
             name: 'test-ff',
         },
         created_at: '2022-03-21T15:50:25.894422Z',
     },
     {
-        user: {
-            first_name: 'Neil',
-            email: 'neil@posthog.com',
-        },
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
         activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1846',
-        detail: {
-            changes: null,
-            name: 'test-ff',
-        },
+        detail: { changes: null, name: 'test-ff' },
         created_at: '2022-03-21T15:50:15.625221Z',
     },
     {
-        user: {
-            first_name: 'Paul',
-            email: 'paul@posthog.com',
-        },
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
         activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1825',
-        detail: {
-            changes: null,
-            name: '8545-ff-activity-log',
-        },
+        detail: { changes: null, name: '8545-ff-activity-log' },
         created_at: '2022-03-21T13:22:14.605131Z',
     },
     {
-        user: {
-            first_name: 'Paul',
-            email: 'paul@posthog.com',
-        },
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1353',
@@ -69,18 +94,8 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                         groups: [
                             {
                                 properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 641,
-                                        operator: null,
-                                    },
+                                    { key: 'id', type: 'cohort', value: 98, operator: null },
+                                    { key: 'id', type: 'cohort', value: 641, operator: null },
                                 ],
                                 rollout_percentage: null,
                             },
@@ -107,14 +122,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 rollout_percentage: null,
                             },
                             {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 411,
-                                        operator: null,
-                                    },
-                                ],
+                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
                                 rollout_percentage: 50,
                             },
                         ],
@@ -124,18 +132,8 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                         groups: [
                             {
                                 properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 641,
-                                        operator: null,
-                                    },
+                                    { key: 'id', type: 'cohort', value: 98, operator: null },
+                                    { key: 'id', type: 'cohort', value: 641, operator: null },
                                 ],
                                 rollout_percentage: null,
                             },
@@ -162,14 +160,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 rollout_percentage: null,
                             },
                             {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 411,
-                                        operator: null,
-                                    },
-                                ],
+                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
                                 rollout_percentage: 100,
                             },
                         ],
@@ -182,54 +173,29 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-03-21T12:48:27.811085Z',
     },
     {
-        user: {
-            first_name: 'James',
-            email: 'fuziontech@gmail.com',
-        },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
         detail: {
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'active',
-                    before: true,
-                    after: false,
-                },
-            ],
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
             name: 'cloud-announcement',
         },
         created_at: '2022-03-20T15:26:58.006900Z',
     },
     {
-        user: {
-            first_name: 'James',
-            email: 'fuziontech@gmail.com',
-        },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
         detail: {
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'active',
-                    before: false,
-                    after: true,
-                },
-            ],
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
             name: 'cloud-announcement',
         },
         created_at: '2022-03-20T15:26:46.397726Z',
     },
     {
-        user: {
-            first_name: 'James',
-            email: 'fuziontech@gmail.com',
-        },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
@@ -242,14 +208,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     before: {
                         groups: [
                             {
-                                properties: [
-                                    {
-                                        key: 'realm',
-                                        type: 'person',
-                                        value: ['cloud'],
-                                        operator: 'exact',
-                                    },
-                                ],
+                                properties: [{ key: 'realm', type: 'person', value: ['cloud'], operator: 'exact' }],
                                 rollout_percentage: null,
                             },
                         ],
@@ -266,14 +225,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: {
                         groups: [
                             {
-                                properties: [
-                                    {
-                                        key: 'realm',
-                                        type: 'person',
-                                        value: ['cloud'],
-                                        operator: 'exact',
-                                    },
-                                ],
+                                properties: [{ key: 'realm', type: 'person', value: ['cloud'], operator: 'exact' }],
                                 rollout_percentage: null,
                             },
                         ],
@@ -294,10 +246,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-03-20T15:26:13.314035Z',
     },
     {
-        user: {
-            first_name: 'Alex Kim',
-            email: 'alex@posthog.com',
-        },
+        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1474',
@@ -310,14 +259,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     before: {
                         groups: [
                             {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
+                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
                                 rollout_percentage: null,
                             },
                         ],
@@ -326,25 +268,11 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: {
                         groups: [
                             {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
+                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
                                 rollout_percentage: null,
                             },
                             {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 411,
-                                        operator: null,
-                                    },
-                                ],
+                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
                                 rollout_percentage: 50,
                             },
                         ],
@@ -355,90 +283,5 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             name: 'data-management',
         },
         created_at: '2022-03-19T16:58:47.747634Z',
-    },
-    {
-        user: {
-            first_name: 'Rick',
-            email: 'rick@posthog.com',
-        },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1382',
-        detail: {
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 411,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: 20,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                },
-            ],
-            name: 'recordings-in-insights',
-        },
-        created_at: '2022-03-18T18:32:03.281852Z',
-    },
-    {
-        user: {
-            first_name: 'Tim',
-            email: 'tim@posthog.com',
-        },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1779',
-        detail: {
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'active',
-                    before: true,
-                    after: false,
-                },
-            ],
-            name: 'session-recording-console',
-        },
-        created_at: '2022-03-18T12:44:32.376709Z',
     },
 ]
