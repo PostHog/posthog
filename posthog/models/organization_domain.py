@@ -20,6 +20,7 @@ class OrganizationDomainManager(models.Manager):
         return self.exclude(verified_at__isnull=True)
 
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        # TODO: Pay gate
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()

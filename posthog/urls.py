@@ -3,9 +3,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import HttpResponse
-from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
-from django.urls.base import reverse
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -25,8 +23,8 @@ from posthog.api import (
 )
 from posthog.demo import demo
 
-from .utils import get_sso_enforced_provider, render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
+from .utils import render_template
+from .views import health, login_required, preflight_check, robots_txt, sso_login, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -50,20 +48,6 @@ else:
 @csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-def login_view(request):
-    """
-    Checks if SSO is enforced and prevents using password authentication if it's the case.
-    """
-    enforced_sso = get_sso_enforced_provider()
-    if enforced_sso:
-        if enforced_sso == "saml":
-            return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
-        else:
-            return redirect(reverse("social:begin", kwargs={"backend": enforced_sso}))
-
-    return home(request)
 
 
 def authorize_and_redirect(request):
@@ -129,7 +113,6 @@ urlpatterns = [
         "login/<str:backend>/", sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
-    path("login", login_view),
 ]
 
 if settings.TEST:

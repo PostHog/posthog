@@ -18,7 +18,6 @@ from rest_framework.response import Response
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
-from posthog.utils import get_sso_enforced_provider
 
 
 @csrf_protect
@@ -58,11 +57,8 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        # Check instance-level SSO enforcement (self-hosted)
-        if get_sso_enforced_provider():
-            raise serializers.ValidationError("This instance only allows SSO login.", code="sso_enforced")
 
-        # Check domain-level SSO enforcement (PostHog Cloud)
+        # Check SSO enforcement (which happens at the domain level)
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"]):
             raise serializers.ValidationError(
                 "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
@@ -121,13 +117,7 @@ class PasswordResetSerializer(serializers.Serializer):
     def create(self, validated_data):
         email = validated_data.pop("email")
 
-        # Check instance-level SSO enforcement (self-hosted)
-        if get_sso_enforced_provider():
-            raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced for this instance.", code="sso_enforced"
-            )
-
-        # Check domain-level SSO enforcement (PostHog Cloud)
+        # Check SSO enforcement (which happens at the domain level)
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
             raise serializers.ValidationError(
                 "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
