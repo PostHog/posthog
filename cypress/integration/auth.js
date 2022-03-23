@@ -17,6 +17,8 @@ describe('Auth', () => {
 
         cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
+        cy.get('[data-attr=password]').should('be.visible') // Wait for login precheck
+
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
         cy.get('[type=submit]').click()
@@ -26,6 +28,7 @@ describe('Auth', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+        cy.get('[data-attr=password]').should('be.visible') // Wait for login precheck
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
@@ -40,6 +43,7 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com')
+        cy.get('[data-attr=password]').should('be.visible') // Wait for login precheck
         cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 
@@ -54,6 +58,7 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
         cy.get('[data-attr=login-email]').type('test@posthog.com')
+        cy.get('[data-attr=password]').should('be.visible') // Wait for login precheck
         cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 

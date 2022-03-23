@@ -49,6 +49,7 @@ describe('Invite Signup', () => {
         cy.get('.error-view-container').should('not.exist')
         cy.get('h1.page-title').should('contain', "You've been invited to join")
         cy.get('#email').should('have.value', `n**********${target_email[11]}@posthog.com`)
+        cy.get('#password').should('be.visible') // Wait for login precheck
         cy.get('#password').type('12345678')
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('#first_name').type('Bob')
