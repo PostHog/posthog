@@ -131,7 +131,6 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         self.assertEqual(response.json(), {"sso_enforcement": None})
 
 
-# TODO: REDO THIS ENTIRE TEST CLASS
 class TestEEAuthenticationAPI(APILicensedTest):
     CONFIG_EMAIL = "user7@posthog.com"
 
