@@ -1,9 +1,9 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
+from posthog.models.utils import PersonPropertiesMode
 
 
 def get_entity_filtering_params(

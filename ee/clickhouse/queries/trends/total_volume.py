@@ -3,7 +3,6 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
-from ee.clickhouse.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.volume import (
     ACTIVE_USER_SQL,
@@ -16,6 +15,7 @@ from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
+from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from posthog.utils import encode_get_request_params
 
 
@@ -67,7 +67,27 @@ class ClickhouseTrendsTotalVolume:
 
             null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
             params["interval"] = filter.interval
-            final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
+            # If we have a smoothing interval > 1 then add in the sql to
+            # handling rolling average. Else just do a sum. This is possibly an
+            # nessacary optimization.
+            if filter.smoothing_intervals > 1:
+                smoothing_operation = f"""
+                    AVG(SUM(total))
+                    OVER (
+                        ORDER BY day_start
+                        ROWS BETWEEN {filter.smoothing_intervals - 1} PRECEDING
+                        AND CURRENT ROW
+                    )"""
+            else:
+                smoothing_operation = "SUM(total)"
+
+            final_query = AGGREGATE_SQL.format(
+                null_sql=null_sql,
+                content_sql=content_sql,
+                smoothing_operation=smoothing_operation,
+                aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
+            )
             return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
 
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:

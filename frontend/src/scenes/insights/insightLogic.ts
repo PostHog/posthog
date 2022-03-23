@@ -54,6 +54,8 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 
 export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<InsightModel> => ({
     short_id: insightId !== 'new' ? insightId : undefined,
+    name: '',
+    description: '',
     tags: [],
     filters: {},
     result: null,
@@ -366,14 +368,17 @@ export const insightLogic = kea<insightLogicType>({
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
         ],
-        /* savedFilters contain filters that are persisted on an insight */
-        savedFilters: [
-            () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
+        /** The insight's state as it is in the database. */
+        savedInsight: [
+            () => props.cachedInsight || ({} as InsightModel),
             {
-                setInsight: (state, { insight: { filters }, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? cleanFilters(filters || {}) : state,
-                loadInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
-                updateInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
+                setInsight: (state, { insight, options: { fromPersistentApi } }) =>
+                    fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
+                loadInsightSuccess: (_, { insight }) => ({ ...insight, filters: cleanFilters(insight.filters || {}) }),
+                updateInsightSuccess: (_, { insight }) => ({
+                    ...insight,
+                    filters: cleanFilters(insight.filters || {}),
+                }),
             },
         ],
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
@@ -449,7 +454,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        /** filters for data that's being displayed, might not be same as savedFilters or filters */
+        /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         derivedName: [
@@ -472,10 +477,15 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.insight, s.activeView],
             ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
         ],
-        filtersChanged: [
-            (s) => [s.savedFilters, s.filters],
-            (savedFilters, filters) =>
-                filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
+        insightChanged: [
+            (s) => [s.insight, s.savedInsight, s.filters],
+            (insight, savedInsight, filters): boolean =>
+                (insight.name || '') !== (savedInsight.name || '') ||
+                (insight.description || '') !== (savedInsight.description || '') ||
+                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
+                (!!filters &&
+                    !!savedInsight.filters &&
+                    !objectsEqual(cleanFilters(savedInsight.filters), cleanFilters(filters))),
         ],
         isViewedOnDashboard: [
             () => [router.selectors.location],
@@ -766,7 +776,7 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: () => {
-            actions.setFilters(values.savedFilters)
+            actions.setFilters(values.savedInsight.filters || {})
             insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             eventUsageLogic.actions.reportInsightsTabReset()
         },

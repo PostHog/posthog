@@ -2,11 +2,14 @@ import dataclasses
 import json
 from typing import Any, List, Literal, Optional, Union
 
+import structlog
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,15 +104,35 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
-    ActivityLog.objects.create(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        item_id=str(item_id),
-        scope=scope,
-        activity=activity,
-        detail=detail,
-    )
+    try:
+        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+            logger.warn(
+                "ignore_update_activity_no_changes",
+                team_id=team_id,
+                organization_id=organization_id,
+                user_id=user.id,
+                scope=scope,
+            )
+            return
+
+        ActivityLog.objects.create(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=str(item_id),
+            scope=scope,
+            activity=activity,
+            detail=detail,
+        )
+    except Exception as e:
+        logger.warn(
+            "failed to write activity log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=e,
+        )
 
 
 def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None):

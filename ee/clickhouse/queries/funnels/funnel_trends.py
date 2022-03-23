@@ -6,15 +6,10 @@ from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
-from ee.clickhouse.queries.util import (
-    format_ch_timestamp,
-    get_earliest_timestamp,
-    get_interval_func_ch,
-    get_trunc_func_ch,
-)
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp, get_interval_func_ch, get_trunc_func_ch
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"

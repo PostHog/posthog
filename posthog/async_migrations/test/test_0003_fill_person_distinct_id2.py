@@ -13,7 +13,7 @@ MIGRATION_NAME = "0003_fill_person_distinct_id2"
 @pytest.mark.ee
 class Test0003FillPersonDistinctId2(BaseTest):
     def setUp(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         self.migration = get_async_migration_definition(MIGRATION_NAME)
         self.timestamp = 0
@@ -22,7 +22,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
     def test_is_required(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         self.assertTrue(self.migration.is_required())
 
@@ -30,7 +30,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         self.assertFalse(self.migration.is_required())
 
     def test_migration(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         p1, p2, p3, p4, p5, p6 = [UUID(int=i) for i in range(6)]
 
@@ -60,7 +60,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         self.assertEqual(rows, [(1, "a", p1, 0), (2, "a", p2, 0), (2, "b", p4, 0), (3, "d", p6, 0)])
 
     def create_distinct_id(self, **kwargs):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         sync_execute(
             "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, %(timestamp)s, 0 VALUES",

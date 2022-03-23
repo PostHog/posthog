@@ -15,7 +15,7 @@ from typing import (
 
 from django.db.models.query import QuerySet
 
-from ee.clickhouse.client import sync_execute
+from posthog.client import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property

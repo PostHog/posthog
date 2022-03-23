@@ -2,12 +2,12 @@ import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
+from posthog.client import sync_execute
 from posthog.test.base import TestMixin
 
 

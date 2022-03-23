@@ -1,4 +1,4 @@
-from ee.clickhouse.queries import person_distinct_id_query
+from posthog.queries import person_distinct_id_query
 
 
 def test_person_distinct_id_query(db, snapshot):

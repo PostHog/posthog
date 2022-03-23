@@ -15,19 +15,17 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
+from posthog.client import sync_execute
 from posthog.constants import (
     CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
@@ -44,6 +42,8 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -184,7 +184,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        query, params = ClickhousePersonQuery(filter, team.pk, cohort=cohort).get_query()
+        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query()
 
         raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]

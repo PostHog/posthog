@@ -17,8 +17,7 @@ from rest_framework.response import Response
 
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
-from posthog.models import User
-from posthog.utils import get_sso_enforced_provider
+from posthog.models import OrganizationDomain, User
 
 
 @csrf_protect
@@ -58,8 +57,13 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        if get_sso_enforced_provider():
-            raise serializers.ValidationError("This instance only allows SSO login.", code="sso_enforced")
+
+        # Check SSO enforcement (which happens at the domain level)
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        if sso_enforcement:
+            raise serializers.ValidationError(
+                f"You can only login with SSO for this account ({sso_enforcement}).", code="sso_enforced"
+            )
 
         request = self.context["request"]
         user = cast(
@@ -72,6 +76,17 @@ class LoginSerializer(serializers.Serializer):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_logged_in(user, social_provider="")
         return user
+
+
+class LoginPrecheckSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def to_representation(self, instance: Dict[str, str]) -> Dict[str, Any]:
+        return instance
+
+    def create(self, validated_data: Dict[str, str]) -> Any:
+        email = validated_data.get("email", "")
+        return {"sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)}
 
 
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
@@ -91,13 +106,22 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     permission_classes = (permissions.AllowAny,)
 
 
+class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    queryset = User.objects.none()
+    serializer_class = LoginPrecheckSerializer
+    permission_classes = (permissions.AllowAny,)
+
+
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(write_only=True)
 
     def create(self, validated_data):
-        if get_sso_enforced_provider():
+        email = validated_data.pop("email")
+
+        # Check SSO enforcement (which happens at the domain level)
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
             raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced.", code="sso_enforced"
+                "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
             )
 
         if not is_email_available():
@@ -106,7 +130,6 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        email = validated_data.pop("email")
         try:
             user = User.objects.filter(is_active=True).get(email=email)
         except User.DoesNotExist:

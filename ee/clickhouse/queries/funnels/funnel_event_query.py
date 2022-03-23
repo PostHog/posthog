@@ -2,12 +2,12 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 
 
-class FunnelEventQuery(ClickhouseEventQuery):
+class FunnelEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
