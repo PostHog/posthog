@@ -390,6 +390,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             person_id=person3.pk, expected=[person_three_log,],
         )
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
         # created first
         person1 = _create_person(
@@ -406,6 +407,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertEqual(people[1].distinct_ids, ["2"])
         self.assertEqual(people[2].distinct_ids, ["3"])
+
+        self._assert_person_activity(
+            person_id=1,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "split_person",
+                    "scope": "Person",
+                    "item_id": str(person1.pk),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Person",
+                                "action": "split",
+                                "field": None,
+                                "before": None,
+                                "after": {"distinct_ids": ["1", "2", "3"]},
+                            }
+                        ],
+                        "name": None,
+                        "merge": None,
+                    },
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
 
     def test_split_people_delete_props(self) -> None:
         # created first

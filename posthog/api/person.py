@@ -53,7 +53,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -454,8 +454,21 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        distinct_ids = person.distinct_ids
+
         split_person.delay(person.id, request.data.get("main_distinct_id", None))
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,
+            item_id=person.id,
+            scope="Person",
+            activity="split_person",
+            detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
+        )
+
         return response.Response({"success": True}, status=201)
 
     @action(methods=["GET"], detail=False)
