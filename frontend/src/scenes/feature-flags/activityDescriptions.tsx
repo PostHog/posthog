@@ -13,24 +13,16 @@ const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
 type flagFields = keyof FeatureFlagType
 
 const featureFlagActionsMapping: {
-    [field in flagFields]: (item: ActivityLogItem, change?: ActivityChange) => string | JSX.Element | null
+    [field in flagFields]: (change?: ActivityChange) => string | JSX.Element | null
 } = {
-    name: function onName(item, change) {
-        return (
-            <>
-                changed the description to "{change?.after}" on {nameOrLinkToFlag(item)}
-            </>
-        )
+    name: function onName(change) {
+        return <>changed the description to "{change?.after}"</>
     },
-    active: function onActive(item, change) {
+    active: function onActive(change) {
         const describeChange = change?.after ? 'enabled' : 'disabled'
-        return (
-            <>
-                {describeChange} the flag: {nameOrLinkToFlag(item)}
-            </>
-        )
+        return <>{describeChange}</>
     },
-    filters: function onChangedFilter(item, change) {
+    filters: function onChangedFilter(change) {
         const filtersBefore = change?.before as FeatureFlagFilters
         const filtersAfter = change?.after as FeatureFlagFilters
 
@@ -42,10 +34,10 @@ const featureFlagActionsMapping: {
                 !filtersAfter.groups.some((group) => group.rollout_percentage !== 0)
             ) {
                 // there are no rollout groups or all are at 0%
-                return <>set the flag {nameOrLinkToFlag(item)} to apply to no users</>
+                return <>changed the filter conditions to apply to no users</>
             }
 
-            const changedFilters: JSX.Element[] = [<>set the flag {nameOrLinkToFlag(item)} to apply to </>]
+            const changedFilters: JSX.Element[] = [<>changed the filter conditions to apply to </>]
             filtersAfter.groups
                 .filter((groupAfter, index) => {
                     const groupBefore = filtersBefore?.groups?.[index]
@@ -85,31 +77,22 @@ const featureFlagActionsMapping: {
             return (
                 <>
                     changed the rollout percentage for the variants to{' '}
-                    {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')} on{' '}
-                    {nameOrLinkToFlag(item)}
+                    {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')}
                 </>
             )
         }
 
-        console.error({ item, change }, 'could not describe log item')
+        console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete(item) {
-        return <>deleted the flag: {item.detail.name}</>
+    deleted: function onSoftDelete() {
+        return <>deleted</>
     },
-    rollout_percentage: function onRolloutPercentage(item, change) {
-        return (
-            <>
-                changed rollout percentage to {change?.after}% on {nameOrLinkToFlag(item)}
-            </>
-        )
+    rollout_percentage: function onRolloutPercentage(change) {
+        return <>changed rollout percentage to {change?.after}%</>
     },
-    key: function onKey(item, change) {
-        return (
-            <>
-                changed flag key from ${change?.before} to {nameOrLinkToFlag(item)}
-            </>
-        )
+    key: function onKey(change) {
+        return <>changed flag key from ${change?.before}</>
     },
     // fields that shouldn't show in the log if they change
     id: () => null,
@@ -118,25 +101,47 @@ const featureFlagActionsMapping: {
     is_simple_flag: () => null,
 }
 
-export function flagActivityDescriber(logItem: ActivityLogItem): (string | JSX.Element | null)[] {
+export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'FeatureFlag') {
-        return [] // currently, only humanizes the feature flag scope
+        console.error('feature flag decsriber received a non-feature flag activity')
+        return null // only humanizes the feature flag scope
     }
-    const descriptions = []
+
     if (logItem.activity == 'created') {
-        descriptions.push(<>created the flag: {nameOrLinkToFlag(logItem)}</>)
+        return <>created the flag: {nameOrLinkToFlag(logItem)}</>
     }
     if (logItem.activity == 'deleted') {
-        descriptions.push(<>deleted the flag: {logItem.detail.name}</>)
+        return <>deleted the flag: {logItem.detail.name}</>
     }
     if (logItem.activity == 'updated') {
+        const changes: (string | JSX.Element | null)[] = []
+
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
-                continue // model changes have to have a "field" to be described
+                continue // feature flag updates have to have a "field" to be described
             }
 
-            descriptions.push(featureFlagActionsMapping[change.field](logItem, change))
+            changes.push(featureFlagActionsMapping[change.field](logItem, change))
+        }
+
+        if (changes.length) {
+            return (
+                <>
+                    {changes.map((change, index, all) => {
+                        const isntFirst = index > 0
+                        const isLast = index === all.length - 1
+                        const atLeastThree = all.length >= 2
+                        return [
+                            isntFirst && <div>,&nbsp;</div>,
+                            isLast && atLeastThree && <div>and&nbsp;</div>,
+                            <div key={index}>{change}</div>,
+                        ]
+                    })}
+                    <div>&nbsp;for the flag: {nameOrLinkToFlag(logItem)}</div>
+                </>
+            )
         }
     }
-    return descriptions
+
+    return null
 }

@@ -204,10 +204,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
-            expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
-                'changed the description to "strawberry" on test flag'
+                'changed rollout percentage to 36%, and the description to "strawberry" on test flag'
             )
         })
 
@@ -368,7 +365,7 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('can describe two property changes', async () => {
+        it('can describe two changes to the same property', async () => {
             await testSetup(
                 makeAPIItem('with two changes', 'updated', [
                     {
