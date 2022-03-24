@@ -864,14 +864,14 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                                         </>
                                                                                                     ) : (
                                                                                                         <>
-                                                                                                            {
+                                                                                                            {humanFriendlyNumber(
                                                                                                                 secondaryMetricResults?.[
                                                                                                                     idx
                                                                                                                 ][
                                                                                                                     variant
                                                                                                                         .key
                                                                                                                 ]
-                                                                                                            }
+                                                                                                            )}
                                                                                                         </>
                                                                                                     )
                                                                                                 ) : (

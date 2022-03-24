@@ -17,7 +17,11 @@ const featureFlagActionsMapping: {
     [field in FlagFields]: (change?: ActivityChange) => Description[] | null
 } = {
     name: function onName(change) {
-        return [<>changed the description to "{change?.after}"</>]
+        return [
+            <>
+                changed the description to <strong>"{change?.after}"</strong>
+            </>,
+        ]
     },
     active: function onActive(change) {
         const describeChange = change?.after ? 'enabled' : 'disabled'
@@ -41,6 +45,7 @@ const featureFlagActionsMapping: {
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
                 const groupChanges: (string | JSX.Element | null)[] = []
+
                 filtersAfter.groups
                     .filter((groupAfter, index) => {
                         const groupBefore = filtersBefore?.groups?.[index]
@@ -52,12 +57,18 @@ const featureFlagActionsMapping: {
                         if (properties?.length > 0) {
                             groupChanges.push(
                                 <>
-                                    <span>{rollout_percentage ?? 100}% of</span>
+                                    <div>
+                                        <strong>{rollout_percentage ?? 100}%</strong> of
+                                    </div>
                                     <PropertyFiltersDisplay filters={properties} />
                                 </>
                             )
                         } else {
-                            groupChanges.push(<>{rollout_percentage ?? 100}% of all users</>)
+                            groupChanges.push(
+                                <>
+                                    <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
+                                </>
+                            )
                         }
                     })
                 if (groupChanges.length) {
@@ -75,7 +86,11 @@ const featureFlagActionsMapping: {
             changes.push(
                 <>
                     changed the rollout percentage for the variants to{' '}
-                    {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')}
+                    {filtersAfter.multivariate?.variants.map((v) => (
+                        <div key={v.key} className="highlighted-activity">
+                            {v.key}: <strong>{v.rollout_percentage}%</strong>
+                        </div>
+                    ))}
                 </>
             )
         }
@@ -91,7 +106,11 @@ const featureFlagActionsMapping: {
         return [<>deleted</>]
     },
     rollout_percentage: function onRolloutPercentage(change) {
-        return [<>changed rollout percentage to {change?.after}%</>]
+        return [
+            <>
+                changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
+            </>,
+        ]
     },
     key: function onKey(change) {
         return [<>changed flag key from ${change?.before}</>]
