@@ -3,7 +3,7 @@ from typing import Dict, get_args
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
-from rest_framework import serializers
+from rest_framework import fields, serializers
 
 from posthog.models.entity import MATH_TYPE
 from posthog.models.property import OperatorType, PropertyType
@@ -45,6 +45,13 @@ class PropertySerializer(serializers.Serializer):
                 data.is_valid(raise_exception=True)
                 items.append(data.data)
             return items
+        elif not data or data == fields.empty:  # empty dict
+            return data
+        elif data.get("key") and data.get("value"):
+            # if only one item is sent in properties in a GET request, DRF does something weird and exists the dict out
+            serializer = PropertyItemSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            return serializer.data
         else:
             return super().run_validation(data)
 

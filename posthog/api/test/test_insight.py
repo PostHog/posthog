@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from unittest.case import skip
 from unittest.mock import patch
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.utils import timezone
@@ -751,3 +752,20 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         # self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+    def test_send_as_form(self):
+        # This is for people using curl as per our docs
+        # Correctly parse form data with properties
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                urlencode({"events": json.dumps([{"id": "$pageview"}])}),
+                content_type="application/x-www-form-urlencoded",
+            ).json()
+
+        self.assertEqual(response["result"][0]["count"], 2)
+        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
