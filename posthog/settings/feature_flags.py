@@ -9,4 +9,5 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     # Add hard-coded feature flags for static self-hosted releases here
     "invite-teammates-prompt",
     "insight-legends",
+    "experiments-secondary-metrics",
 ]
