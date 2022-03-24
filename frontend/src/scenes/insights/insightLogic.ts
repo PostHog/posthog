@@ -281,7 +281,7 @@ export const insightLogic = kea<insightLogicType>({
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.name === 'AbortError') {
                             actions.abortQuery(queryId, insight, scene, e)
                         }

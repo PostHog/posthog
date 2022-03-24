@@ -28,7 +28,7 @@ export const userLogic = kea<userLogicType>({
                 loadUser: async () => {
                     try {
                         return await api.get('api/users/@me/')
-                    } catch (error) {
+                    } catch (error: any) {
                         console.error(error)
                         actions.loadUserFailure(error.message)
                     }
@@ -42,7 +42,7 @@ export const userLogic = kea<userLogicType>({
                         const response = await api.update('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
-                    } catch (error) {
+                    } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
                     }
