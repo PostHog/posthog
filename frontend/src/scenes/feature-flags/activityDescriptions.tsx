@@ -26,7 +26,7 @@ const featureFlagActionsMapping: {
         const filtersBefore = change?.before as FeatureFlagFilters
         const filtersAfter = change?.after as FeatureFlagFilters
 
-        const isBooleanValueFlag = Array.isArray(filtersAfter.groups)
+        const isBooleanValueFlag = Array.isArray(filtersAfter?.groups)
 
         if (isBooleanValueFlag) {
             if (
@@ -73,7 +73,7 @@ const featureFlagActionsMapping: {
             }
         }
 
-        if (filtersAfter.multivariate) {
+        if (filtersAfter?.multivariate) {
             return (
                 <>
                     changed the rollout percentage for the variants to{' '}
@@ -121,7 +121,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            changes.push(featureFlagActionsMapping[change.field](logItem, change))
+            changes.push(featureFlagActionsMapping[change.field](change))
         }
 
         if (changes.length) {
@@ -137,7 +137,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
                             <div key={index}>{change}</div>,
                         ]
                     })}
-                    <div>&nbsp;for the flag: {nameOrLinkToFlag(logItem)}</div>
+                    <div>&nbsp;on {nameOrLinkToFlag(logItem)}</div>
                 </>
             )
         }
