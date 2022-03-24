@@ -8,6 +8,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '7',
         detail: {
             changes: null,
+            merge: null,
             name: 'test flag',
         },
         created_at: '2022-02-05T16:28:39.594Z',
@@ -26,6 +27,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: 'this is what was added',
                 },
             ],
+            merge: null,
             name: 'test flag',
         },
         created_at: '2022-02-06T16:28:39.594Z',
@@ -44,6 +46,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: { filter: 'info' },
                 },
             ],
+            merge: null,
             name: 'test flag',
         },
         created_at: '2022-02-08T16:28:39.594Z',
