@@ -4,10 +4,8 @@ import { featureFlagsLogic } from './featureFlagsLogic'
 import { Input, Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
-import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -162,14 +160,9 @@ function OverViewTab(): JSX.Element {
                 />
                 {!showActivityLog && (
                     <div className="mb float-right">
-                        <LinkButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            icon={<PlusOutlined />}
-                        >
-                            New Feature Flag
-                        </LinkButton>
+                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                            New feature flag
+                        </LemonButton>
                     </div>
                 )}
             </div>
@@ -202,14 +195,9 @@ export function FeatureFlags(): JSX.Element {
                 }
                 buttons={
                     showActivityLog ? (
-                        <LinkButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            icon={<PlusOutlined />}
-                        >
-                            New Feature Flag
-                        </LinkButton>
+                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                            New feature flag
+                        </LemonButton>
                     ) : (
                         false
                     )

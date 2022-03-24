@@ -19,7 +19,6 @@ import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
-import { Button } from 'antd'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 
@@ -67,7 +66,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
-                        <Button
+                        <LemonButton
                             data-attr="dashboard-edit-mode-save"
                             type="primary"
                             onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
@@ -75,15 +74,16 @@ export function DashboardHeader(): JSX.Element | null {
                             disabled={allItemsLoading}
                         >
                             Done editing
-                        </Button>
+                        </LemonButton>
                     ) : dashboardMode === DashboardMode.Fullscreen ? (
-                        <Button
+                        <LemonButton
+                            type="secondary"
                             onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                             data-attr="dashboard-exit-presentation-mode"
                             disabled={allItemsLoading}
                         >
                             Exit full screen
-                        </Button>
+                        </LemonButton>
                     ) : (
                         <>
                             <More
@@ -193,12 +193,13 @@ export function DashboardHeader(): JSX.Element | null {
                                     onClick={() => setIsShareModalVisible((state) => !state)}
                                 />
                             )}
-                            <Button
+                            <LemonButton
+                                type="secondary"
                                 data-attr="dashboard-share-button"
                                 onClick={() => setIsShareModalVisible((state) => !state)}
                             >
                                 Share
-                            </Button>
+                            </LemonButton>
                             {canEditDashboard && (
                                 <Link to={urls.insightNew(undefined, dashboard?.id)}>
                                     <LemonButton type="primary" data-attr="dashboard-add-graph-header">

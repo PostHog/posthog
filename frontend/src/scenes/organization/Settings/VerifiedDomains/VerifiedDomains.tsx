@@ -1,4 +1,4 @@
-import { Button, Modal } from 'antd'
+import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber, IconLock } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -7,7 +7,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
@@ -38,14 +38,13 @@ export function VerifiedDomains(): JSX.Element {
                 </div>
                 {isFeatureAvailable && (
                     <div>
-                        <Button
+                        <LemonButton
                             type="primary"
-                            icon={<PlusOutlined />}
                             onClick={() => setAddModalShown(true)}
                             disabled={verifiedDomainsLoading || updatingDomainLoading}
                         >
                             Add domain
-                        </Button>
+                        </LemonButton>
                     </div>
                 )}
             </div>

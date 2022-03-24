@@ -1,4 +1,4 @@
-import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -649,26 +649,30 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
-                                <div>
-                                    <Button className="mr-05" onClick={() => setEditExperiment(true)}>
+                                <div className="flex-center">
+                                    <LemonButton
+                                        type="secondary"
+                                        className="mr-05"
+                                        onClick={() => setEditExperiment(true)}
+                                    >
                                         Edit
-                                    </Button>
-                                    <Button type="primary" onClick={() => launchExperiment()}>
+                                    </LemonButton>
+                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
                                         Launch
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             )}
                             {experimentData && experimentData.start_date && !experimentData.end_date && (
-                                <Button className="stop-experiment" onClick={() => endExperiment()}>
-                                    Stop experiment
-                                </Button>
+                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                    Stop
+                                </LemonButton>
                             )}
                             {experimentData?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
                                 !experimentData.archived && (
-                                    <Button className="archive-experiment" onClick={() => archiveExperiment()}>
-                                        <b>Archive experiment</b>
-                                    </Button>
+                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                        <b>Archive</b>
+                                    </LemonButton>
                                 )}
                         </Row>
                     </Row>

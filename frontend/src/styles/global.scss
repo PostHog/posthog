@@ -128,6 +128,9 @@ body strong {
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
     }
+    .ant-form-item {
+        margin-bottom: 0 !important;
+    }
 }
 
 .page-title {
