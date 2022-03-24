@@ -324,7 +324,7 @@ class Migration(AsyncMigrationDefinition):
                 new_table_engine=EVENTS_DATA_TABLE_ENGINE(),
                 materialized_view_names=["events_mv", "events_json_mv"],
                 rename_to="sharded_events",
-                kafka_table_names=["kafka_events", "kafka_json_events"],
+                kafka_table_names=["kafka_events", "kafka_events_json"],
                 create_kafka_tables=[KAFKA_EVENTS_TABLE_SQL(), KAFKA_EVENTS_TABLE_JSON_SQL()],
                 create_materialized_views=[EVENTS_TABLE_MV_SQL(), EVENTS_TABLE_JSON_MV_SQL()],
                 extra_tables={"writable_events": WRITABLE_EVENTS_TABLE_SQL(), "events": DISTRIBUTED_EVENTS_TABLE_SQL()},

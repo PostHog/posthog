@@ -120,7 +120,7 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM {database}.kafka_json_events
+FROM {database}.kafka_events_json
 """.format(
     target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
