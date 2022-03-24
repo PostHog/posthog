@@ -16,10 +16,10 @@ from social_django.views import auth
 from posthog.email import is_email_available
 from posthog.models import Organization, User
 from posthog.utils import (
-    get_available_sso_providers,
     get_available_timezones_with_offsets,
     get_can_create_org,
     get_celery_heartbeat,
+    get_instance_available_sso_providers,
     get_instance_realm,
     is_celery_alive,
     is_plugin_server_alive,
@@ -55,7 +55,9 @@ def login_required(view):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    sso_providers = get_available_sso_providers()
+    sso_providers = get_instance_available_sso_providers()
+    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
+    sso_providers["saml"] = settings.EE_AVAILABLE
 
     if backend not in sso_providers:
         return redirect(f"/login?error_code=invalid_sso_provider")
@@ -112,7 +114,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "cloud": settings.MULTI_TENANCY,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
-        "available_social_auth_providers": get_available_sso_providers(),
+        "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(),
         "email_service_available": is_email_available(with_absolute_urls=True),
     }

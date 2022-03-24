@@ -17,6 +17,7 @@ from social_core.backends.saml import (
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -48,6 +49,9 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
             raise AuthFailed("saml", "Authentication request is invalid. Invalid RelayState.")
+
+        if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
+            raise AuthFailed("saml", "Your organization does not have the required license to use SAML.")
 
         return SAMLIdentityProvider(
             str(organization_domain.id),

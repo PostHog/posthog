@@ -648,16 +648,16 @@ def get_can_create_org() -> bool:
     return False
 
 
-def get_available_sso_providers() -> Dict[str, bool]:
+def get_instance_available_sso_providers() -> Dict[str, bool]:
     """
-    Returns a dictionary containing final determination whether certain SSO providers are available.
+    Returns a dictionary containing final determination to which SSO providers are available.
+    SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
     Validates configuration settings and license validity (if applicable).
     """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
-        "saml": False,
     }
 
     # Get license information
@@ -677,12 +677,6 @@ def get_available_sso_providers() -> Dict[str, bool]:
             output["google-oauth2"] = True
         else:
             print_warning(["You have Google login set up, but not the required license!"])
-
-    if getattr(settings, "SAML_CONFIGURED", None):
-        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
-            output["saml"] = True
-        else:
-            print_warning(["You have SAML set up, but not the required license!"])
 
     return output
 

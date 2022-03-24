@@ -555,21 +555,24 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
-        # TODO
-        self.client.logout()
+
+        User.objects.create_and_join(
+            organization=self.organization, email="engineering@posthog.com", password=self.CONFIG_PASSWORD
+        )
 
         # Can log in regularly with SAML configured
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        response = self.client.post(
+            "/api/login", {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing only SAML disables regular API password login
-        OrganizationDomain.objects.create(
-            domain="posthog.com", organization=self.organization, verified_at=timezone.now(), sso_enforcement="saml"
+        self.organization_domain.sso_enforcement = "saml"
+        self.organization_domain.save()
+        response = self.client.post(
+            "/api/login", {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD}
         )
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -582,31 +585,47 @@ YotAcSbU3p5bzd11wpyebYHB"""
         )
 
         # Login precheck returns SAML info
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
+        response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sso_enforcement": "saml"})
 
     def test_cannot_use_saml_without_enterprise_license(self):
-        # TODO
-        self.client.logout()
-        self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
-        self.license.save()
+        self.organization.available_features = License.SCALE_FEATURES  # Note Scale doesn't include `saml`
+        self.organization.save()
 
         # Enforcement is ignored
-        with self.settings(**SAML_MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.organization_domain.sso_enforcement = "saml"
+        self.organization_domain.save()
+        response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.json(), {"sso_enforcement": None})
 
-        # Client is not redirected to SAML login (even though it's enforced), enforcement is ignored
-        with self.settings(**SAML_MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
-            response = self.client.get("/login")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Cannot start SAML flow
+        with self.assertRaises(AuthFailed) as e:
+            response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(
+            str(e.exception), "Authentication failed: Your organization does not have the required license to use SAML."
+        )
 
         # Attempting to use SAML fails
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
 
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        with self.assertRaises(AuthFailed) as e:
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                follow=True,
+                format="multipart",
+            )
+
+        self.assertEqual(
+            str(e.exception), "Authentication failed: Your organization does not have the required license to use SAML."
+        )

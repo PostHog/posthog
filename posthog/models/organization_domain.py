@@ -10,7 +10,7 @@ from django.utils import timezone
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
-from posthog.utils import get_available_sso_providers
+from posthog.utils import get_instance_available_sso_providers
 
 logger = structlog.get_logger(__name__)
 
@@ -56,15 +56,19 @@ class OrganizationDomainManager(models.Manager):
             )
             return None
 
-        # Check SSO provider is properly configured
-        sso_providers = get_available_sso_providers()
-        if not sso_providers[candidate_sso_enforcement]:
-            logger.warning(
-                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
-                domain=domain,
-                candidate_sso_enforcement=candidate_sso_enforcement,
-            )
-            return None
+        # Check SSO provider is properly configured and has a valid license (to use the specific SSO) if applicable
+        if candidate_sso_enforcement == "saml":
+            # SAML uses special handling because it's configured at the domain level instead of at the instance-level
+            pass
+        else:
+            sso_providers = get_instance_available_sso_providers()
+            if not sso_providers[candidate_sso_enforcement]:
+                logger.warning(
+                    f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
+                    domain=domain,
+                    candidate_sso_enforcement=candidate_sso_enforcement,
+                )
+                return None
 
         return candidate_sso_enforcement
 
