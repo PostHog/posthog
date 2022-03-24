@@ -10,6 +10,8 @@ interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
     total_count: number
 }
 
+const ACTIVITY_PAGE_SIZE = 20
+
 export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedResponse>>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
     props: {} as ActivityLogProps,
@@ -67,8 +69,12 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
         ],
         nextPageURL: [
             (props.id
-                ? `/api/projects/@current/feature_flags/${props.id}/activity?page=${props.startingPage || 1}`
-                : `/api/projects/@current/feature_flags/activity?page=${props.startingPage || 1}`) as string | null,
+                ? `/api/projects/@current/feature_flags/${props.id}/activity?page=${
+                      props.startingPage || 1
+                  }&limit=${ACTIVITY_PAGE_SIZE}`
+                : `/api/projects/@current/feature_flags/activity?page=${
+                      props.startingPage || 1
+                  }&limit=${ACTIVITY_PAGE_SIZE}`) as string | null,
             {
                 fetchNextPageSuccess: (_, { nextPage }) => nextPage.next || null,
                 fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.next || null,
@@ -83,7 +89,7 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             (page, totalCount): PaginationManual => {
                 return {
                     controlled: true,
-                    pageSize: 10,
+                    pageSize: ACTIVITY_PAGE_SIZE,
                     currentPage: page,
                     entryCount: totalCount || 0,
                     onBackward: actions.fetchPreviousPage,
