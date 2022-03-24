@@ -99,9 +99,11 @@ class OrganizationDomain(UUIDModel):
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
     # ---- SAML attributes ----
-    saml_entity_id: models.CharField = models.CharField(max_length=512, blank=True)
-    saml_acs_url: models.CharField = models.CharField(max_length=512, blank=True)
-    saml_x509_cert: models.TextField = models.TextField(blank=True)
+    # Normally not good practice to have `null=True` in `CharField` (as you have to nil states now), but creating non-nullable
+    # attributes locks up tables when migrating. Remove `null=True` on next major release.
+    saml_entity_id: models.CharField = models.CharField(max_length=512, blank=True, null=True)
+    saml_acs_url: models.CharField = models.CharField(max_length=512, blank=True, null=True)
+    saml_x509_cert: models.TextField = models.TextField(blank=True, null=True)
 
     class Meta:
         verbose_name = "domain"
