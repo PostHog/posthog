@@ -409,7 +409,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
 
         self._assert_person_activity(
-            person_id=1,
+            person_id=person1.pk,
             expected=[
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},

@@ -19,7 +19,8 @@ class ChangeSerializer(serializers.Serializer):
 
 class MergeSerializer(serializers.Serializer):
     type = serializers.CharField(read_only=True)
-    source = serializers.JSONField(read_only=True)
+    # mypy being weird about this specific field
+    source = serializers.JSONField(read_only=True)  # type: ignore
     target = serializers.JSONField(read_only=True)
 
 
