@@ -152,11 +152,9 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DROP TABLE IF EXISTS {table.tmp_table_name}",
         )
 
-        for i in range(len(table.kafka_table_names)):
-            create_kafka_table = table.create_kafka_tables[i]
-            kafka_table_name = table.kafka_table_names[i]
+        for kafka_table_name, create_kafka_table in zip(table.kafka_table_names, table.create_kafka_tables):
             yield AsyncMigrationOperationSQL(
-                sql=f"DROP TABLE IF EXISTS {kafka_table_name}", rollback=cast(str, create_kafka_table)
+                sql=f"DROP TABLE IF EXISTS {kafka_table_name}", rollback=create_kafka_table
             )
 
         yield AsyncMigrationOperation(
@@ -185,21 +183,16 @@ class Migration(AsyncMigrationDefinition):
             for mv_name in table.materialized_view_names:
                 yield AsyncMigrationOperationSQL(sql=f"DROP TABLE IF EXISTS {mv_name}", rollback=None)
 
-        for i in range(len(table.kafka_table_names)):
-            create_kafka_table = table.create_kafka_tables[i]
-            kafka_table_name = table.kafka_table_names[i]
+        for kafka_table_name, create_kafka_table in zip(table.kafka_table_names, table.create_kafka_tables):
             yield AsyncMigrationOperationSQL(
-                sql=cast(str, create_kafka_table), rollback=f"DROP TABLE IF EXISTS {kafka_table_name}"
+                sql=create_kafka_table, rollback=f"DROP TABLE IF EXISTS {kafka_table_name}"
             )
 
         if isinstance(table, ShardedTableMigrationData):
-            for i in range(len(table.materialized_view_names)):
-                create_mv = table.create_materialized_views[i]
-                mv_name = table.materialized_view_names[i]
-
-            yield AsyncMigrationOperationSQL(
-                sql=create_mv, rollback=f"DROP TABLE IF EXISTS {mv_name}",
-            )
+            for mv_name, create_mv in zip(table.materialized_view_names, table.create_materialized_views):
+                yield AsyncMigrationOperationSQL(
+                    sql=create_mv, rollback=f"DROP TABLE IF EXISTS {mv_name}",
+                )
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(

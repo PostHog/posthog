@@ -99,7 +99,7 @@ FROM {database}.kafka_events
 )
 
 KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_json_events",
+    table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
