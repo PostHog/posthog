@@ -212,11 +212,11 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=request.user,
+                user=request.user,  # type: ignore
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=person_id),
+                detail=Detail(name=str(person_id)),
             )
 
             return response.Response(status=204)
@@ -432,7 +432,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=request.user,
+                user=request.user,  # type: ignore
                 item_id=p.id,
                 scope="Person",
                 activity="was_merged_into_person",
@@ -444,7 +444,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=request.user,
+            user=request.user,  # type: ignore
             item_id=person.id,
             scope="Person",
             activity="people_merged_into",
@@ -469,7 +469,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=request.user,  # type: ignore
             item_id=person.id,
             scope="Person",
             activity="split_person",

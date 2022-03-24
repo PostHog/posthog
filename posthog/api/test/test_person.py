@@ -281,7 +281,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "scope": "Person",
                     "item_id": str(person.pk),
                     # don't store deleted person's name, so user primary key
-                    "detail": {"changes": None, "name": str(person.pk)},
+                    "detail": {"changes": None, "merge": None, "name": str(person.pk)},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -409,7 +409,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
 
         self._assert_person_activity(
-            person_id=1,
+            person_id=person1.pk,
             expected=[
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},

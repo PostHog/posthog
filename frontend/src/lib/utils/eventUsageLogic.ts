@@ -897,6 +897,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
@@ -905,6 +906,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -913,6 +915,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
             })
         },
@@ -922,6 +925,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
                 duration,
                 significant,

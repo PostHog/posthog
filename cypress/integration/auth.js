@@ -15,7 +15,8 @@ describe('Auth', () => {
     it('Logout and login', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
 
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
@@ -25,7 +26,8 @@ describe('Auth', () => {
     it('Try logging in improperly', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
@@ -39,7 +41,8 @@ describe('Auth', () => {
         cy.visit('/events')
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
-        cy.get('[data-attr=login-email]').type('test@posthog.com')
+        cy.get('[data-attr=login-email]').type('test@posthog.com').blur()
+        cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 
@@ -53,7 +56,8 @@ describe('Auth', () => {
         cy.visit('/insights?search=testString')
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
-        cy.get('[data-attr=login-email]').type('test@posthog.com')
+        cy.get('[data-attr=login-email]').type('test@posthog.com').blur()
+        cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr=password]').type('12345678')
         cy.get('[type=submit]').click()
 

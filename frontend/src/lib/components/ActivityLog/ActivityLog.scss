@@ -1,6 +1,21 @@
 @import '~/vars.scss';
 
 .activity-log {
+    .empty {
+        text-align: center;
+
+        h1 {
+            font-weight: 700;
+            line-height: 26px;
+            margin-top: $default_spacing * 5;
+            margin-bottom: 0;
+        }
+
+        div {
+            line-height: 24px;
+        }
+    }
+
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
@@ -19,13 +34,26 @@
             flex-grow: 1;
             margin-left: $default_spacing / 2;
 
-            .activity-description > div {
-                display: inline-block;
+            .property-filters {
+                display: inline;
+                margin-left: $default_spacing / 4;
             }
         }
 
-        .highlighted-info {
-            background-color: #fbdd994d;
+        .highlighted-activity {
+            background-color: $yellow_50;
+        }
+
+        .change-list {
+            display: inline-block;
+
+            div {
+                display: inline-block;
+            }
+
+            .activity-description > div {
+                display: inline-block;
+            }
         }
     }
 }

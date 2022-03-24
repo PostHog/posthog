@@ -15,7 +15,18 @@ export interface ActivityLogProps {
     caption?: string | JSX.Element
 }
 
-const Empty = (): JSX.Element => <div className="text-muted">There is no history for this item</div>
+const Empty = ({ scope }: { scope: string }): JSX.Element => {
+    const noun = scope
+        .replace(/([A-Z])/g, ' $1')
+        .trim()
+        .toLowerCase()
+    return (
+        <div className="empty">
+            <h1>There is no history for this {noun}</h1>
+            <div>As changes are made to this {noun}, they'll show up here</div>
+        </div>
+    )
+}
 
 const SkeletonLog = (): JSX.Element => {
     return (
@@ -67,7 +78,7 @@ export const ActivityLog = ({ scope, id, describer, caption }: ActivityLogProps)
                     )
                 })
             ) : (
-                <Empty />
+                <Empty scope={scope} />
             )}
         </div>
     )

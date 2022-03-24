@@ -190,6 +190,7 @@ function OverViewTab(): JSX.Element {
 export function FeatureFlags(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
+
     return (
         <div className="feature_flags">
             <PageHeader

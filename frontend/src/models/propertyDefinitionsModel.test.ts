@@ -93,6 +93,12 @@ describe('the property definitions model', () => {
     })
 
     describe('with the query by datetime feature flag off', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], {
+                [FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]: false,
+            })
+        })
+
         it('can format a unix timestamp as seconds with fractional part for display', () => {
             expect(logic.values.formatForDisplay('$timestamp', '1641368752.908')).toEqual('1641368752.908')
         })
@@ -123,9 +129,9 @@ describe('the property definitions model', () => {
 
     describe('with the query by datetime feature flag on', () => {
         beforeEach(() => {
-            const variants = {}
-            variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = true
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], {
+                [FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]: true,
+            })
         })
 
         it('can format a unix timestamp as seconds with fractional part for display', () => {

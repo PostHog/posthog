@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagType } from '~/types'
 import React from 'react'
-import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -18,7 +18,7 @@ const featureFlagActionsMapping: {
     name: function onName(item, change) {
         return (
             <>
-                changed the description to "{change?.after}" on {nameOrLinkToFlag(item)}
+                changed the description to <strong>"{change?.after}"</strong> on {nameOrLinkToFlag(item)}
             </>
         )
     },
@@ -31,30 +31,91 @@ const featureFlagActionsMapping: {
         )
     },
     filters: function onChangedFilter(item, change) {
-        // "string value (multivariate test)" looks like {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test_sticky", "rollout_percentage": 50}]}
-        // "boolean value" with condition looks like {"groups":[{"properties":[{"key":"$initial_browser_version","type":"person","value":["100"],"operator":"exact"}],"rollout_percentage":35}],"multivariate":null}
-        // "boolean value" with no condition looks like {"groups":[{"properties":[],"rollout_percentage":99}],"multivariate":null}
+        const filtersBefore = change?.before as FeatureFlagFilters
+        const filtersAfter = change?.after as FeatureFlagFilters
 
-        const filters = change?.after as FeatureFlagFilters
-
-        const isBooleanValueFlag = Array.isArray(filters.groups) && filters.groups.length >= 1
+        const isBooleanValueFlag = Array.isArray(filtersAfter.groups)
 
         if (isBooleanValueFlag) {
-            //simple flag with no condition
+            if (
+                filtersAfter.groups.length === 0 ||
+                !filtersAfter.groups.some((group) => group.rollout_percentage !== 0)
+            ) {
+                // there are no rollout groups or all are at 0%
+                return <>set the flag {nameOrLinkToFlag(item)} to apply to no users</>
+            }
+
+            const changedFilters: JSX.Element[] = []
+            filtersAfter.groups
+                .filter((groupAfter, index) => {
+                    const groupBefore = filtersBefore?.groups?.[index]
+                    // only keep changes with no before state, or those where before and after are different
+                    return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
+                })
+                .forEach((groupAfter) => {
+                    const { properties, rollout_percentage = null } = groupAfter
+                    if (properties?.length > 0) {
+                        changedFilters.push(
+                            <>
+                                <div>
+                                    <strong>{rollout_percentage ?? 100}%</strong> of
+                                </div>
+                                <PropertyFiltersDisplay filters={properties} />
+                            </>
+                        )
+                    } else {
+                        changedFilters.push(
+                            <>
+                                <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
+                            </>
+                        )
+                    }
+                })
+            if (changedFilters.length) {
+                // always starts with a single label, must have 2 or more to include descriptions
+                return (
+                    <div className="change-list">
+                        <div>set the flag {nameOrLinkToFlag(item)} to apply to&nbsp;</div>
+                        {changedFilters.flatMap((changedFilter, index, all) => {
+                            const isntFirst = index > 0
+                            const isLast = index === all.length - 1
+                            return (
+                                <div key={index}>
+                                    {isntFirst && <div>,&nbsp;</div>}
+                                    {isLast && all.length >= 2 && <div>and&nbsp;</div>}
+                                    {changedFilter}
+                                </div>
+                            )
+                        })}
+                    </div>
+                )
+            }
+        }
+
+        if (filtersAfter.multivariate) {
             return (
-                <>
-                    changed the rollout percentage to {groupFilters(filters.groups)} on {nameOrLinkToFlag(item)}
-                </>
+                <div className="change-list">
+                    changed the rollout percentage for the variants to{' '}
+                    {filtersAfter.multivariate?.variants.map((v, index, all) => {
+                        const isntFirst = index > 0
+                        const isLast = index === all.length - 1
+                        return (
+                            <div key={v.key}>
+                                {isntFirst && <div>,&nbsp;</div>}
+                                {isLast && all.length >= 2 && <div>and&nbsp;</div>}
+                                <div className="highlighted-activity">
+                                    {v.key}: <strong>{v.rollout_percentage}%</strong>
+                                </div>
+                            </div>
+                        )
+                    })}
+                    &nbsp;on {nameOrLinkToFlag(item)}
+                </div>
             )
         }
-        // TODO is it true that it must be multivariate now
-        return (
-            <>
-                changed the rollout percentage for the variants to{' '}
-                {filters.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}`).join(', ')} on{' '}
-                {nameOrLinkToFlag(item)}
-            </>
-        )
+
+        console.error({ item, change }, 'could not describe log item')
+        return null
     },
     deleted: function onSoftDelete(item) {
         return <>deleted the flag: {item.detail.name}</>
@@ -62,7 +123,8 @@ const featureFlagActionsMapping: {
     rollout_percentage: function onRolloutPercentage(item, change) {
         return (
             <>
-                changed rollout percentage to {change?.after}% on {nameOrLinkToFlag(item)}
+                changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div> on{' '}
+                {nameOrLinkToFlag(item)}
             </>
         )
     },
