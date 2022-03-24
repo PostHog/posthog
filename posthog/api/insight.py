@@ -54,6 +54,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
+from posthog.settings.base_variables import TEST
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -296,11 +297,19 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        """
+        Run a trends insights query and retrieve results. Note, this does not save an insight. To save an insight see [insights api](/docs/api/insights#post-api-projects-project_id-insights).
+
+        You can do the entire query as a GET request instead of POST: `/api/projects/:project_id/insights/trend/?events=[{"id": "$pageview"}]&properties..`
+        """
         try:
             serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
-            capture_exception(e)
+            if TEST:
+                raise e
+            else:
+                capture_exception(e)  #  we don't want to actually throw this error in production
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
@@ -366,17 +375,25 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             response=FunnelStepsResultsSerializer,
             description="Note, if funnel_viz_type is set the response will be different.",
         ),
-        methods=["POST"],
+        methods=["GET", "POST"],
         tags=["funnel"],
         operation_id="Funnels",
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Run a funnel insights query and retrieve results. Note, this does not save an insight. To save an insight see [insights api](/docs/api/insights#post-api-projects-project_id-insights).
+
+        You can do the entire query as a GET request instead of POST: `/api/projects/:project_id/insights/funnel/?events=[{"id": "$pageview"}]&properties..`
+        """
         try:
             serializer = FunnelSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
-            capture_exception(e)
+            if TEST:
+                raise e
+            else:
+                capture_exception(e)  #  we don't want to actually throw this error in production
 
         funnel = self.calculate_funnel(request)
 

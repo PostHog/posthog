@@ -8,8 +8,6 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 class IntervalMixin(BaseParamMixin):
     """See https://clickhouse.tech/docs/en/sql-reference/data-types/special-data-types/interval/."""
 
-    SUPPORTED_INTERVAL_TYPES = ["hour", "day", "week", "month"]
-
     @cached_property
     def interval(self) -> IntervalType:
         interval_candidate = self._data.get(INTERVAL)

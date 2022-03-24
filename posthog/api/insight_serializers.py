@@ -18,6 +18,7 @@ from posthog.constants import (
     EVENTS,
     FUNNEL_WINDOW_INTERVAL_TYPES,
     PROPERTIES,
+    SUPPORTED_INTERVAL_TYPES,
     FunnelOrderType,
     FunnelVizType,
 )
@@ -139,6 +140,12 @@ class TrendResultsSerializer(ResultsMixin):
 
 
 class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
+    interval = serializers.ChoiceField(
+        choices=SUPPORTED_INTERVAL_TYPES,
+        required=False,
+        default="day",
+        help_text="The interval in which the data will be reported.",
+    )
     display = serializers.ChoiceField(
         choices=get_args(DISPLAY_TYPES),
         required=False,

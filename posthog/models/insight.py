@@ -32,7 +32,10 @@ class Insight(models.Model):
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    filters: models.JSONField = models.JSONField(default=dict)
+    filters: models.JSONField = models.JSONField(
+        default=dict,
+        help_text="Filters describes the query that the insight should save. See the Request Parameters of [trends](/docs/api/trend) or [funnels](/docs/api/trend) for an example.\n\n*Important:* If you want to save a funnel insight, or anything that isn't a trend inisght, you need to set the `insight` property to `funnel`.",
+    )
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)

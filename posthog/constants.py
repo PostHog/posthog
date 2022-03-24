@@ -87,6 +87,7 @@ PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
+SUPPORTED_INTERVAL_TYPES = ["hour", "day", "week", "month"]
 SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
