@@ -268,7 +268,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
-            console.log(props, Object.keys(values.filterQueryParams).length === 0)
+
             if (props.disableFiltering || Object.keys(values.filterQueryParams).length === 0) {
                 delete hashParams.recordingFilters
             } else {
