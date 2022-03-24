@@ -412,7 +412,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     }),
 
     selectors: ({ selectors }) => ({
-        isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
@@ -436,7 +435,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
             (s) => [s.filters],
             ({ funnel_window_interval, funnel_window_interval_unit }) => ({

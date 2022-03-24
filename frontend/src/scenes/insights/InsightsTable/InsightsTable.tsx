@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport, IconEdit } from 'lib/components/icons'
+import { IconEdit } from 'lib/components/icons'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -68,7 +68,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportUrl, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -267,31 +267,17 @@ export function InsightsTable({
     }
 
     return (
-        <>
-            {csvExportUrl && !isViewedOnDashboard && (
-                <Tooltip title="Export this table as csv." placement="left">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                        href={csvExportUrl}
-                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
-                    >
-                        Export
-                    </LemonButton>
-                </Tooltip>
-            )}
-            <LemonTable
-                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-                embedded={embedded}
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                loading={resultsLoading}
-                emptyState="No insight results"
-                data-attr="insights-table-graph"
-                className="insights-table"
-            />
-        </>
+        <LemonTable
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+            embedded={embedded}
+            columns={columns}
+            rowKey="id"
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            loading={resultsLoading}
+            emptyState="No insight results"
+            data-attr="insights-table-graph"
+            className="insights-table"
+        />
     )
 }
 
