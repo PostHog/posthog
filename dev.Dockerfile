@@ -24,7 +24,7 @@ RUN apk --update --no-cache add \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
     "make~=4.3" \
-    "nodejs-current~=16" \
+    "nodejs~=14" \
     "npm~=7" \
     && npm install -g yarn@1
 
