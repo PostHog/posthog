@@ -40,6 +40,11 @@ def saml_metadata_view(request, *args, **kwargs):
 
 
 class MultitenantSAMLAuth(SAMLAuth):
+    """
+    Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
+    each organization can have multiple verified domains each with its own SAML configuration.
+    """
+
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
 
         try:
