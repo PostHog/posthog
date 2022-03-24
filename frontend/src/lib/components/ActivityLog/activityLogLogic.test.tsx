@@ -536,7 +536,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed the description to "some text that helps people", changed the filter conditions to apply to 50% ofInitial OS = Mac OS X , and changed the rollout percentage for the variants to test: 80%, asdasd: 20% on with many changes'
+                'changed the description to "some text that helps people", changed the filter conditions to apply to 50% ofInitial OS = Mac OS X , and changed the rollout percentage for the variants to test: 80%, and asdasd: 20% on with many changes'
             )
         })
     })

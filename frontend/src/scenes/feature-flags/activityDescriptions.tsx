@@ -73,10 +73,7 @@ const featureFlagActionsMapping: {
                     })
                 if (groupChanges.length) {
                     changes.push(
-                        <SentenceList
-                            listParts={groupChanges}
-                            prefix={<>changed the filter conditions to apply to </>}
-                        />
+                        <SentenceList listParts={groupChanges} prefix="changed the filter conditions to apply to" />
                     )
                 }
             }
@@ -84,14 +81,14 @@ const featureFlagActionsMapping: {
 
         if (isMultivariateFlag) {
             changes.push(
-                <>
-                    changed the rollout percentage for the variants to{' '}
-                    {filtersAfter.multivariate?.variants.map((v) => (
+                <SentenceList
+                    listParts={(filtersAfter.multivariate?.variants || []).map((v) => (
                         <div key={v.key} className="highlighted-activity">
                             {v.key}: <strong>{v.rollout_percentage}%</strong>
                         </div>
                     ))}
-                </>
+                    prefix="changed the rollout percentage for the variants to"
+                />
             )
         }
 
@@ -146,7 +143,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
         }
 
         if (changes.length) {
-            return <SentenceList listParts={changes} suffix={<>&nbsp;on {nameOrLinkToFlag(logItem)}</>} />
+            return <SentenceList listParts={changes} suffix={<>on {nameOrLinkToFlag(logItem)}</>} />
         }
     }
 
@@ -162,7 +159,7 @@ interface SentenceListProps {
 function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
-            {prefix && <div>{prefix}</div>}
+            {prefix && <div>{prefix}&nbsp;</div>}
             <>
                 {listParts.flatMap((part, index, all) => {
                     const isntFirst = index > 0
@@ -175,7 +172,7 @@ function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListP
                     ]
                 })}
             </>
-            {suffix && <div>{suffix}</div>}
+            {suffix && <div>&nbsp;{suffix}</div>}
         </div>
     )
 }
