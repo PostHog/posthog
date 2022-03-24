@@ -204,7 +204,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36%, and the description to "strawberry" on test flag'
+                'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
             )
         })
 
@@ -222,7 +222,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag test flag to apply to 99% of all users'
+                'changed the filter conditions to apply to 99% of all users on test flag'
             )
         })
 
@@ -266,7 +266,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
+                'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
             )
         })
 
@@ -301,7 +301,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with simple rollout change to apply to 77% of all users'
+                'changed the filter conditions to apply to 77% of all users on with simple rollout change'
             )
         })
 
@@ -358,10 +358,10 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
+                'changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
             )
         })
 
@@ -432,7 +432,111 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
+                'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+            )
+        })
+
+        it('can describe many changes in the same activity', async () => {
+            await testSetup(
+                makeAPIItem('with many changes', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'name',
+                        before: '',
+                        after: 'some text that helps people',
+                    },
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_browser',
+                                            type: 'person',
+                                            value: ['Chrome'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 60,
+                                },
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_os',
+                                            type: 'person',
+                                            value: ['Mac OS X'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: {
+                                variants: [
+                                    {
+                                        key: 'test',
+                                        name: '',
+                                        rollout_percentage: 100,
+                                    },
+                                    {
+                                        key: 'asdasd',
+                                        name: '',
+                                        rollout_percentage: 0,
+                                    },
+                                ],
+                            },
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_browser',
+                                            type: 'person',
+                                            value: ['Chrome'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 60,
+                                },
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_os',
+                                            type: 'person',
+                                            value: ['Mac OS X'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                            multivariate: {
+                                variants: [
+                                    {
+                                        key: 'test',
+                                        name: '',
+                                        rollout_percentage: 80,
+                                    },
+                                    {
+                                        key: 'asdasd',
+                                        name: '',
+                                        rollout_percentage: 20,
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                ])
+            )
+            const actual = logic.values.humanizedActivity
+
+            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                'changed the description to "some text that helps people", changed the filter conditions to apply to 50% ofInitial OS = Mac OS X , and changed the rollout percentage for the variants to test: 80%, asdasd: 20% on with many changes'
             )
         })
     })

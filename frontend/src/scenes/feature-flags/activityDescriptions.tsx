@@ -10,23 +10,27 @@ const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
 }
 
-type flagFields = keyof FeatureFlagType
+type FlagFields = keyof FeatureFlagType
+type Description = string | JSX.Element | null
 
 const featureFlagActionsMapping: {
-    [field in flagFields]: (change?: ActivityChange) => string | JSX.Element | null
+    [field in FlagFields]: (change?: ActivityChange) => Description[] | null
 } = {
     name: function onName(change) {
-        return <>changed the description to "{change?.after}"</>
+        return [<>changed the description to "{change?.after}"</>]
     },
     active: function onActive(change) {
         const describeChange = change?.after ? 'enabled' : 'disabled'
-        return <>{describeChange}</>
+        return [<>{describeChange}</>]
     },
     filters: function onChangedFilter(change) {
         const filtersBefore = change?.before as FeatureFlagFilters
         const filtersAfter = change?.after as FeatureFlagFilters
 
         const isBooleanValueFlag = Array.isArray(filtersAfter?.groups)
+        const isMultivariateFlag = filtersAfter?.multivariate
+
+        const changes: (string | JSX.Element | null)[] = []
 
         if (isBooleanValueFlag) {
             if (
@@ -34,47 +38,41 @@ const featureFlagActionsMapping: {
                 !filtersAfter.groups.some((group) => group.rollout_percentage !== 0)
             ) {
                 // there are no rollout groups or all are at 0%
-                return <>changed the filter conditions to apply to no users</>
-            }
-
-            const changedFilters: JSX.Element[] = [<>changed the filter conditions to apply to </>]
-            filtersAfter.groups
-                .filter((groupAfter, index) => {
-                    const groupBefore = filtersBefore?.groups?.[index]
-                    // only keep changes with no before state, or those where before and after are different
-                    return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
-                })
-                .forEach((groupAfter) => {
-                    const { properties, rollout_percentage = null } = groupAfter
-                    if (properties?.length > 0) {
-                        changedFilters.push(
-                            <>
-                                <span>{rollout_percentage ?? 100}% of</span>
-                                <PropertyFiltersDisplay filters={properties} />
-                            </>
-                        )
-                    } else {
-                        changedFilters.push(<>{rollout_percentage ?? 100}% of all users</>)
-                    }
-                })
-            if (changedFilters.length > 1) {
-                // always starts with a single label, must have 2 or more to include descriptions
-                return (
-                    <>
-                        {changedFilters.map((changedFilter, index) => (
-                            <span key={index}>
-                                {index > 1 && index !== changedFilters.length - 1 && ', '}
-                                {index === changedFilters.length - 1 && changedFilters.length > 2 && ', and '}
-                                {changedFilter}
-                            </span>
-                        ))}
-                    </>
-                )
+                changes.push(<>changed the filter conditions to apply to no users</>)
+            } else {
+                const groupChanges: (string | JSX.Element | null)[] = []
+                filtersAfter.groups
+                    .filter((groupAfter, index) => {
+                        const groupBefore = filtersBefore?.groups?.[index]
+                        // only keep changes with no before state, or those where before and after are different
+                        return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
+                    })
+                    .forEach((groupAfter) => {
+                        const { properties, rollout_percentage = null } = groupAfter
+                        if (properties?.length > 0) {
+                            groupChanges.push(
+                                <>
+                                    <span>{rollout_percentage ?? 100}% of</span>
+                                    <PropertyFiltersDisplay filters={properties} />
+                                </>
+                            )
+                        } else {
+                            groupChanges.push(<>{rollout_percentage ?? 100}% of all users</>)
+                        }
+                    })
+                if (groupChanges.length) {
+                    changes.push(
+                        <SentenceList
+                            listParts={groupChanges}
+                            prefix={<>changed the filter conditions to apply to </>}
+                        />
+                    )
+                }
             }
         }
 
-        if (filtersAfter?.multivariate) {
-            return (
+        if (isMultivariateFlag) {
+            changes.push(
                 <>
                     changed the rollout percentage for the variants to{' '}
                     {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')}
@@ -82,17 +80,21 @@ const featureFlagActionsMapping: {
             )
         }
 
+        if (changes.length > 0) {
+            return changes
+        }
+
         console.error({ change }, 'could not describe this change')
         return null
     },
     deleted: function onSoftDelete() {
-        return <>deleted</>
+        return [<>deleted</>]
     },
     rollout_percentage: function onRolloutPercentage(change) {
-        return <>changed rollout percentage to {change?.after}%</>
+        return [<>changed rollout percentage to {change?.after}%</>]
     },
     key: function onKey(change) {
-        return <>changed flag key from ${change?.before}</>
+        return [<>changed flag key from ${change?.before}</>]
     },
     // fields that shouldn't show in the log if they change
     id: () => null,
@@ -114,34 +116,47 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
         return <>deleted the flag: {logItem.detail.name}</>
     }
     if (logItem.activity == 'updated') {
-        const changes: (string | JSX.Element | null)[] = []
+        let changes: (string | JSX.Element | null)[] = []
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            changes.push(featureFlagActionsMapping[change.field](change))
+            changes = changes.concat(featureFlagActionsMapping[change.field](change))
         }
 
         if (changes.length) {
-            return (
-                <>
-                    {changes.map((change, index, all) => {
-                        const isntFirst = index > 0
-                        const isLast = index === all.length - 1
-                        const atLeastThree = all.length >= 2
-                        return [
-                            isntFirst && <div>,&nbsp;</div>,
-                            isLast && atLeastThree && <div>and&nbsp;</div>,
-                            <div key={index}>{change}</div>,
-                        ]
-                    })}
-                    <div>&nbsp;on {nameOrLinkToFlag(logItem)}</div>
-                </>
-            )
+            return <SentenceList listParts={changes} suffix={<>&nbsp;on {nameOrLinkToFlag(logItem)}</>} />
         }
     }
 
     return null
+}
+
+interface SentenceListProps {
+    listParts: (string | JSX.Element | null)[]
+    prefix?: string | JSX.Element | null
+    suffix?: string | JSX.Element | null
+}
+
+function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
+    return (
+        <div className="sentence-list">
+            {prefix && <div>{prefix}</div>}
+            <>
+                {listParts.flatMap((part, index, all) => {
+                    const isntFirst = index > 0
+                    const isLast = index === all.length - 1
+                    const atLeastThree = all.length >= 2
+                    return [
+                        isntFirst && <div key={`${index}-a`}>,&nbsp;</div>,
+                        isLast && atLeastThree && <div key={`${index}-b`}>and&nbsp;</div>,
+                        <div key={`${index}-c`}>{part}</div>,
+                    ]
+                })}
+            </>
+            {suffix && <div>{suffix}</div>}
+        </div>
+    )
 }

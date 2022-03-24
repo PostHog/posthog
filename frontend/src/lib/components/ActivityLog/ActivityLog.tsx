@@ -58,7 +58,10 @@ export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: Activity
                                 <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                                 <div className="details">
                                     <div className="activity-description">
-                                        <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
+                                        <strong style={{ display: 'inline-block' }}>
+                                            {logItem.name ?? 'unknown user'}
+                                        </strong>{' '}
+                                        {logItem.description}
                                     </div>
                                     <div className={'text-muted'}>
                                         <TZLabel time={logItem.created_at} />
