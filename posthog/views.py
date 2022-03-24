@@ -60,8 +60,9 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     if backend not in sso_providers:
         return redirect(f"/login?error_code=invalid_sso_provider")
 
-    if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
+    # TODO: Fix for SAML (do not merge me if you see this)
+    # if not sso_providers[backend]:
+    #     return redirect(f"/login?error_code=improperly_configured_sso")
     return auth(request, backend)
 
 

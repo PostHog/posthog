@@ -6,9 +6,9 @@ from typing import Dict, cast
 from unittest.mock import patch
 
 import pytest
-from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.test import override_settings
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -20,36 +20,6 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.organization_domain import OrganizationDomain
 
 SAML_MOCK_SETTINGS = {
-    "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
-    "SAML_CONFIGURED": True,
-    "AUTHENTICATION_BACKENDS": settings.AUTHENTICATION_BACKENDS + ["social_core.backends.saml.SAMLAuth",],
-    "SOCIAL_AUTH_SAML_ENABLED_IDPS": {
-        "posthog_custom": {
-            "entity_id": "http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
-            "url": "https://idp.hogflix.io/saml",
-            "x509cert": """MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
-    A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
-    MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
-    ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
-    VQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsG
-    A1UECgwET2t0YTEUMBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEc
-    MBoGCSqGSIb3DQEJARYNaW5mb0Bva3RhLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoC
-    ggEBAMb1IcGzor7mGsGR0AsyzQaT0O9S1SVvdkG3z2duEU/I/a4fvaECm9xvVH7TY+RwwXcnkMst
-    +ZZJVkTtnUGLn0oSbcwJ1iJwWNOctaNlaJtPDLvJTJpFB857D2tU01/zPn8UpBebX8tJSIcvnvyO
-    Iblums97f9tlsI9GHqX5N1e1TxRg6FB2ba46mgb0EdzLtPxdYDVf8b5+V0EWp0fu5nbu5T4T+1Tq
-    IVj2F1xwFTdsHnzh7FP92ohRRl8WQuC1BjAJTagGmgtfxQk2MW0Ti7Dl0Ejcwcjp7ezbyOgWLBmA
-    fJ/Sg/MyEX11+4H+VQ8bGwIYtTM2Hc+W6gnhg4IdIfcCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEA
-    Ef8AeVm+rbrDqil8GwZz/6mTeSHeJgsYZhJqCsaVkRPe03+NO93fRt28vlDQoz9alzA1I1ikjmfB
-    W/+x2dFPThR1/G4zGfF5pwU13gW1fse0/bO564f6LrmWYawL8SzwGbtelc9DxPN1X5g8Qk+j4DNm
-    jSjV4Oxsv3ogajnnGYGv22iBgS1qccK/cg41YkpgfP36HbiwA10xjUMv5zs97Ljep4ejp6yoKrGL
-    dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
-    5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
-            "attr_user_permanent_id": "name_id",
-            "attr_first_name": "first_name",
-            "attr_last_name": "last_name",
-            "attr_email": "email",
-        },
-    },
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
         "wantAttributeStatement": False,  # already present in settings
         "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
@@ -237,11 +207,44 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
 
 @pytest.mark.skip_on_multitenancy
+@override_settings(**SAML_MOCK_SETTINGS)
 class TestEESAMLAuthenticationAPI(APILicensedTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        OrganizationDomain.objects.create(
+            domain="mysamltest.com",
+            verified_at=timezone.now(),
+            organization=cls.organization,
+            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            saml_acs_url="https://idp.hogflix.io/saml",
+            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+    A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
+    MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
+    ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
+    VQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsG
+    A1UECgwET2t0YTEUMBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEc
+    MBoGCSqGSIb3DQEJARYNaW5mb0Bva3RhLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoC
+    ggEBAMb1IcGzor7mGsGR0AsyzQaT0O9S1SVvdkG3z2duEU/I/a4fvaECm9xvVH7TY+RwwXcnkMst
+    +ZZJVkTtnUGLn0oSbcwJ1iJwWNOctaNlaJtPDLvJTJpFB857D2tU01/zPn8UpBebX8tJSIcvnvyO
+    Iblums97f9tlsI9GHqX5N1e1TxRg6FB2ba46mgb0EdzLtPxdYDVf8b5+V0EWp0fu5nbu5T4T+1Tq
+    IVj2F1xwFTdsHnzh7FP92ohRRl8WQuC1BjAJTagGmgtfxQk2MW0Ti7Dl0Ejcwcjp7ezbyOgWLBmA
+    fJ/Sg/MyEX11+4H+VQ8bGwIYtTM2Hc+W6gnhg4IdIfcCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEA
+    Ef8AeVm+rbrDqil8GwZz/6mTeSHeJgsYZhJqCsaVkRPe03+NO93fRt28vlDQoz9alzA1I1ikjmfB
+    W/+x2dFPThR1/G4zGfF5pwU13gW1fse0/bO564f6LrmWYawL8SzwGbtelc9DxPN1X5g8Qk+j4DNm
+    jSjV4Oxsv3ogajnnGYGv22iBgS1qccK/cg41YkpgfP36HbiwA10xjUMv5zs97Ljep4ejp6yoKrGL
+    dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
+    5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
+        )
 
     # SAML Metadata
 
     def test_can_get_saml_metadata(self):
+
+        # TODO
 
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
             level=OrganizationMembership.Level.ADMIN
@@ -253,6 +256,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertTrue("/complete/saml/" in response.content.decode())
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
+        # TODO
         self.client.logout()
 
         with self.settings(**SAML_MOCK_SETTINGS):
@@ -261,6 +265,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.json(), self.unauthenticated_response())
 
     def test_only_admins_can_get_saml_metadata(self):
+        # TODO
         with self.settings(**SAML_MOCK_SETTINGS):
             response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -272,8 +277,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     # SAML
 
     def test_can_initiate_saml_flow(self):
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        response = self.client.get("/login/saml/?email=hello@mysamltest.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         # Assert user is redirected to the IdP's login page
@@ -282,6 +286,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML time validation works
     def test_can_login_with_saml(self):
+        # TODO
         self.client.logout()
 
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
@@ -317,6 +322,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_signup_on_non_whitelisted_domain_with_saml(self):
+        # TODO
         """
         SAML has automatic provisioning for any user who logs in, even if the domain whitelist does not match.
         """
@@ -377,6 +383,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_can_configure_saml_assertion_attribute_names(self):
+        # TODO
         settings = cast(Dict, copy.deepcopy(SAML_MOCK_SETTINGS))
 
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_first_name"] = "urn:oid:2.5.4.42"
@@ -430,6 +437,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
+        # TODO
         settings = cast(Dict, copy.deepcopy(SAML_MOCK_SETTINGS))
 
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"][
@@ -486,6 +494,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
     @freeze_time("2021-08-25T23:53:51.000Z")
     def test_cannot_create_account_without_first_name_in_payload(self):
+        # TODO
         self.client.logout()
 
         with self.settings(**SAML_MOCK_SETTINGS):
@@ -518,6 +527,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(User.objects.count(), user_count)
 
     def test_saml_can_be_enforced(self):
+        # TODO
         self.client.logout()
 
         # Can log in regularly with SAML configured
@@ -550,6 +560,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"sso_enforcement": "saml"})
 
     def test_cannot_use_saml_without_enterprise_license(self):
+        # TODO
         self.client.logout()
         self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
         self.license.save()
