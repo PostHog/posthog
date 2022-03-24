@@ -1,22 +1,20 @@
-import copy
 import datetime
 import os
 import uuid
-from typing import Dict, cast
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 from django.core import mail
-from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthFailed, AuthMissingParameter
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 SAML_MOCK_SETTINGS = {
@@ -215,10 +213,11 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     def setUpTestData(cls):
         super().setUpTestData()
 
-        OrganizationDomain.objects.create(
-            domain="mysamltest.com",
+        cls.organization_domain = OrganizationDomain.objects.create(
+            domain="posthog.com",
             verified_at=timezone.now(),
             organization=cls.organization,
+            jit_provisioning_enabled=True,
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://idp.hogflix.io/saml",
             saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
@@ -274,25 +273,52 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.permission_denied_response("You need to be an administrator or owner to access this resource."),
         )
 
-    # SAML
+    # Initiate SAML flow
 
     def test_can_initiate_saml_flow(self):
-        response = self.client.get("/login/saml/?email=hello@mysamltest.com")
+        response = self.client.get("/login/saml/?email=hellohello@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         # Assert user is redirected to the IdP's login page
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
 
+    def test_cannot_initiate_saml_flow_without_target_email_address(self):
+        """
+        We need the email address to know how to route the SAML request.
+        """
+        # TODO
+        pass
+
+    def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
+        """
+        SAML settings have not been configured for the domain.
+        """
+        # TODO
+        pass
+
+    def test_cannot_initiate_saml_flow_for_unverified_domain(self):
+        """
+        Domain is unverified.
+        """
+        # TODO
+        pass
+
+    def test_cannot_initiate_saml_flow_without_valid_license(self):
+        """
+        SAML is pay walled.
+        """
+        # TODO
+        pass
+
+    # Finish SAML flow (i.e. actual log in)
+
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML time validation works
     def test_can_login_with_saml(self):
-        # TODO
-        self.client.logout()
 
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
@@ -305,13 +331,12 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         saml_response = f.read()
         f.close()
 
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.post(
-                "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            follow=True,
+            format="multipart",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
@@ -320,80 +345,18 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_signup_on_non_whitelisted_domain_with_saml(self):
-        # TODO
-        """
-        SAML has automatic provisioning for any user who logs in, even if the domain whitelist does not match.
-        """
-        self.client.logout()
-
-        organization = Organization.objects.create(name="Base Org")
-        team = Team.objects.create(organization=organization, name="Base Team")
-        Organization.objects.create(name="Red Herring")
-        OrganizationDomain.objects.create(
-            domain="anotherdomain.com",
-            verified_at=timezone.now(),
-            jit_provisioning_enabled=True,
-            organization=organization,
-        )  # red herring
-
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-        _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
-        _session.save()
-
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
-
-        user_count = User.objects.count()
-
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.post(
-                "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                format="multipart",
-                follow=True,
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/")  # redirect to the home page
-
-        # User is created
-        self.assertEqual(User.objects.count(), user_count + 1)
-        user = cast(User, User.objects.last())
-        self.assertEqual(user.first_name, "PostHog")
-        self.assertEqual(user.email, "engineering@posthog.com")
-        self.assertEqual(user.organization, organization)
-        self.assertEqual(user.team, team)
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
-        )
-
-        _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        # Test logged in request
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @freeze_time("2021-08-25T23:37:55.345Z")
-    def test_can_configure_saml_assertion_attribute_names(self):
-        # TODO
-        settings = cast(Dict, copy.deepcopy(SAML_MOCK_SETTINGS))
+    def test_saml_assertion_with_different_attribute_names(self):
+        """
+        Tests that the user can log in when the SAML response contains attribute names in one of their alternative forms.
+        For example in this case we receive the user's first name at `urn:oid:2.5.4.42` instead of `first_name`.
+        """
 
-        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_first_name"] = "urn:oid:2.5.4.42"
-        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_last_name"] = "urn:oid:2.5.4.4"
-        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_email"] = "urn:oid:0.9.2342.19200300.100.1.3"
-
-        self.client.logout()
-
-        with self.settings(**settings):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
@@ -402,19 +365,18 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_custom_attribute_names"), "r")
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r")
         saml_response = f.read()
         f.close()
 
         user_count = User.objects.count()
 
-        with self.settings(**settings):
-            response = self.client.post(
-                "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                format="multipart",
-                follow=True,
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            format="multipart",
+            follow=True,
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
@@ -437,12 +399,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
-        # TODO
-        settings = cast(Dict, copy.deepcopy(SAML_MOCK_SETTINGS))
-
-        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"][
-            "x509cert"
-        ] = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
+        self.organization_domain.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
 UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
 CwwCVVMxCzAJBgNVBAMMAlVTMREwDwYJKoZIhvcNAQkBFgJVUzAeFw0yMTA4MjYw
 MDAxMzNaFw0zMTA4MjYwMDAxMzNaMGExCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJV
@@ -460,11 +417,9 @@ AQB8ytXAmU4oYjANiEJVVO5LZUCx3OrY/P1OX73eoXi624yj7xvhaa7whlk1SSL/
 yh4jGarFborxwACgg6fCiMbHVq8qlcSkRvSW03u89s3Y4mxhMX3F4AZb56ddyfMk
 LERK8jfXCMVmWPTy830CtQaZX2AJyBwHG4ElP2BOZNbFAvGzrKaBmK2Ym/OJxkhx
 YotAcSbU3p5bzd11wpyebYHB"""
+        self.organization_domain.save()
 
-        self.client.logout()
-
-        with self.settings(**settings):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
@@ -480,25 +435,61 @@ YotAcSbU3p5bzd11wpyebYHB"""
         user_count = User.objects.count()
 
         with self.assertRaises(AuthFailed) as e:
-            with self.settings(**settings):
-                response = self.client.post(
-                    "/complete/saml/",
-                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                    format="multipart",
-                    follow=True,
-                )
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id),},
+                format="multipart",
+                follow=True,
+            )
 
         self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
 
         self.assertEqual(User.objects.count(), user_count)
 
+        # Test logged in request fails
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cannot_signup_with_saml_if_jti_provisioning_is_disabled(self):
+        self.organization_domain.jit_provisioning_enabled = False
+        self.organization_domain.save()
+
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            format="multipart",
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/login?error_code=jit_not_enabled")  # show the appropriate login error
+
+        # User is created
+        self.assertEqual(User.objects.count(), user_count)
+
+        # Test logged in request fails
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     @freeze_time("2021-08-25T23:53:51.000Z")
     def test_cannot_create_account_without_first_name_in_payload(self):
-        # TODO
-        self.client.logout()
-
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
@@ -513,18 +504,21 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(ValidationError) as e:
-            with self.settings(**SAML_MOCK_SETTINGS):
-                response = self.client.post(
-                    "/complete/saml/",
-                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                    format="multipart",
-                    follow=True,
-                )
+        with self.assertRaises(AuthMissingParameter) as e:
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                format="multipart",
+                follow=True,
+            )
 
-        self.assertEqual(str(e.exception), "{'name': ['This field is required and was not provided by the IdP.']}")
+        self.assertEqual(str(e.exception), "Missing needed parameter first_name")
 
         self.assertEqual(User.objects.count(), user_count)
+
+    def test_cannot_login_with_saml_on_unverified_domain(self):
+        # TODO
+        pass
 
     def test_saml_can_be_enforced(self):
         # TODO

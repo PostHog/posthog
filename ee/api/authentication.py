@@ -1,8 +1,19 @@
+from typing import Any, Dict, List, Union
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
-from social_core.backends.saml import SAMLAuth, SAMLIdentityProvider
+from social_core.backends.saml import (
+    OID_COMMON_NAME,
+    OID_GIVEN_NAME,
+    OID_MAIL,
+    OID_SURNAME,
+    OID_USERID,
+    SAMLAuth,
+    SAMLIdentityProvider,
+)
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
@@ -27,9 +38,22 @@ def saml_metadata_view(request, *args, **kwargs):
 
 
 class MultitenantSAMLAuth(SAMLAuth):
-    def get_idp(self, instance: "OrganizationDomain"):
+    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
+
+        try:
+            organization_domain = (
+                organization_domain_or_id
+                if isinstance(organization_domain_or_id, OrganizationDomain)
+                else OrganizationDomain.objects.get(id=organization_domain_or_id)
+            )
+        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            raise AuthFailed("Authentication request is invalid. Invalid RelayState.")
+
         return SAMLIdentityProvider(
-            "saml", entity_id=instance.saml_entity_id, url=instance.saml_acs_url, x509cert=instance.saml_x509_cert
+            str(organization_domain.id),
+            entity_id=organization_domain.saml_entity_id,
+            url=organization_domain.saml_acs_url,
+            x509cert=organization_domain.saml_x509_cert,
         )
 
     def auth_url(self):
@@ -55,20 +79,45 @@ class MultitenantSAMLAuth(SAMLAuth):
         # URL.
         return auth.login(return_to=str(instance.id))
 
-    # TODO
-    def get_user_details(self, response):
-        """Get user details like full name, email, etc. from the
-        response - see auth_complete"""
-        idp = self.get_idp(response["idp_name"])
-        return idp.get_user_details(response["attributes"])
+    def _get_attr(self, response_attributes: Dict[str, Any], attribute_names: List[str], optional: bool = False) -> str:
+        """
+        Fetches a specific attribute from the SAML response, attempting with multiple different attribute names.
+        We attempt multiple attribute names to make it easier for admins to configure SAML (less configuration to set).
+        """
+        output = None
+        for _attr in attribute_names:
+            if _attr in response_attributes:
+                output = response_attributes[_attr]
+                break
 
-    # TODO
+        if not output and not optional:
+            raise AuthMissingParameter(self, attribute_names[0])
+
+        if isinstance(output, list):
+            output = output[0]
+
+        return output
+
+    def get_user_details(self, response):
+        """
+        Overridden to find attributes across multiple possible names.
+        """
+        attributes = response["attributes"]
+        return {
+            "fullname": self._get_attr(
+                attributes, ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME], optional=True
+            ),
+            "first_name": self._get_attr(attributes, ["first_name", "FIRST_NAME", "firstName", OID_GIVEN_NAME]),
+            "last_name": self._get_attr(attributes, ["last_name", "LAST_NAME", "lastName", OID_SURNAME]),
+            # "username": self._get_attr(attributes, "attr_username", OID_USERID),
+            "email": self._get_attr(attributes, ["email", "EMAIL", OID_MAIL]),
+        }
+
     def get_user_id(self, details, response):
         """
+        Overridden to find user ID across multiple attribute names.
         Get the permanent ID for this user from the response.
-        We prefix each ID with the name of the IdP so that we can
-        connect multiple IdPs to this user.
         """
-        idp = self.get_idp(response["idp_name"])
-        uid = idp.get_user_permanent_id(response["attributes"])
-        return "{0}:{1}".format(idp.name, uid)
+        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
+        uid = self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
+        return f"{response['idp_name']}:{uid}"
