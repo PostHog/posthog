@@ -126,7 +126,9 @@ export function Login(): JSX.Element {
                                         htmlType="button"
                                         block
                                         onClick={() =>
-                                            (window.location.href = `/login/${precheckResponse.sso_enforcement}/`)
+                                            (window.location.href = `/login/${
+                                                precheckResponse.sso_enforcement
+                                            }/?email=${form.getFieldValue('email')}`)
                                         }
                                     >
                                         {SocialLoginIcon(precheckResponse.sso_enforcement)} Login with{' '}
