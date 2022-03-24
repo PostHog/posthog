@@ -3,11 +3,11 @@ name: Build & Deploy Production Containers
 #
 # Comment the `on:` section below if you want to stop deploys
 #
-# on:
-#     push:
-#         branches:
-#             - master
-#             - main
+on:
+    push:
+        branches:
+            - master
+            - main
 
 concurrency: 'prod_deploy' # Ensure only one of this runs at a time
 
