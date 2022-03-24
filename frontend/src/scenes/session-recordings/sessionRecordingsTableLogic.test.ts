@@ -76,7 +76,7 @@ describe('sessionRecordingsTableLogic', () => {
     describe('home page logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsTableLogic({
-                tableLocation: RecordingTableLocation.RecordingsPage,
+                tableLocation: RecordingTableLocation.HomePage,
                 disableFiltering: true,
             })
             logic.mount()
