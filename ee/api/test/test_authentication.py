@@ -282,29 +282,32 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         """
         We need the email address to know how to route the SAML request.
         """
-        # TODO
-        pass
+        with self.assertRaises(AuthMissingParameter) as e:
+            self.client.get("/login/saml/")
+
+        self.assertEqual(str(e.exception), "Missing needed parameter email")
 
     def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
         """
         SAML settings have not been configured for the domain.
         """
-        # TODO
-        pass
+        with self.assertRaises(AuthFailed) as e:
+            self.client.get("/login/saml/?email=hellohello@gmail.com")
+
+        self.assertEqual(str(e.exception), "Authentication failed: SAML not configured for this user.")
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
         Domain is unverified.
         """
-        # TODO
-        pass
 
-    def test_cannot_initiate_saml_flow_without_valid_license(self):
-        """
-        SAML is pay walled.
-        """
-        # TODO
-        pass
+        self.organization_domain.verified_at = None
+        self.organization_domain.save()
+
+        with self.assertRaises(AuthFailed) as e:
+            self.client.get("/login/saml/?email=hellohello@gmail.com")
+
+        self.assertEqual(str(e.exception), "Authentication failed: SAML not configured for this user.")
 
     # Finish SAML flow (i.e. actual log in)
 

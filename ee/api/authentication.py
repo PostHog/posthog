@@ -67,10 +67,10 @@ class MultitenantSAMLAuth(SAMLAuth):
         Get the URL to which we must redirect in order to
         authenticate the user
         """
-        try:
-            email = self.strategy.request_data()["email"]
-        except KeyError:
-            raise AuthMissingParameter(self, "email")
+        email = self.strategy.request_data().get("email")
+
+        if not email:
+            raise AuthMissingParameter("saml", "email")
 
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
@@ -96,7 +96,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 break
 
         if not output and not optional:
-            raise AuthMissingParameter(self, attribute_names[0])
+            raise AuthMissingParameter("saml", attribute_names[0])
 
         if isinstance(output, list):
             output = output[0]
