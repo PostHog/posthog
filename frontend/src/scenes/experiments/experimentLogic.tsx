@@ -227,7 +227,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     })
                     response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
-            } catch (error) {
+            } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
                 return
             }
@@ -345,7 +345,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                                 `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
                             )
                             return response as Experiment
-                        } catch (error) {
+                        } catch (error: any) {
                             if (error.status === 404) {
                                 router.actions.push(urls.experiments())
                             } else {
@@ -374,7 +374,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                             `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/results`
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.code === 'no_data') {
                             return null
                         }

@@ -300,7 +300,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(scene)
                     importedScene = await props.scenes[scene]()
-                } catch (error) {
+                } catch (error: any) {
                     if (
                         error.name === 'ChunkLoadError' || // webpack
                         error.message?.includes('Failed to fetch dynamically imported module') // esbuild
