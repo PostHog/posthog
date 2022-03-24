@@ -375,7 +375,19 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                 )
             })
 
-            const boolTestCases = [true, false, 'true', 'false', 'True', 'False', 'TRUE', 'FALSE']
+            const boolTestCases = [
+                true,
+                false,
+                'true',
+                'false',
+                'True',
+                'False',
+                'TRUE',
+                'FALSE',
+                ' true ',
+                ' false',
+                'true ',
+            ]
             boolTestCases.forEach((testcase) => {
                 it(`identifies ${testcase} as a boolean`, async () => {
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
