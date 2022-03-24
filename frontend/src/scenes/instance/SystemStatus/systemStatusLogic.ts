@@ -48,6 +48,8 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
+    'MATERIALIZED_COLUMNS_ENABLED',
+    'COMPUTE_MATERIALIZED_COLUMNS_ENABLED',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
