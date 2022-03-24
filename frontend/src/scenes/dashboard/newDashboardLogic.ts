@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import type { newDashboardFormType } from './newDashboardFormType'
+import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -22,8 +22,8 @@ const defaultFormValues: NewDashboardForm = {
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
-export const newDashboardForm = kea<newDashboardFormType<NewDashboardForm>>({
-    path: ['scenes', 'dashboard', 'newDashboardForm'],
+export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
+    path: ['scenes', 'dashboard', 'newDashboardLogic'],
     connect: () => [dashboardsModel],
     actions: {
         showNewDashboardModal: true,

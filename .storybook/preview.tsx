@@ -4,7 +4,7 @@ import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
 import { getStorybookAppContext } from 'storybook/app-context'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -55,7 +55,8 @@ export const decorators = [
     // Make sure the msw service worker is started, and reset the handlers to
     // defaults.
     (Story: any) => {
-        useFeatures([])
+        // Reset enabled enterprise features. Overwrite this line within your stories.
+        useAvailableFeatures([])
         return (
             <KeaStory>
                 <Story />
