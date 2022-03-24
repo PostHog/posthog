@@ -6,7 +6,6 @@ from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: 
 from rest_framework import serializers
 
 from posthog.models.entity import MATH_TYPE
-from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.property import OperatorType, PropertyType
 
 
@@ -19,12 +18,13 @@ class ValueField(serializers.Field):
         return data
 
 
-class PropertySerializer(serializers.Serializer):
+class PropertyItemSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text="Key of the property you're filtering on. For example `email` or `$current_url`"
+        help_text="Key of the property you're filtering on. For example `email` or `$current_url`", required=True
     )
     value = ValueField(
-        help_text='Value of your filter. Can be an array. For example `test@example.com` or `https://example.com/test/`. Can be an array, like `["test@example.com","ok@example.com"]`'
+        help_text='Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`',
+        required=True,
     )
     operator = serializers.ChoiceField(
         choices=get_args(OperatorType), required=False, allow_blank=True, default="exact", allow_null=True
@@ -32,21 +32,71 @@ class PropertySerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False, allow_blank=True)
 
 
-class PropertiesSerializer(serializers.Serializer):
-    properties = PropertySerializer(
-        required=False, many=True, help_text="Filter events by event property, person property, cohort and more."
+property_help_text = "Filter events by event property, person property, cohort, groups and more."
+
+
+class PropertySerializer(serializers.Serializer):
+    def run_validation(self, data):
+        if isinstance(data, list):
+            items = []
+            for item in data:
+                # allow old style properties to be sent as well
+                data = PropertyItemSerializer(data=item)
+                data.is_valid(raise_exception=True)
+                items.append(data.data)
+            return items
+        else:
+            return super().run_validation(data)
+
+    type = serializers.ChoiceField(
+        help_text="""
+ You can use a simplified version:
+```json
+{
+    "properties": [
+        {
+            "key": "email",
+            "value": "x@y.com",
+            "operator": "exact",
+            "type": "event"
+        }
+    ]
+}
+```
+
+Or you can create more complicated queries with AND and OR:
+```json
+{
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "email", ...},
+                    {"key": "email", ...}
+                ]
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "email", ...},
+                    {"key": "email", ...}
+                ]
+            }
+        ]
+    ]
+}
+```
+""",
+        choices=["AND", "OR"],
+        default="AND",
     )
+    values = PropertyItemSerializer(many=True, required=True)
 
 
-class PropertyGroupField(serializers.Field):
-    def to_representation(self, value):
-        return value.to_dict()
-
-    def to_internal_value(self, data):
-        propertyParser = PropertyMixin()
-        propertyParser._data = {}
-        propertyParser._data["properties"] = data
-        return propertyParser.property_groups
+class PropertiesSerializer(serializers.Serializer):
+    properties = PropertySerializer(required=False, many=True, help_text=property_help_text)
 
 
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.

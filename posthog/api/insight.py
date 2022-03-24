@@ -296,11 +296,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
-        try:
-            serializer = TrendSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
+        serializer = TrendSerializer(request=request)
+        serializer.is_valid(raise_exception=True)
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
