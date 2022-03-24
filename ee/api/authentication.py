@@ -116,8 +116,10 @@ class MultitenantSAMLAuth(SAMLAuth):
             "fullname": self._get_attr(
                 attributes, ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME], optional=True
             ),
-            "first_name": self._get_attr(attributes, ["first_name", "FIRST_NAME", "firstName", OID_GIVEN_NAME]),
-            "last_name": self._get_attr(attributes, ["last_name", "LAST_NAME", "lastName", OID_SURNAME]),
+            "first_name": self._get_attr(
+                attributes, ["first_name", "FIRST_NAME", "firstName", OID_GIVEN_NAME], optional=True
+            ),
+            "last_name": self._get_attr(attributes, ["last_name", "LAST_NAME", "lastName", OID_SURNAME], optional=True),
             "email": self._get_attr(attributes, ["email", "EMAIL", OID_MAIL]),
         }
 

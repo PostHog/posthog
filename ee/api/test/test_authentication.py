@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -504,7 +505,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(AuthMissingParameter) as e:
+        with self.assertRaises(ValidationError) as e:
             response = self.client.post(
                 "/complete/saml/",
                 {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
@@ -512,7 +513,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
                 follow=True,
             )
 
-        self.assertEqual(str(e.exception), "Missing needed parameter first_name")
+        self.assertEqual(str(e.exception), "{'name': ['This field is required and was not provided by the IdP.']}")
 
         self.assertEqual(User.objects.count(), user_count)
 
