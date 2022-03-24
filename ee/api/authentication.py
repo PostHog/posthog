@@ -78,10 +78,9 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthFailed("saml", "SAML not configured for this user.")
 
         auth = self._create_saml_auth(idp=self.get_idp(instance))
-        # Below, return_to sets the RelayState, which can contain
-        # arbitrary data.  We use it to store the specific SAML IdP
-        # name, since we multiple IdPs share the same auth_complete
-        # URL.
+        # Below, return_to sets the RelayState, which contains the ID of
+        # the `OrganizationDomain`.  We use it to store the specific SAML IdP
+        # name, since we multiple IdPs share the same auth_complete URL.
         return auth.login(return_to=str(instance.id))
 
     def _get_attr(self, response_attributes: Dict[str, Any], attribute_names: List[str], optional: bool = False) -> str:
@@ -114,7 +113,6 @@ class MultitenantSAMLAuth(SAMLAuth):
             ),
             "first_name": self._get_attr(attributes, ["first_name", "FIRST_NAME", "firstName", OID_GIVEN_NAME]),
             "last_name": self._get_attr(attributes, ["last_name", "LAST_NAME", "lastName", OID_SURNAME]),
-            # "username": self._get_attr(attributes, "attr_username", OID_USERID),
             "email": self._get_attr(attributes, ["email", "EMAIL", OID_MAIL]),
         }
 

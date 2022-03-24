@@ -380,7 +380,10 @@ class TestSignupAPI(APIBaseTest):
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": "jane@hogflix.posthog.com",
+        }
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -432,7 +435,7 @@ class TestSignupAPI(APIBaseTest):
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(
-            response, "/login?error_code=no_new_organizations"
+            response, "/login?error_code=jit_not_enabled"
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")

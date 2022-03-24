@@ -209,6 +209,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 @override_settings(**SAML_MOCK_SETTINGS)
 class TestEESAMLAuthenticationAPI(APILicensedTest):
     CONFIG_AUTO_LOGIN = False
+    organization_domain: OrganizationDomain = None  # type: ignore
 
     @classmethod
     def setUpTestData(cls):
