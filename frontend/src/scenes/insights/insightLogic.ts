@@ -562,7 +562,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isViewedOnDashboard) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
