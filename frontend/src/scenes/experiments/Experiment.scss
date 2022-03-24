@@ -127,9 +127,10 @@
         }
 
         .feature-flag-variant {
-            flex-direction: row;
-            align-items: baseline;
-            padding: 12px 8px;
+            display: flex;
+            align-items: center;
+            height: 3.5rem;
+            padding: 0 0.5rem;
             background: #ffffff;
             border-width: 1px;
             border-color: $border;

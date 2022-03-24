@@ -20,7 +20,6 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { Button } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 
@@ -202,13 +201,9 @@ export function DashboardHeader(): JSX.Element | null {
                             </Button>
                             {canEditDashboard && (
                                 <Link to={urls.insightNew(undefined, dashboard?.id)}>
-                                    <Button
-                                        type="primary"
-                                        data-attr="dashboard-add-graph-header"
-                                        icon={<PlusOutlined />}
-                                    >
-                                        Add Insight
-                                    </Button>
+                                    <LemonButton type="primary" data-attr="dashboard-add-graph-header">
+                                        Add insight
+                                    </LemonButton>
                                 </Link>
                             )}
                         </>

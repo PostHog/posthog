@@ -22,14 +22,8 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconDelete, IconJavascript } from 'lib/components/icons'
-import {
-    CaretDownOutlined,
-    ExclamationCircleFilled,
-    PlusOutlined,
-    InfoCircleOutlined,
-    CloseOutlined,
-} from '@ant-design/icons'
+import { IconDelete, IconJavascript, IconPlusMini } from 'lib/components/icons'
+import { CaretDownOutlined, ExclamationCircleFilled, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -353,18 +347,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
                                                         <div className="feature-flag-variant border-bottom">
-                                                            <Button
-                                                                style={{
-                                                                    color: 'var(--primary)',
-                                                                    border: 'none',
-                                                                    boxShadow: 'none',
-                                                                    paddingLeft: 0,
-                                                                }}
-                                                                icon={<PlusOutlined />}
+                                                            <LemonButton
                                                                 onClick={() => addExperimentGroup()}
+                                                                fullWidth
+                                                                icon={<IconPlusMini />}
                                                             >
                                                                 Add test variant
-                                                            </Button>
+                                                            </LemonButton>
                                                         </div>
                                                     )}
                                                 </Col>
