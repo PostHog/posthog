@@ -59,7 +59,13 @@ class OrganizationDomainManager(models.Manager):
         # Check SSO provider is properly configured and has a valid license (to use the specific SSO) if applicable
         if candidate_sso_enforcement == "saml":
             # SAML uses special handling because it's configured at the domain level instead of at the instance-level
-            pass
+            if AvailableFeature.SAML not in query["organization__available_features"]:
+                logger.warning(
+                    f"🤑🚪 SAML SSO is enforced for domain {domain} but the organization does not have a SAML license.",
+                    domain=domain,
+                    organization=str(query["organization_id"]),
+                )
+                return None
         else:
             sso_providers = get_instance_available_sso_providers()
             if not sso_providers[candidate_sso_enforcement]:

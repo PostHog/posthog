@@ -14,6 +14,7 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -243,30 +244,24 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     def test_can_get_saml_metadata(self):
 
-        # TODO
+        self.client.force_login(self.user)
 
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
             level=OrganizationMembership.Level.ADMIN
         )
 
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/api/saml/metadata/")
+        response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue("/complete/saml/" in response.content.decode())
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
-        # TODO
-        self.client.logout()
-
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/api/saml/metadata/")
+        response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
 
     def test_only_admins_can_get_saml_metadata(self):
-        # TODO
-        with self.settings(**SAML_MOCK_SETTINGS):
-            response = self.client.get("/api/saml/metadata/")
+        self.client.force_login(self.user)
+        response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
@@ -590,7 +585,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"sso_enforcement": "saml"})
 
     def test_cannot_use_saml_without_enterprise_license(self):
-        self.organization.available_features = License.SCALE_FEATURES  # Note Scale doesn't include `saml`
+        self.organization.available_features = [AvailableFeature.SSO_ENFORCEMENT]
         self.organization.save()
 
         # Enforcement is ignored
