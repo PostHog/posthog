@@ -199,7 +199,15 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                             scope="Person"
                             id={person.id}
                             describer={personActivityDescriber}
-                            caption="This page only shows changes made by users in this PostHog site. Automatic changes from the API aren't shown here."
+                            caption={
+                                <div>
+                                    <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
+                                    <span>
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </span>
+                                </div>
+                            }
                         />
                     </TabPane>
                 )}
