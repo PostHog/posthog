@@ -38,11 +38,7 @@ class Detail:
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, Detail):
-            return obj.__dict__
-        if isinstance(obj, Change):
-            return obj.__dict__
-        if isinstance(obj, Merge):
+        if isinstance(obj, (Detail, Change, Merge)):
             return obj.__dict__
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
