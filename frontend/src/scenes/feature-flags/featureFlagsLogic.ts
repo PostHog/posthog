@@ -89,20 +89,34 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         setActiveTab: () => {
             const searchParams = {
                 ...router.values.searchParams,
-                tab: values.activeTab,
             }
+
+            let replace = false // set a page in history
+            if (!searchParams['tab'] && values.activeTab === FeatureFlagsTabs.OVERVIEW) {
+                // we are on the overview page, and have clicked the overview tab, don't set history
+                replace = true
+            }
+            searchParams['tab'] = values.activeTab
+
             if (values.activeTab !== FeatureFlagsTabs.HISTORY) {
                 delete searchParams['page']
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         },
     }),
     urlToAction: ({ actions, values }) => ({
         [urls.featureFlags()]: async (_, searchParams) => {
             const tabInURL = searchParams['tab']
-            if (tabInURL && tabInURL !== values.activeTab) {
+
+            if (!tabInURL) {
+                if (values.activeTab !== FeatureFlagsTabs.OVERVIEW) {
+                    actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
+                }
+            } else if (tabInURL !== values.activeTab) {
                 actions.setActiveTab(tabInURL)
             }
+
             const pageInURL = searchParams['page']
             if (pageInURL && values.activeTab === FeatureFlagsTabs.HISTORY) {
                 actions.setHistoryPage(pageInURL)
