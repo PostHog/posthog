@@ -96,6 +96,7 @@ export function ProjectHomepage(): JSX.Element {
                 </div>
             )}
             <PrimaryDashboardModal />
+            <br />
             <SessionRecordingsTable onlyShowList tableLocation={RecordingTableLocation.HomePage} />
         </div>
     )
