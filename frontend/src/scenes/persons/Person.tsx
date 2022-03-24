@@ -199,7 +199,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                             scope="Person"
                             id={person.id}
                             describer={personActivityDescriber}
-                            caption="This page only shows changes made by users in this PostHog site. Automatic changes from the API aren't reflected here."
+                            caption="This page only shows changes made by users in this PostHog site. Automatic changes from the API aren't shown here."
                         />
                     </TabPane>
                 )}
