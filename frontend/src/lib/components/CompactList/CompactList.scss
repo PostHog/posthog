@@ -1,0 +1,26 @@
+@import '~/vars';
+
+.compact-list {
+    border-radius: $radius;
+    border: 1px solid $border;
+    height: 350px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    flex: 1;
+
+    .compact-list-header {
+        padding: $default_spacing $default_spacing 0 $default_spacing;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .spacer-container {
+        padding: 0 $default_spacing;
+    }
+    .scrollable-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 $default_spacing $default_spacing $default_spacing;
+    }
+}

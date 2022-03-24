@@ -15,9 +15,13 @@ import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { HomeIcon } from 'lib/components/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { CompactList } from 'lib/components/CompactList/CompactList'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -48,6 +52,51 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="project-homepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+            {featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS] && (
+                <div className="top-list-container">
+                    <div className="top-list">
+                        <CompactList
+                            title="New Recordings"
+                            viewAllURL={urls.sessionRecordings()}
+                            loading={false}
+                            emptyMessage={{
+                                title: 'Recordings are not enabled for this project',
+                                description: 'Once recordings are enabled, new recordings will display here.',
+                                buttonText: 'Enable recordings',
+                                buttonTo: urls.sessionRecordings(),
+                            }}
+                            items={[]}
+                            renderRow={() => {
+                                return <div />
+                            }}
+                         />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <CompactList
+                            title="New Recordings"
+                            viewAllURL={urls.sessionRecordings()}
+                            loading={true}
+                            items={[]}
+                            renderRow={() => {
+                                return <div />
+                            }}
+                         />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <CompactList
+                            title="New Recordings"
+                            viewAllURL={urls.sessionRecordings()}
+                            loading={true}
+                            items={[]}
+                            renderRow={() => {
+                                return <div />
+                            }}
+                         />
+                    </div>
+                </div>
+            )}
             {currentTeam?.primary_dashboard ? (
                 <div>
                     <div>

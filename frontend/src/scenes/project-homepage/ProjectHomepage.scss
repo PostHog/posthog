@@ -19,6 +19,23 @@
             }
         }
     }
+    .top-list-container {
+        display: flex;
+        flex-wrap: wrap;
+        $breakpoint: 650px;
+        --multiplier: calc(#{$breakpoint} - 100%);
+        .top-list {
+            margin-bottom: $default_spacing;
+            min-width: calc(33% - $default_spacing);
+            max-width: 100%;
+            flex-grow: 1;
+            flex: 1;
+            flex-basis: calc(var(--multiplier) * 999);
+        }
+        .spacer {
+            width: $default_spacing;
+        }
+    }
     .empty-state-container {
         background-color: $bg_side;
         width: 100%;
