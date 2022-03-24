@@ -127,6 +127,9 @@ class InsightViewed(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed"),
         ]
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
+        ]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
