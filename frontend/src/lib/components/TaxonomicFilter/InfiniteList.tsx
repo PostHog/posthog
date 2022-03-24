@@ -400,7 +400,7 @@ export function InfiniteList(): JSX.Element {
                             height={height}
                             rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
                             overscanRowCount={100}
-                            rowHeight={32}
+                            rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}

@@ -1,23 +1,21 @@
 .LemonInput {
-    color: var(--primary);
+    color: var(--text-default);
     cursor: text;
 
-    &:not(:disabled):active,
-    &:not(:disabled):focus {
-        background: var(--primary-bg-active);
-    }
-    &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+    &:not(.LemonInput--focused):not(.LemonInput--disabled):not(:disabled):hover {
+        border: 1px solid var(--primary-hover);
     }
 
-    .LemonRow__icon--prefix {
-        .magnifier-icon {
-            font-size: 18px;
-            color: var(--text-muted);
-            &.magnifier-icon-active {
-                color: var(--primary);
-            }
+    .LemonInput__input {
+        border: none;
+        outline: none;
+        background-color: inherit;
+        width: 100%;
+        text-overflow: ellipsis;
+
+        &:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
     }
 }
@@ -25,7 +23,20 @@
 .LemonInput--stealth {
     color: var(--text-default);
     font-weight: 400;
+    border: none !important;
+
     .LemonRow__icon {
         color: var(--muted-alt);
+    }
+}
+
+.LemonInput--disabled {
+    cursor: not-allowed;
+}
+
+.LemonInput--focused {
+    &:not(:disabled) {
+        transition: 100ms border;
+        border: 1px solid var(--primary);
     }
 }
