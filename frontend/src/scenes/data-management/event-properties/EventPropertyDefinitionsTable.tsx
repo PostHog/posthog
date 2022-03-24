@@ -12,7 +12,11 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { Input } from 'antd'
+import { Alert, Input } from 'antd'
+import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -21,6 +25,7 @@ export const scene: SceneExport = {
 }
 
 export function EventPropertyDefinitionsTable(): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
@@ -87,7 +92,19 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <>
+        <div data-attr="manage-events-table">
+            <DataManagementPageHeader activeTab={DataManagementTab.EventPropertyDefinitions} />
+            {preflight && !preflight?.is_event_property_usage_enabled ? (
+                <UsageDisabledWarning tab="Event Property Definitions" />
+            ) : (
+                eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
+                    <Alert
+                        type="warning"
+                        message="We haven't been able to get usage and volume data yet. Please check back later."
+                        style={{ marginBottom: '1rem' }}
+                    />
+                )
+            )}
             <div
                 style={{
                     display: 'flex',
@@ -139,6 +156,6 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 emptyState="No event property definitions"
                 nouns={['property', 'properties']}
             />
-        </>
+        </div>
     )
 }
