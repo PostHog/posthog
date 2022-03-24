@@ -126,6 +126,7 @@ function NewInsightButton(): JSX.Element {
                             )
                     ),
                 },
+                'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
         >
