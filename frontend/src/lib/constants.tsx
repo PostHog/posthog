@@ -115,6 +115,7 @@ export const FEATURE_FLAGS = {
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
+    SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
 }
 
