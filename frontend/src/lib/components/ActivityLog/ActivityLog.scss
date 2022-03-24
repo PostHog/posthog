@@ -5,6 +5,7 @@
         display: flex;
         margin-top: $default_spacing;
         line-height: 24px;
+        max-width: 50rem;
 
         &:first-of-type {
             margin-top: $default_spacing / 2;
@@ -17,18 +18,14 @@
         .details {
             flex-grow: 1;
             margin-left: $default_spacing / 2;
+
+            .activity-description > div {
+                display: inline-block;
+            }
         }
 
         .highlighted-info {
             background-color: #fbdd994d;
-        }
-
-        .people-list {
-            display: inline-block;
-
-            div {
-                display: inline-block;
-            }
         }
     }
 }

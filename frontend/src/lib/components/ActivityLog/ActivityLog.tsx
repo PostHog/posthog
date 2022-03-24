@@ -12,6 +12,7 @@ export interface ActivityLogProps {
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer
+    caption?: string | JSX.Element
 }
 
 const Empty = (): JSX.Element => <div className="text-muted">There is no history for this item</div>
@@ -38,11 +39,12 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({ scope, id, describer, caption }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, describer })
     const { activity, activityLoading } = useValues(logic)
     return (
         <div className="activity-log">
+            {caption && <div className="page-caption">{caption}</div>}
             {activityLoading ? (
                 <Loading />
             ) : activity.length > 0 ? (
@@ -51,8 +53,11 @@ export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Ele
                         <div className={'activity-log-row'} key={index}>
                             <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                             <div className="details">
-                                <div>
-                                    <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
+                                <div className="activity-description">
+                                    <div>
+                                        <strong>{logItem.name ?? 'unknown user'}</strong>
+                                    </div>{' '}
+                                    {logItem.description}
                                 </div>
                                 <div className={'text-muted'}>
                                     <TZLabel time={logItem.created_at} />

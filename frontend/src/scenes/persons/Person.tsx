@@ -195,7 +195,12 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                 )}
                 {!!featureFlags[FEATURE_FLAGS.PERSON_ACTIVITY_LOG] && (
                     <TabPane tab="History" key="history">
-                        <ActivityLog scope="Person" id={person.id} describer={personActivityDescriber} />
+                        <ActivityLog
+                            scope="Person"
+                            id={person.id}
+                            describer={personActivityDescriber}
+                            caption="This page only shows changes made by users in this PostHog site. Automatic changes from the API aren't reflected here."
+                        />
                     </TabPane>
                 )}
             </Tabs>

@@ -85,7 +85,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): (string | JSX
 
 function ListPeople({ datasource, label }: { datasource: (string | PersonType)[]; label: string }): JSX.Element {
     return (
-        <div className="people-list">
+        <>
             <div>{label}&nbsp;</div>
             {datasource?.flatMap((di, index) => {
                 const numberOfPeopleMerged = datasource?.length || 0
@@ -99,6 +99,6 @@ function ListPeople({ datasource, label }: { datasource: (string | PersonType)[]
                     </div>,
                 ]
             })}
-        </div>
+        </>
     )
 }
