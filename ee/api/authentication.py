@@ -44,10 +44,10 @@ class MultitenantSAMLAuth(SAMLAuth):
             organization_domain = (
                 organization_domain_or_id
                 if isinstance(organization_domain_or_id, OrganizationDomain)
-                else OrganizationDomain.objects.get(id=organization_domain_or_id)
+                else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            raise AuthFailed("Authentication request is invalid. Invalid RelayState.")
+            raise AuthFailed("saml", "Authentication request is invalid. Invalid RelayState.")
 
         return SAMLIdentityProvider(
             str(organization_domain.id),

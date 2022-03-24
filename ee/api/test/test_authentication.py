@@ -313,7 +313,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # Finish SAML flow (i.e. actual log in)
 
-    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML time validation works
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
     def test_can_login_with_saml(self):
 
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
@@ -350,9 +350,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @freeze_time("2021-08-25T23:37:55.345Z")
-    def test_saml_assertion_with_different_attribute_names(self):
+    def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
         """
-        Tests that the user can log in when the SAML response contains attribute names in one of their alternative forms.
+        Tests JIT provisioning for creating a user account on the fly.
+        In addition, tests that the user can log in when the SAML response contains attribute names in one of their alternative forms.
         For example in this case we receive the user's first name at `urn:oid:2.5.4.42` instead of `first_name`.
         """
 
@@ -516,9 +517,42 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         self.assertEqual(User.objects.count(), user_count)
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_saml_on_unverified_domain(self):
-        # TODO
-        pass
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        # Note we "unverify" the domain after the initial request because we want to test the actual login process (not SAML initiation)
+        self.organization_domain.verified_at = None
+        self.organization_domain.save()
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        with self.assertRaises(AuthFailed) as e:
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                follow=True,
+                format="multipart",
+            )
+
+        self.assertEqual(
+            str(e.exception), "Authentication failed: Authentication request is invalid. Invalid RelayState."
+        )
+
+        # Assert user is not logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
         # TODO
