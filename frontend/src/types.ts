@@ -876,6 +876,7 @@ export enum ChartDisplayType {
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type SmoothingType = number
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -917,6 +918,11 @@ export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
     interval?: IntervalType
+
+    // Specifies that we want to smooth the aggregation over the specified
+    // number of intervals, e.g. for a day interval, we may want to smooth over
+    // 7 days to remove weekly variation. Smoothing is performed as a moving average.
+    smoothing_intervals?: number
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | PropertyGroupFilter

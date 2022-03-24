@@ -20,6 +20,7 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { IconFilter } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -133,7 +134,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 setEntityFilters(payload)
                             }}
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                            hideMathSelector={true}
+                            mathAvailability={MathAvailability.None}
                             buttonCopy="Add another filter"
                             horizontalUI
                             stripeActionRow={false}

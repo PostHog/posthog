@@ -47,6 +47,7 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -80,6 +81,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         aggregationLabel,
         secondaryMetricResults,
         experimentDataLoading,
+        secondaryMetricResultsLoading,
     } = useValues(experimentLogic({ experimentId: id }))
     const {
         setNewExperimentData,
@@ -507,7 +509,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 setFilters(payload)
                                                             }}
                                                             typeKey={`EditFunnel-action`}
-                                                            hideMathSelector={true}
+                                                            mathAvailability={MathAvailability.None}
                                                             hideDeleteBtn={filterSteps.length === 1}
                                                             buttonCopy="Add funnel step"
                                                             buttonType="link"
@@ -537,7 +539,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             buttonCopy="Add graph series"
                                                             showSeriesIndicator
                                                             entitiesLimit={1}
-                                                            hideMathSelector={false}
                                                             propertiesTaxonomicGroupTypes={[
                                                                 TaxonomicFilterGroupType.EventProperties,
                                                                 TaxonomicFilterGroupType.PersonProperties,
@@ -814,66 +815,76 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
                                                         {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
                                                             (experimentData.start_date ? (
-                                                                <>
-                                                                    {experimentData.secondary_metrics.map(
-                                                                        (metric, idx) => (
-                                                                            <Row
-                                                                                className="border-top"
-                                                                                key={idx}
-                                                                                justify="space-between"
-                                                                                style={{
-                                                                                    paddingTop: 8,
-                                                                                    paddingBottom: 8,
-                                                                                }}
-                                                                            >
-                                                                                <Col span={2 * secondaryColumnSpan}>
-                                                                                    {capitalizeFirstLetter(metric.name)}
-                                                                                </Col>
-                                                                                {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                    (variant, index) => (
-                                                                                        <Col
-                                                                                            key={index}
-                                                                                            span={secondaryColumnSpan}
-                                                                                        >
-                                                                                            {secondaryMetricResults?.[
-                                                                                                idx
-                                                                                            ][variant.key] ? (
-                                                                                                metric.filters
-                                                                                                    .insight ===
-                                                                                                InsightType.FUNNELS ? (
-                                                                                                    <>
-                                                                                                        {(
-                                                                                                            secondaryMetricResults?.[
-                                                                                                                idx
-                                                                                                            ][
-                                                                                                                variant
-                                                                                                                    .key
-                                                                                                            ] * 100
-                                                                                                        ).toFixed(1)}
-                                                                                                        %
-                                                                                                    </>
+                                                                secondaryMetricResultsLoading ? (
+                                                                    <Skeleton active paragraph={false} />
+                                                                ) : (
+                                                                    <>
+                                                                        {experimentData.secondary_metrics.map(
+                                                                            (metric, idx) => (
+                                                                                <Row
+                                                                                    className="border-top"
+                                                                                    key={idx}
+                                                                                    justify="space-between"
+                                                                                    style={{
+                                                                                        paddingTop: 8,
+                                                                                        paddingBottom: 8,
+                                                                                    }}
+                                                                                >
+                                                                                    <Col span={2 * secondaryColumnSpan}>
+                                                                                        {capitalizeFirstLetter(
+                                                                                            metric.name
+                                                                                        )}
+                                                                                    </Col>
+                                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                                        (variant, index) => (
+                                                                                            <Col
+                                                                                                key={index}
+                                                                                                span={
+                                                                                                    secondaryColumnSpan
+                                                                                                }
+                                                                                            >
+                                                                                                {secondaryMetricResults?.[
+                                                                                                    idx
+                                                                                                ][variant.key] ? (
+                                                                                                    metric.filters
+                                                                                                        .insight ===
+                                                                                                    InsightType.FUNNELS ? (
+                                                                                                        <>
+                                                                                                            {(
+                                                                                                                secondaryMetricResults?.[
+                                                                                                                    idx
+                                                                                                                ][
+                                                                                                                    variant
+                                                                                                                        .key
+                                                                                                                ] * 100
+                                                                                                            ).toFixed(
+                                                                                                                1
+                                                                                                            )}
+                                                                                                            %
+                                                                                                        </>
+                                                                                                    ) : (
+                                                                                                        <>
+                                                                                                            {
+                                                                                                                secondaryMetricResults?.[
+                                                                                                                    idx
+                                                                                                                ][
+                                                                                                                    variant
+                                                                                                                        .key
+                                                                                                                ]
+                                                                                                            }
+                                                                                                        </>
+                                                                                                    )
                                                                                                 ) : (
-                                                                                                    <>
-                                                                                                        {
-                                                                                                            secondaryMetricResults?.[
-                                                                                                                idx
-                                                                                                            ][
-                                                                                                                variant
-                                                                                                                    .key
-                                                                                                            ]
-                                                                                                        }
-                                                                                                    </>
-                                                                                                )
-                                                                                            ) : (
-                                                                                                <>--</>
-                                                                                            )}
-                                                                                        </Col>
-                                                                                    )
-                                                                                )}
-                                                                            </Row>
-                                                                        )
-                                                                    )}
-                                                                </>
+                                                                                                    <>--</>
+                                                                                                )}
+                                                                                            </Col>
+                                                                                        )
+                                                                                    )}
+                                                                                </Row>
+                                                                            )
+                                                                        )}
+                                                                    </>
+                                                                )
                                                             ) : (
                                                                 <>
                                                                     {experimentData.secondary_metrics.map(

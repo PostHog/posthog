@@ -20,8 +20,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -119,13 +117,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         taxonomicGroups: [
-            (selectors) => [
-                selectors.currentTeamId,
-                selectors.groupAnalyticsTaxonomicGroups,
-                selectors.eventNames,
-                featureFlagLogic.selectors.featureFlags,
-            ],
-            (teamId, groupAnalyticsTaxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroup[] => [
+            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups, selectors.eventNames],
+            (teamId, groupAnalyticsTaxonomicGroups, eventNames): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     searchPlaceholder: 'events',
@@ -165,12 +158,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     type: TaxonomicFilterGroupType.EventProperties,
                     endpoint: combineUrl(
                         `api/projects/${teamId}/property_definitions`,
-                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
-                            ? { event_names: eventNames }
-                            : {}
+                        eventNames.length > 0 ? { event_names: eventNames } : {}
                     ).url,
                     scopedEndpoint:
-                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
+                        eventNames.length > 0
                             ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                   event_names: eventNames,
                                   is_event_property: true,
@@ -193,7 +184,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     type: TaxonomicFilterGroupType.NumericalEventProperties,
                     endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
                         is_numerical: true,
-                        ...(featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}),
+                        event_names: eventNames,
                     }).url,
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
