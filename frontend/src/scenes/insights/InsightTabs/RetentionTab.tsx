@@ -26,6 +26,7 @@ import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/Proper
 import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from '../common'
+import { MathAvailability } from '../ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -48,7 +49,7 @@ export function RetentionTab(): JSX.Element {
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
@@ -121,7 +122,7 @@ export function RetentionTab(): JSX.Element {
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"

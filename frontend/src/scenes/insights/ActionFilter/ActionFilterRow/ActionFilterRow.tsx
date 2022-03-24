@@ -38,11 +38,17 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
     return 'Add filters'
 }
 
+export enum MathAvailability {
+    All,
+    ActorsOnly,
+    None,
+}
+
 export interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
-    hideMathSelector?: boolean
+    mathAvailability: MathAvailability
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
@@ -96,7 +102,7 @@ export function ActionFilterRow({
     logic,
     filter,
     index,
-    hideMathSelector,
+    mathAvailability,
     hidePropertySelector,
     singleFilter,
     showOr,
@@ -347,13 +353,21 @@ export function ActionFilterRow({
                         )}
                         <Col
                             className="column-filter"
-                            style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
+                            style={
+                                fullWidth
+                                    ? {}
+                                    : {
+                                          maxWidth: `calc(${
+                                              mathAvailability === MathAvailability.None ? '100' : '50'
+                                          }% - 16px)`,
+                                      }
+                            }
                             flex={fullWidth ? 'auto' : undefined}
                         >
                             {filterElement}
                         </Col>
                         {customRowSuffix !== undefined && <Col className="column-row-suffix">{suffix}</Col>}
-                        {!hideMathSelector && (
+                        {mathAvailability !== MathAvailability.None && (
                             <>
                                 {horizontalUI && <Col>counted by</Col>}
                                 <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
@@ -363,6 +377,7 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         style={{ maxWidth: '100%', width: 'initial' }}
+                                        mathAvailability={mathAvailability}
                                     />
                                 </Col>
                                 {mathDefinitions[math || '']?.onProperty && (
@@ -464,20 +479,41 @@ export function ActionFilterRow({
 interface MathSelectorProps {
     math?: string
     mathGroupTypeIndex?: number | null
+    mathAvailability: MathAvailability
     index: number
     onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
 
-function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: MathSelectorProps): JSX.Element {
-    const numericalNotice =
-        'This can only be used on properties that have at least one number type occurence in your events.'
-    const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
+const NUMERICAL_REQUIREMENT_NOTICE =
+    'This can only be used on properties that have at least one number type occurence in your events.'
+
+function MathSelector({
+    math,
+    mathGroupTypeIndex,
+    mathAvailability,
+    index,
+    onMathSelect,
+    style,
+}: MathSelectorProps): JSX.Element {
+    const { mathDefinitions, eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
+
+    let relevantEventMathEntries = eventMathEntries
+    if (mathAvailability === MathAvailability.ActorsOnly) {
+        relevantEventMathEntries = relevantEventMathEntries.filter(([, definition]) => definition.actor)
+    }
+
+    let mathType = apiValueToMathType(math, mathGroupTypeIndex)
+    if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
+        // Backwards compatibility for Stickiness insights that had a non-actor value before (e.g. "Total")
+        // Such values are assumed to be user aggregation by the backend
+        mathType = 'dau'
+    }
 
     return (
         <Select
             style={{ width: 150, ...style }}
-            value={apiValueToMathType(math, mathGroupTypeIndex)}
+            value={mathType}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
@@ -485,7 +521,7 @@ function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: 
             listHeight={280}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {eventMathEntries.map(([key, { name, description, onProperty }]) => {
+                {relevantEventMathEntries.map(([key, { name, description, onProperty }]) => {
                     return (
                         <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
                             <Tooltip
@@ -494,7 +530,7 @@ function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: 
                                         <>
                                             {description}
                                             <br />
-                                            {numericalNotice}
+                                            {NUMERICAL_REQUIREMENT_NOTICE}
                                         </>
                                     ) : (
                                         description
@@ -520,30 +556,32 @@ function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: 
                 {/* :KLUDGE: Select only allows Select.Option as children, so render groups option directly rather than as a child */}
                 {GroupsIntroductionOption({ value: '' })}
             </Select.OptGroup>
-            <Select.OptGroup key="property aggregates" label="Property aggregation">
-                {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
-                    return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
-                            <Tooltip
-                                title={
-                                    onProperty ? (
-                                        <>
-                                            {description}
-                                            <br />
-                                            {numericalNotice}
-                                        </>
-                                    ) : (
-                                        description
-                                    )
-                                }
-                                placement="right"
-                            >
-                                <div style={{ height: '100%', width: '100%' }}>{name}</div>
-                            </Tooltip>
-                        </Select.Option>
-                    )
-                })}
-            </Select.OptGroup>
+            {mathAvailability !== MathAvailability.ActorsOnly && (
+                <Select.OptGroup key="property aggregates" label="Property aggregation">
+                    {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
+                        return (
+                            <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
+                                <Tooltip
+                                    title={
+                                        onProperty ? (
+                                            <>
+                                                {description}
+                                                <br />
+                                                {NUMERICAL_REQUIREMENT_NOTICE}
+                                            </>
+                                        ) : (
+                                            description
+                                        )
+                                    }
+                                    placement="right"
+                                >
+                                    <div style={{ height: '100%', width: '100%' }}>{name}</div>
+                                </Tooltip>
+                            </Select.Option>
+                        )
+                    })}
+                </Select.OptGroup>
+            )}
         </Select>
     )
 }

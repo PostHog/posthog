@@ -96,7 +96,7 @@ export function ToolbarButton(): JSX.Element {
         },
         {
             ms: undefined,
-            clickMs: 1,
+            clickMs: 1 as any,
             touch: true,
             click: true,
         }

@@ -161,7 +161,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
                     cohortsModel.actions.cohortCreated(cohort)
                 }
-            } catch (error) {
+            } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save cohort')
                 return
             }

@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 function ExclusionRowSuffix({
     filter,
@@ -156,7 +157,7 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             buttonCopy="Add exclusion"
             buttonType="default"
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-            hideMathSelector
+            mathAvailability={MathAvailability.None}
             hidePropertySelector
             hideFilter
             hideRename

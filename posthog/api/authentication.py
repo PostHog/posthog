@@ -18,7 +18,6 @@ from rest_framework.response import Response
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
-from posthog.utils import get_sso_enforced_provider
 
 
 @csrf_protect
@@ -58,8 +57,13 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        if get_sso_enforced_provider():
-            raise serializers.ValidationError("This instance only allows SSO login.", code="sso_enforced")
+
+        # Check SSO enforcement (which happens at the domain level)
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        if sso_enforcement:
+            raise serializers.ValidationError(
+                f"You can only login with SSO for this account ({sso_enforcement}).", code="sso_enforced"
+            )
 
         request = self.context["request"]
         user = cast(
@@ -82,16 +86,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, str]) -> Any:
         email = validated_data.get("email", "")
-        domain = email[email.index("@") + 1 :]
-        domain_query = (
-            OrganizationDomain.objects.verified_domains()
-            .filter(domain=domain)
-            .exclude(sso_enforcement="")
-            .values_list("sso_enforcement", flat=True)
-        )
-        if not domain_query.exists():
-            return {"sso_enforcement": None}
-        return {"sso_enforcement": list(domain_query)[0]}
+        return {"sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)}
 
 
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
@@ -121,9 +116,12 @@ class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(write_only=True)
 
     def create(self, validated_data):
-        if get_sso_enforced_provider():
+        email = validated_data.pop("email")
+
+        # Check SSO enforcement (which happens at the domain level)
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
             raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced.", code="sso_enforced"
+                "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
             )
 
         if not is_email_available():
@@ -132,7 +130,6 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        email = validated_data.pop("email")
         try:
             user = User.objects.filter(is_active=True).get(email=email)
         except User.DoesNotExist:
