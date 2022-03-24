@@ -1,13 +1,18 @@
 import secrets
-from typing import Tuple
+from typing import Optional, Tuple
 
 import dns.resolver
+import structlog
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
+from posthog.utils import get_available_sso_providers
+
+logger = structlog.get_logger(__name__)
 
 
 def generate_verification_challenge() -> str:
@@ -18,6 +23,42 @@ class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return self.exclude(verified_at__isnull=True)
+
+    def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        domain = email[email.index("@") + 1 :]
+        query = (
+            self.verified_domains()
+            .filter(domain=domain)
+            .exclude(sso_enforcement="")
+            .values("sso_enforcement", "organization_id", "organization__available_features")
+            .first()
+        )
+
+        if not query:
+            return None
+
+        candidate_sso_enforcement = query["sso_enforcement"]
+
+        # Check organization has a license to enforce SSO
+        if AvailableFeature.SSO_ENFORCEMENT not in query["organization__available_features"]:
+            logger.warning(
+                f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license.",
+                domain=domain,
+                organization=str(query["organization_id"]),
+            )
+            return None
+
+        # Check SSO provider is properly configured
+        sso_providers = get_available_sso_providers()
+        if not sso_providers[candidate_sso_enforcement]:
+            logger.warning(
+                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
+                domain=domain,
+                candidate_sso_enforcement=candidate_sso_enforcement,
+            )
+            return None
+
+        return candidate_sso_enforcement
 
 
 class OrganizationDomain(UUIDModel):
