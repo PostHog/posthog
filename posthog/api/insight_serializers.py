@@ -7,7 +7,7 @@ from posthog.api.documentation import (
     FilterActionSerializer,
     FilterEventSerializer,
     OpenApiTypes,
-    PropertySerializer,
+    PropertyGroupField,
     extend_schema_field,
 )
 from posthog.constants import (
@@ -51,7 +51,26 @@ class GenericInsightsSerializer(serializers.Serializer):
     actions = FilterActionSerializer(
         required=False, many=True, help_text="Actions to filter on. One of `events` or `actions` is required."
     )
-    properties = PropertySerializer(many=True, required=False)
+    properties = PropertyGroupField(
+        required=False,
+        help_text="""
+        Properties to filter on. A JSON object that looks like:
+        {
+            "type": "AND",
+            "values": [ Properties ]
+        }
+
+        where a property looks like:
+        {
+            "key": "email",
+            "value": "x@y.com",
+            "operator": "exact",
+            "type": "event"
+        }.
+
+        Can be nested arbitrarily.
+        """,
+    )
     filter_test_accounts = serializers.BooleanField(
         help_text='Whether to filter out internal and test accounts. See "project settings" in your PostHog account for the filters.',
         default=False,
@@ -158,7 +177,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
 
 class FunnelExclusionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
-    properties = PropertySerializer(many=True, required=False)
+    properties = PropertyGroupField(required=False, help_text="Properties to filter on.")
     funnel_from_step = serializers.IntegerField(default=0, required=False)
     funnel_to_step = serializers.IntegerField(default=1, required=False)
 

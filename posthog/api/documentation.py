@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: 
 from rest_framework import serializers
 
 from posthog.models.entity import MATH_TYPE
+from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.property import OperatorType, PropertyType
 
 
@@ -35,6 +36,17 @@ class PropertiesSerializer(serializers.Serializer):
     properties = PropertySerializer(
         required=False, many=True, help_text="Filter events by event property, person property, cohort and more."
     )
+
+
+class PropertyGroupField(serializers.Field):
+    def to_representation(self, value):
+        return value.to_dict()
+
+    def to_internal_value(self, data):
+        propertyParser = PropertyMixin()
+        propertyParser._data = {}
+        propertyParser._data["properties"] = data
+        return propertyParser.property_groups
 
 
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
