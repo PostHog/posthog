@@ -1,6 +1,6 @@
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { initKeaTests } from '~/test/init'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { expectLogic } from 'kea-test-utils'
@@ -9,7 +9,7 @@ describe('verifiedDomainsLogic', () => {
     let logic: ReturnType<typeof verifiedDomainsLogic.build>
 
     beforeEach(() => {
-        useFeatures([AvailableFeature.SSO_ENFORCEMENT, AvailableFeature.SAML])
+        useAvailableFeatures([AvailableFeature.SSO_ENFORCEMENT, AvailableFeature.SAML])
         useMocks({
             get: {
                 '/api/organizations/:organization/domains': {

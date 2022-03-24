@@ -10,11 +10,11 @@ import { LemonSelect } from 'lib/components/LemonSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './ShareModal'
 import { VerticalForm } from 'lib/forms/VerticalForm'
-import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 export function NewDashboardModal(): JSX.Element {
-    const { hideNewDashboardModal } = useActions(newDashboardForm)
-    const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardForm)
+    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
 
     return (
         <LemonModal
@@ -47,7 +47,7 @@ export function NewDashboardModal(): JSX.Element {
                 </>
             }
         >
-            <VerticalForm logic={newDashboardForm} formKey="newDashboard" id="new-dashboard-form">
+            <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form">
                 <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Field name="name" label="Name">
                     <Input autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />

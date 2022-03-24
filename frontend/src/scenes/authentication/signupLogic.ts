@@ -39,7 +39,7 @@ export const signupLogic = kea<signupLogicType<AccountResponse>>({
                     try {
                         const response = await api.create('api/signup/', payload)
                         return { success: true, ...response }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail, errorAttribute: e.attr }
                     }
                 },
