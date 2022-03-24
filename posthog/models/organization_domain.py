@@ -24,6 +24,14 @@ class OrganizationDomainManager(models.Manager):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return self.exclude(verified_at__isnull=True)
 
+    def get_verified_for_email_address(self, email: str) -> Optional["OrganizationDomain"]:
+        """
+        Returns an `OrganizationDomain` configuration for a specific email address (if it exists and is verified),
+        using the domain of the email address
+        """
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(domain=domain).first()
+
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
         domain = email[email.index("@") + 1 :]
         query = (
@@ -80,6 +88,11 @@ class OrganizationDomain(UUIDModel):
         max_length=28, blank=True
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
+    # ---- SAML attributes ----
+    saml_entity_id: models.CharField = models.CharField(max_length=512, blank=True)
+    saml_acs_url: models.CharField = models.CharField(max_length=512, blank=True)
+    saml_x509_cert: models.TextField = models.TextField(blank=True)
+
     class Meta:
         verbose_name = "domain"
 
@@ -90,6 +103,11 @@ class OrganizationDomain(UUIDModel):
         """
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return bool(self.verified_at)
+
+    @property
+    def has_saml(self) -> bool:
+        # TODO: Paygate
+        return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
