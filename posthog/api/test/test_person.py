@@ -281,7 +281,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "scope": "Person",
                     "item_id": str(person.pk),
                     # don't store deleted person's name, so user primary key
-                    "detail": {"changes": None, "name": str(person.pk)},
+                    "detail": {"changes": None, "merge": None, "name": str(person.pk)},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
