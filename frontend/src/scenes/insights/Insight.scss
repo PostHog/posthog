@@ -105,8 +105,8 @@ $funnel_canvas_background: #fff;
     }
 
     .insights-graph-container {
-        margin-bottom: $default_spacing;
-        background-color: #fff;
+        background: #fff;
+        margin-bottom: 1rem;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -166,9 +166,8 @@ $funnel_canvas_background: #fff;
 
         .graph-container {
             // hacky because container not respecting position: relative;
-            width: calc(100% - 48px);
-            height: calc(100% - 48px);
-            margin-top: $default_spacing * 2;
+            width: calc(100% - 3rem);
+            height: calc(100% - 3rem);
         }
     }
 
@@ -189,18 +188,6 @@ $funnel_canvas_background: #fff;
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-end;
-
-        .btn-reset {
-            color: rgba($danger, 0.8);
-        }
-        .btn-save {
-            border-color: $primary;
-            color: $primary;
-            &:hover {
-                border-color: darken($primary, 30%);
-                color: darken($primary, 30%);
-            }
-        }
     }
 
     .action-filters-bordered {
@@ -259,6 +246,9 @@ $funnel_canvas_background: #fff;
     min-height: min(calc(90vh - 16rem), 36rem);
     display: flex;
     justify-content: center;
+    .graph-container {
+        height: calc(100% - 1rem) !important;
+    }
 }
 
 .funnel-insights-container {

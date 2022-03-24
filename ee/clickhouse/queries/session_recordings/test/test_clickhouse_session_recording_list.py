@@ -1,15 +1,15 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.action import Action, ActionStep
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Person
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
 from posthog.test.base import test_with_materialized_columns
@@ -43,7 +43,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -72,7 +72,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team,
                     data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],},
                 )
-                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()
                 self.assertEqual(len(session_recordings), 1)
                 self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -89,7 +89,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -98,7 +98,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -116,7 +116,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -126,6 +126,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)

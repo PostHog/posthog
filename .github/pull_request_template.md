@@ -1,11 +1,15 @@
+## Problem
+
+<!-- Who are we building for, what are their needs, why is this important? -->
+
 ## Changes
 
-*Please describe. If this affects the frontend, include screenshots.*
+<!-- If there are frontend changes, please include screenshots. -->
+<!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
-*Stay up-to-date with our [coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
+👉 *Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
 
 ## How did you test this code?
 
-<!-- If the answer is manually, please include a quick step-by-step on how to test this PR. -->
-
-*Briefly describe the steps you took.*
+<!-- Briefly describe the steps you took. -->
+<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->

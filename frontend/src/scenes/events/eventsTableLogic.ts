@@ -1,14 +1,14 @@
 import { kea } from 'kea'
-import { errorToast, successToast, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -78,7 +78,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             pollingActive,
         }),
         setProperties: (
-            properties: AnyPropertyFilter[] | AnyPropertyFilter
+            properties: AnyPropertyFilter[] | AnyPropertyFilter | PropertyGroupFilter
         ): {
             properties: AnyPropertyFilter[]
         } => {
@@ -124,7 +124,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
+                setProperties: (_, { properties }) => convertPropertyGroupToProperties(properties) as PropertyFilter[],
             },
         ],
         eventFilter: [
@@ -277,7 +277,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
-            successToast('The export is starting', 'It should finish soon.')
+            lemonToast.success('The export is starting. It should finish soon')
             window.location.href = values.exportUrl
         },
         setProperties: () => actions.fetchEvents(),
@@ -320,12 +320,14 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             let apiResponse = null
+            let usedSecondFetch = false
 
             try {
                 apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
 
                 if (apiResponse.results.length === 0) {
                     apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                    usedSecondFetch = true
                 }
             } catch (error) {
                 actions.fetchOrPollFailure(error as ApiError)
@@ -335,7 +337,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             breakpoint()
             actions.fetchEventsSuccess({
                 events: apiResponse.results,
-                hasNext: !!apiResponse.next,
+                hasNext: !!apiResponse.next || !usedSecondFetch,
+                // if we find less than limit events in first fetch, we shouldn't assume there are no more events
+                // and instead allow re-fetching
                 isNext: !!nextParams,
             })
 
@@ -409,12 +413,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
         },
         fetchOrPollFailure: ({ error }: { error: ApiError }) => {
-            errorToast(
-                undefined,
-                'There was a problem fetching your events. Please refresh this page to try again.',
-                error.statusText,
-                error.status
-            )
+            lemonToast.error(`There was a problem fetching your events: ${error.statusText}`)
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
             if (automaticLoadEnabled) {

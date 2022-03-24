@@ -11,6 +11,7 @@ class AvailableFeature(str, Enum):
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
+    SSO_ENFORCEMENT = "sso_enforcement"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
@@ -86,6 +87,7 @@ PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
+SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
@@ -221,3 +223,4 @@ class PropertyOperatorType(str, Enum):
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 BREAKDOWN_VALUES_LIMIT = 25
+CSV_EXPORT_LIMIT = 10000

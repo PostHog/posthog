@@ -5,11 +5,11 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
+from posthog.client import sync_execute
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
@@ -166,7 +166,7 @@ class ClickhousePaths:
     def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(
             filter=self._filter,
-            team_id=self._team.pk,
+            team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
         ).get_query()

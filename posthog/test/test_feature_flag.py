@@ -1,5 +1,3 @@
-from django.utils import timezone
-
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
     FeatureFlagMatch,

@@ -4,7 +4,8 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
     flex-direction: column;
-    align-items: start;
+    flex-shrink: 0;
+    align-items: flex-start;
     justify-content: center;
     min-height: 2.5rem;
     padding: 0.25rem 1rem;
@@ -40,6 +41,10 @@
         .LemonRow__icon {
             color: var(--success);
         }
+    }
+
+    &.LemonRow--status-muted {
+        background: $bg_side;
     }
 }
 
@@ -115,6 +120,10 @@
     &:not(:first-child):last-child {
         margin-right: -0.5rem;
     }
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
+    }
 }
 
 .LemonRow__content {
@@ -133,7 +142,8 @@
 .LemonSpacer {
     width: 100%;
     height: 1px;
-    background: var(--border);
+    opacity: 0.17;
+    background: currentColor;
     margin: 0.5rem 0;
     flex-shrink: 0;
     &--large {

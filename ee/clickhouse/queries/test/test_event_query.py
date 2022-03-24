@@ -1,14 +1,13 @@
 from uuid import uuid4
 
-from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
@@ -52,7 +51,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]
 
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
+        query, params = TrendsEventQuery(filter=filter, entity=entity, team=self.team).get_query()
 
         result = sync_execute(query, params)
 

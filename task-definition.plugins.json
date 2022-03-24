@@ -53,10 +53,6 @@
                     "value": "--max-old-space-size=4096"
                 },
                 {
-                    "name": "STALENESS_RESTART_SECONDS",
-                    "value": "300"
-                },
-                {
                     "name": "JOB_QUEUES",
                     "value": "graphile"
                 },
@@ -77,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PERSISTED_FEATURE_FLAGS",
-                    "value": "0"
-                },
-                {
                     "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
                     "value": "2"
                 },
@@ -94,6 +86,10 @@
                 },
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
+                },
+                {
+                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "1"
                 }
             ],
@@ -161,6 +157,13 @@
             ],
             "linuxParameters": {
                 "initProcessEnabled": true
+            },
+            "healthCheck": {
+                "retries": 10,
+                "command": ["CMD-SHELL", "curl -f http://localhost:6738/_ready || exit 1"],
+                "timeout": 10,
+                "interval": 20,
+                "startPeriod": 60
             }
         }
     ],

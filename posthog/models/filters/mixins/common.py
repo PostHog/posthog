@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -33,6 +33,7 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
@@ -43,6 +44,25 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+
+
+class SmoothingIntervalsMixin(BaseParamMixin):
+    @cached_property
+    def smoothing_intervals(self) -> int:
+        interval_candidate_string = self._data.get(SMOOTHING_INTERVALS)
+        if not interval_candidate_string:
+            return 1
+        try:
+            interval_candidate = int(interval_candidate_string)
+            if interval_candidate < 1:
+                raise ValueError(f"Smoothing intervals must be a positive integer!")
+        except ValueError:
+            raise ValueError(f"Smoothing intervals must be a positive integer!")
+        return cast(int, interval_candidate)
+
+    @include_dict
+    def smoothing_intervals_to_dict(self):
+        return {SMOOTHING_INTERVALS: self.smoothing_intervals}
 
 
 class SelectorMixin(BaseParamMixin):
@@ -395,3 +415,10 @@ class IncludeRecordingsMixin(BaseParamMixin):
     @include_dict
     def include_recordings_to_dict(self):
         return {"include_recordings": self.include_recordings} if self.include_recordings else {}
+
+
+class SearchMixin(BaseParamMixin):
+    @cached_property
+    def search(self) -> Optional[str]:
+        search = self._data.get("search", None)
+        return search

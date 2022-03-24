@@ -3,8 +3,9 @@ import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
+from enum import Enum, auto
 from time import time
-from typing import Any, Callable, Dict, Optional, TypeVar
+from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
 
 from django.db import IntegrityError, models, transaction
 from django.utils.text import slugify
@@ -14,6 +15,13 @@ from posthog.constants import MAX_SLUG_LENGTH
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+
+
+class PersonPropertiesMode(Enum):
+    USING_SUBQUERY = auto()
+    USING_PERSON_PROPERTIES_COLUMN = auto()
+    # Used for generating query on Person table
+    DIRECT = auto()
 
 
 class UUIDT(uuid.UUID):
@@ -174,3 +182,25 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
         except IntegrityError:
             continue
     raise Exception("Could not create a model instance with slug in 10 tries!")
+
+
+def get_deferred_field_set_for_model(
+    model: Type[models.Model], fields_not_deferred: Set[str] = set(), field_prefix: str = ""
+) -> Set[str]:
+    """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`
+
+    Why? `select_related` fetches the entire related objects - not allowing you to specify which fields
+    you want from the related objects. Often, we only want a few fields from the related object in addition to the entire
+    initial object. As a result, you can't use `.only()`. This is a helper function to make it easier to use `.defer()` in this case.
+    Example of how it's used is:
+
+    `Project.objects.select_related("team").defer(*get_deferred_field_set_for_model(Team, {"name"}, "team__"))`
+
+    For more info, see: https://code.djangoproject.com/ticket/29072
+
+    Parameters:
+        model: the model to get deferred fields for
+        fields_not_deferred: the models fields to exclude from the deferred field set
+        field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
+    """
+    return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}

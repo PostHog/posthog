@@ -4,11 +4,11 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
-import { ActionFilter, Experiment, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 
 interface ExperimentPreviewProps {
     experiment: Partial<Experiment> | null
@@ -27,15 +27,15 @@ export function ExperimentPreview({
     funnelSampleSize,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
+    const experimentId = experiment?.id || 'new'
     const {
         experimentInsightType,
-        experimentId,
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
         aggregationLabel,
-    } = useValues(experimentLogic)
-    const { setNewExperimentData } = useActions(experimentLogic)
+    } = useValues(experimentLogic({ experimentId }))
+    const { setNewExperimentData } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50
@@ -54,6 +54,8 @@ export function ExperimentPreview({
 
     const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
+
+    const experimentProperties = convertPropertyGroupToProperties(experiment?.filters?.properties)
 
     return (
         <Row>
@@ -126,12 +128,15 @@ export function ExperimentPreview({
                                 <>
                                     <Col span={6}>
                                         <div className="card-secondary">Baseline Count</div>
-                                        <div className="l4">{trendCount}</div>
+                                        <div className="l4">{humanFriendlyNumber(trendCount || 0)}</div>
                                     </Col>
                                     <Col span={6}>
                                         <div className="card-secondary">Minimum Acceptable Count</div>
                                         <div className="l4">
-                                            {trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100))}
+                                            {humanFriendlyNumber(
+                                                trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100)) ||
+                                                    0
+                                            )}
                                         </div>
                                     </Col>
                                 </>
@@ -139,7 +144,7 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary">Recommended running time</div>
                                 <div>
-                                    <span className="l4">~{trendExposure}</span> days
+                                    <span className="l4">~{humanFriendlyNumber(trendExposure || 0)}</span> days
                                 </div>
                             </Col>
                         </>
@@ -162,14 +167,14 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary">Recommended Sample Size</div>
                                 <div className="pb">
-                                    <span className="l4">~{funnelSampleSize}</span> persons
+                                    <span className="l4">~{humanFriendlyNumber(funnelSampleSize || 0)}</span> persons
                                 </div>
                             </Col>
                             {!experiment?.start_date && (
                                 <Col span={12}>
                                     <div className="card-secondary">Recommended running time</div>
                                     <div>
-                                        <span className="l4">~{runningTime}</span> days
+                                        <span className="l4">~{humanFriendlyNumber(runningTime || 0)}</span> days
                                     </div>
                                 </Col>
                             )}
@@ -189,10 +194,16 @@ export function ExperimentPreview({
                         <Col span={12}>
                             <div className="card-secondary">Participants</div>
                             <div>
-                                {!!experiment?.filters?.properties?.length ? (
+                                {!!experimentProperties?.length ? (
                                     <div>
-                                        {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                            return <PropertyFilterButton key={item.key} item={item} />
+                                        {experimentProperties?.map((item: AnyPropertyFilter) => {
+                                            return (
+                                                <PropertyFilterButton
+                                                    key={item.key}
+                                                    item={item}
+                                                    style={{ margin: 2, cursor: 'default' }}
+                                                />
+                                            )
                                         })}
                                     </div>
                                 ) : (
@@ -209,32 +220,30 @@ export function ExperimentPreview({
                             </div>
                         </Col>
                     </Row>
-                    <Row>
+                    <Row className="full-width">
                         {experimentId !== 'new' && !editingExistingExperiment && (
-                            <>
-                                <Col className="mr">
-                                    <div className="card-secondary mt">Start date</div>
-                                    {experiment?.start_date ? (
-                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                    ) : (
-                                        <span className="description">Not started yet</span>
-                                    )}
-                                </Col>
-                                {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
-                                    <Col className="mr">
-                                        <div className="card-secondary mt">Expected end date</div>
-                                        <span>
-                                            {expectedEndDate.isAfter(dayjs())
-                                                ? expectedEndDate.format('D MMM YYYY')
-                                                : dayjs().format('D MMM YYYY')}
-                                        </span>
-                                    </Col>
-                                ) : null}
-                                {/* The null prevents showing a 0 while loading */}
-                            </>
+                            <Col span={12}>
+                                <div className="card-secondary mt">Start date</div>
+                                {experiment?.start_date ? (
+                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                ) : (
+                                    <span className="description">Not started yet</span>
+                                )}
+                            </Col>
                         )}
+                        {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
+                            <Col span={12}>
+                                <div className="card-secondary mt">Expected end date</div>
+                                <span>
+                                    {expectedEndDate.isAfter(dayjs())
+                                        ? expectedEndDate.format('D MMM YYYY')
+                                        : dayjs().format('D MMM YYYY')}
+                                </span>
+                            </Col>
+                        ) : null}
+                        {/* The null prevents showing a 0 while loading */}
                         {experiment?.end_date && (
-                            <Col className="ml">
+                            <Col span={12}>
                                 <div className="card-secondary mt">Completed date</div>
                                 <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
                             </Col>
@@ -270,7 +279,7 @@ export function ExperimentPreview({
                                                 />
                                             </b>
                                         </Row>
-                                        {event.properties?.map((prop: PropertyFilter) => (
+                                        {event.properties?.map((prop: AnyPropertyFilter) => (
                                             <PropertyFilterButton key={prop.key} item={prop} />
                                         ))}
                                     </Col>

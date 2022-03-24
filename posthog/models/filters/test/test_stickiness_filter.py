@@ -1,5 +1,5 @@
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import BaseTest
 
 
@@ -32,7 +32,7 @@ class TestStickinessFilter(BaseTest):
                         "math": None,
                         "math_property": None,
                         "math_group_type_index": None,
-                        "properties": [],
+                        "properties": {},
                     }
                 ],
                 "insight": "TRENDS",

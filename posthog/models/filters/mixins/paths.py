@@ -24,7 +24,7 @@ from posthog.constants import (
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 PathType = Literal["$pageview", "$screen", "custom_event"]
 

@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
@@ -10,15 +9,13 @@ import { ingestEvent } from './ingest-event'
 
 export class KafkaQueue implements Queue {
     private pluginsServer: Hub
-    private piscina: Piscina
     private kafka: Kafka
     private consumer: Consumer
     private wasConsumerRan: boolean
     private workerMethods: WorkerMethods
 
-    constructor(pluginsServer: Hub, piscina: Piscina, workerMethods: WorkerMethods) {
+    constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
-        this.piscina = piscina
         this.kafka = pluginsServer.kafka!
         this.consumer = KafkaQueue.buildConsumer(this.kafka)
         this.wasConsumerRan = false
@@ -97,11 +94,14 @@ export class KafkaQueue implements Queue {
                 eachBatchAutoResolve: false,
                 autoCommitInterval: 1000, // autocommit every 1000 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
+                partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
-                        status.info('💀', `Kafka batch of ${payload.batch.messages.length} events failed!`)
+                        const eventCount = payload.batch.messages.length
+                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount)
+                        status.info('💀', `Kafka batch of ${eventCount} events failed!`)
                         if (error.type === 'UNKNOWN_MEMBER_ID') {
                             status.info(
                                 '💀',

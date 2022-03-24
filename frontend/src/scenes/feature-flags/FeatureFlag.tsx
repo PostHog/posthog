@@ -1,35 +1,21 @@
-import React, { useEffect, useState } from 'react'
-import {
-    Input,
-    Button,
-    Form,
-    Switch,
-    Slider,
-    Card,
-    Row,
-    Col,
-    Collapse,
-    Radio,
-    InputNumber,
-    Popconfirm,
-    Select,
-} from 'antd'
+import React, { useState } from 'react'
+import { Group } from 'kea-forms'
+import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     DeleteOutlined,
-    CopyOutlined,
     SaveOutlined,
     PlusOutlined,
     ApiFilled,
     MergeCellsOutlined,
     LockOutlined,
 } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -40,10 +26,15 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { Field } from 'lib/forms/Field'
+import { VerticalForm } from 'lib/forms/VerticalForm'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
+    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -53,11 +44,10 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-export function FeatureFlag(): JSX.Element {
-    const [form] = Form.useForm()
+export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+    const logicProps: FeatureFlagLogicProps = { id: id && id !== 'new' ? parseInt(id) : 'new' }
     const {
         featureFlag,
-        featureFlagId,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -66,22 +56,20 @@ export function FeatureFlag(): JSX.Element {
         groupTypes,
         aggregationTargetName,
         taxonomicGroupTypes,
-    } = useValues(featureFlagLogic)
+        featureFlagLoading,
+    } = useValues(featureFlagLogic(logicProps))
     const {
         addConditionSet,
         updateConditionSet,
         removeConditionSet,
         duplicateConditionSet,
-        saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
         addVariant,
-        updateVariant,
         removeVariant,
         distributeVariantsEqually,
-        setFeatureFlag,
         setAggregationGroupTypeIndex,
-    } = useActions(featureFlagLogic)
+    } = useActions(featureFlagLogic(logicProps))
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
@@ -90,64 +78,33 @@ export function FeatureFlag(): JSX.Element {
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
 
-    useEffect(() => {
-        form.setFieldsValue({ ...featureFlag })
-    }, [featureFlag])
-
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
 
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <Form
-                    layout="vertical"
-                    form={form}
-                    initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
-                    onValuesChange={(newValues) => {
-                        if (featureFlagId !== 'new' && newValues.key) {
-                            setHasKeyChanged(newValues.key !== featureFlag.key)
-                        }
-                        setFeatureFlag({ ...featureFlag, ...newValues })
-                    }}
-                    onFinish={(values) =>
-                        saveFeatureFlag({
-                            ...featureFlag,
-                            ...values,
-                            filters: featureFlag.filters,
-                        })
-                    }
-                    requiredMark={false}
-                    scrollToFirstError
-                >
+                <VerticalForm logic={featureFlagLogic} props={logicProps} formKey="featureFlag">
                     <PageHeader
                         title="Feature Flag"
                         buttons={
                             <div style={{ display: 'flex' }}>
-                                <Form.Item className="enabled-switch">
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.active !== currentValues.active
-                                        }
-                                        style={{ marginBottom: 0, marginRight: 6 }}
-                                    >
-                                        {({ getFieldValue }) => {
-                                            return (
-                                                <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
-                                                    {getFieldValue('active') ? (
-                                                        <span className="text-success">Enabled</span>
-                                                    ) : (
-                                                        <span className="text-danger">Disabled</span>
-                                                    )}
-                                                </span>
-                                            )
-                                        }}
-                                    </Form.Item>
-                                    <Form.Item name="active" noStyle valuePropName="checked">
-                                        <Switch />
-                                    </Form.Item>
-                                </Form.Item>
-                                {featureFlagId !== 'new' && (
+                                <Field name="active">
+                                    {({ value, onValueChange }) => (
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onValueChange}
+                                            label={
+                                                value ? (
+                                                    <span className="text-success">Enabled</span>
+                                                ) : (
+                                                    <span className="text-danger">Disabled</span>
+                                                )
+                                            }
+                                        />
+                                    )}
+                                </Field>
+                                {featureFlag?.id && (
                                     <Button
                                         data-attr="delete-flag"
                                         danger
@@ -164,6 +121,7 @@ export function FeatureFlag(): JSX.Element {
                                     icon={<SaveOutlined />}
                                     type="primary"
                                     data-attr="feature-flag-submit"
+                                    loading={featureFlagLoading}
                                     htmlType="submit"
                                 >
                                     Save changes
@@ -177,19 +135,12 @@ export function FeatureFlag(): JSX.Element {
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
                         <Col span={12}>
-                            <Form.Item
+                            <Field
                                 name="key"
                                 label="Key (must be unique)"
-                                rules={[
-                                    { required: true, message: 'You need to set a key.' },
-                                    {
-                                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                        message: 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                    },
-                                ]}
                                 validateStatus={hasKeyChanged ? 'warning' : undefined}
-                                help={
-                                    hasKeyChanged ? (
+                                hint={
+                                    hasKeyChanged && id !== 'new' ? (
                                         <small>
                                             <b>Warning! </b>Changing this key will
                                             <a
@@ -204,25 +155,38 @@ export function FeatureFlag(): JSX.Element {
                                     ) : undefined
                                 }
                             >
-                                <Input
-                                    data-attr="feature-flag-key"
-                                    className="ph-ignore-input"
-                                    autoFocus
-                                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                    autoComplete="off"
-                                    autoCapitalize="off"
-                                    autoCorrect="off"
-                                    spellCheck={false}
-                                />
-                            </Form.Item>
+                                {({ value, onChange }) => (
+                                    <Input
+                                        value={value}
+                                        onChange={(e) => {
+                                            if (e.target.value !== value) {
+                                                setHasKeyChanged(true)
+                                            }
+                                            onChange(e)
+                                        }}
+                                        data-attr="feature-flag-key"
+                                        className="ph-ignore-input"
+                                        autoFocus
+                                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                        autoComplete="off"
+                                        autoCapitalize="off"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                    />
+                                )}
+                            </Field>
 
-                            <Form.Item name="name" label="Description">
-                                <Input.TextArea
-                                    className="ph-ignore-input"
-                                    data-attr="feature-flag-description"
-                                    placeholder="Adding a helpful description can ensure others know what this feature is for."
-                                />
-                            </Form.Item>
+                            <Field name="name" label="Description">
+                                {({ value, onChange }) => (
+                                    <Input.TextArea
+                                        value={value}
+                                        onChange={onChange}
+                                        className="ph-ignore-input"
+                                        data-attr="feature-flag-description"
+                                        placeholder="Adding a helpful description can ensure others know what this feature is for."
+                                    />
+                                )}
+                            </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
@@ -235,13 +199,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="js"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        {({ getFieldValue }) => <JSSnippet flagKey={getFieldValue('key')} />}
-                                    </Form.Item>
+                                    <JSSnippet flagKey={featureFlag.key || 'my-flag'} />
                                 </Collapse.Panel>
                                 <Collapse.Panel
                                     header={
@@ -251,13 +209,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="python"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        {({ getFieldValue }) => <PythonSnippet flagKey={getFieldValue('key')} />}
-                                    </Form.Item>
+                                    <PythonSnippet flagKey={featureFlag.key || 'my-flag'} />
                                 </Collapse.Panel>
                                 <Collapse.Panel
                                     header={
@@ -267,13 +219,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="api"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        <APISnippet />
-                                    </Form.Item>
+                                    <APISnippet />
                                 </Collapse.Panel>
                             </Collapse>
                         </Col>
@@ -371,26 +317,11 @@ export function FeatureFlag(): JSX.Element {
                                         </Button>
                                     </Col>
                                 </Row>
-                                {variants.map(({ rollout_percentage }, index) => (
-                                    <Form
-                                        key={index}
-                                        onValuesChange={(changedValues) => updateVariant(index, changedValues)}
-                                        initialValues={variants[index]}
-                                        validateTrigger={['onChange', 'onBlur']}
-                                    >
+                                {variants.map((_, index) => (
+                                    <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
                                         <Row gutter={8}>
                                             <Col span={7}>
-                                                <Form.Item
-                                                    name="key"
-                                                    rules={[
-                                                        { required: true, message: 'Key should not be empty.' },
-                                                        {
-                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                            message:
-                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                        },
-                                                    ]}
-                                                >
+                                                <Field name="key">
                                                     <Input
                                                         data-attr="feature-flag-variant-key"
                                                         data-key-index={index.toString()}
@@ -401,48 +332,55 @@ export function FeatureFlag(): JSX.Element {
                                                         autoCorrect="off"
                                                         spellCheck={false}
                                                     />
-                                                </Form.Item>
+                                                </Field>
                                             </Col>
                                             <Col span={7}>
-                                                <Form.Item name="name">
+                                                <Field name="name">
                                                     <Input
                                                         data-attr="feature-flag-variant-name"
                                                         className="ph-ignore-input"
                                                         placeholder="Description"
                                                     />
-                                                </Form.Item>
+                                                </Field>
                                             </Col>
                                             <Col span={7}>
-                                                <Slider
-                                                    tooltipPlacement="top"
-                                                    value={rollout_percentage}
-                                                    onChange={(value: number) =>
-                                                        updateVariant(index, { rollout_percentage: value })
-                                                    }
-                                                />
+                                                <Field name="rollout_percentage">
+                                                    {({ value, onValueChange }) => (
+                                                        <Slider
+                                                            tooltipPlacement="top"
+                                                            value={value}
+                                                            onChange={onValueChange}
+                                                        />
+                                                    )}
+                                                </Field>
                                             </Col>
                                             <Col span={2}>
-                                                <InputNumber
-                                                    min={0}
-                                                    max={100}
-                                                    value={rollout_percentage}
-                                                    onChange={(value) => {
-                                                        if (value !== null && value !== undefined) {
-                                                            const valueInt = parseInt(value.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                updateVariant(index, {
-                                                                    rollout_percentage: valueInt,
-                                                                })
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        borderColor: areVariantRolloutsValid
-                                                            ? undefined
-                                                            : 'var(--danger)',
-                                                    }}
-                                                />
+                                                <Field name="rollout_percentage">
+                                                    {({ value, onValueChange }) => (
+                                                        <InputNumber
+                                                            min={0}
+                                                            max={100}
+                                                            value={value}
+                                                            onChange={(changedValue) => {
+                                                                if (
+                                                                    changedValue !== null &&
+                                                                    changedValue !== undefined
+                                                                ) {
+                                                                    const valueInt = parseInt(changedValue.toString())
+                                                                    if (!isNaN(valueInt)) {
+                                                                        onValueChange(valueInt)
+                                                                    }
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                width: '100%',
+                                                                borderColor: areVariantRolloutsValid
+                                                                    ? undefined
+                                                                    : 'var(--danger)',
+                                                            }}
+                                                        />
+                                                    )}
+                                                </Field>
                                             </Col>
                                             {variants.length > 1 && (
                                                 <Col span={1}>
@@ -457,7 +395,7 @@ export function FeatureFlag(): JSX.Element {
                                                 </Col>
                                             )}
                                         </Row>
-                                    </Form>
+                                    </Group>
                                 ))}
                                 {variants.length > 0 && !areVariantRolloutsValid && (
                                     <p className="text-danger">
@@ -495,8 +433,8 @@ export function FeatureFlag(): JSX.Element {
                                 Match by
                                 <Select
                                     value={
-                                        featureFlag.filters.aggregation_group_type_index != null
-                                            ? featureFlag.filters.aggregation_group_type_index
+                                        featureFlag.filters?.aggregation_group_type_index != null
+                                            ? featureFlag.filters?.aggregation_group_type_index
                                             : -1
                                     }
                                     onChange={(value) => {
@@ -551,26 +489,24 @@ export function FeatureFlag(): JSX.Element {
                                                 </>
                                             )}
                                         </div>
-                                        <div>
+                                        <Row align="middle">
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
-                                                <Button
-                                                    type="link"
-                                                    icon={<CopyOutlined />}
-                                                    style={{ width: 24, height: 24 }}
+                                                <LemonButton
+                                                    icon={<IconCopy />}
+                                                    compact
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
                                             {featureFlag.filters.groups.length > 1 && (
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
-                                                    <Button
-                                                        type="link"
-                                                        icon={<DeleteOutlined />}
-                                                        style={{ width: 24, height: 24 }}
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        compact
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>
                                             )}
-                                        </div>
+                                        </Row>
                                     </div>
 
                                     <LemonSpacer large />
@@ -613,7 +549,7 @@ export function FeatureFlag(): JSX.Element {
                             <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
                         </Button>
                     </Card>
-                    <Form.Item className="text-right">
+                    <div className="text-right">
                         <Button
                             icon={<SaveOutlined />}
                             htmlType="submit"
@@ -622,8 +558,8 @@ export function FeatureFlag(): JSX.Element {
                         >
                             Save changes
                         </Button>
-                    </Form.Item>
-                </Form>
+                    </div>
+                </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
                 <SceneLoading />

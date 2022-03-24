@@ -9,13 +9,12 @@ export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
-            (
             <CodeSnippet language={Language.JavaScript} wrap>
                 {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
     // run your activation code here
 }`}
             </CodeSnippet>
-            )
+
             <div className="mt">
                 Need more information?{' '}
                 <a
@@ -26,7 +25,6 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                     Check the docs <IconOpenInNew />
                 </a>
             </div>
-            )
         </>
     )
 }

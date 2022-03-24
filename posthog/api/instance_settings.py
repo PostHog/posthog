@@ -5,7 +5,7 @@ from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.permissions import IsStaffUser
-from posthog.settings import CLICKHOUSE_REPLICATION, SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
 
@@ -25,9 +25,10 @@ class InstanceSetting(object):
     value_type: str = ""
     description: str = ""
     editable: bool = False
+    is_secret: bool = False
 
     def __init__(self, **kwargs):
-        for field in ("key", "value", "value_type", "description", "editable"):
+        for field in ("key", "value", "value_type", "description", "editable", "is_secret"):
             setattr(self, field, kwargs.get(field, None))
 
 
@@ -37,13 +38,16 @@ def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting
         for _key, setting_config in settings.CONFIG.items():
             if _key == key:
                 break
+    is_secret = key in SECRET_SETTINGS
+    value = getattr(config, key)
 
     return InstanceSetting(
         key=key,
-        value=getattr(config, key),
+        value=value if not is_secret or not value else "*****",
         value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
         description=setting_config[1],
         editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
+        is_secret=is_secret,
     )
 
 
@@ -53,6 +57,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
     value_type = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
     editable = serializers.BooleanField(read_only=True)
+    is_secret = serializers.BooleanField(read_only=True)
 
     def update(self, instance: InstanceSetting, validated_data: Dict[str, Any]) -> InstanceSetting:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
@@ -69,16 +74,16 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
         if instance.key == "RECORDINGS_TTL_WEEKS":
 
-            if CLICKHOUSE_REPLICATION:
+            if MULTI_TENANCY:
                 # On cloud the TTL is set on the session_recording_events_sharded table,
                 # so this command should never be run
-                raise serializers.ValidationError("This setting cannot be updated with sharded tables.")
+                raise serializers.ValidationError("This setting cannot be updated on MULTI_TENANCY.")
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
-            from ee.clickhouse.client import sync_execute
             from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
+            from posthog.client import sync_execute
 
-            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
         setattr(config, instance.key, new_value_parsed)
         instance.value = new_value_parsed

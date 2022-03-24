@@ -10,7 +10,7 @@
                           WHERE team_id = %(team_id)s AND group_type_index = %(group_index_0)s
                           GROUP BY group_key
                       ) groups_0
-                      ON $group_0 == groups_0.group_key
+                      ON "$group_0" == groups_0.group_key
                       
     ',
     <class 'dict'> {

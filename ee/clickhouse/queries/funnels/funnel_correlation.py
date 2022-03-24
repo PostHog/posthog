@@ -13,18 +13,19 @@ from typing import (
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.client import sync_execute
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models import Filter, Team
+from posthog.models import Team
 from posthog.models.filters import Filter
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_query import PersonQuery
 
 
 class EventDefinition(TypedDict):
@@ -249,7 +250,7 @@ class FunnelCorrelation:
         else:
             array_join_query = f"""
                 arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-                arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
+                arrayMap(x -> {trim_quotes_expr("JSONExtractRaw(properties, x)")}, prop_keys) as prop_values,
                 arrayJoin(arrayZip(prop_keys, prop_values)) as prop
             """
 
@@ -446,8 +447,8 @@ class FunnelCorrelation:
 
     def _get_aggregation_join_query(self):
         if self._filter.aggregation_group_type_index is None:
-            person_query, person_query_params = ClickhousePersonQuery(
-                self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
+            person_query, person_query_params = PersonQuery(
+                self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
             ).get_query()
 
             return (
@@ -464,19 +465,20 @@ class FunnelCorrelation:
 
         group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
         aggregation_properties_alias = (
-            ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS
+            PersonQuery.PERSON_PROPERTIES_ALIAS
             if self._filter.aggregation_group_type_index is None
             else group_properties_field
         )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
+            map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
             return (
                 f"""
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({aggregation_properties_alias})) as person_prop_keys,
             arrayJoin(
                 arrayZip(
                     person_prop_keys,
-                    arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw({aggregation_properties_alias}, x)), person_prop_keys)
+                    arrayMap(x -> {map_expr}, person_prop_keys)
                 )
             ) as prop
             """,
@@ -493,7 +495,7 @@ class FunnelCorrelation:
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person", property_name, f"%({param_name})s", ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+                        "person", property_name, f"%({param_name})s", PersonQuery.PERSON_PROPERTIES_ALIAS,
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)

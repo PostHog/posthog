@@ -1,5 +1,4 @@
 from datetime import datetime
-from sys import stderr
 from typing import Optional
 
 import structlog
@@ -25,7 +24,7 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 
@@ -125,17 +124,25 @@ def rollback_migration(migration_instance: AsyncMigration):
 
 def complete_migration(migration_instance: AsyncMigration, email: bool = True):
     finished_at = now()
-    update_async_migration(
-        migration_instance=migration_instance,
-        status=MigrationStatus.CompletedSuccessfully,
-        finished_at=finished_at,
-        progress=100,
-    )
 
-    if email and async_migrations_emails_enabled():
-        from posthog.tasks.email import send_async_migration_complete_email
+    migration_instance.refresh_from_db()
 
-        send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=finished_at.isoformat())
+    needs_update = migration_instance.status != MigrationStatus.CompletedSuccessfully
+
+    if needs_update:
+        update_async_migration(
+            migration_instance=migration_instance,
+            status=MigrationStatus.CompletedSuccessfully,
+            finished_at=finished_at,
+            progress=100,
+        )
+
+        if email and async_migrations_emails_enabled():
+            from posthog.tasks.email import send_async_migration_complete_email
+
+            send_async_migration_complete_email.delay(
+                migration_key=migration_instance.name, time=finished_at.isoformat()
+            )
 
     if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
         next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)

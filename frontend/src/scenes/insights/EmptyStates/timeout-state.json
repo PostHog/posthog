@@ -55,7 +55,6 @@
                     }
                 ],
                 "available_features": [],
-                "domain_whitelist": [],
                 "is_member_join_email_enabled": true
             },
             "currentOrganizationLoading": false,
@@ -153,7 +152,6 @@
                         }
                     ],
                     "available_features": [],
-                    "domain_whitelist": [],
                     "is_member_join_email_enabled": true
                 },
                 "organizations": [
@@ -564,21 +562,23 @@
                         "properties": [],
                         "filter_test_accounts": false
                     },
-                    "savedFilters": {
-                        "insight": "TRENDS",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "name": "$pageview",
-                                "type": "events",
-                                "order": 0
-                            }
-                        ],
-                        "actions": [],
-                        "display": "ActionsLineGraph",
-                        "interval": "day",
-                        "properties": [],
-                        "filter_test_accounts": false
+                    "savedInsight": {
+                        "filters": {
+                            "insight": "TRENDS",
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "actions": [],
+                            "display": "ActionsLineGraph",
+                            "interval": "day",
+                            "properties": [],
+                            "filter_test_accounts": false
+                        }
                     },
                     "showTimeoutMessage": true,
                     "maybeShowTimeoutMessage": true,

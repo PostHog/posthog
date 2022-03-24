@@ -14,10 +14,12 @@ declare module 'react' {
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
+    /** If icon width is relaxed, width of icon box is set to auto. Default icon width is 1em  */
+    relaxedIconWidth?: boolean
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
-    status?: 'success' | 'warning' | 'danger' | 'highlighted'
+    status?: 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: React.ReactNode
     loading?: boolean
@@ -43,6 +45,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     {
         children,
         icon,
+        relaxedIconWidth = false,
         className,
         tag,
         status,
@@ -80,9 +83,17 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         },
         <>
             <div className="LemonRow__main-area">
-                {icon && <span className="LemonRow__icon">{icon}</span>}
+                {icon && (
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                        {icon}
+                    </span>
+                )}
                 {children && <div className="LemonRow__content">{children}</div>}
-                {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
+                {sideIcon && (
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                        {sideIcon}
+                    </span>
+                )}
             </div>
             {extendedContent && <div className="LemonRow__extended-area">{extendedContent}</div>}
         </>
@@ -96,9 +107,15 @@ export interface LemonSpacerProps {
     large?: boolean
     /** Whether the spacer should be vertical instead of horizontal. */
     vertical?: boolean
+    style?: React.CSSProperties
 }
 
 /** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false, vertical = false }: LemonSpacerProps): JSX.Element {
-    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')} />
+export function LemonSpacer({ large = false, vertical = false, style }: LemonSpacerProps): JSX.Element {
+    return (
+        <div
+            className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')}
+            style={style}
+        />
+    )
 }

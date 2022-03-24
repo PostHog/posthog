@@ -9,9 +9,9 @@ from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 from structlog import get_logger
 
-from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
+from posthog.client import async_execute, sync_execute
 from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
@@ -74,7 +74,7 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b)
+        self.producer.send(topic, value=b, key=key)
 
     def close(self):
         self.producer.flush()

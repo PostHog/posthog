@@ -1,57 +1,46 @@
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightShortId } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 
 const Insight123 = '123' as InsightShortId
 
 describe('trendsLogic', () => {
     let logic: ReturnType<typeof trendsLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights` || String(searchParams.short_id) === Insight123) {
-            return { results: ['result from api'] }
-        } else if (
-            [`api/projects/${MOCK_TEAM_ID}/insights/123`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(
-                pathname
-            )
-        ) {
-            return { result: ['result from api'] }
-        }
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/insights': { results: ['result from api'] },
+                '/api/projects/:team/insights/123': { result: ['result from api'] },
+                '/api/projects/:team/insights/trend/': { result: ['result from api'] },
+            },
+        })
+        initKeaTests()
     })
 
     describe('core assumptions', () => {
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = trendsLogic({
+                dashboardItemId: undefined,
+                cachedInsight: { filters: { insight: InsightType.TRENDS } },
+            })
+            logic.mount()
         })
-
-        it('loads results on mount', async () => {
+        it('loads results on mount if with filters', async () => {
             await expectLogic(logic).toDispatchActions([
                 insightLogic({ dashboardItemId: undefined }).actionTypes.loadResults,
             ])
         })
     })
 
-    describe('reducers', () => {
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-    })
-
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: Insight123 }
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props,
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = trendsLogic(props)
+            logic.mount()
         })
 
         it('setFilters calls insightLogic.setFilters', async () => {

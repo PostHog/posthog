@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework import status
 
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -146,7 +146,9 @@ class TestToolbarCookieMiddleware(APIBaseTest):
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
-    BASE_APP_NUM_QUERIES = 45  # How may queries are made in the base app
+    # How many queries are made in the base app
+    # On Cloud there's an additional multi_tenancy_organizationbilling query
+    BASE_APP_NUM_QUERIES = 45 if not settings.MULTI_TENANCY else 46
 
     second_team: Team
 

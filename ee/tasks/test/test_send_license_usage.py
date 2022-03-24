@@ -6,9 +6,7 @@ from freezegun import freeze_time
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin
-from ee.models.license import License
 from ee.tasks.send_license_usage import send_license_usage
-from posthog.models import organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 

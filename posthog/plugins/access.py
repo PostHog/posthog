@@ -1,8 +1,6 @@
 from typing import Optional, Union
 from uuid import UUID
 
-from django.conf import settings
-
 from posthog.models.organization import Organization
 
 

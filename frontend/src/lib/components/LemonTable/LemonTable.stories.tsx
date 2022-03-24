@@ -1,12 +1,11 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { LemonTable as _LemonTable } from './LemonTable'
+import { LemonTable } from './LemonTable'
 
 export default {
-    title: 'PostHog/Components/LemonTable',
-    component: _LemonTable,
-    parameters: { options: { showPanel: true } },
+    title: 'Components/Lemon Table',
+    component: LemonTable,
     argTypes: {
         loading: {
             control: {
@@ -14,11 +13,11 @@ export default {
             },
         },
     },
-} as ComponentMeta<typeof _LemonTable>
+} as ComponentMeta<typeof LemonTable>
 
-export function LemonTable({ loading }: { loading: boolean }): JSX.Element {
+export function LemonTable_({ loading }: { loading: boolean }): JSX.Element {
     return (
-        <_LemonTable
+        <LemonTable
             loading={loading}
             columns={[{ title: 'Column' }]}
             dataSource={[] as Record<string, any>[]}

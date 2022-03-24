@@ -83,9 +83,6 @@ class Organization(UUIDModel):
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    domain_whitelist: ArrayField = ArrayField(
-        models.CharField(max_length=256, blank=False), blank=True, default=list
-    )  # Used to allow self-serve account creation based on social login (#5111)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
@@ -97,6 +94,9 @@ class Organization(UUIDModel):
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
     personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    domain_whitelist: ArrayField = ArrayField(
+        models.CharField(max_length=256, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
 

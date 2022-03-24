@@ -3,7 +3,7 @@ import secrets
 from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import Http404, HttpRequest
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -20,8 +20,9 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, Insight, Team
+from posthog.models import Dashboard, Insight, Organization, Team
 from posthog.models.user import User
+from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -156,23 +157,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return instance
 
-    def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
-        item_as_list = list(i for i in items if i.id == dive_source_id)
-        if not item_as_list:
-            item_as_list = [Insight.objects.get(pk=dive_source_id)]
-        others = list(i for i in items if i.id != dive_source_id)
-        return item_as_list + others
-
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
-
-        dive_source_id = self.context["request"].GET.get("dive_source_id")
-        if dive_source_id is not None:
-            items = self.add_dive_source_item(items, int(dive_source_id))
 
         #  Make sure all items have an insight set
         # This should have only happened historically
@@ -216,11 +206,21 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action != "update":
+        if not self.action.endswith("update"):
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
-        queryset = queryset.select_related("team__organization").prefetch_related(
-            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"))
+
+        deferred_fields = set.union(
+            get_deferred_field_set_for_model(
+                Organization, fields_not_deferred={"available_features"}, field_prefix="team__organization__"
+            ),
+            get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
+        )
+
+        queryset = (
+            queryset.select_related("team__organization", "created_by")
+            .defer(*deferred_fields)
+            .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
         )
         return queryset
 

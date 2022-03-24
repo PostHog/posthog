@@ -1,19 +1,10 @@
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from unittest.mock import ANY
 
-import pytest
 from django.test import Client
-from freezegun.api import freeze_time
 
-from posthog.api.test.test_event_definition import (
-    EventData,
-    capture_event,
-    create_organization,
-    create_team,
-    create_user,
-)
+from posthog.api.test.test_event_definition import EventData, capture_event
 
 
 def identify(

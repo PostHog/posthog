@@ -1,14 +1,7 @@
-from datetime import datetime
-from os import stat
 from unittest.mock import patch
-
-import pytz
-from django.utils import timezone
-from rest_framework import status
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 

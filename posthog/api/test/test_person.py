@@ -4,15 +4,14 @@ from unittest import mock
 from uuid import uuid4
 
 from django.utils import timezone
-from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -80,6 +79,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data[1]["name"], "$browser")
         self.assertEqual(response_data[1]["count"], 1)
 
+    @test_with_materialized_columns(person_properties=["random_prop"])
+    @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
             team=self.team, properties={"random_prop": "asdf", "some other prop": "with some text"},
@@ -119,6 +120,41 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
+
+    def test_filter_by_cohort_prop(self):
+        for i in range(5):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person",}]))
+        )
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
+    def test_filter_by_cohort_search(self):
+        for i in range(5):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons?search=target")
+        self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_static_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
@@ -346,11 +382,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         cohort3.calculate_people_ch(pending_version=0)
 
+        cohort4 = Cohort.objects.create(
+            team=self.team, groups=[], is_static=True, last_calculation=timezone.now(), name="cohort4"
+        )
+        cohort4.insert_users_by_list(["2"])
+
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
-        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(
@@ -378,3 +420,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+    def test_csv_export(self):
+        _create_person(
+            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+        _create_person(team=self.team, distinct_ids=["4"], properties={"$browser": "whatever", "$os": "Windows"})
+
+        response = self.client.get("/api/person.csv")
+        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+
+        response = self.client.get(
+            "/api/person.csv?properties=%s" % json.dumps([{"key": "$os", "value": "Windows", "type": "person"}])
+        )
+        self.assertEqual(len(response.content.splitlines()), 2)
+
+    def test_pagination_limit(self):
+        for index in range(0, 20):
+            _create_person(
+                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
+            )
+        response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(len(response["results"]), 10)

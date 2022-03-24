@@ -1,7 +1,6 @@
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -20,7 +19,7 @@ describe('toolbar toolbarLogic', () => {
         logic.mount()
     })
 
-    it('mounts feature flags', () => {
-        expectLogic(logic).toMount([featureFlagsLogic])
+    it('is not authenticated', () => {
+        expectLogic(logic).toMatchValues({ isAuthenticated: false })
     })
 })

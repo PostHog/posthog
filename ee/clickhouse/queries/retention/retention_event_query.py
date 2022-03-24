@@ -1,10 +1,8 @@
-from typing import Any, Dict, Literal, Tuple, Union, cast
+from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import (
     PAGEVIEW_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -13,25 +11,35 @@ from posthog.constants import (
     RetentionQueryType,
 )
 from posthog.models import Entity
-from posthog.models.action import Action
+from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.team import Team
+from posthog.queries.util import get_trunc_func_ch
 
 
-class RetentionEventsQuery(ClickhouseEventQuery):
+class RetentionEventsQuery(EnterpriseEventQuery):
     _filter: RetentionFilter
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, team_id: int):
+    def __init__(
+        self,
+        filter: RetentionFilter,
+        event_query_type: RetentionQueryType,
+        team: Team,
+        aggregate_users_by_distinct_id: Optional[bool] = None,
+    ):
         self._event_query_type = event_query_type
-        super().__init__(filter=filter, team_id=team_id)
+        super().__init__(
+            filter=filter, team=team, override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
+
         _fields = [
             self.get_timestamp_field(),
-            f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target",
             (
                 f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -43,6 +51,13 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 else f"{self.EVENT_TABLE_ALIAS}.event AS event"
             ),
         ]
+
+        if self._aggregate_users_by_distinct_id and not self._filter.aggregation_group_type_index:
+            _fields += [f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"]
+        else:
+            _fields += [
+                f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target"
+            ]
 
         if self._filter.breakdowns and self._filter.breakdown_type:
             # NOTE: `get_single_or_multi_property_string_expr` doesn't
@@ -148,7 +163,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             return f"{self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._filter.aggregation_group_type_index is not None:
+        if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True

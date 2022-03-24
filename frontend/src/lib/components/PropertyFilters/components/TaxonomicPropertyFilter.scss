@@ -47,6 +47,10 @@
             grid-row: 2;
         }
 
+        &.logical-operator-filtering {
+            grid-template-columns: 16px minmax(160px, 1fr) minmax(100px, auto);
+        }
+
         // small screens
         @media (max-width: 512px) {
             grid-template-columns: 35px auto 70px;
@@ -57,6 +61,9 @@
                 .arrow {
                     display: none;
                 }
+            }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px auto 70px;
             }
         }
 
@@ -84,6 +91,9 @@
                 grid-column: 4;
                 grid-row: 1;
             }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px minmax(140px, 160px) minmax(70px, 160px) minmax(100px, 400px);
+            }
         }
         // even more space for huge screens
         @media (min-width: 1280px) {
@@ -91,6 +101,9 @@
 
             &.symmetric {
                 grid-template-columns: 70px minmax(140px, 160px) minmax(70px, 80px) minmax(180px, 200px);
+            }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px minmax(140px, 220px) minmax(80px, 160px) minmax(100px, 500px);
             }
         }
     }

@@ -1,6 +1,6 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
-import { formatPropertyLabel } from 'lib/utils'
+import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -15,13 +15,20 @@ export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
     setRef?: (ref: HTMLElement) => void
+    style?: React.CSSProperties
 }
 
 export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
-    return <>{formatPropertyLabel(item, cohorts, keyMapping, (s) => formatForDisplay(item.key, s))}</>
+    return (
+        <>
+            {formatPropertyLabel(item, cohortsById, keyMapping, (s) =>
+                midEllipsis(formatForDisplay(item.key, s)?.toString() || '', 32)
+            )}
+        </>
+    )
 }
 
 export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
@@ -38,6 +45,7 @@ interface FilterRowProps {
     setRef?: (ref: HTMLElement) => void
     children: string | JSX.Element
     item: AnyPropertyFilter
+    style?: React.CSSProperties
 }
 
 function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
@@ -68,12 +76,12 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return iconElement
 }
 
-export function FilterButton({ onClick, onClose, setRef, children, item }: FilterRowProps): JSX.Element {
+export function FilterButton({ onClick, onClose, setRef, children, item, style }: FilterRowProps): JSX.Element {
     return (
         <Button
             type="primary"
             shape="round"
-            style={{ overflow: 'hidden' }}
+            style={{ overflow: 'hidden', ...style }}
             onClick={onClick}
             ref={setRef}
             className={'property-filter'}

@@ -3,8 +3,8 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
 from ee.models.license import License
+from posthog.client import sync_execute
 from posthog.models import User
 from posthog.settings import SITE_URL
 from posthog.tasks.status_report import get_instance_licenses
@@ -12,7 +12,7 @@ from posthog.tasks.status_report import get_instance_licenses
 
 def send_license_usage():
     license = License.objects.first_valid()
-    user = User.objects.first()
+    user = User.objects.filter(is_active=True).first()
     if not license:
         return
     try:

@@ -15,7 +15,6 @@ import {
     EntityType,
     InsightModel,
     InsightType,
-    PropertyFilter,
     HelpType,
     SessionPlayerData,
     AvailableFeature,
@@ -24,12 +23,16 @@ import {
     ItemMode,
     AnyPropertyFilter,
     Experiment,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -83,10 +86,10 @@ interface RecordingViewedProps {
     source: RecordingWatchedSource
 }
 
-function flattenProperties(properties: PropertyFilter[]): string[] {
+function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (isPostHogProp(prop.key)) {
+        if (prop.key && isPostHogProp(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -95,8 +98,9 @@ function flattenProperties(properties: PropertyFilter[]): string[] {
     return output
 }
 
-function hasGroupProperties(properties: AnyPropertyFilter[] | undefined): boolean {
-    return !!properties && properties.some((property) => property.group_type_index != undefined)
+function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
 /*
@@ -355,6 +359,12 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
+        reportRecordingConsoleFeedback: (logCount: number, response: string, question: string) => ({
+            logCount,
+            response,
+            question,
+        }),
+        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -369,6 +379,56 @@ export const eventUsageLogic = kea<
             endDate,
             duration,
             significant,
+        }),
+        reportPropertyGroupFilterAdded: true,
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
+            type,
+            groupsLength,
+        }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
+            type,
+            filtersLength,
+        }),
+        reportPrimaryDashboardModalOpened: true,
+        reportPrimaryDashboardChanged: true,
+        // Definition Popup
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
+            type,
+            loadTime,
+        }),
+        reportDataManagementDefinitionSaveFailed: (
+            type: TaxonomicFilterGroupType,
+            loadTime: number,
+            error: string
+        ) => ({ type, loadTime, error }),
+        reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Data Management Pages
+        reportDataManagementEventDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: (loadTime: number) => ({
+            loadTime,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
         }),
     },
     listeners: ({ values }) => ({
@@ -529,7 +589,7 @@ export const eventUsageLogic = kea<
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
-            const { created_at, is_shared, pinned, creation_mode } = dashboard
+            const { created_at, is_shared, pinned, creation_mode, id } = dashboard
             const properties: Record<string, any> = {
                 created_at,
                 is_shared,
@@ -539,6 +599,7 @@ export const eventUsageLogic = kea<
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
                 has_share_token: hasShareToken,
+                dashboard_id: id,
             }
 
             for (const item of dashboard.items) {
@@ -816,6 +877,12 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
+        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
+            posthog.capture('recording console feedback', { question, response, log_count: logCount })
+        },
+        reportRecordingConsoleViewed: ({ logCount }) => {
+            posthog.capture('recording console logs viewed', { log_count: logCount })
+        },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -830,6 +897,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
@@ -838,6 +906,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -846,6 +915,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
             })
         },
@@ -855,9 +925,76 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
+            })
+        },
+        reportPropertyGroupFilterAdded: () => {
+            posthog.capture('property group filter added')
+        },
+        reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
+            posthog.capture('outer match property groups type changed', { type, groupsLength })
+        },
+        reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
+            posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportPrimaryDashboardModalOpened: () => {
+            posthog.capture('primary dashboard modal opened')
+        },
+        reportPrimaryDashboardChanged: () => {
+            posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionHovered: ({ type }) => {
+            posthog.capture('definition hovered', { type })
+        },
+        reportDataManagementDefinitionClickView: ({ type }) => {
+            posthog.capture('definition click view', { type })
+        },
+        reportDataManagementDefinitionClickEdit: ({ type }) => {
+            posthog.capture('definition click edit', { type })
+        },
+        reportDataManagementDefinitionSaveSucceeded: ({ type, loadTime }) => {
+            posthog.capture('definition save succeeded', { type, load_time: loadTime })
+        },
+        reportDataManagementDefinitionSaveFailed: ({ type, loadTime, error }) => {
+            posthog.capture('definition save failed', { type, load_time: loadTime, error })
+        },
+        reportDataManagementDefinitionCancel: ({ type }) => {
+            posthog.capture('definition cancelled', { type })
+        },
+        reportDataManagementEventDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page load failed', { load_time: loadTime, error })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: ({ loadTime }) => {
+            posthog.capture('event definitions page event nested properties load succeeded', { load_time: loadTime })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page event nested properties load failed', {
+                load_time: loadTime,
+                error,
+            })
+        },
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
+            posthog.capture('event definitions page event nested property show detail clicked')
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event property definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event property definitions page load failed', {
+                load_time: loadTime,
+                error,
             })
         },
     }),

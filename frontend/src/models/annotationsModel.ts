@@ -11,12 +11,12 @@ import { userLogic } from 'scenes/userLogic'
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
     actions: {
-        createGlobalAnnotation: (content: string, date_marker: string, insightId?: number) => ({
+        createGlobalAnnotation: (content: string, date_marker: string, insightNumericId?: number) => ({
             content,
             date_marker,
             created_at: now(),
             created_by: userLogic.values.user,
-            insightId,
+            insightNumericId,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     },
@@ -32,12 +32,12 @@ export const annotationsModel = kea<annotationsModelType>({
                 )
                 return response.results
             },
-            createGlobalAnnotation: async ({ insightId, content, date_marker, created_at }) => {
+            createGlobalAnnotation: async ({ insightNumericId, content, date_marker, created_at }) => {
                 await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: (dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker)).toISOString(),
                     created_at: created_at.toISOString(),
-                    dashboard_item: insightId,
+                    dashboard_item: insightNumericId,
                     scope: AnnotationScope.Organization,
                 } as Partial<AnnotationType>)
                 return values.globalAnnotations || []

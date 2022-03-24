@@ -1,35 +1,31 @@
 import { entityFilterLogic, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/actions/`) {
-            return {
-                results: filtersJson.actions,
-            }
-        } else if (pathname.endsWith('/event_definitions/')) {
-            return eventDefinitionsJson
-        }
-    })
-
-    initKeaTestLogic({
-        logic: entityFilterLogic,
-        props: {
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/actions/': {
+                    results: filtersJson.actions,
+                },
+                '/api/projects/:team/event_definitions/': eventDefinitionsJson,
+            },
+        })
+        initKeaTests()
+        logic = entityFilterLogic({
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
-        },
-        onLogic: (l) => (logic = l),
+        })
+        logic.mount()
     })
 
     describe('core assumptions', () => {

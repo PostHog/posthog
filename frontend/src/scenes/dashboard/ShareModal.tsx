@@ -9,9 +9,8 @@ import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
 import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -40,13 +39,12 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
     const { dashboardLoading } = useValues(dashboardsModel)
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
         <LemonModal visible={visible} onCancel={onCancel}>
-            {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && <DashboardCollaboration dashboardId={dashboard.id} />}
+            {<DashboardCollaboration dashboardId={dashboard.id} />}
             <section>
                 <h5>External sharing</h5>
                 <LemonSwitch
@@ -60,6 +58,7 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
                     }}
                     type="primary"
                     disabled={!canEditDashboard}
+                    rowStyle={{ height: '3rem', fontWeight: 600 }}
                 />
                 {dashboard.is_shared ? (
                     <>

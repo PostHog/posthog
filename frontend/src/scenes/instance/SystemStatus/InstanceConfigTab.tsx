@@ -5,9 +5,9 @@ import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import React, { useEffect } from 'react'
-import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
+import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InstanceSetting } from '~/types'
-import { RenderMetricValue } from './RenderMetricValue'
+import { MetricValueInterface, RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { WarningOutlined } from '@ant-design/icons'
@@ -68,11 +68,12 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Value',
             render: function renderValue(_, record) {
-                const props = {
+                const props: MetricValueInterface = {
                     value: record.value,
                     key: record.key,
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
+                    isSecret: record.is_secret,
                 }
                 return instanceConfigMode === ConfigMode.View
                     ? RenderMetricValue(props)

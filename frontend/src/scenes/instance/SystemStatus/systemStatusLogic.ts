@@ -12,10 +12,11 @@ import {
     PreflightStatus,
     InstanceSetting,
 } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { errorToast, isUserLoggedIn, successToast } from 'lib/utils'
+import { isUserLoggedIn } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export enum ConfigMode {
     View = 'view',
@@ -25,10 +26,10 @@ export enum ConfigMode {
 export interface MetricRow {
     metric: string
     key: string
-    value: any
+    value?: boolean | string | number | null
 }
 
-export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
 
 /**
  * We whitelist the specific instance settings that can be edited via the /instance/status page.
@@ -46,6 +47,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_USE_SSL',
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
+    'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
@@ -151,7 +153,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             {} as Record<string, string | boolean | number>,
             {
                 updateInstanceConfigValue: (s, { key, value }) => {
-                    if (value) {
+                    if (value !== undefined) {
                         return { ...s, [key]: value }
                     }
                     const newState = { ...s }
@@ -204,10 +206,8 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             actions.setInstanceConfigMode(ConfigMode.View)
         },
         updateInstanceConfigValue: ({ key, value }) => {
-            if (
-                value &&
-                values.editableInstanceSettings.find((item) => item.key === key)?.value.toString() === value.toString()
-            ) {
+            const previousValue = values.editableInstanceSettings.find((item) => item.key === key)?.value
+            if (value && previousValue == value) {
                 actions.updateInstanceConfigValue(key, undefined)
             }
         },
@@ -220,10 +220,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                     })
                     actions.increaseUpdatedInstanceConfigCount()
                 } catch {
-                    errorToast(
-                        'Error updating settings',
-                        'There was an error updating all your settings. Please try again.'
-                    )
+                    lemonToast.error('There was an error updating instance settings – please try again')
                     await breakpoint(1000)
                     actions.loadInstanceSettings()
                 }
@@ -233,10 +230,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                 actions.loadInstanceSettings()
                 actions.clearInstanceConfigEditing()
                 actions.setInstanceConfigMode(ConfigMode.View)
-                successToast(
-                    'Instance settings updated!',
-                    'Your settings have been updated and should take effect soon.'
-                )
+                lemonToast.success('Instance settings updated')
             }
         },
     }),
@@ -253,7 +247,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
 
     urlToAction: ({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab = tab && ['metrics', 'settings'].includes(tab) ? tab : 'overview'
+            const currentTab = tab && ['metrics', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

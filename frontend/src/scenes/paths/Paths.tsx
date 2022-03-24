@@ -31,18 +31,11 @@ const HIDE_PATH_CARD_HEIGHT = 30
 const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
 
-const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
-
-interface PathsProps {
-    dashboardItemId?: number | null
-    color?: string
-}
-
-export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
+export function Paths(): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvas })
-    const { insightProps } = useValues(insightLogic)
+    const { insight, insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
@@ -53,7 +46,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
     useEffect(() => {
         setPathItemCards([])
         renderPaths()
-    }, [paths, !pathsLoading, canvasWidth, canvasHeight, color])
+    }, [paths, !pathsLoading, canvasWidth, canvasHeight])
 
     const createCanvas = (width: number, height: number): D3Selector => {
         return d3
@@ -104,8 +97,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
                 if (isSelectedPathStartOrEnd(filter, d)) {
                     return d3.color('purple')
                 }
-                const startNodeColor =
-                    c && d3.color(c) ? d3.color(c) : isMonochrome(color) ? d3.color('#5375ff') : d3.color('white')
+                const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
                 return startNodeColor
             })
             .on('mouseover', (data: PathNodeData) => {
@@ -131,15 +123,9 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
             .attr('id', 'dropoff-gradient')
             .attr('gradientTransform', 'rotate(90)')
 
-        dropOffGradient
-            .append('stop')
-            .attr('offset', '0%')
-            .attr('stop-color', color === 'white' ? 'rgba(220,53,69,0.7)' : 'rgb(220,53,69)')
+        dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
 
-        dropOffGradient
-            .append('stop')
-            .attr('offset', '100%')
-            .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
+        dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#fff')
     }
 
     const appendPathLinks = (svg: any, links: PathNodeData[], nodes: PathNodeData[]): void => {
@@ -149,7 +135,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => (isMonochrome(color) ? 'var(--primary)' : 'white'))
+            .attr('stroke', 'var(--primary)')
             .attr('opacity', 0.35)
 
         link.append('path')
@@ -194,7 +180,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
                 )
             })
             .on('mouseleave', () => {
-                svg.selectAll('path').attr('stroke', () => (isMonochrome(color) ? 'var(--primary)' : 'white'))
+                svg.selectAll('path').attr('stroke', 'var(--primary)')
             })
 
         link.append('g')
@@ -240,7 +226,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
 
     function renderPaths(): void {
         const elements = document
-            ?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
+            ?.getElementById(`'${insight?.short_id || DEFAULT_PATHS_ID}'`)
             ?.querySelectorAll(`.paths svg`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
@@ -278,7 +264,7 @@ export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): 
     }
 
     return (
-        <div className="paths-container" id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}>
+        <div className="paths-container" id={`'${insight?.short_id || DEFAULT_PATHS_ID}'`}>
             <div ref={canvas} className="paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&

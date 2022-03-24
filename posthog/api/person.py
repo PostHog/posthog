@@ -24,24 +24,24 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import get_cohort_ids_by_person_uuid
+from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
-from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
+from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
+from posthog.client import sync_execute
 from posthog.constants import (
+    CSV_EXPORT_LIMIT,
     FUNNEL_CORRELATION_PERSON_LIMIT,
     FUNNEL_CORRELATION_PERSON_OFFSET,
     INSIGHT_FUNNELS,
@@ -56,6 +56,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
@@ -63,6 +64,8 @@ from posthog.utils import convert_property_value, format_query_params_absolute_u
 class PersonCursorPagination(CursorPagination):
     ordering = "-id"
     page_size = 100
+    page_size_query_param = "limit"
+    max_page_size = 1000
 
 
 def get_person_name(person: Person) -> str:
@@ -140,7 +143,7 @@ class PersonFilter(filters.FilterSet):
 
         return queryset.filter(
             properties_to_Q(
-                [prop for prop in filter.properties if prop.type == "person"],
+                [prop for prop in filter.property_groups.flat if prop.type == "person"],
                 team_id=self.team_id,
                 is_direct_query=True,
             )
@@ -180,6 +183,34 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
+
+    def paginate_queryset(self, queryset):
+        if self.request.accepted_renderer.format == "csv" or not self.paginator:
+            return None
+        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        try:
+            person = Person.objects.get(team=self.team, pk=pk)
+            delete_person(
+                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            )
+            person.delete()
+            return response.Response(status=204)
+        except Person.DoesNotExist:
+            raise NotFound(detail="Person not found.")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "created_at", "properties", "uuid")
+
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            return queryset[0:CSV_EXPORT_LIMIT]
+
+        return queryset
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
@@ -276,29 +307,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url)}
-
-    def paginate_queryset(self, queryset):
-        if self.request.accepted_renderer.format == "csv" or not self.paginator:
-            return None
-        return self.paginator.paginate_queryset(queryset, self.request, view=self)
-
-    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
-        try:
-            person = Person.objects.get(team=self.team, pk=pk)
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
-            )
-            person.delete()
-            return response.Response(status=204)
-        except Person.DoesNotExist:
-            raise NotFound(detail="Person not found.")
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-
-        return queryset
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
@@ -434,7 +442,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = self.lifecycle_class().get_people(
             target_date=target_date_parsed,
             filter=filter,
-            team_id=team.pk,
+            team=team,
             lifecycle_type=lifecycle_type,
             request=request,
             limit=limit,
@@ -494,9 +502,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohort_ids = get_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
+
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 

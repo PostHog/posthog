@@ -75,6 +75,12 @@ $recording_failure_event_dark: #cd3000;
 $recording_highlight_event: #fdedc9;
 $recording_highlight_event_dark: #946508;
 
+// Taxonomy
+$taxonomy_icon_muted: #747ea1;
+
+// Error state
+$error_red: #bf411a;
+
 // Blue Swatch
 $blue_700: #35416b;
 $blue_500: #597dce;
@@ -144,7 +150,6 @@ $light-grey: #f2f2f2;
 
 $default_spacing: 1rem;
 $radius: 4px;
-$top_nav_height: 50px;
 
 // Recordings
 $recording_spacing: $default_spacing * 2 / 3;

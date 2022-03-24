@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { successToast } from 'lib/utils'
-
+import { lemonToast } from 'lib/components/lemonToast'
 import { passwordResetLogicType } from './passwordResetLogicType'
+
 interface ResponseType {
     success: boolean
     errorCode?: string
@@ -29,7 +29,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.create('api/reset/', { email })
                         return { success: true, email }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -42,7 +42,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.get(`api/reset/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -78,7 +78,7 @@ export const passwordResetLogic = kea<
                             token: values.validatedResetToken.token,
                         })
                         return { success: true }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -88,10 +88,7 @@ export const passwordResetLogic = kea<
     listeners: {
         updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
             if (newPasswordResponse.success) {
-                successToast(
-                    'Password changed successfully',
-                    'Your password was successfully changed. Redirecting you...'
-                )
+                lemonToast.success('Your password has been changed. Redirecting…')
                 await breakpoint(3000)
                 window.location.href = '/' // We need the refresh
             }

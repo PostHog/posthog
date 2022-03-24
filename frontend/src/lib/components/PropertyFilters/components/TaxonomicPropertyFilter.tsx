@@ -21,6 +21,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { FilterLogicalOperator } from '~/types'
+import { IconPlus } from 'lib/components/icons'
 
 let uniqueMemoizedIndex = 0
 
@@ -31,6 +33,8 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    propertyGroupType,
+    orFiltering,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -93,19 +97,37 @@ export function TaxonomicPropertyFilter({
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
-                <div className="taxonomic-filter-row">
-                    <Col className="taxonomic-where">
-                        {index === 0 ? (
-                            <>
-                                <span className="arrow">&#8627;</span>
-                                <span className="text">where</span>
-                            </>
-                        ) : (
-                            <span className="stateful-badge and" style={{ fontSize: '90%' }}>
-                                AND
-                            </span>
-                        )}
-                    </Col>
+                <div className={clsx('taxonomic-filter-row', orFiltering && 'logical-operator-filtering')}>
+                    {orFiltering ? (
+                        <>
+                            {propertyGroupType && index !== 0 && filter?.key && (
+                                <div className="taxonomic-where">
+                                    {propertyGroupType === FilterLogicalOperator.And ? (
+                                        <span style={{ fontSize: 12 }}>
+                                            <strong>{'&'}</strong>
+                                        </span>
+                                    ) : (
+                                        <span style={{ fontSize: 11 }}>
+                                            <strong>{propertyGroupType}</strong>
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <Col className="taxonomic-where">
+                            {index === 0 ? (
+                                <>
+                                    <span className="arrow">&#8627;</span>
+                                    <span className="text">where</span>
+                                </>
+                            ) : (
+                                <span className="stateful-badge and" style={{ fontSize: '90%' }}>
+                                    AND
+                                </span>
+                            )}
+                        </Col>
+                    )}
 
                     <Popup
                         overlay={dropdownOpen ? taxonomicFilter : null}
@@ -116,6 +138,7 @@ export function TaxonomicPropertyFilter({
                     >
                         <Button
                             data-attr={'property-select-toggle-' + index}
+                            style={!filter?.key && propertyGroupType ? { background: 'none', border: 'none' } : {}}
                             className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                         >
@@ -124,9 +147,18 @@ export function TaxonomicPropertyFilter({
                             ) : filter?.key ? (
                                 <PropertyKeyInfo value={filter.key} disablePopover />
                             ) : (
-                                <div>Add filter</div>
+                                <>
+                                    {orFiltering && propertyGroupType ? (
+                                        <div className="primary flex-center">
+                                            <IconPlus className="mr-05" />
+                                            Add filter
+                                        </div>
+                                    ) : (
+                                        <div>Add filter</div>
+                                    )}
+                                </>
                             )}
-                            <SelectDownIcon />
+                            {!propertyGroupType && <SelectDownIcon />}
                         </Button>
                     </Popup>
 

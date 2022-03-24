@@ -31,10 +31,8 @@
         "prettier:check": "prettier --check .",
         "prepare": "yarn protobuf:compile",
         "prepublishOnly": "yarn build",
-        "setup:dev:clickhouse": "cd .. && export DEBUG=1 PRIMARY_DB=clickhouse && python manage.py migrate_clickhouse",
-        "setup:test:ee": "yarn setup:test:postgres && yarn setup:test:clickhouse",
-        "setup:test:postgres": "cd .. && python manage.py setup_test_environment",
-        "setup:test:clickhouse": "cd .. && unset KAFKA_URL && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && python manage.py migrate_clickhouse",
+        "setup:dev:clickhouse": "cd .. && export DEBUG=1 && python manage.py migrate_clickhouse",
+        "setup:test": "cd .. && export TEST=1 && python manage.py setup_test_environment",
         "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up zookeeper kafka clickhouse",
         "services:stop": "cd .. && docker-compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v zookeeper kafka clickhouse",
@@ -85,9 +83,10 @@
         "re2": "^1.16.0",
         "redlock": "^4.2.0",
         "snowflake-sdk": "^1.6.1",
+        "structlog": "^1.0.2",
         "tar-stream": "^2.2.0",
         "uuid": "^8.3.2",
-        "vm2": "3.9.5"
+        "vm2": "3.9.6"
     },
     "devDependencies": {
         "@babel/cli": "^7.13.0",
@@ -99,7 +98,7 @@
         "@types/jest": "^26.0.23",
         "@types/jsonwebtoken": "^8.5.5",
         "@types/luxon": "^1.27.0",
-        "@types/node": "^14.14.6",
+        "@types/node": "^16.0.0",
         "@types/node-fetch": "^2.5.10",
         "@types/node-schedule": "^1.3.1",
         "@types/pg": "^8.6.0",

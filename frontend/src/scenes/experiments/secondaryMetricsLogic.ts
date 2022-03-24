@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { api } from 'lib/api.mock'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import {
     ChartDisplayType,
@@ -13,7 +13,6 @@ import {
 } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
@@ -142,7 +141,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
                 description: '',
                 tags: [],
                 filters: newInsightFilters,

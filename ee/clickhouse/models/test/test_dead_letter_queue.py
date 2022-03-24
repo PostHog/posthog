@@ -4,11 +4,11 @@ from uuid import UUID, uuid4
 
 from kafka import KafkaProducer
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.client import sync_execute
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
 
@@ -43,8 +43,10 @@ TEST_DATA = {
 def reset_tables():
     sync_execute("TRUNCATE TABLE events_dead_letter_queue")
 
-    # can't truncate table with kafka engine, reading from it will delete the rows
-    sync_execute("SELECT * FROM kafka_events_dead_letter_queue")
+    # We can't truncate a table using Kafka engine but reading from it will delete all the rows
+    # Note: ClickHouse version >= 21.12 do not allow direct select for Kafka/RabbitMQ/FileLog engine tables.
+    #       We can pass `stream_like_engine_allow_direct_select` to override this behavior.
+    sync_execute("SELECT * FROM kafka_events_dead_letter_queue", settings={"stream_like_engine_allow_direct_select": 1})
 
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):

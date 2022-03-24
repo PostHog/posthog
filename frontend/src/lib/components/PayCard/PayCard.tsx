@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react'
 import './PayCard.scss'
 import { ArrowRightOutlined, CloseOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Col, Row } from 'antd'
 import { AvailableFeature } from '~/types'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { UPGRADE_LINK } from 'lib/constants'
 interface PayCardProps {
     title: string
     caption: string
@@ -22,10 +23,11 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
     const { reportPayGateDismissed, reportPayGateShown } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
-        if (preflight?.cloud) {
-            push('/organization/billing')
+        const link = UPGRADE_LINK(preflight?.cloud)
+        if (link.target) {
+            window.open(link.url, link.target)
         } else {
-            window.open('https://posthog.com/pricing', '_blank')
+            push(link.url)
         }
     }
 

@@ -37,6 +37,10 @@ class TestInstanceSettings(APIBaseTest):
             if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
                 self.assertEqual(item["editable"], True)
 
+            if item["key"] == "EMAIL_HOST_PASSWORD":
+                self.assertEqual(item["is_secret"], True)
+                self.assertEqual(item["value"], "")
+
     def test_can_retrieve_setting(self):
 
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
@@ -51,6 +55,27 @@ class TestInstanceSettings(APIBaseTest):
         )
         self.assertEqual(json_response["value_type"], "bool")
         self.assertEqual(json_response["editable"], True)
+
+    def test_retrieve_secret_setting(self):
+
+        response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+
+        self.assertEqual(json_response["key"], "EMAIL_HOST_PASSWORD")
+        self.assertEqual(json_response["value"], "")  # empty values are returned
+        self.assertEqual(json_response["editable"], True)
+        self.assertEqual(json_response["is_secret"], True)
+
+        # When a value is set, the value is never exposed again
+        with override_config(EMAIL_HOST_PASSWORD="this_is_a_secret_sssshhh"):
+            response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+
+        self.assertEqual(json_response["key"], "EMAIL_HOST_PASSWORD")
+        self.assertEqual(json_response["value"], "*****")  # note redacted value
+        self.assertEqual(json_response["is_secret"], True)
 
     def test_non_staff_user_cant_list_or_retrieve(self):
         self.user.is_staff = False

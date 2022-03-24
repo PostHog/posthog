@@ -4,15 +4,40 @@ import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SSOProviderNames } from 'lib/constants'
+
+export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
+    no_new_organizations:
+        'Your email address is not associated with an account. Please ask your administrator for an invite.',
+    invalid_sso_provider: (
+        <>
+            The SSO provider you specified is invalid. Visit{' '}
+            <a href="https://posthog.com/sso" target="_blank">
+                https://posthog.com/sso
+            </a>{' '}
+            for details.
+        </>
+    ),
+    improperly_configured_sso: (
+        <>
+            Cannot login with SSO provider because the provider is not configured, or your instance does not have the
+            required license. Please visit{' '}
+            <a href="https://posthog.com/sso" target="_blank">
+                https://posthog.com/sso
+            </a>{' '}
+            for details.
+        </>
+    ),
+}
 
 export const scene: SceneExport = {
     component: Login,
@@ -21,8 +46,9 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
-    const { authenticate } = useActions(loginLogic)
-    const { authenticateResponseLoading, authenticateResponse } = useValues(loginLogic)
+    const { authenticate, precheck } = useActions(loginLogic)
+    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -69,23 +95,47 @@ export function Login(): JSX.Element {
                                     data-attr="login-email"
                                     placeholder="email@yourcompany.com"
                                     type="email"
+                                    onBlur={() => precheck({ email: form.getFieldValue('email') })}
+                                    autoComplete="off"
                                 />
                             </Form.Item>
-                            <PasswordInput />
+                            <div
+                                className={clsx(
+                                    'password-wrapper',
+                                    (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
+                                        'hidden'
+                                )}
+                            >
+                                <PasswordInput />
+                            </div>
                             <Form.Item>
-                                <Button
-                                    className="btn-bridge"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    loading={authenticateResponseLoading}
-                                    block
-                                >
-                                    Login
-                                </Button>
+                                {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                                    <Button
+                                        className="btn-bridge"
+                                        htmlType="submit"
+                                        data-attr="password-login"
+                                        loading={authenticateResponseLoading || precheckResponseLoading}
+                                        block
+                                    >
+                                        Login
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        className="btn-bridge"
+                                        data-attr="sso-login"
+                                        htmlType="button"
+                                        block
+                                        onClick={() =>
+                                            (window.location.href = `/login/${precheckResponse.sso_enforcement}/`)
+                                        }
+                                    >
+                                        {SocialLoginIcon(precheckResponse.sso_enforcement)} Login with{' '}
+                                        {SSOProviderNames[precheckResponse.sso_enforcement]}
+                                    </Button>
+                                )}
                             </Form.Item>
                         </Form>
                         <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
-                            &nbsp;
                             {preflight?.cloud && (
                                 <Link to="/signup" data-attr="signup" className="lhs">
                                     Create an account

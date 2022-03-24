@@ -1,16 +1,19 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
+import {
+    retentionTableLogic,
+    dateOptions,
+    retentionOptionDescriptions,
+    retentionOptions,
+} from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-import { FilterType, RetentionType } from '~/types'
+import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconOpenInNew } from 'lib/components/icons'
-import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,6 +22,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '../BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { GlobalFiltersTitle } from '../common'
+import { MathAvailability } from '../ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -32,22 +40,16 @@ export function RetentionTab(): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
-    // TODO: Update constant in retentionTableLogic.ts when releasing 4050
-    const retentionOptions = {
-        [`${RETENTION_FIRST_TIME}`]: 'for the first time',
-        [`${RETENTION_RECURRING}`]: 'recurringly',
-    }
-
     return (
         <div data-attr="retention-tab" className="retention-tab">
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
+                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
                     <Row gutter={8} align="middle">
                         <Col>
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
@@ -120,7 +122,7 @@ export function RetentionTab(): JSX.Element {
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
@@ -156,22 +158,48 @@ export function RetentionTab(): JSX.Element {
                         </Col>
                     </Row>
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                    <GlobalFiltersTitle unit="actions/events" />
-                    <PropertyFilters
-                        propertyFilters={filters.properties}
-                        onChange={(properties) => setFilters({ properties })}
-                        pageKey="insight-retention"
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                        ]}
-                        eventNames={allEventNames}
-                    />
-                    <TestAccountFilter filters={filters} onChange={setFilters} />
+                <Col
+                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
+                    xs={24}
+                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
+                >
+                    {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
+                        <PropertyGroupFilters
+                            propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                            onChange={(properties: PropertyGroupFilter) => {
+                                setFilters({ properties })
+                            }}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                            pageKey="insight-retention"
+                            eventNames={allEventNames}
+                            filters={filters}
+                            setTestFilters={(testFilters) => setFilters(testFilters)}
+                        />
+                    ) : (
+                        <>
+                            <GlobalFiltersTitle unit="actions/events" />
+                            <PropertyFilters
+                                propertyFilters={convertPropertyGroupToProperties(filters.properties)}
+                                onChange={(properties) => setFilters({ properties })}
+                                pageKey="insight-retention"
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                                eventNames={allEventNames}
+                            />
+                            <TestAccountFilter filters={filters} onChange={setFilters} />
+                        </>
+                    )}
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (

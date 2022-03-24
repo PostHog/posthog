@@ -1,11 +1,15 @@
-import { AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
 export function parseProperties(
-    input: AnyPropertyFilter[] | Record<string, string> | null | undefined
+    input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
 ): AnyPropertyFilter[] {
     if (Array.isArray(input) || !input) {
         return input || []
+    }
+    if (input && !Array.isArray(input) && isPropertyGroup(input)) {
+        return flattenPropertyGroup([], input as PropertyGroupFilter)
     }
     // Old style dict properties
     return Object.entries(input).map(([inputKey, value]) => {

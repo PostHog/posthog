@@ -13,11 +13,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
-from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_grouped_clauses
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
+from ee.clickhouse.queries.property_values import get_property_values_for_key
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -26,8 +25,10 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.client import sync_execute
 from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
+from posthog.models.action.util import format_action_filter
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission

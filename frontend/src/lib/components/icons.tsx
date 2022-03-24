@@ -3,20 +3,6 @@ import React, { CSSProperties } from 'react'
 import { ArrowUpOutlined } from '@ant-design/icons'
 import './icons.scss'
 
-export function IllustrationDanger({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M16 2.11495C8.33206 2.11495 2.1157 8.33095 2.1157 16C2.1157 23.6691 8.33206 29.8851 16 29.8851C23.6679 29.8851 29.8843 23.6691 29.8843 16C29.8843 8.33095 23.6679 2.11495 16 2.11495ZM0 16C0 7.16367 7.16282 0 16 0C24.8372 0 32 7.16367 32 16C32 24.8363 24.8372 32 16 32C7.16282 32 0 24.8363 0 16Z"
-                fill="currentcolor"
-            />
-            <path d="M14 6H17.7025V20.3251H14V6ZM17.7025 22.6171V25.4821H14V22.6171H17.7025Z" fill="currentcolor" />
-        </svg>
-    )
-}
-
 export function IconJavascript({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
@@ -261,6 +247,18 @@ export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
+        </svg>
+    )
+}
+
+/** A plus button like IconPlus, but more compact */
+export function IconPlusMini(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m16.7917 11.1667h-3.9584v-3.95837c0-.11458-.0937-.20833-.2083-.20833h-1.25c-.1146 0-.2083.09375-.2083.20833v3.95837h-3.95837c-.11458 0-.20833.0937-.20833.2083v1.25c0 .1146.09375.2083.20833.2083h3.95837v3.9584c0 .1145.0937.2083.2083.2083h1.25c.1146 0 .2083-.0938.2083-.2083v-3.9584h3.9584c.1145 0 .2083-.0937.2083-.2083v-1.25c0-.1146-.0938-.2083-.2083-.2083z"
+                fill="currentColor"
+            />
         </svg>
     )
 }
@@ -516,6 +514,27 @@ export function IconExclamation(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
                 <path d="m12 21c1.1046 0 2-.8954 2-2s-.8954-2-2-2-2 .8954-2 2 .8954 2 2 2z" />
                 <path d="m10 3h4v12h-4z" />
             </g>
+        </svg>
+    )
+}
+
+/** Material Design Error Outline icon. */
+export function IconErrorOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 15h2v2h-2zm0-8h2v6h-2zm.99-5c-5.52 0-9.99 4.48-9.99 10s4.47 10 9.99 10c5.53 0 10.01-4.48 10.01-10s-4.48-10-10.01-10zm.01 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Warning Amber Outline icon. */
+export function IconWarningAmber(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />{' '}
         </svg>
     )
 }
@@ -852,7 +871,7 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
 
 export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -865,7 +884,7 @@ export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element 
 
 export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
                 fill="currentColor"
@@ -885,7 +904,7 @@ export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
 
 export function PageleaveIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
                 fill="currentColor"
@@ -954,7 +973,7 @@ export function IconCancel(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Delete icon. */
+/** Material Design Delete (Trash) icon. */
 export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
@@ -1166,40 +1185,60 @@ export function UnverifiedEventStack({
     )
 }
 
-export function VerifiedEventStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function VerifiedEventStack({ width = 26, height = 26, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 26 26"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M2 6H4V20H18V22H4C2.9 22 2 21.1 2 20V6ZM8 2H20C21.1 2 22 2.9 22 4V16C22 17.1 21.1 18 20 18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2ZM8 16H20V4H8V16ZM16.5857 13.9998H11.3584V6.72705H16.5999V8.31796H13.3328V9.56796H16.33V11.1589H13.3328V12.4089H16.5857V13.9998Z"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
                 fill="currentColor"
             />
-            <rect x="16" y="16" width="12" height="12" rx="2" fill="transparent" />
             <path
-                d="M20.7289 23.0449L19.0628 21.3716L18 22.4417L20.7289 25.1777L26 19.8923L24.9372 18.8223L20.7289 23.0449Z"
+                d="M18.7289 21.0449L17.0628 19.3716L16 20.4417L18.7289 23.1777L24 17.8923L22.9372 16.8223L18.7289 21.0449Z"
                 fill="currentColor"
             />
         </svg>
     )
 }
 
-export function ActionStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function ActionStack({ width = 20, height = 20, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M2 6H4V20H18V22H4C2.9 22 2 21.1 2 20V6ZM8 2H20C21.1 2 22 2.9 22 4V16C22 17.1 21.1 18 20 18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2ZM8 16H20V4H8V16ZM12.6851 12.3414L12.1453 13.9998H10.4976L13.0082 6.72705H14.9897L17.4968 13.9998H15.8491L15.3093 12.3414H12.6851ZM13.9706 8.38898L13.0757 11.1411H14.9223L14.0274 8.38898H13.9706Z"
-                fill="currentColor"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM10.6851 10.3414L10.1453 11.9998H8.49756L11.0082 4.72705H12.9897L15.4968 11.9998H13.8491L13.3093 10.3414H10.6851ZM11.9706 6.38898L11.0757 9.14111H12.9223L12.0274 6.38898H11.9706Z"
+                fill="#747EA2"
             />
         </svg>
     )
 }
 
-export function CohortIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function CohortIcon({ width = 24, height = 12, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="24" height="12" viewBox="0 0 24 12" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 12"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
             <path
                 d="M4 7C5.1 7 6 6.1 6 5C6 3.9 5.1 3 4 3C2.9 3 2 3.9 2 5C2 6.1 2.9 7 4 7ZM5.13 8.1C4.76 8.04 4.39 8 4 8C3.01 8 2.07 8.21 1.22 8.58C0.48 8.9 0 9.62 0 10.43V12H4.5V10.39C4.5 9.56 4.73 8.78 5.13 8.1ZM20 7C21.1 7 22 6.1 22 5C22 3.9 21.1 3 20 3C18.9 3 18 3.9 18 5C18 6.1 18.9 7 20 7ZM24 10.43C24 9.62 23.52 8.9 22.78 8.58C21.93 8.21 20.99 8 20 8C19.61 8 19.24 8.04 18.87 8.1C19.27 8.78 19.5 9.56 19.5 10.39V12H24V10.43ZM16.24 7.65C15.07 7.13 13.63 6.75 12 6.75C10.37 6.75 8.93 7.14 7.76 7.65C6.68 8.13 6 9.21 6 10.39V12H18V10.39C18 9.21 17.32 8.13 16.24 7.65ZM8.07 10C8.16 9.77 8.2 9.61 8.98 9.31C9.95 8.93 10.97 8.75 12 8.75C13.03 8.75 14.05 8.93 15.02 9.31C15.79 9.61 15.83 9.77 15.93 10H8.07ZM12 2C12.55 2 13 2.45 13 3C13 3.55 12.55 4 12 4C11.45 4 11 3.55 11 3C11 2.45 11.45 2 12 2ZM12 0C10.34 0 9 1.34 9 3C9 4.66 10.34 6 12 6C13.66 6 15 4.66 15 3C15 1.34 13.66 0 12 0Z"
                 fill="currentColor"
@@ -1208,13 +1247,137 @@ export function CohortIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-export function PropertyIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function PropertyIcon({ width = 18, height = 10, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="18" height="10" viewBox="0 0 18 10" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 18 10"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
             <path
                 d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4ZM0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4Z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+export function VerifiedPropertyIcon({
+    width = 21,
+    height = 16,
+    ...props
+}: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 21 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H11H18V4H4V6ZM4 8H11V10H4V8ZM4 0V2H18V0H4ZM14.0628 11.5494L15.7289 13.2226L19.9372 9L21 10.07L15.7289 15.3555L13 12.6194L14.0628 11.5494Z"
+                fill="#77B96C"
+            />
+        </svg>
+    )
+}
+
+export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H13V20H2C0.9 20 0 19.1 0 18V4ZM20 2V13H18V2H6V14H13V16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0H18C19.1 0 20 0.9 20 2ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998ZM23.66 17.37L22.52 18.37C22.6 18.87 22.6 19.13 22.52 19.64L23.66 20.64L22.66 22.37L21.21 21.88C20.89 22.15 20.53 22.36 20.13 22.51L19.83 24H17.83L17.53 22.49C17.13 22.34 16.77 22.13 16.45 21.86L15 22.35L14 20.62L15.14 19.62C15.06 19.12 15.06 18.86 15.14 18.36L14 17.36L15 15.63L16.45 16.12C16.77 15.85 17.13 15.64 17.53 15.49L17.83 14H19.83L20.13 15.5C20.53 15.65 20.89 15.86 21.21 16.13L22.66 15.64L23.66 17.37ZM16.8301 19C16.8301 20.1 17.7301 21 18.8301 21C19.9301 21 20.8301 20.1 20.8301 19C20.8301 17.9 19.9301 17 18.8301 17C17.7301 17 16.8301 17.9 16.8301 19Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function LiveIcon({ width, height, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 20 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                d="M5.76 12.2402C4.67 11.1602 4 9.66018 4 8.00018C4 6.34018 4.67 4.84018 5.76 3.76018L7.18 5.18018C6.45 5.90018 6 6.90018 6 8.00018C6 9.10018 6.45 10.1002 7.17 10.8302L5.76 12.2402ZM14.24 12.2402C15.33 11.1602 16 9.66018 16 8.00018C16 6.34018 15.33 4.84018 14.24 3.76018L12.82 5.18018C13.55 5.90018 14 6.90018 14 8.00018C14 9.10018 13.55 10.1002 12.83 10.8302L14.24 12.2402ZM10 6.00018C8.9 6.00018 8 6.90018 8 8.00018C8 9.10018 8.9 10.0002 10 10.0002C11.1 10.0002 12 9.10018 12 8.00018C12 6.90018 11.1 6.00018 10 6.00018ZM18 8.00018C18 10.2102 17.1 12.2102 15.65 13.6502L17.07 15.0702C18.88 13.2602 20 10.7602 20 8.00018C20 5.24018 18.88 2.74018 17.07 0.930176L15.65 2.35018C17.1 3.79018 18 5.79018 18 8.00018ZM4.35 2.35018L2.93 0.930176C1.12 2.74018 0 5.24018 0 8.00018C0 10.7602 1.12 13.2602 2.93 15.0702L4.35 13.6502C2.9 12.2102 2 10.2102 2 8.00018C2 5.79018 2.9 3.79018 4.35 2.35018Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function HomeIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="54" height="48" viewBox="0 0 54 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M26.7334 4.8L41.1334 15.792V12H45.9334V19.464L53.1334 24.96L50.2294 28.776L45.9334 25.488V48H7.53343V25.488L3.23742 28.752L0.333426 24.96L26.7334 4.8ZM12.3334 43.2H24.3334V33.6H29.1334V43.2H41.1334V21.84L26.7334 10.848L12.3334 21.84V43.2ZM31.5334 0C31.5334 3.984 34.7494 7.2 38.7334 7.2C40.0534 7.2 41.1334 8.28 41.1334 9.6H45.9334C45.9334 5.616 42.7174 2.4 38.7334 2.4C37.4134 2.4 36.3334 1.32 36.3334 0H31.5334Z"
+                fill="#F7A501"
+            />
+        </svg>
+    )
+}
+
+export function IconCorporate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12 7V3H2V21H22V7H12ZM10 19H4V17H10V19ZM10 15H4V13H10V15ZM10 11H4V9H10V11ZM10 7H4V5H10V7ZM20 19H12V9H20V19ZM18 11H14V13H18V11ZM18 15H14V17H18V15Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Tune icon. */
+export function IconTuning(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M3,17V19H9V17H3M3,5V7H13V5H3M13,21V19H21V17H13V15H11V21H13M7,9V11H3V13H7V15H9V9H7M21,13V11H11V13H21M15,9H17V7H21V5H17V3H15V9Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Tray Arrow Down icon. */
+export function IconExport(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M2 12H4V17H20V12H22V17C22 18.11 21.11 19 20 19H4C2.9 19 2 18.11 2 17V12M12 15L17.55 9.54L16.13 8.13L13 11.25V2H11V11.25L7.88 8.13L6.46 9.55L12 15Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Filter List icon. */
+export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
+            <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
         </svg>
     )
 }

@@ -1,15 +1,17 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { errorToast, eventToDescription, sum, toParams } from 'lib/utils'
+import { eventToDescription, sum, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,
+    RecordingConsoleLog,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
     RecordingStartAndEndTime,
+    RRWebRecordingConsoleLogPayload,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -21,8 +23,14 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/playerUtils'
+import { lemonToast } from 'lib/components/lemonToast'
+import equal from 'fast-deep-equal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
+const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export interface UnparsedRecordingSegment {
     start_time: string
@@ -124,7 +132,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     path: ['scenes', 'session-recordings', 'sessionRecordingLogic'],
     connect: {
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     },
     actions: {
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
@@ -235,11 +243,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     }),
     sharedListeners: () => ({
         showErrorToast: ({ error }) => {
-            errorToast(
-                'Error fetching information for your session recording',
-                'The following error response was returned:',
-                error
-            )
+            lemonToast.error(error)
         },
     }),
     loaders: ({ values }) => ({
@@ -269,7 +273,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             },
             loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
                 const apiUrl =
-                    url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
+                    url ||
+                    `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots?${toParams(
+                        {
+                            limit: values.featureFlags[FEATURE_FLAGS.TUNE_RECORDING_SNAPSHOT_LIMIT] ? 4 : undefined,
+                        }
+                    )}`
                 const response = await api.get(apiUrl)
                 breakpoint()
                 const snapshotsByWindowId = { ...(values.sessionPlayerData?.snapshotsByWindowId ?? {}) }
@@ -386,6 +395,84 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
                 }
+            },
+        ],
+        orderedConsoleLogs: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                const orderedConsoleLogs: RecordingConsoleLog[] = []
+                sessionPlayerData?.metadata?.segments?.forEach((segment: RecordingSegment) => {
+                    sessionPlayerData?.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                        if (
+                            snapshot.type === 6 && // RRWeb plugin event type
+                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME &&
+                            snapshot.timestamp >= segment.startTimeEpochMs &&
+                            snapshot.timestamp <= segment.endTimeEpochMs
+                        ) {
+                            const { level, payload, trace } = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+
+                            const parsedPayload = payload
+                                ?.map?.((item: string) =>
+                                    item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
+                                )
+                                .join(' ')
+
+                            // Parse the trace string
+                            let parsedTraceString
+                            let parsedTraceURL
+                            // trace[] contains strings that looks like:
+                            // * ":123:456"
+                            // * "https://example.com/path/to/file.js:123:456"
+                            // * "Login (https://example.com/path/to/file.js:123:456)"
+                            // Note: there may be other formats too, but we only handle these ones now
+                            if (trace && trace.length > 0) {
+                                const traceWithoutParentheses = trace[0].split('(').slice(-1)[0].replace(')', '')
+                                const splitTrace = traceWithoutParentheses.split(':')
+                                const lineNumbers = splitTrace.slice(-2).join(':')
+                                parsedTraceURL = splitTrace.slice(0, -2).join(':')
+                                if (splitTrace.length >= 4) {
+                                    // Case with URL and line number
+                                    try {
+                                        const fileNameFromURL = new URL(parsedTraceURL).pathname.split('/').slice(-1)[0]
+                                        parsedTraceString = `${fileNameFromURL}:${lineNumbers}`
+                                    } catch (e) {
+                                        // If we can't parse the URL, fall back to this line number
+                                        parsedTraceString = `:${lineNumbers}`
+                                    }
+                                } else {
+                                    // Case with line number only
+                                    parsedTraceString = `:${lineNumbers}`
+                                }
+                            }
+
+                            orderedConsoleLogs.push({
+                                playerPosition: getPlayerPositionFromEpochTime(
+                                    snapshot.timestamp,
+                                    segment.windowId,
+                                    sessionPlayerData?.metadata?.startAndEndTimesByWindowId
+                                ),
+                                parsedTraceURL,
+                                parsedTraceString,
+                                parsedPayload,
+                                level,
+                            })
+                        }
+                    })
+                })
+                return orderedConsoleLogs
+            },
+        ],
+        areAllSnapshotsLoaded: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return (
+                    sessionPlayerData?.bufferedTo &&
+                    sessionPlayerData?.metadata?.segments.slice(-1)[0] &&
+                    equal(
+                        sessionPlayerData?.metadata?.segments.slice(-1)[0].endPlayerPosition,
+                        sessionPlayerData?.bufferedTo
+                    )
+                )
             },
         ],
     },

@@ -56,7 +56,9 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
     )
     GROUP BY day_start, breakdown_value
     ORDER BY breakdown_value, day_start
-) GROUP BY breakdown_value
+)
+GROUP BY breakdown_value
+ORDER BY breakdown_value
 """
 
 BREAKDOWN_INNER_SQL = """
@@ -127,6 +129,7 @@ FROM events e
 {groups_join}
 {breakdown_filter}
 GROUP BY breakdown_value
+ORDER BY breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """

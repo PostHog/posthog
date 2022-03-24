@@ -10,6 +10,9 @@
     p:last-child {
         margin-bottom: 0;
     }
+    &[data-popper-placement^='top'] {
+        perspective-origin: bottom;
+    }
 }
 
 .Popup__box {
@@ -23,6 +26,9 @@
     max-width: calc(100vw - 1rem);
     max-height: calc(100vh - 6rem);
     overflow: auto;
+    [data-popper-placement^='top'] & {
+        transform-origin: bottom;
+    }
     .Popup--actionable & {
         border-color: var(--primary);
     }
@@ -30,6 +36,10 @@
     .Popup--exit.Popup--exit-active & {
         opacity: 0;
         transform: rotateX(-12deg);
+    }
+    .Popup--enter[data-popper-placement^='top'] &,
+    .Popup--exit.Popup--exit-active[data-popper-placement^='top'] & {
+        transform: rotateX(12deg);
     }
     .Popup--enter.Popup--enter-active &,
     .Popup--exit & {
