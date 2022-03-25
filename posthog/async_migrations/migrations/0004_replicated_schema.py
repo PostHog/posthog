@@ -25,8 +25,7 @@ logger = structlog.get_logger(__name__)
 """
 Migration summary:
 
-Schema change to migrate tables to support replication and more than
-one shard.
+Schema change to migrate tables to support replication and more than one shard.
 
 This allows for higher scalability as more hosts can be added under ClickHouse.
 
