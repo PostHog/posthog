@@ -52,8 +52,10 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         exportCsv: true,
+        setHistoryPage: (page: number) => ({ page }),
     },
     reducers: {
+        historyPage: [null as number | null, { setHistoryPage: (_, { page }) => page }],
         listFilters: [
             {} as PersonFilters,
             {
@@ -257,6 +259,10 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
+                if (values.activeTab !== PersonsTabType.HISTORY) {
+                    delete router.values.searchParams['page']
+                }
+
                 return [
                     router.values.location.pathname,
                     router.values.searchParams,
@@ -278,7 +284,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                 }
             }
         },
-        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }, urlProps) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
                     if (values.showSessionRecordings) {
@@ -297,6 +303,10 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                         actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
                     }
                 }
+            }
+            const pageInURL = urlProps.searchParams['page']
+            if (pageInURL && values.activeTab === PersonsTabType.HISTORY) {
+                actions.setHistoryPage(pageInURL)
             }
         },
     }),

@@ -611,6 +611,7 @@ export enum PersonsTabType {
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
+    HISTORY = 'history',
 }
 
 export enum LayoutView {
