@@ -1,9 +1,9 @@
 import { AvailableFeature } from '~/types'
 
 let features: AvailableFeature[] = []
-export const useFeatures = (f: AvailableFeature[]): void => {
+export const useAvailableFeatures = (f: AvailableFeature[]): void => {
     features = f
 }
-export const getFeatures = (): AvailableFeature[] => {
+export const getAvailableFeatures = (): AvailableFeature[] => {
     return features
 }

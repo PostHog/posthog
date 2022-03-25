@@ -18,7 +18,7 @@ const featureFlagActionsMapping: {
     name: function onName(item, change) {
         return (
             <>
-                changed the description to "{change?.after}" on {nameOrLinkToFlag(item)}
+                changed the description to <strong>"{change?.after}"</strong> on {nameOrLinkToFlag(item)}
             </>
         )
     },
@@ -45,7 +45,7 @@ const featureFlagActionsMapping: {
                 return <>set the flag {nameOrLinkToFlag(item)} to apply to no users</>
             }
 
-            const changedFilters: JSX.Element[] = [<>set the flag {nameOrLinkToFlag(item)} to apply to </>]
+            const changedFilters: JSX.Element[] = []
             filtersAfter.groups
                 .filter((groupAfter, index) => {
                     const groupBefore = filtersBefore?.groups?.[index]
@@ -57,37 +57,60 @@ const featureFlagActionsMapping: {
                     if (properties?.length > 0) {
                         changedFilters.push(
                             <>
-                                <span>{rollout_percentage ?? 0}% of</span>
+                                <div>
+                                    <strong>{rollout_percentage ?? 100}%</strong> of
+                                </div>
                                 <PropertyFiltersDisplay filters={properties} />
                             </>
                         )
                     } else {
-                        changedFilters.push(<>{rollout_percentage}% of all users</>)
+                        changedFilters.push(
+                            <>
+                                <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
+                            </>
+                        )
                     }
                 })
-            if (changedFilters.length > 1) {
+            if (changedFilters.length) {
                 // always starts with a single label, must have 2 or more to include descriptions
                 return (
-                    <>
-                        {changedFilters.map((changedFilter, index) => (
-                            <span key={index}>
-                                {index > 1 && index !== changedFilters.length - 1 && ', '}
-                                {index === changedFilters.length - 1 && changedFilters.length > 2 && ', and '}
-                                {changedFilter}
-                            </span>
-                        ))}
-                    </>
+                    <div className="change-list">
+                        <div>set the flag {nameOrLinkToFlag(item)} to apply to&nbsp;</div>
+                        {changedFilters.flatMap((changedFilter, index, all) => {
+                            const isntFirst = index > 0
+                            const isLast = index === all.length - 1
+                            return (
+                                <div key={index}>
+                                    {isntFirst && <div>,&nbsp;</div>}
+                                    {isLast && all.length >= 2 && <div>and&nbsp;</div>}
+                                    {changedFilter}
+                                </div>
+                            )
+                        })}
+                    </div>
                 )
             }
         }
 
         if (filtersAfter.multivariate) {
             return (
-                <>
+                <div className="change-list">
                     changed the rollout percentage for the variants to{' '}
-                    {filtersAfter.multivariate?.variants.map((v) => `${v.key}: ${v.rollout_percentage}%`).join(', ')} on{' '}
-                    {nameOrLinkToFlag(item)}
-                </>
+                    {filtersAfter.multivariate?.variants.map((v, index, all) => {
+                        const isntFirst = index > 0
+                        const isLast = index === all.length - 1
+                        return (
+                            <div key={v.key}>
+                                {isntFirst && <div>,&nbsp;</div>}
+                                {isLast && all.length >= 2 && <div>and&nbsp;</div>}
+                                <div className="highlighted-activity">
+                                    {v.key}: <strong>{v.rollout_percentage}%</strong>
+                                </div>
+                            </div>
+                        )
+                    })}
+                    &nbsp;on {nameOrLinkToFlag(item)}
+                </div>
             )
         }
 
@@ -100,7 +123,8 @@ const featureFlagActionsMapping: {
     rollout_percentage: function onRolloutPercentage(item, change) {
         return (
             <>
-                changed rollout percentage to {change?.after}% on {nameOrLinkToFlag(item)}
+                changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div> on{' '}
+                {nameOrLinkToFlag(item)}
             </>
         )
     },

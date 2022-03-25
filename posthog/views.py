@@ -122,7 +122,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
             "posthog_version": VERSION,
-            "is_debug": settings.DEBUG,
+            "is_debug": settings.DEBUG or settings.E2E_TESTING,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
             "licensed_users_available": get_licensed_users_available(),
             "site_url": settings.SITE_URL,

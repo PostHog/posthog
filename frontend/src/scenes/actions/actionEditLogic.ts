@@ -77,7 +77,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                         } else {
                             action = await api.actions.create(action, props.temporaryToken)
                         }
-                    } catch (response) {
+                    } catch (response: any) {
                         if (response.code === 'unique') {
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`
