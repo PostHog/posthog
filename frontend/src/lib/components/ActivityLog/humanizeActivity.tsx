@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag'
+    type: 'FeatureFlag' | 'Person'
     action: 'changed' | 'created' | 'deleted'
     field?: string
     before?: string | Record<string, any> | boolean

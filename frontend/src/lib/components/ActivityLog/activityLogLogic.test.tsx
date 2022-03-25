@@ -2,7 +2,14 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 import { useMocks } from '~/mocks/jest'
-import { ActivityChange, ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityChange,
+    ActivityLogItem,
+    ActivityScope,
+    Describer,
+    humanize,
+    PersonMerge,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
     featureFlagsActivityResponseJson,
@@ -53,6 +60,7 @@ describe('the activity log logic', () => {
             )
         })
     })
+
     describe('when scoped by ID', () => {
         beforeEach(() => {
             useMocks({
@@ -110,311 +118,467 @@ describe('the activity log logic', () => {
         it.todo('can load a page of activity')
     })
 
-    describe('humanizing feature flags', () => {
-        const makeAPIItem = (
-            name: string,
-            activity: string,
-            changes: ActivityChange[] | null = null
-        ): ActivityLogItem => ({
+    describe('humanzing', () => {
+        interface APIMockSetup {
+            name: string
+            activity: string
+            changes?: ActivityChange[] | null
+            scope: ActivityScope
+            merge?: PersonMerge | null
+        }
+
+        const makeAPIItem = ({
+            name,
+            activity,
+            changes = null,
+            scope,
+            merge = null,
+        }: APIMockSetup): ActivityLogItem => ({
             user: { first_name: 'peter', email: 'peter@posthog.com' },
             activity,
-            scope: ActivityScope.FEATURE_FLAG,
+            scope,
             item_id: '7',
             detail: {
-                changes: changes,
-                merge: null,
+                changes,
+                merge,
                 name,
             },
             created_at: '2022-02-05T16:28:39.594Z',
         })
 
-        async function testSetup(activityLogItem: ActivityLogItem): Promise<void> {
+        async function testSetup(
+            activityLogItem: ActivityLogItem,
+            scope: ActivityScope,
+            describer: Describer,
+            url: string
+        ): Promise<void> {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': {
+                    [url]: {
                         results: [activityLogItem],
                     },
                 },
             })
             initKeaTests()
             teamLogic.mount()
-            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, id: 7, describer: flagActivityDescriber })
+            logic = activityLogLogic({ scope, id: 7, describer })
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()
         }
 
-        it('can handle rollout percentage change', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'rollout_percentage',
-                        after: '36',
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+        describe('humanizing persons', () => {
+            it('can handle addition of a property', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.PERSON,
+                        name: 'test person',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'Person',
+                                action: 'changed',
+                                field: 'properties',
+                                before: {},
+                                after: { a: 'b' },
+                            },
+                        ],
+                    }),
+                    ActivityScope.PERSON,
+                    personActivityDescriber,
+                    '/api/person/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'added property a with value: b'
+                )
+            })
+
+            it('can handle merging people', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.PERSON,
+                        name: 'test person',
+                        activity: 'people_merged_into',
+                        changes: null,
+                        merge: {
+                            type: 'Person',
+                            source: [
+                                { distinct_ids: ['a'], properties: {} },
+                                { distinct_ids: ['c'], properties: {} },
+                            ],
+                            target: { distinct_ids: ['d'], properties: {} },
+                        },
+                    }),
+                    ActivityScope.PERSON,
+                    personActivityDescriber,
+                    '/api/person/7/activity/'
+                )
+                const actual = logic.values.activity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'merged into this person: User A, and User C'
+                )
+            })
+
+            it('can handle splitting people', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.PERSON,
+                        name: 'test person',
+                        activity: 'split_person',
+                        changes: [
+                            {
+                                type: 'Person',
+                                action: 'changed',
+                                field: undefined,
+                                before: {},
+                                after: { distinct_ids: ['a', 'b'] },
+                            },
+                        ],
+                    }),
+                    ActivityScope.PERSON,
+                    personActivityDescriber,
+                    '/api/person/7/activity/'
+                )
+                const actual = logic.values.activity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'split this person into a, and b'
+                )
+            })
         })
 
-        it('can humanize more than one change', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'rollout_percentage',
-                        after: '36',
-                    },
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'name',
-                        after: 'strawberry',
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+        describe('humanizing feature flags', () => {
+            it('can handle rollout percentage change', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'test flag',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'rollout_percentage',
+                                after: '36',
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
-            expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
-                'changed the description to "strawberry" on test flag'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed rollout percentage to 36% on test flag'
+                )
+            })
 
-        it('can handle filter change - boolean value, no conditions', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'filters',
-                        after: { groups: [{ properties: [], rollout_percentage: 99 }], multivariate: null },
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+            it('can humanize more than one change', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'test flag',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'rollout_percentage',
+                                after: '36',
+                            },
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'name',
+                                after: 'strawberry',
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag test flag to apply to 99% of all users'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed rollout percentage to 36% on test flag'
+                )
+                expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
+                    'changed the description to "strawberry" on test flag'
+                )
+            })
 
-        it('can handle filter change with cohort', async () => {
-            await testSetup(
-                makeAPIItem('with cohort', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'filters',
-                        after: {
-                            groups: [
-                                {
-                                    properties: [
+            it('can handle filter change - boolean value, no conditions', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'test flag',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'filters',
+                                after: { groups: [{ properties: [], rollout_percentage: 99 }], multivariate: null },
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'set the flag test flag to apply to 99% of all users'
+                )
+            })
+
+            it('can handle filter change with cohort', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'with cohort',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'filters',
+                                after: {
+                                    groups: [
                                         {
-                                            key: 'id',
-                                            type: 'cohort',
-                                            value: 98,
-                                            operator: null,
+                                            properties: [
+                                                {
+                                                    key: 'id',
+                                                    type: 'cohort',
+                                                    value: 98,
+                                                    operator: null,
+                                                },
+                                            ],
+                                            rollout_percentage: null,
+                                        },
+                                        {
+                                            properties: [
+                                                {
+                                                    key: 'id',
+                                                    type: 'cohort',
+                                                    value: 411,
+                                                    operator: null,
+                                                },
+                                            ],
+                                            rollout_percentage: 100,
                                         },
                                     ],
-                                    rollout_percentage: null,
+                                    multivariate: null,
                                 },
-                                {
-                                    properties: [
-                                        {
-                                            key: 'id',
-                                            type: 'cohort',
-                                            value: 411,
-                                            operator: null,
-                                        },
-                                    ],
-                                    rollout_percentage: 100,
-                                },
-                            ],
-                            multivariate: null,
-                        },
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
+                )
+            })
 
-        it('can describe a simple rollout percentage change', async () => {
-            await testSetup(
-                makeAPIItem('with simple rollout change', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'filters',
-                        before: {
-                            groups: [
-                                {
-                                    properties: [],
-                                    rollout_percentage: 75,
+            it('can describe a simple rollout percentage change', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'with simple rollout change',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'filters',
+                                before: {
+                                    groups: [
+                                        {
+                                            properties: [],
+                                            rollout_percentage: 75,
+                                        },
+                                    ],
+                                    multivariate: null,
                                 },
-                            ],
-                            multivariate: null,
-                        },
-                        after: {
-                            groups: [
-                                {
-                                    properties: [],
-                                    rollout_percentage: 77,
+                                after: {
+                                    groups: [
+                                        {
+                                            properties: [],
+                                            rollout_percentage: 77,
+                                        },
+                                    ],
+                                    multivariate: null,
                                 },
-                            ],
-                            multivariate: null,
-                        },
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with simple rollout change to apply to 77% of all users'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'set the flag with simple rollout change to apply to 77% of all users'
+                )
+            })
 
-        it('describes a null rollout percentage as 100%', async () => {
-            await testSetup(
-                makeAPIItem('with null rollout change', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'filters',
-                        before: {
-                            groups: [
-                                {
-                                    properties: [
+            it('describes a null rollout percentage as 100%', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'with null rollout change',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'filters',
+                                before: {
+                                    groups: [
                                         {
-                                            key: 'id',
-                                            type: 'cohort',
-                                            value: 98,
-                                            operator: null,
+                                            properties: [
+                                                {
+                                                    key: 'id',
+                                                    type: 'cohort',
+                                                    value: 98,
+                                                    operator: null,
+                                                },
+                                            ],
+                                            rollout_percentage: null,
                                         },
                                     ],
-                                    rollout_percentage: null,
+                                    multivariate: null,
                                 },
-                            ],
-                            multivariate: null,
-                        },
-                        after: {
-                            groups: [
-                                {
-                                    properties: [
+                                after: {
+                                    groups: [
                                         {
-                                            key: 'id',
-                                            type: 'cohort',
-                                            value: 98,
-                                            operator: null,
+                                            properties: [
+                                                {
+                                                    key: 'id',
+                                                    type: 'cohort',
+                                                    value: 98,
+                                                    operator: null,
+                                                },
+                                            ],
+                                            rollout_percentage: null,
+                                        },
+                                        {
+                                            properties: [
+                                                {
+                                                    key: 'email',
+                                                    type: 'person',
+                                                    value: 'someone@somewhere.dev',
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            rollout_percentage: null,
                                         },
                                     ],
-                                    rollout_percentage: null,
+                                    multivariate: null,
                                 },
-                                {
-                                    properties: [
-                                        {
-                                            key: 'email',
-                                            type: 'person',
-                                            value: 'someone@somewhere.dev',
-                                            operator: 'exact',
-                                        },
-                                    ],
-                                    rollout_percentage: null,
-                                },
-                            ],
-                            multivariate: null,
-                        },
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
+                )
+            })
 
-        it('can describe two property changes', async () => {
-            await testSetup(
-                makeAPIItem('with two changes', 'updated', [
-                    {
-                        type: 'FeatureFlag',
-                        action: 'changed',
-                        field: 'filters',
-                        before: {
-                            groups: [
-                                {
-                                    properties: [
+            it('can describe two property changes', async () => {
+                await testSetup(
+                    makeAPIItem({
+                        scope: ActivityScope.FEATURE_FLAG,
+                        name: 'with two changes',
+                        activity: 'updated',
+                        changes: [
+                            {
+                                type: 'FeatureFlag',
+                                action: 'changed',
+                                field: 'filters',
+                                before: {
+                                    groups: [
                                         {
-                                            key: '$initial_browser',
-                                            type: 'person',
-                                            value: ['Chrome'],
-                                            operator: 'exact',
+                                            properties: [
+                                                {
+                                                    key: '$initial_browser',
+                                                    type: 'person',
+                                                    value: ['Chrome'],
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            rollout_percentage: 77,
+                                        },
+                                        {
+                                            properties: [
+                                                {
+                                                    key: '$initial_browser_version',
+                                                    type: 'person',
+                                                    value: ['100'],
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            rollout_percentage: null,
                                         },
                                     ],
-                                    rollout_percentage: 77,
+                                    multivariate: null,
                                 },
-                                {
-                                    properties: [
+                                after: {
+                                    groups: [
                                         {
-                                            key: '$initial_browser_version',
-                                            type: 'person',
-                                            value: ['100'],
-                                            operator: 'exact',
+                                            properties: [
+                                                {
+                                                    key: '$initial_browser',
+                                                    type: 'person',
+                                                    value: ['Chrome'],
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            rollout_percentage: 76,
+                                        },
+                                        {
+                                            properties: [
+                                                {
+                                                    key: '$initial_browser_version',
+                                                    type: 'person',
+                                                    value: ['100'],
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            rollout_percentage: 99,
                                         },
                                     ],
-                                    rollout_percentage: null,
+                                    multivariate: null,
                                 },
-                            ],
-                            multivariate: null,
-                        },
-                        after: {
-                            groups: [
-                                {
-                                    properties: [
-                                        {
-                                            key: '$initial_browser',
-                                            type: 'person',
-                                            value: ['Chrome'],
-                                            operator: 'exact',
-                                        },
-                                    ],
-                                    rollout_percentage: 76,
-                                },
-                                {
-                                    properties: [
-                                        {
-                                            key: '$initial_browser_version',
-                                            type: 'person',
-                                            value: ['100'],
-                                            operator: 'exact',
-                                        },
-                                    ],
-                                    rollout_percentage: 99,
-                                },
-                            ],
-                            multivariate: null,
-                        },
-                    },
-                ])
-            )
-            const actual = logic.values.activity
+                            },
+                        ],
+                    }),
+                    ActivityScope.FEATURE_FLAG,
+                    flagActivityDescriber,
+                    '/api/projects/@current/feature_flags/7/activity/'
+                )
+                const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
-            )
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
+                )
+            })
         })
     })
 })
