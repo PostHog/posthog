@@ -21,7 +21,14 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    created_at DateTime64(6, 'UTC'),
+    person_id UUID,
+    person_properties VARCHAR,
+    group0_properties VARCHAR,
+    group1_properties VARCHAR,
+    group2_properties VARCHAR,
+    group3_properties VARCHAR,
+    group4_properties VARCHAR
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
@@ -118,6 +125,13 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
+person_id,
+person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
