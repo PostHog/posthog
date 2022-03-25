@@ -10,7 +10,7 @@
         background: var(--primary-bg-active);
     }
     &:disabled {
-        opacity: 0.6;
+        opacity: var(--opacity);
         cursor: not-allowed;
     }
     .LemonRow__icon {

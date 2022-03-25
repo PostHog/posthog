@@ -55,17 +55,4 @@
             }
         }
     }
-
-    .LemonInput {
-        .LemonRow__icon--prefix {
-            .magnifier-icon {
-                font-size: 18px;
-                color: var(--text-muted);
-
-                &.magnifier-icon-active {
-                    color: var(--primary);
-                }
-            }
-        }
-    }
 }

@@ -74,10 +74,8 @@ export function TaxonomicFilter({
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
                         value={searchQuery}
-                        prefix={
-                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
-                        }
-                        suffix={
+                        icon={<IconMagnifier className={clsx(searchQuery && 'LemonRow__icon__icon--active')} />}
+                        sideIcon={
                             <Tooltip
                                 title={
                                     <>
@@ -91,10 +89,7 @@ export function TaxonomicFilter({
                                     </>
                                 }
                             >
-                                <IconKeyboard
-                                    style={{ fontSize: '1.2rem' }}
-                                    className="text-muted-alt cursor-pointer"
-                                />
+                                <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
                             </Tooltip>
                         }
                         onKeyDown={(e) => {

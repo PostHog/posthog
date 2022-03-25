@@ -18,7 +18,6 @@ NOTE: $medium is a SCSS var; not a keyword
     --primary-hover: #{$primary_hover};
     --primary-active: #{$primary_active};
     --primary-bg-hover: #{$primary_bg_hover};
-    --primary-bg-hover-alt: #{$primary_bg_hover_alt};
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
@@ -45,6 +44,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-active: #{$border_active};
     --radius: #{$radius};
     --shadow-elevation: #{$shadow_elevation};
+    --opacity: #{$opacity};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};

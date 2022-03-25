@@ -9,18 +9,19 @@ export interface LemonInputProps
     extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'prefix' | 'suffix'> {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    type?: 'default' | 'stealth'
     value?: string
     defaultValue?: string
     placeholder?: string
     onChange?: (newValue: string) => void
     onPressEnter?: (newValue: string) => void
+    /** An embedded input has no border around it and no background. This way it blends better into other components. */
+    embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
     allowClear?: boolean
     /** Icon to prefix input field */
-    prefix?: React.ReactElement | null
+    icon?: React.ReactElement | null
     /** Icon to suffix input field */
-    suffix?: React.ReactElement | null
+    sideIcon?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
 }
@@ -28,15 +29,15 @@ export interface LemonInputProps
 /** Styled input */
 export function LemonInputInternal({
     ref,
-    type = 'default',
     className,
     onChange,
     onFocus,
     onBlur,
     onPressEnter,
+    embedded = false,
     allowClear = false,
-    prefix,
-    suffix,
+    icon,
+    sideIcon,
     ...inputProps
 }: LemonInputProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement | null>(null)
@@ -48,23 +49,23 @@ export function LemonInputInternal({
             'LemonInput',
             inputProps.disabled && 'LemonInput--disabled',
             !inputProps.disabled && focused && 'LemonInput--focused',
-            type !== 'default' && `LemonInput--${type}`,
+            embedded && 'LemonInput--embedded',
             className
         ),
         fullWidth: true,
-        icon: prefix,
+        icon,
         sideIcon: allowClear ? (
             <LemonButton
                 type="tertiary"
-                icon={<IconClose style={{ fontSize: 16 }} />}
-                tooltip="Clear selection"
+                icon={<IconClose style={{ fontSize: '1rem' }} />}
+                tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
                     onChange?.('')
                 }}
             />
         ) : (
-            suffix
+            sideIcon
         ),
         onKeyDown: (event) => {
             if (onPressEnter && event.key === 'Enter') {
@@ -75,7 +76,7 @@ export function LemonInputInternal({
             inputRef?.current?.focus()
             setFocused(true)
         },
-        outlined: type !== 'stealth',
+        outlined: !embedded,
     }
     const props: React.InputHTMLAttributes<HTMLInputElement> = {
         className: 'LemonInput__input',
@@ -95,7 +96,6 @@ export function LemonInputInternal({
     }
 
     return (
-        // TODO: Type better
         <LemonRow {...rowProps} ref={ref as React.Ref<JSX.IntrinsicElements['input']>}>
             <input {...props} ref={inputRef} />
         </LemonRow>

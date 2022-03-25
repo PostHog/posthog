@@ -23,15 +23,15 @@ Default.args = {}
 
 export const Icons = Template.bind({})
 Icons.args = {
-    prefix: <IconMagnifier style={{ fontSize: 18, color: 'var(--text-muted)' }} />,
-    suffix: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--text-muted)' }} />} />,
+    icon: <IconMagnifier style={{ fontSize: 18, color: 'var(--text-muted)' }} />,
+    sideIcon: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--text-muted)' }} />} />,
 }
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
-export const Stealth = Template.bind({})
-Stealth.args = { type: 'stealth' }
+export const Embedded = Template.bind({})
+Embedded.args = { embedded: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }

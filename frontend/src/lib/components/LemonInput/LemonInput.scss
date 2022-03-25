@@ -2,8 +2,14 @@
     color: var(--text-default);
     cursor: text;
 
-    &:not(.LemonInput--focused):not(.LemonInput--disabled):not(:disabled):hover {
+    &:not(.LemonInput--focused):not(.LemonInput--disabled):hover {
         border: 1px solid var(--primary-hover);
+    }
+
+    &.LemonInput--disabled {
+        .LemonRow__icon {
+            opacity: var(--opacity);
+        }
     }
 
     .LemonInput__input {
@@ -14,13 +20,22 @@
         text-overflow: ellipsis;
 
         &:disabled {
-            opacity: 0.6;
+            opacity: var(--opacity);
             cursor: not-allowed;
+        }
+    }
+
+    .LemonRow__icon:first-child {
+        font-size: 18px;
+        color: var(--text-muted);
+
+        svg.LemonRow__icon__icon--active {
+            color: var(--primary);
         }
     }
 }
 
-.LemonInput--stealth {
+.LemonInput--embedded {
     color: var(--text-default);
     font-weight: 400;
     border: none !important;
@@ -35,7 +50,7 @@
 }
 
 .LemonInput--focused {
-    &:not(:disabled) {
+    &:not(.LemonInput--disabled) {
         transition: 100ms border;
         border: 1px solid var(--primary);
     }
