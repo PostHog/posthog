@@ -111,7 +111,9 @@ export function ProjectHomepage(): JSX.Element {
                                       }
                             }
                             items={recordings}
-                            renderRow={(recording: SessionRecordingType) => <RecordingRow recording={recording} />}
+                            renderRow={(recording: SessionRecordingType, index) => (
+                                <RecordingRow key={index} recording={recording} />
+                            )}
                         />
                     </div>
                     <div className="spacer" />

@@ -11,7 +11,7 @@ interface CompactListProps {
     loading: boolean
     items: any[]
     emptyMessage?: EmptyMessageProps
-    renderRow: (rowData: any) => JSX.Element
+    renderRow: (rowData: any, index: number) => JSX.Element
 }
 
 export function CompactList({
@@ -41,7 +41,7 @@ export function CompactList({
                 ) : items.length === 0 && emptyMessage ? (
                     <EmptyMessage {...emptyMessage} />
                 ) : (
-                    <>{items.map((item) => renderRow(item))}</>
+                    <>{items.map((item, index) => renderRow(item, index))}</>
                 )}
             </div>
         </div>
