@@ -46,6 +46,7 @@ class TestDecide(BaseTest):
 
         as a result, if there is a value error reading the `v` param, decide now defaults to 2
         """
+
         response = self.client.post(
             f"/decide/?v=2&v=1.19.0",
             {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id", "groups": {}})},
