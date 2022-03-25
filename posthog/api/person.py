@@ -54,6 +54,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
     Change,
     Detail,
     Merge,
@@ -574,21 +575,36 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
-        activity = load_activity(scope="Person", team_id=self.team_id)
-        return Response(
-            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
-            status=status.HTTP_200_OK,
-        )
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
+        return self._return_activity_page(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
         item_id = kwargs["pk"]
         if not self.get_queryset().filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity = load_activity(scope="Person", team_id=self.team_id, item_id=item_id,)
+        activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
         return Response(
-            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
             status=status.HTTP_200_OK,
         )
 

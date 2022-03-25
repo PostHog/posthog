@@ -1,6 +1,5 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import React from 'react'
 import { useMocks } from '~/mocks/jest'
 import { ActivityChange, ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
@@ -10,6 +9,7 @@ import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
+import React from 'react'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
 
@@ -17,10 +17,13 @@ describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
 
     describe('when not scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -33,27 +36,47 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+
+        it('increments the page when loading the next page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
+            }).toMatchValues({ page: 2 })
+        })
+
+        it('decrements the page when loading the previous page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
+                logic.actions.fetchPreviousPageSuccess({ results: [], total_count: 0 }) // page 1
+            }).toMatchValues({ page: 1 })
         })
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
+                nextPageLoading: false,
+                previousPageLoading: false,
+                nextPageURL: 'a provided url',
             })
 
             // react fragments confuse equality check so,
             // stringify to confirm this value has the humanized version of the response
             // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
     })
     describe('when scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/7/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -66,18 +89,45 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+    })
+
+    describe('when starting at page 4', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/@current/feature_flags/7/activity/': (req) => {
+                        const isOnPageFour = req.url.searchParams.get('page') === '4'
+
+                        return [
+                            200,
+                            {
+                                results: isOnPageFour ? featureFlagsActivityResponseJson : [],
+                                next: 'a provided url',
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({
+                scope: ActivityScope.FEATURE_FLAG,
+                id: 7,
+                describer: flagActivityDescriber,
+                startingPage: 4,
+            })
+            logic.mount()
         })
 
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-            })
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/FeatureFlag/7')
+        })
 
-            // react fragments confuse equality check so,
-            // stringify to confirm this value has the humanized version of the response
-            // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+        it('loads data from page 4 on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
@@ -127,7 +177,7 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                 'changed rollout percentage to 36% on test flag'
@@ -151,13 +201,10 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
-            expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
-                'changed the description to "strawberry" on test flag'
+                'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
             )
         })
 
@@ -172,10 +219,10 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag test flag to apply to 99% of all users'
+                'changed the filter conditions to apply to 99% of all users on test flag'
             )
         })
 
@@ -216,10 +263,10 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
+                'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
             )
         })
 
@@ -251,10 +298,10 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with simple rollout change to apply to 77% of all users'
+                'changed the filter conditions to apply to 77% of all users on with simple rollout change'
             )
         })
 
@@ -311,14 +358,14 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
+                'changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
             )
         })
 
-        it('can describe two property changes', async () => {
+        it('can describe two changes to the same property', async () => {
             await testSetup(
                 makeAPIItem('with two changes', 'updated', [
                     {
@@ -382,10 +429,114 @@ describe('the activity log logic', () => {
                     },
                 ])
             )
-            const actual = logic.values.activity
+            const actual = logic.values.humanizedActivity
 
             expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
+                'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+            )
+        })
+
+        it('can describe many changes in the same activity', async () => {
+            await testSetup(
+                makeAPIItem('with many changes', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'name',
+                        before: '',
+                        after: 'some text that helps people',
+                    },
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_browser',
+                                            type: 'person',
+                                            value: ['Chrome'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 60,
+                                },
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_os',
+                                            type: 'person',
+                                            value: ['Mac OS X'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: {
+                                variants: [
+                                    {
+                                        key: 'test',
+                                        name: '',
+                                        rollout_percentage: 100,
+                                    },
+                                    {
+                                        key: 'asdasd',
+                                        name: '',
+                                        rollout_percentage: 0,
+                                    },
+                                ],
+                            },
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_browser',
+                                            type: 'person',
+                                            value: ['Chrome'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 60,
+                                },
+                                {
+                                    properties: [
+                                        {
+                                            key: '$initial_os',
+                                            type: 'person',
+                                            value: ['Mac OS X'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                            multivariate: {
+                                variants: [
+                                    {
+                                        key: 'test',
+                                        name: '',
+                                        rollout_percentage: 80,
+                                    },
+                                    {
+                                        key: 'asdasd',
+                                        name: '',
+                                        rollout_percentage: 20,
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                ])
+            )
+            const actual = logic.values.humanizedActivity
+
+            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                'changed the description to "some text that helps people", changed the filter conditions to apply to 50% ofInitial OS = Mac OS X , and changed the rollout percentage for the variants to test: 80%, and asdasd: 20% on with many changes'
             )
         })
     })

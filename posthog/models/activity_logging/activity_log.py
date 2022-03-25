@@ -4,6 +4,7 @@ import json
 from typing import Any, List, Literal, Optional, Union
 
 import structlog
+from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
@@ -146,14 +147,38 @@ def log_activity(
         )
 
 
-def load_activity(scope: Literal["FeatureFlag", "Person"], team_id: int, item_id: Optional[int] = None):
-    # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
+@dataclasses.dataclass(frozen=True)
+class ActivityPage:
+    total_count: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+    results: List[ActivityLog]
+
+
+def load_activity(
+    scope: Literal["FeatureFlag", "Person"],
+    team_id: int,
+    item_id: Optional[int] = None,
+    limit: int = 10,
+    page: int = 1,
+) -> ActivityPage:
+    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
+
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
     if item_id is not None:
         activity_query = activity_query.filter(item_id=item_id)
-    activities = list(activity_query[:10])
 
-    return activities
+    paginator = Paginator(activity_query, limit)
+    activity_page = paginator.page(page)
+
+    return ActivityPage(
+        results=list(activity_page.object_list),
+        total_count=paginator.count,
+        limit=limit,
+        has_next=activity_page.has_next(),
+        has_previous=activity_page.has_previous(),
+    )

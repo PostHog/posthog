@@ -5,6 +5,12 @@ import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+
+export enum FeatureFlagsTabs {
+    OVERVIEW = 'overview',
+    HISTORY = 'history',
+}
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
@@ -15,6 +21,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setActiveTab: (tabKey: string) => ({ tabKey }),
+        setHistoryPage: (page: number) => ({ page }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -68,7 +76,53 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
             deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },
+        activeTab: [
+            FeatureFlagsTabs.OVERVIEW,
+            {
+                setActiveTab: (state, { tabKey }) =>
+                    Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,
+            },
+        ],
+        historyPage: [null as number | null, { setHistoryPage: (_, { page }) => page }],
     },
+    actionToUrl: ({ values }) => ({
+        setActiveTab: () => {
+            const searchParams = {
+                ...router.values.searchParams,
+            }
+
+            let replace = false // set a page in history
+            if (!searchParams['tab'] && values.activeTab === FeatureFlagsTabs.OVERVIEW) {
+                // we are on the overview page, and have clicked the overview tab, don't set history
+                replace = true
+            }
+            searchParams['tab'] = values.activeTab
+
+            if (values.activeTab !== FeatureFlagsTabs.HISTORY) {
+                delete searchParams['page']
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
+        },
+    }),
+    urlToAction: ({ actions, values }) => ({
+        [urls.featureFlags()]: async (_, searchParams) => {
+            const tabInURL = searchParams['tab']
+
+            if (!tabInURL) {
+                if (values.activeTab !== FeatureFlagsTabs.OVERVIEW) {
+                    actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
+                }
+            } else if (tabInURL !== values.activeTab) {
+                actions.setActiveTab(tabInURL)
+            }
+
+            const pageInURL = searchParams['page']
+            if (pageInURL && values.activeTab === FeatureFlagsTabs.HISTORY) {
+                actions.setHistoryPage(pageInURL)
+            }
+        },
+    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadFeatureFlags()
