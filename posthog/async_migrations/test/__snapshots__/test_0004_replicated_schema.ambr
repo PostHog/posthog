@@ -102,14 +102,14 @@
 ---
 # name: Test0004ReplicatedSchema.test_migration.6
   <class 'tuple'> (
-    'kafka_groups',
-    "Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
+    'kafka_events_json',
+    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.7
   <class 'tuple'> (
-    'kafka_events_json',
-    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
+    'kafka_groups',
+    "Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.8
