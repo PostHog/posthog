@@ -1,8 +1,10 @@
 import dataclasses
+import datetime
 import json
 from typing import Any, List, Literal, Optional, Union
 
 import structlog
+from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
@@ -14,25 +16,35 @@ logger = structlog.get_logger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag"]
-    action: Literal["changed", "created", "deleted"]
+    type: Literal["FeatureFlag", "Person"]
+    action: Literal["changed", "created", "deleted", "merged", "split"]
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
 
 
 @dataclasses.dataclass(frozen=True)
+class Merge:
+    type: Literal["Person"]
+    source: Optional[Any] = None
+    target: Optional[Any] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
+    merge: Optional[Merge] = None
     name: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, Detail):
+        if isinstance(obj, (Detail, Change, Merge)):
             return obj.__dict__
-        if isinstance(obj, Change):
-            return obj.__dict__
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        if isinstance(obj, UUIDT):
+            return str(obj)
 
         return json.JSONEncoder.default(self, obj)
 
@@ -67,7 +79,7 @@ class ActivityLog(UUIDModel):
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag"], previous: Optional[models.Model], current: Optional[models.Model]
+    model_type: Literal["FeatureFlag", "Person"], previous: Optional[models.Model], current: Optional[models.Model]
 ) -> List[Change]:
     """
     Identifies changes between two models by comparing fields
@@ -135,14 +147,38 @@ def log_activity(
         )
 
 
-def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None):
-    # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
+@dataclasses.dataclass(frozen=True)
+class ActivityPage:
+    total_count: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+    results: List[ActivityLog]
+
+
+def load_activity(
+    scope: Literal["FeatureFlag", "Person"],
+    team_id: int,
+    item_id: Optional[int] = None,
+    limit: int = 10,
+    page: int = 1,
+) -> ActivityPage:
+    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
+
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
     if item_id is not None:
-        activity_query.filter(item_id=item_id)
-    activities = list(activity_query[:10])
+        activity_query = activity_query.filter(item_id=item_id)
 
-    return activities
+    paginator = Paginator(activity_query, limit)
+    activity_page = paginator.page(page)
+
+    return ActivityPage(
+        results=list(activity_page.object_list),
+        total_count=paginator.count,
+        limit=limit,
+        has_next=activity_page.has_next(),
+        has_previous=activity_page.has_previous(),
+    )

@@ -4,8 +4,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { App } from 'scenes/App'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
-import { useFeatures } from '~/mocks/features'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature, DashboardMode } from '~/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -32,21 +32,21 @@ export const List = (): JSX.Element => {
 }
 
 export const New = (): JSX.Element => {
-    useFeatures([])
+    useAvailableFeatures([])
     useEffect(() => {
         router.actions.push(urls.dashboards())
-        newDashboardForm.mount()
-        newDashboardForm.actions.showNewDashboardModal()
+        newDashboardLogic.mount()
+        newDashboardLogic.actions.showNewDashboardModal()
     }, [])
     return <App />
 }
 
 export const NewPremium = (): JSX.Element => {
-    useFeatures([AvailableFeature.DASHBOARD_PERMISSIONING])
+    useAvailableFeatures([AvailableFeature.DASHBOARD_PERMISSIONING])
     useEffect(() => {
         router.actions.push(urls.dashboards())
-        newDashboardForm.mount()
-        newDashboardForm.actions.showNewDashboardModal()
+        newDashboardLogic.mount()
+        newDashboardLogic.actions.showNewDashboardModal()
     }, [])
     return <App />
 }

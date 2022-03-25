@@ -29,7 +29,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.create('api/reset/', { email })
                         return { success: true, email }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -42,7 +42,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.get(`api/reset/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -78,7 +78,7 @@ export const passwordResetLogic = kea<
                             token: values.validatedResetToken.token,
                         })
                         return { success: true }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },

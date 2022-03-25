@@ -13,7 +13,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Input } from 'antd'
+import { Alert, Input } from 'antd'
+import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -22,6 +26,7 @@ export const scene: SceneExport = {
 }
 
 export function EventDefinitionsTable(): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
         useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition, setFilters } =
@@ -98,7 +103,19 @@ export function EventDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <>
+        <div data-attr="manage-events-table">
+            <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
+            {preflight && !preflight?.is_event_property_usage_enabled ? (
+                <UsageDisabledWarning tab="Event Definitions" />
+            ) : (
+                eventDefinitions.results?.[0]?.volume_30_day === null && (
+                    <Alert
+                        type="warning"
+                        message="We haven't been able to get usage and volume data yet. Please check later."
+                        style={{ marginBottom: '1rem' }}
+                    />
+                )
+            )}
             <div
                 style={{
                     display: 'flex',
@@ -158,6 +175,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 emptyState="No event definitions"
                 nouns={['event', 'events']}
             />
-        </>
+        </div>
     )
 }
