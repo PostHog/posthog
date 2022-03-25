@@ -14,11 +14,12 @@ from typing import (
 from django.db.models import Q
 from django.db.models.query import Prefetch
 from django_filters import rest_framework as filters
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
@@ -52,6 +53,15 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    Merge,
+    changes_between,
+    load_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -192,10 +202,23 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
+            person_id = person.id
+
             delete_person(
                 person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
             )
             person.delete()
+
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,  # type: ignore
+                item_id=person_id,
+                scope="Person",
+                activity="deleted",
+                detail=Detail(name=str(person_id)),
+            )
+
             return response.Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -406,12 +429,53 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             for distinct_id in p.distinct_ids:
                 data["distinct_ids"].append(distinct_id)
 
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,  # type: ignore
+                item_id=p.id,
+                scope="Person",
+                activity="was_merged_into_person",
+                detail=Detail(
+                    merge=Merge(type="Person", source=PersonSerializer(p).data, target=PersonSerializer(person).data,)
+                ),
+            )
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,  # type: ignore
+            item_id=person.id,
+            scope="Person",
+            activity="people_merged_into",
+            detail=Detail(
+                merge=Merge(
+                    type="Person",
+                    source=[PersonSerializer(p).data for p in people],
+                    target=PersonSerializer(person).data,
+                ),
+            ),
+        )
+
         return response.Response(data, status=201)
 
     @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        distinct_ids = person.distinct_ids
+
         split_person.delay(person.id, request.data.get("main_distinct_id", None))
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,  # type: ignore
+            item_id=person.id,
+            scope="Person",
+            activity="split_person",
+            detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
+        )
+
         return response.Response({"success": True}, status=201)
 
     @action(methods=["GET"], detail=False)
@@ -507,6 +571,52 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        activity = load_activity(scope="Person", team_id=self.team_id)
+        return Response(
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        item_id = kwargs["pk"]
+        if not self.get_queryset().filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity = load_activity(scope="Person", team_id=self.team_id, item_id=item_id,)
+        return Response(
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+
+        instance_id = kwargs["pk"]
+        try:
+            before_update = self.get_queryset().get(pk=instance_id)
+        except Person.DoesNotExist:
+            before_update = None
+
+        kwargs["partial"] = True
+        response = self.update(request, *args, **kwargs)
+
+        updated_instance = self.get_object()
+
+        changes = changes_between(model_type="Person", previous=before_update, current=updated_instance)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,
+            item_id=instance_id,
+            scope="Person",
+            activity="updated",
+            detail=Detail(changes=changes),
+        )
+
+        return response
 
 
 def paginated_result(
