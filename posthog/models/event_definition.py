@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
+from posthog.settings import TEST
 
 
 class EventDefinition(UUIDModel):
@@ -22,9 +23,15 @@ class EventDefinition(UUIDModel):
 
     class Meta:
         unique_together = ("team", "name")
-        indexes = [
-            GinIndex(name="index_event_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]),
-        ]  # To speed up DB-based fuzzy searching
+        indexes = (
+            [
+                GinIndex(
+                    name="index_event_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+                ),  # To speed up DB-based fuzzy searching
+            ]
+            if not TEST
+            else []
+        )  # This index breaks the --no-migrations option when running tests
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"

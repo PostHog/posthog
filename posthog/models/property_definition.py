@@ -3,6 +3,7 @@ from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
+from posthog.settings import TEST
 
 
 class PropertyType(models.TextChoices):
@@ -50,9 +51,15 @@ class PropertyDefinition(UUIDModel):
 
     class Meta:
         unique_together = ("team", "name")
-        indexes = [
-            GinIndex(name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]),
-        ]  # To speed up DB-based fuzzy searching
+        indexes = (
+            [
+                GinIndex(
+                    name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+                ),  # To speed up DB-based fuzzy searching
+            ]
+            if not TEST
+            else []
+        )  # This index breaks the --no-migrations option when running tests
         constraints = [
             models.CheckConstraint(name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values))
         ]
