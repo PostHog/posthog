@@ -81,15 +81,8 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        currentTab,
-        showSessionRecordings,
-        splitMergeModalShown,
-        historyPage,
-    } = useValues(personsLogic(personsLogicProps))
+    const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
+        useValues(personsLogic(personsLogicProps))
     const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
         personsLogic(personsLogicProps)
     )
@@ -205,7 +198,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         <ActivityLog
                             scope="Person"
                             id={person.id}
-                            startingPage={historyPage ?? 1}
                             describer={personActivityDescriber}
                             caption={
                                 <div>

@@ -50,26 +50,10 @@ describe('the activity log logic', () => {
             await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
         })
 
-        it('increments the page when loading the next page', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
-            }).toMatchValues({ page: 2 })
-        })
-
-        it('decrements the page when loading the previous page', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
-                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
-                logic.actions.fetchPreviousPageSuccess({ results: [], total_count: 0 }) // page 1
-            }).toMatchValues({ page: 1 })
-        })
-
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 nextPageLoading: false,
                 previousPageLoading: false,
-                nextPageURL: 'a provided url',
             })
 
             // react fragments confuse equality check so,

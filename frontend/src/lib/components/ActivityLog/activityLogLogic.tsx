@@ -1,26 +1,25 @@
 import { kea } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, PaginatedResponse } from 'lib/api'
+import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { urls } from 'scenes/urls'
 
-interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
-    total_count: number
-}
-
-export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedResponse>>({
+export const activityLogLogic = kea<activityLogLogicType>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
     props: {} as ActivityLogProps,
     key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
-    loaders: ({ values }) => ({
+    actions: {
+        setPage: (page: number) => ({ page }),
+    },
+    loaders: ({ values, props }) => ({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
                 fetchNextPage: async () => {
-                    const url = values.nextPageURL
-                    return url === null ? null : await api.get(url)
+                    return await api.activity.list(props, values.page)
                 },
             },
         ],
@@ -28,18 +27,16 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
                 fetchPreviousPage: async () => {
-                    const url = values.previousPageURL
-                    return url === null ? null : await api.get(url)
+                    return await api.activity.list(props, values.page - 1)
                 },
             },
         ],
     }),
     reducers: ({ props }) => ({
         page: [
-            props.startingPage ? props.startingPage - 1 : 0,
+            1,
             {
-                fetchNextPageSuccess: (state) => state + 1,
-                fetchPreviousPageSuccess: (state) => state - 1,
+                setPage: (_, { page }) => page,
             },
         ],
         humanizedActivity: [
@@ -51,13 +48,6 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                     previousPage ? humanize(previousPage.results, props.describer) : state,
             },
         ],
-        previousPageURL: [
-            null as string | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.previous || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.previous || null,
-            },
-        ],
         totalCount: [
             null as number | null,
             {
@@ -65,17 +55,8 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                 fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.total_count || null,
             },
         ],
-        nextPageURL: [
-            api.activity.pageURL(props) as string | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.next || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.next || null,
-            },
-        ],
     }),
     selectors: ({ actions }) => ({
-        hasNextPage: [(s) => [s.nextPageURL], (nextPageURL: string | null) => !!nextPageURL],
-        hasPreviousPage: [(s) => [s.previousPageURL], (previousPageURL: string | null) => !!previousPageURL],
         pagination: [
             (s) => [s.page, s.totalCount],
             (page, totalCount): PaginationManual => {
@@ -90,6 +71,19 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             },
         ],
     }),
+    listeners: ({ actions }) => ({ setPage: actions.fetchNextPage }),
+    urlToAction: ({ values, actions }) => {
+        const onPageChange = (searchParams: Record<string, any>): void => {
+            const pageInURL = searchParams['page']
+            if (pageInURL && pageInURL !== values.page) {
+                actions.setPage(pageInURL)
+            }
+        }
+        return {
+            '/person/*': ({}, searchParams) => onPageChange(searchParams),
+            [urls.featureFlags()]: ({}, searchParams) => onPageChange(searchParams),
+        }
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             actions.fetchNextPage()

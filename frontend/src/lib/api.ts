@@ -22,7 +22,7 @@ import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { PersonFilters } from 'scenes/persons/personsLogic'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { combineUrl } from 'kea-router'
 
@@ -32,6 +32,10 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+}
+
+export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+    total_count: number
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -262,7 +266,7 @@ const api = {
     },
 
     activity: {
-        pageURL(activityLogProps: ActivityLogProps): string {
+        list(activityLogProps: ActivityLogProps, page: number = 1): Promise<CountedPaginatedResponse> {
             const urlForScope: {
                 [key in ActivityScope]: (props: ActivityLogProps) => string
             } = {
@@ -277,9 +281,9 @@ const api = {
             }
 
             const activityURL = urlForScope[activityLogProps.scope](activityLogProps)
-            const pagingParameters = { page: activityLogProps.startingPage || 1, limit: ACTIVITY_PAGE_SIZE }
+            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
 
-            return combineUrl(activityURL, pagingParameters).url
+            return api.get(combineUrl(activityURL, pagingParameters).url)
         },
     },
 
