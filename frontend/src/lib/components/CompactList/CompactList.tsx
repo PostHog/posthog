@@ -33,11 +33,11 @@ export function CompactList({
             </div>
             <div className="scrollable-list">
                 {loading ? (
-                    <>
+                    <div style={{ width: '100%' }}>
                         {Array.from({ length: 6 }, (_, index) => (
                             <Skeleton key={index} active paragraph={false} />
                         ))}
-                    </>
+                    </div>
                 ) : items.length === 0 && emptyMessage ? (
                     <EmptyMessage {...emptyMessage} />
                 ) : (

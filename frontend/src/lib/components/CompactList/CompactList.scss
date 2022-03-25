@@ -6,7 +6,6 @@
     height: 350px;
     display: flex;
     flex-direction: column;
-    height: 100%;
     flex: 1;
 
     .compact-list-header {
@@ -21,6 +20,7 @@
     .scrollable-list {
         flex: 1;
         overflow-y: auto;
+        overflow-x: hidden;
         padding: 0 $default_spacing $default_spacing $default_spacing;
     }
 }
