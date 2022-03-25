@@ -21,7 +21,7 @@ describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
 
     describe('when not scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
                     '/api/projects/@current/feature_flags/activity/': { results: featureFlagsActivityResponseJson },
@@ -54,7 +54,7 @@ describe('the activity log logic', () => {
         })
     })
     describe('when scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
                     '/api/projects/@current/feature_flags/7/activity/': { results: featureFlagsActivityResponseJson },
@@ -91,7 +91,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/person/7/': { results: personActivityResponseJson },
+                    '/api/person/7/activity': { results: personActivityResponseJson },
                 },
             })
             initKeaTests()
