@@ -1,16 +1,11 @@
 import React, { useState } from 'react'
-import { Button, Col, Collapse, Row, Typography } from 'antd'
+import { Col, Collapse, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { EventType } from '~/types'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { EyeOutlined } from '@ant-design/icons'
-import { dayjs } from 'lib/dayjs'
-import { Tooltip } from 'lib/components/Tooltip'
-import { useActions, useValues } from 'kea'
+import { PropertyOperator } from '~/types'
+import { useValues } from 'kea'
 import {
     MinimalPerformanceResourceTiming,
     ResourceTiming,
@@ -21,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { getChartColors } from 'lib/colors'
 import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { EventsTable } from 'scenes/events'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -294,92 +289,93 @@ const WaterfallChart = (): JSX.Element => {
 }
 
 const EventsWithPerformanceTable = (): JSX.Element => {
-    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
-    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(logic)
-    const { setEventToDisplay } = useActions(webPerformanceLogic)
+    // const logic = webPerformanceLogic()
+    // const { eventToDisplay } = useValues(logic)
+    // const { setEventToDisplay } = useActions(webPerformanceLogic)
 
-    const columns: LemonTableColumns<EventType> = [
+    const fixedFilters = [
         {
-            title: 'URL / Screen',
-            key: 'url',
-            render: function RenderURL(_: any, pageViewEvent: EventType) {
-                let urlOrScene: { short: string; full: string }
-                if (pageViewEvent.properties['$current_url']) {
-                    const currentURL = pageViewEvent.properties['$current_url']
-                    try {
-                        const url = new URL(currentURL)
-                        urlOrScene = { short: `${url.origin}${url.pathname}`, full: url.toString() }
-                    } catch (e) {
-                        urlOrScene = { short: currentURL, full: currentURL }
-                    }
-                } else {
-                    urlOrScene = {
-                        short: pageViewEvent.properties['$screen_name'],
-                        full: pageViewEvent.properties['$screen_name'],
-                    }
-                }
-
-                return (
-                    <Tooltip title={urlOrScene.full}>
-                        <Typography.Text style={{ width: 300 }} ellipsis={true}>
-                            {urlOrScene.short}
-                        </Typography.Text>
-                    </Tooltip>
-                )
-            },
-        },
-        {
-            title: 'Time',
-            render: function RenderTime(_: any, pageViewEvent: EventType) {
-                return <TZLabel time={dayjs(pageViewEvent.timestamp)} formatString="MMMM DD, YYYY h:mm" />
-            },
-        },
-        {
-            title: 'Page Load Time',
-            render: function RenderPageLoad(_: any, pageViewEvent: EventType) {
-                const duration = pageViewEvent.properties['$performance_page_loaded']
-                return duration ? <span>{Math.round(duration)}ms</span> : <span>not captured</span>
-            },
-        },
-        {
-            render: function RenderButton(_: any, pageViewEvent: EventType) {
-                return (
-                    <div>
-                        <Button data-attr={`view-waterfall-button-${pageViewEvent.id}`} icon={<EyeOutlined />}>
-                            View waterfall chart
-                        </Button>
-                    </div>
-                )
-            },
+            key: '$performance_raw',
+            value: 'is_set',
+            operator: PropertyOperator.IsSet,
+            type: 'event',
         },
     ]
-
     return (
-        <LemonTable
-            dataSource={pageViewEvents || []}
-            columns={columns}
-            loading={pageViewEventsLoading}
-            emptyState={
-                pageViewEventsLoading ? (
-                    <div>Loading last ten events with performance measures</div>
-                ) : (
-                    <div>No events available</div>
-                )
-            }
-            rowClassName={(pageViewEvent) => {
-                return clsx({
-                    'current-event': pageViewEvent.id === eventToDisplay?.id,
-                    'cursor-pointer': true,
-                })
+        <EventsTable
+            fixedFilters={{
+                properties: fixedFilters,
             }}
-            onRow={(pageViewEvent) => ({
-                onClick: () => {
-                    setEventToDisplay(pageViewEvent)
-                },
-            })}
+            sceneUrl={urls.webPerformance()}
+            fetchMonths={1}
+            pageKey={`webperformance-${JSON.stringify(fixedFilters)}`}
+            hidePersonColumn
+            hideCustomizeColumns
+            hideExport
+            hideAutoload
+            hideEventFilter
+            hideRowExpanders
+            disableLinkingPropertiesToFilters
             data-attr="waterfall-events-table"
+            startingColumns={['$current_url', '$performance_page_loaded']}
         />
     )
+
+    // const columns: LemonTableColumns<EventType> = [
+    //     {
+    //         title: 'URL / Screen',
+    //         key: 'url',
+    //         render: function RenderURL(_: any, pageViewEvent: EventType) {
+    //             let urlOrScene: { short: string; full: string }
+    //             if (pageViewEvent.properties['$current_url']) {
+    //                 const currentURL = pageViewEvent.properties['$current_url']
+    //                 try {
+    //                     const url = new URL(currentURL)
+    //                     urlOrScene = { short: `${url.origin}${url.pathname}`, full: url.toString() }
+    //                 } catch (e) {
+    //                     urlOrScene = { short: currentURL, full: currentURL }
+    //                 }
+    //             } else {
+    //                 urlOrScene = {
+    //                     short: pageViewEvent.properties['$screen_name'],
+    //                     full: pageViewEvent.properties['$screen_name'],
+    //                 }
+    //             }
+    //
+    //             return (
+    //                 <Tooltip title={urlOrScene.full}>
+    //                     <Typography.Text style={{ width: 300 }} ellipsis={true}>
+    //                         {urlOrScene.short}
+    //                     </Typography.Text>
+    //                 </Tooltip>
+    //             )
+    //         },
+    //     },
+    //     {
+    //         title: 'Time',
+    //         render: function RenderTime(_: any, pageViewEvent: EventType) {
+    //             return <TZLabel time={dayjs(pageViewEvent.timestamp)} formatString="MMMM DD, YYYY h:mm" />
+    //         },
+    //     },
+    //     {
+    //         title: 'Page Load Time',
+    //         render: function RenderPageLoad(_: any, pageViewEvent: EventType) {
+    //             const duration = pageViewEvent.properties['$performance_page_loaded']
+    //             return duration ? <span>{Math.round(duration)}ms</span> : <span>not captured</span>
+    //         },
+    //     },
+    //     {
+    //         render: function RenderButton(_: any, pageViewEvent: EventType) {
+    //             return (
+    //                 <div>
+    //                     <Button data-attr={`view-waterfall-button-${pageViewEvent.id}`} icon={<EyeOutlined />}>
+    //                         View waterfall chart
+    //                     </Button>
+    //                 </div>
+    //             )
+    //         },
+    //     },
+    // ]
 }
 
 const DebugPerfData = (): JSX.Element | null => {
@@ -394,9 +390,6 @@ const DebugPerfData = (): JSX.Element | null => {
 }
 
 export const WebPerformance = (): JSX.Element => {
-    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
-    const { properties } = useValues(logic)
-    const { setProperties } = useActions(logic)
     return (
         <div className="performance-waterfall">
             <PageHeader
@@ -425,16 +418,6 @@ export const WebPerformance = (): JSX.Element => {
                 }
             />
             <Row gutter={[0, 32]}>
-                <Col span={24}>
-                    <PropertyFilters
-                        propertyFilters={properties}
-                        onChange={setProperties}
-                        pageKey={'web-performance-table'}
-                        style={{ marginBottom: 0 }}
-                        useLemonButton
-                        eventNames={[]}
-                    />
-                </Col>
                 <Col span={24}>
                     <EventsWithPerformanceTable />
                 </Col>

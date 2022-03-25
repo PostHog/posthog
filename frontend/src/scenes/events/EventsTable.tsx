@@ -11,7 +11,15 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    ChartDisplayType,
+    ColumnChoice,
+    EventsTableRowItem,
+    FilterType,
+    InsightType,
+} from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -41,21 +49,36 @@ interface EventsTable {
     disableActions?: boolean
     pageKey: string
     hidePersonColumn?: boolean
-    hideTableConfig?: boolean
     sceneUrl?: string
     fetchMonths?: number
+    startingColumns?: ColumnChoice
+    hideCustomizeColumns?: boolean
+    hideExport?: boolean
+    hideAutoload?: boolean
+    hideEventFilter?: boolean
+    hideRowExpanders?: boolean
+    // if this is false and disableActions is false
+    // then each property in the table is a link
+    // that will set a filter for that property and value
+    disableLinkingPropertiesToFilters?: boolean
 }
 
 export function EventsTable({
     fixedFilters,
     pageKey,
     hidePersonColumn,
-    hideTableConfig,
+    hideCustomizeColumns,
+    hideExport,
+    hideAutoload,
+    hideEventFilter,
+    hideRowExpanders,
     sceneUrl,
     // Disables all interactivity and polling for filters
     disableActions,
     // How many months of data to fetch?
     fetchMonths = 12,
+    startingColumns,
+    disableLinkingPropertiesToFilters,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -77,7 +100,7 @@ export function EventsTable({
         highlightEvents,
         months,
     } = useValues(logic)
-    const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
+    const { tableWidth, selectedColumns } = useValues(tableConfigLogic({ startingColumns }))
 
     const {
         fetchNextEvents,
@@ -160,7 +183,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
                     const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                    if (!disableActions) {
+                    if (!(disableLinkingPropertiesToFilters || disableActions)) {
                         return (
                             <FilterPropertyLink
                                 className="ph-no-capture"
@@ -181,7 +204,7 @@ export function EventsTable({
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
-                    if (!disableActions) {
+                    if (!(disableLinkingPropertiesToFilters || disableActions)) {
                         return (
                             <FilterPropertyLink
                                 property="$lib"
@@ -218,7 +241,7 @@ export function EventsTable({
                                           return { props: { colSpan: 0 } }
                                       }
                                   }
-                                  if (!disableActions) {
+                                  if (!(disableLinkingPropertiesToFilters || disableActions)) {
                                       return (
                                           <FilterPropertyLink
                                               className="ph-no-capture "
@@ -371,12 +394,16 @@ export function EventsTable({
                                 eventNames={eventFilter ? [eventFilter] : []}
                                 useLemonButton
                                 prefixComponent={
-                                    <LemonEventName
-                                        value={eventFilter}
-                                        onChange={(value: string) => {
-                                            setEventFilter(value || '')
-                                        }}
-                                    />
+                                    hideEventFilter ? (
+                                        <></>
+                                    ) : (
+                                        <LemonEventName
+                                            value={eventFilter}
+                                            onChange={(value: string) => {
+                                                setEventFilter(value || '')
+                                            }}
+                                        />
+                                    )
                                 }
                             />
                         </div>
@@ -388,26 +415,29 @@ export function EventsTable({
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 gap: '1rem',
-                                borderTop: '1px solid var(--border)',
+                                borderTop:
+                                    hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1px solid var(--border)',
                                 width: '100%',
-                                paddingTop: '1rem',
+                                paddingTop: hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1rem',
                             }}
                         >
-                            <LemonSwitch
-                                type="primary"
-                                id="autoload-switch"
-                                label="Automatically load new events"
-                                checked={automaticLoadEnabled}
-                                onChange={toggleAutomaticLoad}
-                            />
+                            {!hideAutoload && (
+                                <LemonSwitch
+                                    type="primary"
+                                    id="autoload-switch"
+                                    label="Automatically load new events"
+                                    checked={automaticLoadEnabled}
+                                    onChange={toggleAutomaticLoad}
+                                />
+                            )}
                             <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
-                                {!hideTableConfig && (
+                                {!hideCustomizeColumns && (
                                     <LemonTableConfig
                                         immutableColumns={['event', 'person']}
                                         defaultColumns={defaultColumns.map((e) => e.key || '')}
                                     />
                                 )}
-                                {exportUrl && (
+                                {!hideExport && exportUrl && (
                                     <Tooltip title="Export up to 10,000 latest events." placement="left">
                                         <LemonButton
                                             type="secondary"
@@ -456,12 +486,17 @@ export function EventsTable({
                             'event-row-new': row.new_events,
                         })
                     }}
-                    expandable={{
-                        expandedRowRender: function renderExpand({ event }) {
-                            return event && <EventDetails event={event} />
-                        },
-                        rowExpandable: ({ event, date_break, new_events }) => (date_break || new_events ? -1 : !!event),
-                    }}
+                    expandable={
+                        hideRowExpanders
+                            ? undefined
+                            : {
+                                  expandedRowRender: function renderExpand({ event }) {
+                                      return event && <EventDetails event={event} />
+                                  },
+                                  rowExpandable: ({ event, date_break, new_events }) =>
+                                      date_break || new_events ? -1 : !!event,
+                              }
+                    }
                 />
                 <Button
                     type="primary"
