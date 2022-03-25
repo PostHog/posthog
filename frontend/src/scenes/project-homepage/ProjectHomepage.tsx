@@ -40,7 +40,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 openRecordingModal(recording.id)
             }}
         >
-            <ProfilePicture name={asDisplay(recording.person)} size="md" />
+            <ProfilePicture name={asDisplay(recording.person)} />
             <div className="recording-person-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
                 <p className="recording-person-text">{asDisplay(recording.person)}</p>
                 <p className="text-muted recording-start-time">{dayjs(recording.start_time).fromNow()}</p>

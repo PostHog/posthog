@@ -20,7 +20,7 @@
     .scrollable-list {
         flex: 1;
         overflow-y: auto;
-        overflow-x: hidden;
+        overflow-x: auto;
         padding: 0 $default_spacing $default_spacing $default_spacing;
     }
 }
