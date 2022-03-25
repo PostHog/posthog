@@ -46,7 +46,6 @@ export interface FixedFilters {
 
 interface EventsTable {
     fixedFilters?: FixedFilters
-    disableActions?: boolean
     pageKey: string
     hidePersonColumn?: boolean
     sceneUrl?: string
@@ -57,7 +56,7 @@ interface EventsTable {
     hideAutoload?: boolean
     hideEventFilter?: boolean
     hideRowExpanders?: boolean
-    // if this is false and disableActions is false
+    // if this is false or undefined
     // then each property in the table is a link
     // that will set a filter for that property and value
     disableLinkingPropertiesToFilters?: boolean
@@ -73,8 +72,6 @@ export function EventsTable({
     hideEventFilter,
     hideRowExpanders,
     sceneUrl,
-    // Disables all interactivity and polling for filters
-    disableActions,
     // How many months of data to fetch?
     fetchMonths = 12,
     startingColumns,
@@ -85,7 +82,6 @@ export function EventsTable({
         fixedFilters,
         key: pageKey,
         sceneUrl: sceneUrl || urls.events(),
-        disableActions,
         fetchMonths,
     })
     const {
@@ -183,7 +179,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
                     const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                    if (!(disableLinkingPropertiesToFilters || disableActions)) {
+                    if (!disableLinkingPropertiesToFilters) {
                         return (
                             <FilterPropertyLink
                                 className="ph-no-capture"
@@ -204,7 +200,7 @@ export function EventsTable({
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
-                    if (!(disableLinkingPropertiesToFilters || disableActions)) {
+                    if (!disableLinkingPropertiesToFilters) {
                         return (
                             <FilterPropertyLink
                                 property="$lib"
@@ -241,7 +237,7 @@ export function EventsTable({
                                           return { props: { colSpan: 0 } }
                                       }
                                   }
-                                  if (!(disableLinkingPropertiesToFilters || disableActions)) {
+                                  if (!disableLinkingPropertiesToFilters) {
                                       return (
                                           <FilterPropertyLink
                                               className="ph-no-capture "
@@ -364,94 +360,92 @@ export function EventsTable({
                     borderTop: '1px solid var(--border)',
                 }}
             >
-                {!disableActions && (
+                <div
+                    className="mb"
+                    style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        flexWrap: 'wrap',
+                        justifyContent: 'space-between',
+                        alignItems: 'start',
+                    }}
+                >
                     <div
-                        className="mb"
                         style={{
                             display: 'flex',
-                            gap: '1rem',
                             flexWrap: 'wrap',
-                            justifyContent: 'space-between',
-                            alignItems: 'start',
+                            gap: '0.5rem',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            width: '100%',
                         }}
                     >
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '0.5rem',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                width: '100%',
-                            }}
-                        >
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={setProperties}
-                                pageKey={pageKey}
-                                taxonomicPopoverPlacement="bottom-start"
-                                style={{ marginBottom: 0, marginTop: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
-                                useLemonButton
-                                prefixComponent={
-                                    hideEventFilter ? (
-                                        <></>
-                                    ) : (
-                                        <LemonEventName
-                                            value={eventFilter}
-                                            onChange={(value: string) => {
-                                                setEventFilter(value || '')
-                                            }}
-                                        />
-                                    )
-                                }
-                            />
-                        </div>
+                        <PropertyFilters
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                            pageKey={pageKey}
+                            taxonomicPopoverPlacement="bottom-start"
+                            style={{ marginBottom: 0, marginTop: 0 }}
+                            eventNames={eventFilter ? [eventFilter] : []}
+                            useLemonButton
+                            prefixComponent={
+                                hideEventFilter ? (
+                                    <></>
+                                ) : (
+                                    <LemonEventName
+                                        value={eventFilter}
+                                        onChange={(value: string) => {
+                                            setEventFilter(value || '')
+                                        }}
+                                    />
+                                )
+                            }
+                        />
+                    </div>
 
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: '1rem',
-                                borderTop:
-                                    hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1px solid var(--border)',
-                                width: '100%',
-                                paddingTop: hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1rem',
-                            }}
-                        >
-                            {!hideAutoload && (
-                                <LemonSwitch
-                                    type="primary"
-                                    id="autoload-switch"
-                                    label="Automatically load new events"
-                                    checked={automaticLoadEnabled}
-                                    onChange={toggleAutomaticLoad}
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '1rem',
+                            borderTop:
+                                hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1px solid var(--border)',
+                            width: '100%',
+                            paddingTop: hideAutoload && hideCustomizeColumns && hideExport ? 0 : '1rem',
+                        }}
+                    >
+                        {!hideAutoload && (
+                            <LemonSwitch
+                                type="primary"
+                                id="autoload-switch"
+                                label="Automatically load new events"
+                                checked={automaticLoadEnabled}
+                                onChange={toggleAutomaticLoad}
+                            />
+                        )}
+                        <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
+                            {!hideCustomizeColumns && (
+                                <LemonTableConfig
+                                    immutableColumns={['event', 'person']}
+                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
-                                {!hideCustomizeColumns && (
-                                    <LemonTableConfig
-                                        immutableColumns={['event', 'person']}
-                                        defaultColumns={defaultColumns.map((e) => e.key || '')}
-                                    />
-                                )}
-                                {!hideExport && exportUrl && (
-                                    <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                        <LemonButton
-                                            type="secondary"
-                                            icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                            onClick={startDownload}
-                                        >
-                                            Export
-                                        </LemonButton>
-                                    </Tooltip>
-                                )}
-                            </div>
+                            {!hideExport && exportUrl && (
+                                <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                                        onClick={startDownload}
+                                    >
+                                        Export
+                                    </LemonButton>
+                                </Tooltip>
+                            )}
                         </div>
                     </div>
-                )}
+                </div>
 
                 <LemonTable
                     dataSource={eventsFormatted}
