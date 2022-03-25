@@ -4,8 +4,8 @@ import { LemonButton } from '../LemonButton'
 
 export interface EmptyMessageProps {
     title: string
-    description?: string
-    buttonText?: string
+    description: string
+    buttonText: string
     buttonTo?: string
     buttonHref?: string
 }
