@@ -1,6 +1,5 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import React from 'react'
 import { useMocks } from '~/mocks/jest'
 import {
     ActivityChange,
@@ -20,6 +19,7 @@ import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
+import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
@@ -31,7 +31,10 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -44,28 +47,47 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+
+        it('increments the page when loading the next page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
+            }).toMatchValues({ page: 2 })
+        })
+
+        it('decrements the page when loading the previous page', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 1
+                logic.actions.fetchNextPageSuccess({ results: [], total_count: 0 }) // page 2
+                logic.actions.fetchPreviousPageSuccess({ results: [], total_count: 0 }) // page 1
+            }).toMatchValues({ page: 1 })
         })
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
+                nextPageLoading: false,
+                previousPageLoading: false,
+                nextPageURL: 'a provided url',
             })
 
             // react fragments confuse equality check so,
             // stringify to confirm this value has the humanized version of the response
             // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
     })
-
     describe('when scoped by ID', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': { results: featureFlagsActivityResponseJson },
+                    '/api/projects/@current/feature_flags/7/activity/': {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -78,18 +100,45 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+    })
+
+    describe('when starting at page 4', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/@current/feature_flags/7/activity/': (req) => {
+                        const isOnPageFour = req.url.searchParams.get('page') === '4'
+
+                        return [
+                            200,
+                            {
+                                results: isOnPageFour ? featureFlagsActivityResponseJson : [],
+                                next: 'a provided url',
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({
+                scope: ActivityScope.FEATURE_FLAG,
+                id: 7,
+                describer: flagActivityDescriber,
+                startingPage: 4,
+            })
+            logic.mount()
         })
 
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-            })
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/FeatureFlag/7')
+        })
 
-            // react fragments confuse equality check so,
-            // stringify to confirm this value has the humanized version of the response
-            // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+        it('loads data from page 4 on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
@@ -112,10 +161,16 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchActivity', 'fetchActivitySuccess'])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
         })
 
-        it.todo('can load a page of activity')
+        it('can load a page of activity', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
+                JSON.stringify(humanize(personActivityResponseJson, personActivityDescriber))
+            )
+        })
     })
 
     describe('humanzing', () => {
@@ -189,7 +244,7 @@ describe('the activity log logic', () => {
                         after: { a: 'b' },
                     },
                 ])
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'added property a with value: b'
@@ -205,7 +260,7 @@ describe('the activity log logic', () => {
                     ],
                     target: { distinct_ids: ['d'], properties: {} },
                 })
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'merged into this person: User A, and User C'
@@ -223,7 +278,7 @@ describe('the activity log logic', () => {
                     },
                 ])
 
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'split this person into a, and b'
@@ -248,7 +303,7 @@ describe('the activity log logic', () => {
                     },
                 ])
 
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'changed rollout percentage to 36% on test flag'
@@ -271,13 +326,10 @@ describe('the activity log logic', () => {
                     },
                 ])
 
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36% on test flag'
-                )
-                expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
-                    'changed the description to "strawberry" on test flag'
+                    'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
                 )
             })
 
@@ -291,10 +343,10 @@ describe('the activity log logic', () => {
                     },
                 ])
 
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'set the flag test flag to apply to 99% of all users'
+                    'changed the filter conditions to apply to 99% of all users on test flag'
                 )
             })
 
@@ -333,10 +385,10 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
+                    'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
                 )
             })
 
@@ -366,10 +418,10 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'set the flag with simple rollout change to apply to 77% of all users'
+                    'changed the filter conditions to apply to 77% of all users on with simple rollout change'
                 )
             })
 
@@ -424,10 +476,10 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
+                    'changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
                 )
             })
 
@@ -494,10 +546,10 @@ describe('the activity log logic', () => {
                     },
                 ])
 
-                const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
+                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
                 )
             })
         })

@@ -38,22 +38,23 @@
                 display: inline;
                 margin-left: $default_spacing / 4;
             }
-        }
 
-        .highlighted-activity {
-            background-color: $yellow_50;
-        }
-
-        .change-list {
-            display: inline-block;
-
-            div {
-                display: inline-block;
+            .highlighted-activity {
+                background-color: $yellow_50;
             }
 
-            .activity-description > div {
-                display: inline-block;
+            .sentence-list {
+                display: inline;
+
+                div {
+                    display: inline;
+                }
             }
         }
+    }
+    .PaginationControl {
+        border-width: 0;
+        border-radius: 0;
+        border-top-width: 1px;
     }
 }

@@ -6,12 +6,14 @@ import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { Skeleton } from 'antd'
 import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
+import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 export interface ActivityLogProps {
     scope: 'FeatureFlag' | 'Person'
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer
+    startingPage?: number
     caption?: string | JSX.Element
 }
 
@@ -50,33 +52,47 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, describer, caption }: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, describer })
-    const { activity, activityLoading } = useValues(logic)
+export const ActivityLog = ({
+    scope,
+    id,
+    describer,
+    caption,
+    startingPage = 1,
+}: ActivityLogProps): JSX.Element | null => {
+    const logic = activityLogLogic({ scope, id, describer, caption, startingPage })
+    const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
+
+    const paginationState = usePagination(humanizedActivity || [], pagination)
+
     return (
         <div className="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            {activityLoading ? (
+            {nextPageLoading && humanizedActivity.length === 0 ? (
                 <Loading />
-            ) : activity.length > 0 ? (
-                activity.map((logItem, index) => {
-                    return (
-                        <div className={'activity-log-row'} key={index}>
-                            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
-                            <div className="details">
-                                <div className="activity-description">
-                                    <div>
-                                        <strong>{logItem.name ?? 'unknown user'}</strong>
-                                    </div>{' '}
-                                    {logItem.description}
-                                </div>
-                                <div className={'text-muted'}>
-                                    <TZLabel time={logItem.created_at} />
+            ) : humanizedActivity.length > 0 ? (
+                <>
+                    {humanizedActivity.map((logItem, index) => {
+                        return (
+                            <div className={'activity-log-row'} key={index}>
+                                <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+                                <div className="details">
+                                    <div className="activity-description">
+                                        <div>
+                                            <strong style={{ display: 'inline-block' }}>
+                                                {logItem.name ?? 'unknown user'}
+                                            </strong>
+                                        </div>{' '}
+                                        {logItem.description}
+                                    </div>
+                                    <div className={'text-muted'}>
+                                        <TZLabel time={logItem.created_at} />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )
-                })
+                        )
+                    })}
+                    <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                </>
             ) : (
                 <Empty scope={scope} />
             )}

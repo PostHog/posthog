@@ -22,8 +22,11 @@ import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { PersonFilters } from 'scenes/persons/personsLogic'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { combineUrl } from 'kea-router'
+
+export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -259,7 +262,7 @@ const api = {
     },
 
     activity: {
-        async list(activityLogProps: ActivityLogProps): Promise<PaginatedResponse<ActivityLogItem>> {
+        pageURL(activityLogProps: ActivityLogProps): string {
             const urlForScope: {
                 [key in ActivityScope]: (props: ActivityLogProps) => string
             } = {
@@ -272,8 +275,11 @@ const api = {
                     return props.id ? `/api/person/${props.id}/activity` : `/api/person/activity`
                 },
             }
-            const url = urlForScope[activityLogProps.scope](activityLogProps)
-            return await api.get(url)
+
+            const activityURL = urlForScope[activityLogProps.scope](activityLogProps)
+            const pagingParameters = { page: activityLogProps.startingPage || 1, limit: ACTIVITY_PAGE_SIZE }
+
+            return combineUrl(activityURL, pagingParameters).url
         },
     },
 
