@@ -17,13 +17,14 @@ ADD COLUMN IF NOT EXISTS group4_properties VARCHAR
 """
 
 
-def add_columns_to_sharded_tabled_if_nedded(_):
+def add_columns_to_required_tables(_):
+    sync_execute(ADD_COLUMNS_BASE_SQL.format(table="events", cluster=CLICKHOUSE_CLUSTER))
+
     if clickhouse_is_replicated():
         sync_execute(ADD_COLUMNS_BASE_SQL.format(table="writable_events", cluster=CLICKHOUSE_CLUSTER))
         sync_execute(ADD_COLUMNS_BASE_SQL.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
 
 
 operations = [
-    migrations.RunSQL(ADD_COLUMNS_BASE_SQL.format(table="events", cluster=CLICKHOUSE_CLUSTER)),
-    migrations.RunPython(add_columns_to_sharded_tabled_if_nedded),
+    migrations.RunPython(add_columns_to_required_tables),
 ]
