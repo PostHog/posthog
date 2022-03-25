@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
     ActorType,
@@ -13,7 +13,7 @@ import {
     PropertyDefinition,
     TeamType,
     UserType,
-} from '../types'
+} from '~/types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -22,6 +22,8 @@ import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { PersonFilters } from 'scenes/persons/personsLogic'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -253,6 +255,25 @@ const api = {
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
+        },
+    },
+
+    activity: {
+        async list(activityLogProps: ActivityLogProps): Promise<PaginatedResponse<ActivityLogItem>> {
+            const urlForScope: {
+                [key in ActivityScope]: (props: ActivityLogProps) => string
+            } = {
+                [ActivityScope.FEATURE_FLAG]: (props) => {
+                    return props.id
+                        ? `/api/projects/@current/feature_flags/${props.id}/activity`
+                        : `/api/projects/@current/feature_flags/activity`
+                },
+                [ActivityScope.PERSON]: (props) => {
+                    return props.id ? `/api/person/${props.id}/activity` : `/api/person/activity`
+                },
+            }
+            const url = urlForScope[activityLogProps.scope](activityLogProps)
+            return await api.get(url)
         },
     },
 
