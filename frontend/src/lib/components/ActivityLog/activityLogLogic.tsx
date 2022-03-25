@@ -13,7 +13,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
             [] as HumanizedActivityLogItem[],
             {
                 fetchActivity: async () => {
-                    const apiResponse = await api.activity.list(props.scope, props.id)
+                    const apiResponse = await api.activity.list(props)
                     return humanize(apiResponse?.results, props.describer)
                 },
             },
