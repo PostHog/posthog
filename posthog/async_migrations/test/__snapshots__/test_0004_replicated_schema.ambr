@@ -102,14 +102,14 @@
 ---
 # name: Test0004ReplicatedSchema.test_migration.6
   <class 'tuple'> (
-    'kafka_groups',
-    "Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
+    'kafka_events_json',
+    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.7
   <class 'tuple'> (
-    'kafka_events_json',
-    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
+    'kafka_groups',
+    "Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.8
@@ -119,108 +119,6 @@
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.9
-  <class 'tuple'> (
-    'kafka_person_distinct_id2',
-    "Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback
-  <class 'tuple'> (
-    'cohortpeople',
-    'CollapsingMergeTree(sign) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.1
-  <class 'tuple'> (
-    'events',
-    'ReplacingMergeTree(_timestamp) PARTITION BY toYYYYMM(timestamp) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) SAMPLE BY cityHash64(distinct_id) SETTINGS index_granularity = 8192',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.10
-  <class 'tuple'> (
-    'kafka_plugin_log_entries',
-    "Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.11
-  <class 'tuple'> (
-    'kafka_session_recording_events',
-    "Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.12
-  <class 'tuple'> (
-    'person',
-    'ReplacingMergeTree(_timestamp) ORDER BY (team_id, id) SETTINGS index_granularity = 8192',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.13
-  <class 'tuple'> (
-    'person_distinct_id2',
-    'ReplacingMergeTree(version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.14
-  <class 'tuple'> (
-    'person_static_cohort',
-    'ReplacingMergeTree(_timestamp) ORDER BY (team_id, cohort_id, person_id, id) SETTINGS index_granularity = 8192',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.15
-  <class 'tuple'> (
-    'plugin_log_entries',
-    'ReplacingMergeTree(_timestamp) PARTITION BY plugin_id ORDER BY (team_id, id) SETTINGS index_granularity = 512',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.16
-  <class 'tuple'> (
-    'session_recording_events',
-    'ReplacingMergeTree(_timestamp) PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid) SETTINGS index_granularity = 512',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.2
-  <class 'tuple'> (
-    'events_dead_letter_queue',
-    'ReplacingMergeTree(_timestamp) ORDER BY (id, event_uuid, distinct_id, team_id) SETTINGS index_granularity = 512',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.3
-  <class 'tuple'> (
-    'groups',
-    'ReplacingMergeTree(_timestamp) ORDER BY (team_id, group_type_index, group_key) SETTINGS index_granularity = 8192',
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.4
-  <class 'tuple'> (
-    'kafka_events',
-    "Kafka SETTINGS kafka_broker_list = 'kafka', kafka_topic_list = 'clickhouse_events_proto_test', kafka_group_name = 'group1', kafka_format = 'Protobuf', kafka_schema = 'events:Event', kafka_skip_broken_messages = 100",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.5
-  <class 'tuple'> (
-    'kafka_events_dead_letter_queue',
-    "Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.6
-  <class 'tuple'> (
-    'kafka_groups',
-    "Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.7
-  <class 'tuple'> (
-    'kafka_events_json',
-    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.8
-  <class 'tuple'> (
-    'kafka_person',
-    "Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')",
-  )
----
-# name: Test0004ReplicatedSchema.test_rollback.9
   <class 'tuple'> (
     'kafka_person_distinct_id2',
     "Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
