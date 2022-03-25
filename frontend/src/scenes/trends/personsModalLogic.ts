@@ -520,14 +520,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             }
         },
     }),
-    actionToUrl: ({ values }) => ({
-        loadPeople: () => {
-            return [
-                router.values.location.pathname,
-                router.values.searchParams,
-                { ...router.values.hashParams, personModal: values.peopleParams },
-            ]
-        },
+    actionToUrl: () => ({
         hidePeople: () => {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
