@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
-import { Col, Collapse, Row, Typography } from 'antd'
+import { Button, Col, Collapse, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
 import clsx from 'clsx'
-import { PropertyOperator } from '~/types'
+import { EventsTableRowItem, PropertyOperator } from '~/types'
 import { useValues } from 'kea'
 import {
     MinimalPerformanceResourceTiming,
@@ -17,6 +17,7 @@ import { getChartColors } from 'lib/colors'
 import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import { EventsTable } from 'scenes/events'
+import { EyeOutlined } from '@ant-design/icons'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -315,9 +316,26 @@ const EventsWithPerformanceTable = (): JSX.Element => {
             hideAutoload
             hideEventFilter
             hideRowExpanders
+            hideActionsButton
             disableLinkingPropertiesToFilters
             data-attr="waterfall-events-table"
             startingColumns={['$current_url', '$performance_page_loaded']}
+            fixedColumns={[
+                {
+                    render: function RenderViewButton(_: any, { event }: EventsTableRowItem) {
+                        if (!event) {
+                            return { props: { colSpan: 0 } }
+                        }
+                        return (
+                            <div>
+                                <Button data-attr={`view-waterfall-button-${event?.id}`} icon={<EyeOutlined />}>
+                                    View waterfall chart
+                                </Button>
+                            </div>
+                        )
+                    },
+                },
+            ]}
         />
     )
 

@@ -45,8 +45,9 @@ export interface FixedFilters {
 }
 
 interface EventsTable {
-    fixedFilters?: FixedFilters
     pageKey: string
+    fixedFilters?: FixedFilters
+    fixedColumns?: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[]
     hidePersonColumn?: boolean
     sceneUrl?: string
     fetchMonths?: number
@@ -56,6 +57,7 @@ interface EventsTable {
     hideAutoload?: boolean
     hideEventFilter?: boolean
     hideRowExpanders?: boolean
+    hideActionsButton?: boolean
     // if this is false or undefined
     // then each property in the table is a link
     // that will set a filter for that property and value
@@ -63,13 +65,15 @@ interface EventsTable {
 }
 
 export function EventsTable({
-    fixedFilters,
     pageKey,
+    fixedFilters,
+    fixedColumns,
     hidePersonColumn,
     hideCustomizeColumns,
     hideExport,
     hideAutoload,
     hideEventFilter,
+    hideActionsButton,
     hideRowExpanders,
     sceneUrl,
     // How many months of data to fetch?
@@ -261,93 +265,95 @@ export function EventsTable({
                 return <TZLabel time={event.timestamp} showSeconds />
             },
         })
-        columnsSoFar.push({
-            key: 'actions',
-            width: 0,
-            render: function renderActions(_, { event }: EventsTableRowItem) {
-                if (!event) {
-                    return { props: { colSpan: 0 } }
-                }
-
-                let insightParams: Partial<FilterType> | undefined
-                if (event.event === '$pageview') {
-                    insightParams = {
-                        insight: InsightType.TRENDS,
-                        interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraph,
-                        actions: [],
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: 'events',
-                                order: 0,
-                                properties: [
-                                    {
-                                        key: '$current_url',
-                                        value: event.properties.$current_url,
-                                        type: 'event',
-                                    },
-                                ],
-                            },
-                        ],
+        if (!hideActionsButton) {
+            columnsSoFar.push({
+                key: 'actions',
+                width: 0,
+                render: function renderActions(_, { event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
                     }
-                } else if (event.event !== '$autocapture') {
-                    insightParams = {
-                        insight: InsightType.TRENDS,
-                        interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraph,
-                        actions: [],
-                        events: [
-                            {
-                                id: event.event,
-                                name: event.event,
-                                type: 'events',
-                                order: 0,
-                                properties: [],
-                            },
-                        ],
-                    }
-                }
 
-                return (
-                    <More
-                        overlay={
-                            <>
-                                {currentTeam && (
-                                    <LemonButton
-                                        type="stealth"
-                                        onClick={() =>
-                                            createActionFromEvent(
-                                                currentTeam.id,
-                                                event,
-                                                0,
-                                                currentTeam.data_attributes || []
-                                            )
-                                        }
-                                        fullWidth
-                                        data-attr="events-table-create-action"
-                                    >
-                                        Create action from event
-                                    </LemonButton>
-                                )}
-                                {insightParams && (
-                                    <LemonButton
-                                        type="stealth"
-                                        to={urls.insightNew(insightParams)}
-                                        fullWidth
-                                        data-attr="events-table-usage"
-                                    >
-                                        Try out in Insights
-                                    </LemonButton>
-                                )}
-                            </>
+                    let insightParams: Partial<FilterType> | undefined
+                    if (event.event === '$pageview') {
+                        insightParams = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: ChartDisplayType.ActionsLineGraph,
+                            actions: [],
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$current_url',
+                                            value: event.properties.$current_url,
+                                            type: 'event',
+                                        },
+                                    ],
+                                },
+                            ],
                         }
-                    />
-                )
-            },
-        })
-        return columnsSoFar
+                    } else if (event.event !== '$autocapture') {
+                        insightParams = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: ChartDisplayType.ActionsLineGraph,
+                            actions: [],
+                            events: [
+                                {
+                                    id: event.event,
+                                    name: event.event,
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [],
+                                },
+                            ],
+                        }
+                    }
+
+                    return (
+                        <More
+                            overlay={
+                                <>
+                                    {currentTeam && (
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() =>
+                                                createActionFromEvent(
+                                                    currentTeam.id,
+                                                    event,
+                                                    0,
+                                                    currentTeam.data_attributes || []
+                                                )
+                                            }
+                                            fullWidth
+                                            data-attr="events-table-create-action"
+                                        >
+                                            Create action from event
+                                        </LemonButton>
+                                    )}
+                                    {insightParams && (
+                                        <LemonButton
+                                            type="stealth"
+                                            to={urls.insightNew(insightParams)}
+                                            fullWidth
+                                            data-attr="events-table-usage"
+                                        >
+                                            Try out in Insights
+                                        </LemonButton>
+                                    )}
+                                </>
+                            }
+                        />
+                    )
+                },
+            })
+        }
+        return fixedColumns ? columnsSoFar.concat(fixedColumns) : columnsSoFar
     }, [selectedColumns])
 
     return (
