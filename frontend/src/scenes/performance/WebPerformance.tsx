@@ -431,6 +431,7 @@ export const WebPerformance = (): JSX.Element => {
                         onChange={setProperties}
                         pageKey={'web-performance-table'}
                         style={{ marginBottom: 0 }}
+                        useLemonButton
                         eventNames={[]}
                     />
                 </Col>
