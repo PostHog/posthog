@@ -1,0 +1,52 @@
+.LemonCheckbox {
+    display: flex;
+    width: fit-content;
+    input {
+        appearance: none;
+        width: 0;
+        height: 0;
+    }
+    label {
+        display: flex;
+        align-items: center;
+    }
+}
+
+.LemonCheckbox__box {
+    transition: border 200ms ease, background 200ms ease;
+    background: var(--bg-light);
+    border: 1px solid var(--border-dark);
+    border-radius: var(--radius);
+    --fill: var(--primary);
+    path {
+        transition: stroke-dashoffset 200ms ease;
+        stroke: var(--bg-light);
+        stroke-dasharray: 12.4;
+        stroke-dashoffset: 12.4;
+    }
+    .LemonCheckbox:not(.LemonCheckbox--disabled):hover & {
+        border-color: var(--primary-hover);
+    }
+    .LemonCheckbox:not(.LemonCheckbox--disabled):active & {
+        border-color: var(--primary-active);
+    }
+    .LemonCheckbox:not(.LemonCheckbox--disabled).LemonCheckbox--checked:active & {
+        background: var(--primary-active);
+    }
+    .LemonCheckbox--checked & {
+        background: var(--fill);
+        border-width: 0;
+        path {
+            stroke-dashoffset: 0;
+        }
+    }
+    .LemonCheckbox--disabled & {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+}
+
+.LemonCheckbox__text {
+    margin-left: 0.5rem;
+    font-weight: 500;
+}
