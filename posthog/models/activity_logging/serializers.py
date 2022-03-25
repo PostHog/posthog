@@ -39,5 +39,5 @@ class ActivityLogSerializer(serializers.Serializer):
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
-    detail = DetailSerializer()
+    detail = DetailSerializer(required=False)
     created_at = serializers.DateTimeField(read_only=True)
