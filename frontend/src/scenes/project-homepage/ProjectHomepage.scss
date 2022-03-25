@@ -22,7 +22,7 @@
     .top-list-container-horizontal {
         display: flex;
         .top-list {
-            margin-bottom: $default_spacing;
+            margin-bottom: $default_spacing * 1.5;
             width: 33%;
         }
         .spacer {

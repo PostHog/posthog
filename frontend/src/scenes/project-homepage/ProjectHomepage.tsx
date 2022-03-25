@@ -101,7 +101,7 @@ export function ProjectHomepage(): JSX.Element {
                                           description:
                                               'Make sure you have the javascript snippet setup in your website.',
                                           buttonText: 'Learn more',
-                                          buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+                                          buttonHref: 'https://posthog.com/docs/user-guides/recordings',
                                       }
                                     : {
                                           title: 'Recordings are not enabled for this project',
@@ -115,29 +115,6 @@ export function ProjectHomepage(): JSX.Element {
                         />
                     </div>
                     <div className="spacer" />
-                    <div className="top-list">
-                        <CompactList
-                            title="New Recordings"
-                            viewAllURL={urls.sessionRecordings()}
-                            loading={true}
-                            items={[]}
-                            renderRow={() => {
-                                return <div />
-                            }}
-                        />
-                    </div>
-                    <div className="spacer" />
-                    <div className="top-list">
-                        <CompactList
-                            title="New Recordings"
-                            viewAllURL={urls.sessionRecordings()}
-                            loading={true}
-                            items={[]}
-                            renderRow={() => {
-                                return <div />
-                            }}
-                        />
-                    </div>
                 </div>
             )}
             {currentTeam?.primary_dashboard ? (

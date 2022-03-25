@@ -7,9 +7,10 @@ export interface EmptyMessageProps {
     description?: string
     buttonText?: string
     buttonTo?: string
+    buttonHref?: string
 }
 
-export function EmptyMessage({ title, description, buttonText, buttonTo }: EmptyMessageProps): JSX.Element {
+export function EmptyMessage({ title, description, buttonText, buttonTo, buttonHref }: EmptyMessageProps): JSX.Element {
     return (
         <div className="empty-message">
             <div
@@ -25,7 +26,7 @@ export function EmptyMessage({ title, description, buttonText, buttonTo }: Empty
                 <h3 className="title">{title}</h3>
 
                 <p className="text-muted description">{description}</p>
-                <LemonButton type="secondary" style={{ margin: '0 8px' }} to={buttonTo}>
+                <LemonButton type="secondary" style={{ margin: '0 8px' }} to={buttonTo} href={buttonHref}>
                     {buttonText}
                 </LemonButton>
             </div>
