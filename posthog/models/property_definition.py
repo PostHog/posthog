@@ -1,9 +1,10 @@
+import os
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.settings import TEST
 
 
 class PropertyType(models.TextChoices):
@@ -57,7 +58,7 @@ class PropertyDefinition(UUIDModel):
                     name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
                 ),  # To speed up DB-based fuzzy searching
             ]
-            if not TEST
+            if not os.environ.get("SKIP_TRIGRAM_INDEX_FOR_TESTS")
             else []
         )  # This index breaks the --no-migrations option when running tests
         constraints = [
