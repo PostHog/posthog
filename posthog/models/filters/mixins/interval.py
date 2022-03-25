@@ -1,6 +1,6 @@
 from typing import cast
 
-from posthog.constants import INTERVAL
+from posthog.constants import INTERVAL, SUPPORTED_INTERVAL_TYPES
 from posthog.models.filters.mixins.base import BaseParamMixin, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
@@ -18,7 +18,7 @@ class IntervalMixin(BaseParamMixin):
         interval_candidate = interval_candidate.lower()
         if interval_candidate == "minute":
             return "hour"
-        if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
+        if interval_candidate not in SUPPORTED_INTERVAL_TYPES:
             raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
         return cast(IntervalType, interval_candidate)
 
