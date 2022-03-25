@@ -3,9 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import './LemonCheckbox.scss'
 
 export interface LemonCheckboxProps {
-    checked?: boolean
+    checked?: boolean | 'indeterminate'
     defaultChecked?: boolean
-    indeterminate?: boolean
     disabled?: boolean
     onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
     label?: string | JSX.Element
@@ -18,28 +17,37 @@ export interface LemonCheckboxProps {
 export function LemonCheckbox({
     checked,
     defaultChecked,
-    indeterminate,
     disabled,
     onChange,
     label,
-    id,
+    id: rawId,
     className,
     style,
     color,
 }: LemonCheckboxProps): JSX.Element {
-    const [localChecked, setLocalChecked] = useState(checked ?? defaultChecked)
+    const indeterminate = checked === 'indeterminate'
+
+    const id = useMemo(() => rawId || `lemon-checkbox-${Math.floor(Math.random() * 1000000)}`, [rawId])
+    const [localChecked, setLocalChecked] = useState(indeterminate || (checked ?? defaultChecked ?? false))
+    const [wasIndeterminateLast, setWasIndeterminateLast] = useState(false)
 
     useEffect(() => {
-        setLocalChecked(checked)
+        if (checked !== undefined) {
+            setLocalChecked(!!checked)
+        }
     }, [checked])
 
-    id = useMemo(() => id || `lemon-checkbox-${Math.floor(Math.random() * 1000000)}`, [id])
+    useEffect(() => {
+        if (checked) {
+            setWasIndeterminateLast(indeterminate)
+        }
+    }, [checked, indeterminate])
 
     return (
         <div
             className={clsx(
                 'LemonCheckbox',
-                (localChecked || indeterminate) && 'LemonCheckbox--checked',
+                localChecked && 'LemonCheckbox--checked',
                 disabled && 'LemonCheckbox--disabled',
                 className
             )}
@@ -67,7 +75,7 @@ export function LemonCheckbox({
                     style={checked && color ? { background: color } : {}}
                 >
                     <path
-                        d={!indeterminate ? 'm4.04083 7.75543 2.65208 2.65207 5.50709-5.50711' : 'm12.5 8h-9'}
+                        d={!wasIndeterminateLast ? 'm4.04083 7.75543 2.65208 2.65207 5.50709-5.50711' : 'm3.5 8h9'}
                         strokeWidth="2"
                     />
                 </svg>

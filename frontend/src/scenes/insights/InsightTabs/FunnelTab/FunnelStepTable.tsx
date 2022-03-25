@@ -82,16 +82,21 @@ export function FunnelStepTable(): JSX.Element | null {
                             />,
                             <LemonCheckbox
                                 color={isOnlySeries ? 'var(--primary)' : undefined}
-                                checked={checked}
-                                indeterminate={flattenedBreakdowns?.some(
-                                    (b) =>
-                                        !hiddenLegendKeys[
-                                            getVisibilityIndex(
-                                                visibleStepsWithConversionMetrics?.[0],
-                                                b.breakdown_value
-                                            )
-                                        ]
-                                )}
+                                checked={
+                                    checked
+                                        ? true
+                                        : flattenedBreakdowns?.some(
+                                              (b) =>
+                                                  !hiddenLegendKeys[
+                                                      getVisibilityIndex(
+                                                          visibleStepsWithConversionMetrics?.[0],
+                                                          b.breakdown_value
+                                                      )
+                                                  ]
+                                          )
+                                        ? 'indeterminate'
+                                        : false
+                                }
                                 onChange={() => {
                                     // either toggle all data on or off
                                     setHiddenById(
@@ -382,8 +387,13 @@ export function FunnelStepTable(): JSX.Element | null {
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
                         return (
                             <LemonCheckbox
-                                checked={!!step.nestedRowKeys?.every((rowKey) => !hiddenLegendKeys[rowKey])}
-                                indeterminate={step.nestedRowKeys?.some((rowKey) => !hiddenLegendKeys[rowKey])}
+                                checked={
+                                    step.nestedRowKeys?.every((rowKey) => !hiddenLegendKeys[rowKey])
+                                        ? true
+                                        : step.nestedRowKeys?.some((rowKey) => !hiddenLegendKeys[rowKey])
+                                        ? 'indeterminate'
+                                        : false
+                                }
                                 onChange={() => {
                                     // either toggle all data on or off
                                     const currentState = !!step.nestedRowKeys?.every(
