@@ -40,7 +40,16 @@ class OrganizationDomainManager(models.Manager):
         query = (
             self.verified_domains()
             .filter(domain=domain)
-            .exclude(models.Q(saml_entity_id="") | models.Q(saml_acs_url="") | models.Q(saml_x509_cert=""))
+            .exclude(
+                models.Q(saml_entity_id="")
+                | models.Q(saml_acs_url="")
+                | models.Q(saml_x509_cert="")
+                | models.Q(
+                    saml_entity_id__isnull=True
+                )  # normally we would have just a nil state (i.e. ""), but to avoid migration locks we had to introduce this
+                | models.Q(saml_acs_url__isnull=True)
+                | models.Q(saml_x509_cert__isnull=True)
+            )
             .values("organization__available_features")
             .first()
         )
