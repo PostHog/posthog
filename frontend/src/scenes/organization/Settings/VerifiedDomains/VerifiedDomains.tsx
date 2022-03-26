@@ -137,47 +137,43 @@ function VerifiedDomainsTable(): JSX.Element {
                 )
             },
         },
-        // TODO: This attribute is not connected yet, hide to avoid confusion
-        ...(preflight?.cloud
-            ? ([
-                  {
-                      key: 'sso_enforcement',
-                      title: (
-                          <>
-                              Enforce SSO{' '}
-                              <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                                  <InfoCircleOutlined />
-                              </Tooltip>
-                          </>
-                      ),
-                      render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }, index) {
-                          if (!isSSOEnforcementAvailable) {
-                              return index === 0 ? (
-                                  <Link
-                                      to={UPGRADE_LINK(preflight?.cloud).url}
-                                      target={UPGRADE_LINK(preflight?.cloud).target}
-                                      className="flex-center"
-                                  >
-                                      <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable
-                                      SSO enforcement
-                                  </Link>
-                              ) : (
-                                  <></>
-                              )
-                          }
-                          return is_verified ? (
-                              <SSOSelect
-                                  value={sso_enforcement}
-                                  loading={updatingDomainLoading}
-                                  onChange={(val) => updateDomain({ id, sso_enforcement: val })}
-                              />
-                          ) : (
-                              <i className="text-muted-alt">Verify domain to enable</i>
-                          )
-                      },
-                  },
-              ] as LemonTableColumns<OrganizationDomainType>)
-            : []),
+        {
+            key: 'sso_enforcement',
+            title: (
+                <>
+                    Enforce SSO{' '}
+                    <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
+                        <InfoCircleOutlined />
+                    </Tooltip>
+                </>
+            ),
+            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
+                if (!isSSOEnforcementAvailable) {
+                    return index === 0 ? (
+                        <Link
+                            to={UPGRADE_LINK(preflight?.cloud).url}
+                            target={UPGRADE_LINK(preflight?.cloud).target}
+                            className="flex-center"
+                        >
+                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
+                            enforcement
+                        </Link>
+                    ) : (
+                        <></>
+                    )
+                }
+                return is_verified ? (
+                    <SSOSelect
+                        value={sso_enforcement}
+                        loading={updatingDomainLoading}
+                        onChange={(val) => updateDomain({ id, sso_enforcement: val })}
+                        samlAvailable={has_saml}
+                    />
+                ) : (
+                    <i className="text-muted-alt">Verify domain to enable</i>
+                )
+            },
+        },
         {
             key: 'actions',
             width: 32,

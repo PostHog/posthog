@@ -148,8 +148,12 @@ class OrganizationDomain(UUIDModel):
 
     @property
     def has_saml(self) -> bool:
-        # TODO: Paygate
-        return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
+        return (
+            bool(self.saml_entity_id)
+            and bool(self.saml_acs_url)
+            and bool(self.saml_x509_cert)
+            and self.organization.is_feature_available(AvailableFeature.SAML)
+        )
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

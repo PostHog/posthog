@@ -10,9 +10,10 @@ interface SSOSelectInterface {
     value: SSOProviders | ''
     loading: boolean
     onChange: (value: SSOProviders | '') => void
+    samlAvailable: boolean
 }
 
-export function SSOSelect({ value, loading, onChange }: SSOSelectInterface): JSX.Element | null {
+export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (!preflight) {
@@ -34,6 +35,14 @@ export function SSOSelect({ value, loading, onChange }: SSOSelectInterface): JSX
                     {SocialLoginIcon(key as SSOProviders)} {SSOProviderNames[key]}
                 </Select.Option>
             ))}
+            <Select.Option
+                value="saml"
+                key="saml"
+                disabled={!samlAvailable}
+                title={samlAvailable ? undefined : 'This provider is not configured.'}
+            >
+                {SocialLoginIcon('saml')} {SSOProviderNames['saml']}
+            </Select.Option>
         </Select>
     )
 }
