@@ -151,7 +151,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                     <EventsTable
                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                         fixedFilters={{ person_id: person.id }}
-                        hidePersonColumn
+                        showPersonColumn={false}
                         sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id), false)}
                     />
                 </TabPane>

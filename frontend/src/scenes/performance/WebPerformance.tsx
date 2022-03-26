@@ -36,14 +36,14 @@ const EventsWithPerformanceTable = (): JSX.Element => {
             sceneUrl={urls.webPerformance()}
             fetchMonths={1}
             pageKey={`webperformance-${JSON.stringify(fixedFilters)}`}
-            hidePersonColumn
-            hideCustomizeColumns
-            hideExport
-            hideAutoload
-            hideEventFilter
-            hideRowExpanders
-            hideActionsButton
-            disableLinkingPropertiesToFilters
+            showPersonColumn={false}
+            showCustomizeColumns={false}
+            showExport={false}
+            showAutoload={false}
+            showEventFilter={false}
+            showRowExpanders={false}
+            showActionsButton={false}
+            linkPropertiesToFilters={false}
             data-attr="waterfall-events-table"
             startingColumns={['$current_url', '$performance_page_loaded']}
             fixedColumns={[
