@@ -22,7 +22,7 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
 
     return (
         <Select style={{ width: '100%' }} value={value} loading={loading} disabled={loading} onChange={onChange}>
-            <Select.Option value="">Not enforced</Select.Option>
+            <Select.Option value="">Don't enforce</Select.Option>
             {Object.keys(preflight.available_social_auth_providers).map((key) => (
                 <Select.Option
                     value={key}
