@@ -32,7 +32,28 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain=domain).first()
 
+    def get_is_saml_available_for_email(self, email: str) -> bool:
+        """
+        Returns whether SAML is available for a specific email address.
+        """
+        domain = email[email.index("@") + 1 :]
+        query = (
+            self.verified_domains()
+            .filter(domain=domain)
+            .exclude(models.Q(saml_entity_id="") | models.Q(saml_acs_url="") | models.Q(saml_x509_cert=""))
+            .values("organization__available_features")
+            .first()
+        )
+
+        if query and AvailableFeature.SAML in query["organization__available_features"]:
+            return True
+        return False
+
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        """
+        Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
+        Validates SSO providers are properly configured and all the proper licenses exist.
+        """
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
