@@ -13,6 +13,7 @@ interface AuthenticateResponseType {
 
 interface PrecheckResponseType {
     sso_enforcement?: SSOProviders | null
+    saml_available: boolean
     status: 'pending' | 'completed'
 }
 
