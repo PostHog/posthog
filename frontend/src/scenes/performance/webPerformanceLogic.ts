@@ -317,12 +317,12 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
     },
     loaders: {
         event: {
-            loadEvent: async (id: EventType['id']): Promise<EventType> => {
-                return api.events.get(id)
+            loadEvent: async (id: string | number): Promise<EventType> => {
+                return api.events.get(id, true)
             },
         },
         pageViewSessionRecordings: {
-            loadSessionRecording: async (id: EventType['id']): Promise<MatchedRecording[]> => {
+            loadSessionRecording: async (id: string | number): Promise<MatchedRecording[]> => {
                 const filters = encodeURIComponent(
                     `%7B%22properties%22%3A%5B%7B%22key%22%3A%22%24session_id%22%2C%22value%22%3A%5B%22${id}%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D%2C%20%22actions%22%3A%5B%5D%2C%22events%22%3A%5B%5D%2C%22date_from%22%3A%222022-03-19%22%2C%22date_to%22%3Anull%2C%22offset%22%3A0%2C%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A60%2C%22operator%22%3A%22gt%22%7D%7D%26source%3Ddirect`
                 )

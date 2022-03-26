@@ -217,32 +217,43 @@ const VerticalMarker = ({
 }
 
 function WaterfallChart(): JSX.Element {
-    const { eventToDisplay, pageViewSessionRecordings, openedSessionRecordingId, currentEvent } =
-        useValues(webPerformanceLogic)
+    const {
+        eventToDisplay,
+        pageViewSessionRecordings,
+        openedSessionRecordingId,
+        currentEvent,
+        pageViewSessionRecordingsLoading,
+    } = useValues(webPerformanceLogic)
     const { openRecordingModal, closeRecordingModal } = useActions(webPerformanceLogic)
     return (
         <>
             {currentEvent && (
-                <Row>
-                    <Col span={18}>
-                        <h1 className="chart-title">
-                            <PropertyKeyInfo value={'$pageView'} /> by <PersonHeader person={currentEvent.person} />{' '}
-                            <TZLabel time={currentEvent.timestamp} />
-                        </h1>
-                    </Col>
-                    <Col span={6}>
-                        {pageViewSessionRecordings && (
+                <>
+                    <Row>
+                        <Col span={24}>
+                            <h1 className="chart-title">
+                                <PropertyKeyInfo value={'$pageview'} />
+                                ,&nbsp;
+                                <TZLabel time={currentEvent.timestamp} />
+                                ,&nbsp;by&nbsp;
+                                <PersonHeader person={currentEvent.person} />
+                            </h1>
+                        </Col>
+                    </Row>
+                    <Row>
+                        <Col span={24} className="control-row">
                             <div style={{ textAlign: 'right' }}>
                                 <MultiRecordingButton
-                                    sessionRecordings={pageViewSessionRecordings}
+                                    sessionRecordings={pageViewSessionRecordings || []}
                                     onOpenRecording={(matchedRecording) => {
                                         openRecordingModal(matchedRecording.session_id)
                                     }}
+                                    recordingsLoading={pageViewSessionRecordingsLoading}
                                 />
                             </div>
-                        )}
-                    </Col>
-                </Row>
+                        </Col>
+                    </Row>
+                </>
             )}
             {!!openedSessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             {eventToDisplay && (
