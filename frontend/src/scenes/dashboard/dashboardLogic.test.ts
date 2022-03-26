@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightModel, DashboardType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { dayjs, now } from 'lib/dayjs'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -21,10 +22,10 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/6/': {
                     ...dashboardJson,
                     items: [
-                        { ...dashboardJson.items[0], result: null },
-                        { ...dashboardJson.items[1], result: null },
-                        { ...dashboardJson.items[0], id: 666, short_id: '666' },
-                        { ...dashboardJson.items[1], id: 999, short_id: '999' },
+                        { ...dashboardJson.items[0], result: null, last_refresh: null },
+                        { ...dashboardJson.items[1], result: null, last_refresh: null },
+                        { ...dashboardJson.items[0], id: 666, short_id: '666', last_refresh: now() },
+                        { ...dashboardJson.items[1], id: 999, short_id: '999', last_refresh: now() },
                     ],
                 },
                 '/api/projects/:team/dashboards/7/': () => [500, '💣'],
@@ -32,7 +33,15 @@ describe('dashboardLogic', () => {
                     ...dashboardJson,
                     items: [{ id: 1001, short_id: '1001' }],
                 },
+                '/api/projects/:team/dashboards/9/': {
+                    ...dashboardJson,
+                    items: [{ ...dashboardJson.items[1], id: 800, short_id: '800', last_refresh: now() }],
+                },
                 '/api/projects/:team/insights/1001/': () => [500, '💣'],
+                '/api/projects/:team/insights/800/': () => [
+                    200,
+                    { ...dashboardJson.items[1], id: 800, short_id: '800', last_refresh: now() },
+                ],
                 '/api/projects/:team/insights/:id/': (req) => [
                     200,
                     dashboardJson.items.find(({ id }: any) => String(id) === req.params['id']),
@@ -233,6 +242,32 @@ describe('dashboardLogic', () => {
                     allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 0),
                     items: truth((items) => items.length === 4),
                 })
+        })
+    })
+    describe('lastRefreshed', () => {
+        it('should be the earliest refreshed dashboard', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    lastRefreshed: dayjs('2021-09-21T11:48:48.444504Z'),
+                })
+        })
+
+        it('should refresh all dashboards if lastRefreshed is older than 3 hours', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
+        })
+
+        it('should not refresh if lastRefreshed is less than 3 hours', async () => {
+            logic = dashboardLogic({ id: 9 })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
+                .toFinishListeners()
         })
     })
 })
