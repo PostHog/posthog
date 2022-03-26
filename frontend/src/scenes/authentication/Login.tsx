@@ -37,6 +37,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
             for details.
         </>
     ),
+    jit_not_enabled:
+        'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
 }
 
 export const scene: SceneExport = {
