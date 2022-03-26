@@ -12,6 +12,12 @@
         background-color: $mark_color;
     }
 
+    .chart-title {
+        * {
+            display: inline-block;
+        }
+    }
+
     .waterfall-chart {
         border: 1px solid var(--border);
         padding: 4px;

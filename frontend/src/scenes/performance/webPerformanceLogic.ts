@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { EventType } from '~/types'
+import { EventType, MatchedRecording, SessionRecordingType } from '~/types'
 
 import { getChartColors } from 'lib/colors'
 
@@ -294,8 +294,17 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
         }),
         clearEventToDisplay: true,
         setCurrentPage: (page: WebPerformancePage) => ({ page }),
+        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        closeRecordingModal: () => true,
     },
     reducers: {
+        openedSessionRecordingId: [
+            null as null | string,
+            {
+                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
+                closeRecordingModal: () => null,
+            },
+        ],
         eventToDisplay: [
             null as EventPerformanceData | null,
             {
@@ -308,14 +317,32 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
     },
     loaders: {
         event: {
-            loadEvent: async (id: string | number) => {
+            loadEvent: async (id: EventType['id']): Promise<EventType> => {
                 return api.events.get(id)
+            },
+        },
+        pageViewSessionRecordings: {
+            loadSessionRecording: async (id: EventType['id']): Promise<MatchedRecording[]> => {
+                const filters = encodeURIComponent(
+                    `%7B%22properties%22%3A%5B%7B%22key%22%3A%22%24session_id%22%2C%22value%22%3A%5B%22${id}%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D%2C%20%22actions%22%3A%5B%5D%2C%22events%22%3A%5B%5D%2C%22date_from%22%3A%222022-03-19%22%2C%22date_to%22%3Anull%2C%22offset%22%3A0%2C%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A60%2C%22operator%22%3A%22gt%22%7D%7D%26source%3Ddirect`
+                )
+                const response = await api.get(`api/projects/@current/session_recordings?filters=${filters}`)
+                return (response?.results || []).map(
+                    (sr: SessionRecordingType) =>
+                        ({
+                            session_id: sr.id,
+                            events: [],
+                        } as MatchedRecording)
+                )
             },
         },
     },
     listeners: ({ actions }) => ({
         loadEventSuccess: ({ event }) => {
             actions.setEventToDisplay(event)
+        },
+        setEventToDisplay: ({ eventToDisplay }) => {
+            actions.loadSessionRecording(eventToDisplay.id)
         },
     }),
     actionToUrl: ({ values }) => ({
@@ -339,6 +366,17 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
                 router.values.hashParams,
                 { replace: true },
             ]
+        },
+        openRecordingModal: ({ sessionRecordingId }) => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams },
+                { ...router.values.hashParams, sessionRecordingId },
+            ]
+        },
+        closeRecordingModal: () => {
+            delete router.values.hashParams.sessionRecordingId
+            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
     urlToAction: ({ values, actions }) => ({

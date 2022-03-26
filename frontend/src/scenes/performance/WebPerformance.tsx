@@ -13,10 +13,8 @@ import { useActions, useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 
 /*
-TODO
-* open waterfall chart in a new page from EventsTable below
-* link to SessionRecording from table and chart
-* show histogram of pageload instead of table
+ * link to SessionRecording from table and chart
+ * show histogram of pageload instead of table
  */
 
 const EventsWithPerformanceTable = (): JSX.Element => {

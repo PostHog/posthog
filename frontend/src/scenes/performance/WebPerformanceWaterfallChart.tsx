@@ -9,7 +9,13 @@ import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
+import './WebPerformance.scss'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -211,71 +217,107 @@ const VerticalMarker = ({
 }
 
 function WaterfallChart(): JSX.Element {
-    const { eventToDisplay } = useValues(webPerformanceLogic)
+    const { eventToDisplay, pageViewSessionRecordings, openedSessionRecordingId, currentEvent } =
+        useValues(webPerformanceLogic)
+    const { openRecordingModal, closeRecordingModal } = useActions(webPerformanceLogic)
     return (
         <>
+            {currentEvent && (
+                <Row>
+                    <Col span={18}>
+                        <h1 className="chart-title">
+                            <PropertyKeyInfo value={'$pageView'} /> by <PersonHeader person={currentEvent.person} />{' '}
+                            <TZLabel time={currentEvent.timestamp} />
+                        </h1>
+                    </Col>
+                    <Col span={6}>
+                        {pageViewSessionRecordings && (
+                            <div style={{ textAlign: 'right' }}>
+                                <MultiRecordingButton
+                                    sessionRecordings={pageViewSessionRecordings}
+                                    onOpenRecording={(matchedRecording) => {
+                                        openRecordingModal(matchedRecording.session_id)
+                                    }}
+                                />
+                            </div>
+                        )}
+                    </Col>
+                </Row>
+            )}
+            {!!openedSessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             {eventToDisplay && (
-                <div className="waterfall-chart">
-                    <Row style={{ marginBottom: '8px' }}>
-                        <Col span={6}>
-                            <div className={'color-legend'}>Event Timings</div>
-                        </Col>
-                        {Object.entries(eventToDisplay.pointsInTime).map(([marker, { color }]) => {
-                            return (
-                                <Col key={marker} span={6}>
-                                    <div className={'color-legend'}>
-                                        {marker}{' '}
-                                        <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
-                                            <span className={'color-block'} style={{ backgroundColor: color }} />
-                                        </MouseTriggeredPopUp>
-                                    </div>
+                <Row>
+                    <Col span={24}>
+                        <div className="waterfall-chart">
+                            <Row style={{ marginBottom: '8px' }}>
+                                <Col span={6}>
+                                    <div className={'color-legend'}>Event Timings</div>
                                 </Col>
-                            )
-                        })}
-                    </Row>
-                    <Row>
-                        <Col span={8}>
-                            {eventToDisplay.resourceTimings.map((timing) => {
-                                const name = typeof timing.item === 'string' ? timing.item : timing.item.pathname
-                                return (
-                                    <Row key={name} className="marker-name marker-row">
-                                        {name}
-                                    </Row>
-                                )
-                            })}
-                        </Col>
-                        <Col span={16}>
-                            {Object.entries(eventToDisplay.pointsInTime).map(([key, pointInTimeMarker]) => (
-                                <VerticalMarker
-                                    key={key}
-                                    position={pointInTimeMarker.time}
-                                    max={eventToDisplay?.maxTime}
-                                    color={pointInTimeMarker.color}
-                                    bringToFront={true}
-                                />
-                            ))}
-                            {eventToDisplay.gridMarkers.map((gridMarker) => (
-                                <VerticalMarker
-                                    key={gridMarker}
-                                    max={eventToDisplay?.maxTime}
-                                    position={gridMarker}
-                                    color={'var(--border-light)'}
-                                />
-                            ))}
-                            {eventToDisplay.resourceTimings.map((resourceTiming) => {
-                                const name =
-                                    typeof resourceTiming.item === 'string'
-                                        ? resourceTiming.item
-                                        : resourceTiming.item.pathname
-                                return (
-                                    <Row key={name} className={'marker-row'}>
-                                        <PerfBlock resourceTiming={resourceTiming} max={eventToDisplay?.maxTime} />
-                                    </Row>
-                                )
-                            })}
-                        </Col>
-                    </Row>
-                </div>
+                                {Object.entries(eventToDisplay.pointsInTime).map(([marker, { color }]) => {
+                                    return (
+                                        <Col key={marker} span={6}>
+                                            <div className={'color-legend'}>
+                                                {marker}{' '}
+                                                <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
+                                                    <span
+                                                        className={'color-block'}
+                                                        style={{ backgroundColor: color }}
+                                                    />
+                                                </MouseTriggeredPopUp>
+                                            </div>
+                                        </Col>
+                                    )
+                                })}
+                            </Row>
+                            <Row>
+                                <Col span={8}>
+                                    {eventToDisplay.resourceTimings.map((timing) => {
+                                        const name =
+                                            typeof timing.item === 'string' ? timing.item : timing.item.pathname
+                                        return (
+                                            <Row key={name} className="marker-name marker-row">
+                                                {name}
+                                            </Row>
+                                        )
+                                    })}
+                                </Col>
+                                <Col span={16}>
+                                    {Object.entries(eventToDisplay.pointsInTime).map(([key, pointInTimeMarker]) => (
+                                        <VerticalMarker
+                                            key={key}
+                                            position={pointInTimeMarker.time}
+                                            max={eventToDisplay?.maxTime}
+                                            color={pointInTimeMarker.color}
+                                            bringToFront={true}
+                                        />
+                                    ))}
+                                    {eventToDisplay.gridMarkers.map((gridMarker) => (
+                                        <VerticalMarker
+                                            key={gridMarker}
+                                            max={eventToDisplay?.maxTime}
+                                            position={gridMarker}
+                                            color={'var(--border-light)'}
+                                        />
+                                    ))}
+                                    {eventToDisplay.resourceTimings.map((resourceTiming) => {
+                                        const name =
+                                            typeof resourceTiming.item === 'string'
+                                                ? resourceTiming.item
+                                                : resourceTiming.item.pathname
+                                        return (
+                                            <Row key={name} className={'marker-row'}>
+                                                <PerfBlock
+                                                    resourceTiming={resourceTiming}
+                                                    max={eventToDisplay?.maxTime}
+                                                />
+                                            </Row>
+                                        )
+                                    })}
+                                </Col>
+                            </Row>
+                        </div>
+                    </Col>
+                </Row>
             )}
         </>
     )
