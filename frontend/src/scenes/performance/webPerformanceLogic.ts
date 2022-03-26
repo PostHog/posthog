@@ -4,6 +4,14 @@ import { EventType } from '~/types'
 import { getChartColors } from 'lib/colors'
 
 import { webPerformanceLogicType } from './webPerformanceLogicType'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import api from 'lib/api'
+
+export enum WebPerformancePage {
+    TABLE = 'table',
+    WATERFALL_CHART = 'waterfall_chart',
+}
 
 export interface EventPerformanceMeasure {
     start: number
@@ -26,6 +34,9 @@ export interface EventPerformanceData {
 }
 
 function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any>[] {
+    if (!entries || !entries.length) {
+        return []
+    }
     try {
         const keys = entries[0]
         return entries[1].map((entry) => {
@@ -219,6 +230,7 @@ function calculatePerformanceParts(
 }
 
 function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
+    console.log(pageViewEvent, 'loading event')
     const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
     let maxTime = 0
@@ -274,18 +286,76 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData>>({
+export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformancePage>>({
     path: ['scenes', 'performance'],
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
             eventToDisplay,
         }),
+        clearEventToDisplay: true,
+        setCurrentPage: (page: WebPerformancePage) => ({ page }),
     },
     reducers: {
         eventToDisplay: [
             null as EventPerformanceData | null,
-            { setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay) },
+            {
+                setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay),
+                clearEventToDisplay: () => null,
+            },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
+        currentPage: [WebPerformancePage.TABLE, { setCurrentPage: (_, { page }) => page }],
     },
+    loaders: {
+        event: {
+            loadEvent: async (id: string | number) => {
+                return api.events.get(id)
+            },
+        },
+    },
+    listeners: ({ actions }) => ({
+        loadEventSuccess: ({ event }) => {
+            actions.setEventToDisplay(event)
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setEventToDisplay: () => {
+            if (values.currentPage === WebPerformancePage.TABLE && !!values.currentEvent) {
+                //then we're navigating to the chart
+                return [
+                    urls.webPerformanceWaterfall(values.currentEvent.id.toString()),
+                    {
+                        ...router.values.searchParams,
+                    },
+                    router.values.hashParams,
+                ]
+            }
+
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    }),
+    urlToAction: ({ values, actions }) => ({
+        [urls.webPerformance()]: () => {
+            console.log('matched top route')
+            if (values.currentPage !== WebPerformancePage.TABLE) {
+                actions.setCurrentPage(WebPerformancePage.TABLE)
+            }
+        },
+        [urls.webPerformanceWaterfall(':id')]: ({ id }) => {
+            console.log('matched id route')
+            if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
+                actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
+            }
+            if (values.currentEvent === null && !!id) {
+                actions.loadEvent(id)
+            }
+        },
+    }),
 })

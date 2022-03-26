@@ -121,6 +121,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
+    public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.events(teamId).addPathComponent(id)
+    }
+
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
@@ -257,6 +261,9 @@ const api = {
     },
 
     events: {
+        async get(id: EventType['id'], teamId: TeamType['id'] = getCurrentTeamId()): Promise<EventType> {
+            return await new ApiRequest().event(id, teamId).get()
+        },
         async list(
             filters: Partial<FilterType>,
             limit: number = 10,

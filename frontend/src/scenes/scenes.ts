@@ -227,6 +227,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
+    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
