@@ -6,10 +6,13 @@ import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
+import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 
 export function ConfigureSAMLModal(): JSX.Element {
-    const { configureSAMLModalId } = useValues(verifiedDomainsLogic)
+    const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
     const { setConfigureSAMLModalId } = useActions(verifiedDomainsLogic)
+
+    const samlReady = samlConfig.saml_acs_url && samlConfig.saml_entity_id && samlConfig.saml_x509_cert
 
     const handleClose = (): void => {
         setConfigureSAMLModalId(null)
@@ -59,13 +62,14 @@ export function ConfigureSAMLModal(): JSX.Element {
                             />
                         )}
                     </Field>
+                    {!samlReady && (
+                        <InfoMessage style={{ marginBottom: 16 }}>
+                            SAML will not be enabled unless you enter all attributes above. However you can still
+                            settings as draft.
+                        </InfoMessage>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            // disabled={newDomain === '' || (submitted && errored) || verifiedDomainsLoading}
-                            // onClick={handleSubmit}
-                        >
+                        <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
                             Save settings
                         </LemonButton>
                     </div>

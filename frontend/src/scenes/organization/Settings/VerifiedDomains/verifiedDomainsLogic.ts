@@ -158,6 +158,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                 )) as OrganizationDomainType
                 breakpoint()
                 actions.replaceDomain(response)
+                actions.setConfigureSAMLModalId(null)
+                actions.setSamlConfigValues({})
                 lemonToast.success(`SAML configuration for ${response.domain} updated successfully.`)
             },
         },
