@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback, useState } from 'react'
-import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined, LoadingOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { MatchedRecording } from '~/types'
 import { Button } from 'antd'
 import { Popup } from '../../../lib/components/Popup/Popup'
@@ -9,14 +9,9 @@ import './multiRecordingButton.scss'
 interface MultiRecordingButtonProps {
     sessionRecordings: MatchedRecording[]
     onOpenRecording: (sessionRecording: MatchedRecording) => void
-    recordingsLoading?: boolean
 }
 
-export function MultiRecordingButton({
-    sessionRecordings,
-    onOpenRecording,
-    recordingsLoading,
-}: MultiRecordingButtonProps): JSX.Element {
+export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: MultiRecordingButtonProps): JSX.Element {
     const [areRecordingsShown, setAreRecordingsShown] = useState(false)
 
     const isSingleRecording = sessionRecordings.length === 1
@@ -85,7 +80,7 @@ export function MultiRecordingButton({
                         className={'session-recordings-button'}
                         data-attr="session-recordings-button"
                         disabled={!sessionRecordings.length}
-                        icon={recordingsLoading ? <LoadingOutlined /> : <PlayCircleOutlined />}
+                        icon={<PlayCircleOutlined />}
                     >
                         Watch recording
                         {isSingleRecording ? <ArrowRightOutlined /> : <DownOutlined />}

@@ -221,13 +221,7 @@ const VerticalMarker = ({
 }
 
 function WaterfallChart(): JSX.Element {
-    const {
-        eventToDisplay,
-        pageViewSessionRecordings,
-        openedSessionRecordingId,
-        currentEvent,
-        pageViewSessionRecordingsLoading,
-    } = useValues(webPerformanceLogic)
+    const { eventToDisplay, openedSessionRecordingId, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
     const { openRecordingModal, closeRecordingModal } = useActions(webPerformanceLogic)
     return (
         <>
@@ -248,11 +242,10 @@ function WaterfallChart(): JSX.Element {
                         <Col span={24} className="control-row">
                             <div style={{ textAlign: 'right' }}>
                                 <MultiRecordingButton
-                                    sessionRecordings={pageViewSessionRecordings || []}
+                                    sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
                                         openRecordingModal(matchedRecording.session_id)
                                     }}
-                                    recordingsLoading={pageViewSessionRecordingsLoading}
                                 />
                             </div>
                         </Col>

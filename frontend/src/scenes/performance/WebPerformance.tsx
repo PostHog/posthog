@@ -3,7 +3,7 @@ import { Button, Col, Row } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
-import { EventsTableRowItem, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, PropertyOperator } from '~/types'
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,25 +17,26 @@ import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceW
  * show histogram of pageload instead of table
  */
 
+export const webPerformancePropertyFilters: AnyPropertyFilter[] = [
+    {
+        key: '$performance_raw',
+        value: 'is_set',
+        operator: PropertyOperator.IsSet,
+        type: 'event',
+    },
+]
+
 const EventsWithPerformanceTable = (): JSX.Element => {
     const { setEventToDisplay } = useActions(webPerformanceLogic)
 
-    const fixedFilters = [
-        {
-            key: '$performance_raw',
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-            type: 'event',
-        },
-    ]
     return (
         <EventsTable
             fixedFilters={{
-                properties: fixedFilters,
+                properties: webPerformancePropertyFilters,
             }}
             sceneUrl={urls.webPerformance()}
             fetchMonths={1}
-            pageKey={`webperformance-${JSON.stringify(fixedFilters)}`}
+            pageKey={`webperformance-${JSON.stringify(webPerformancePropertyFilters)}`}
             showPersonColumn={false}
             showCustomizeColumns={false}
             showExport={false}
