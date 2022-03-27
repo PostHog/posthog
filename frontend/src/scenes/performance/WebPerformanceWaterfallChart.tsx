@@ -119,7 +119,7 @@ const MouseTriggeredPopUp = ({
             <div
                 onMouseEnter={() => setMouseIsOver(true)}
                 onMouseLeave={() => setMouseIsOver(false)}
-                style={{ display: 'flex', alignItems: 'center' }}
+                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
             >
                 {children}
             </div>
