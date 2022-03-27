@@ -11,7 +11,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
-from social_django.views import auth
 
 from posthog.email import is_email_available
 from posthog.models import Organization, User
@@ -52,20 +51,6 @@ def login_required(view):
         return base_handler(request, *args, **kwargs)
 
     return handler
-
-
-def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    sso_providers = get_instance_available_sso_providers()
-    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
-    sso_providers["saml"] = settings.EE_AVAILABLE
-
-    if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
-
-    if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
-
-    return auth(request, backend)
 
 
 def health(request):

@@ -148,12 +148,10 @@ class OrganizationDomain(UUIDModel):
 
     @property
     def has_saml(self) -> bool:
-        return (
-            bool(self.saml_entity_id)
-            and bool(self.saml_acs_url)
-            and bool(self.saml_x509_cert)
-            and self.organization.is_feature_available(AvailableFeature.SAML)
-        )
+        """
+        Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
+        """
+        return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
