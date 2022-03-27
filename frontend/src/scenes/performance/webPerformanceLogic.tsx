@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { EventType, MatchedRecording, SessionRecordingType } from '~/types'
+import { Breadcrumb, EventType, MatchedRecording, SessionRecordingType } from '~/types'
 
 import { getChartColors } from 'lib/colors'
 
@@ -344,6 +344,26 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
         setEventToDisplay: ({ eventToDisplay }) => {
             actions.loadSessionRecording(eventToDisplay.id)
         },
+    }),
+    selectors: () => ({
+        breadcrumbs: [
+            (s) => [s.eventToDisplay, s.currentPage],
+            (eventToDisplay, currentPage): Breadcrumb[] => {
+                const baseCrumb = [
+                    {
+                        name: 'WebPerformance',
+                        path: urls.webPerformance(),
+                    },
+                ]
+                if (!!eventToDisplay && currentPage === WebPerformancePage.WATERFALL_CHART) {
+                    baseCrumb.push({
+                        name: 'Waterfall Chart',
+                        path: urls.webPerformanceWaterfall(eventToDisplay.id.toString()),
+                    })
+                }
+                return baseCrumb
+            },
+        ],
     }),
     actionToUrl: ({ values }) => ({
         setEventToDisplay: () => {
