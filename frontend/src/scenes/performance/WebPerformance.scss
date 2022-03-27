@@ -41,9 +41,10 @@
             display: flex;
             justify-content: center;
             align-content: center;
+            cursor: pointer;
 
             .color-block {
-                width: 64px;
+                width: 32px;
                 height: 16px;
                 line-height: 32px;
                 display: inline-block;

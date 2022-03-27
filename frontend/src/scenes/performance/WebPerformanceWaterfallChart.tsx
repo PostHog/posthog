@@ -92,7 +92,11 @@ const MouseTriggeredPopUp = ({
 
     return (
         <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
-            <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
+            <div
+                onMouseEnter={() => setMouseIsOver(true)}
+                onMouseLeave={() => setMouseIsOver(false)}
+                style={{ display: 'flex', alignItems: 'center' }}
+            >
                 {children}
             </div>
         </Popup>
@@ -261,15 +265,12 @@ function WaterfallChart(): JSX.Element {
                     <Col span={24}>
                         <div className="waterfall-chart">
                             <Row style={{ marginBottom: '8px' }}>
-                                <Col span={6}>
-                                    <div className={'color-legend'}>Event Timings</div>
-                                </Col>
                                 {Object.entries(eventToDisplay.pointsInTime).map(([marker, { color }]) => {
                                     return (
                                         <Col key={marker} span={6}>
                                             <div className={'color-legend'}>
-                                                {marker}{' '}
                                                 <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
+                                                    {marker}{' '}
                                                     <span
                                                         className={'color-block'}
                                                         style={{ backgroundColor: color }}
