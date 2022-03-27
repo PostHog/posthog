@@ -16,6 +16,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './WebPerformance.scss'
+import Text from 'antd/lib/typography/Text'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -304,7 +305,9 @@ function WaterfallChart(): JSX.Element {
                                             typeof timing.item === 'string' ? timing.item : timing.item.pathname
                                         return (
                                             <Row key={name} className="marker-name marker-row">
-                                                {name}
+                                                <Text ellipsis={true} title={name}>
+                                                    {name}
+                                                </Text>
                                             </Row>
                                         )
                                     })}
