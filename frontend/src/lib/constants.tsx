@@ -91,9 +91,9 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
-    NPS_PROMPT: '4562-nps', // owner: @paolodamico
+    NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
-    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
+    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @liyiy
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
@@ -101,7 +101,7 @@ export const FEATURE_FLAGS = {
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
-    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @alexkim205
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
