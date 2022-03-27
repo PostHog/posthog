@@ -51,14 +51,37 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                 started at {resourceTiming.entry.startTime || resourceTiming.entry.fetchStart}ms and took{' '}
                 {resourceTiming.entry.duration}ms to complete
             </p>
-            {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
-                <p key={index}>
-                    {key}: from: {part.start}ms to {part.end}ms{' '}
-                    {resourceTiming.entry.duration ? (
-                        <>({(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)</>
-                    ) : null}
-                </p>
-            ))}
+            {Object.entries(resourceTiming.performanceParts).length ? (
+                <table className="performance-timings-table">
+                    <thead>
+                        <tr>
+                            <th />
+                            <th>start (ms)</th>
+                            <th>end (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
+                            <tr key={index}>
+                                <td>{key}</td>
+                                <td>{part.start}</td>
+                                <td>{part.end}</td>
+                                <td>
+                                    {resourceTiming.entry.duration ? (
+                                        <>
+                                            {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(
+                                                1
+                                            )}
+                                            %
+                                        </>
+                                    ) : null}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            ) : null}
+
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
                 <>
                     <hr />
