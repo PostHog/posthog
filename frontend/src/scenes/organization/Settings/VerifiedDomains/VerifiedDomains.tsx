@@ -24,6 +24,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/components/Link'
 import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -70,7 +71,8 @@ function VerifiedDomainsTable(): JSX.Element {
         isSSOEnforcementAvailable,
         isSAMLAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
+    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId } =
+        useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
@@ -228,6 +230,15 @@ function VerifiedDomainsTable(): JSX.Element {
                             <>
                                 <LemonButton
                                     type="stealth"
+                                    onClick={() => setConfigureSAMLModalId(id)}
+                                    fullWidth
+                                    disabled={!isSAMLAvailable}
+                                    title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
+                                >
+                                    Configure SAML
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         Modal.confirm({
@@ -274,6 +285,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 emptyState="You haven't registered any authentication domains yet."
             />
             <AddDomainModal />
+            <ConfigureSAMLModal />
             <VerifyDomainModal />
         </div>
     )
