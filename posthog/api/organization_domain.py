@@ -28,11 +28,16 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "verification_challenge",
             "jit_provisioning_enabled",
             "sso_enforcement",
+            "has_saml",
+            "saml_entity_id",
+            "saml_acs_url",
+            "saml_x509_cert",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
             "verification_challenge": {"read_only": True},
             "is_verified": {"read_only": True},
+            "has_saml": {"read_only": True},
         }
 
     def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:

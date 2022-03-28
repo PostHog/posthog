@@ -54,7 +54,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "google-oauth2"})
+        self.assertEqual(response.json(), {"sso_enforcement": "google-oauth2", "saml_available": False})
 
     def test_login_precheck_with_unverified_domain(self):
         OrganizationDomain.objects.create(
@@ -69,7 +69,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
                 "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
             )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
 
     def test_login_precheck_with_inexistent_account(self):
         OrganizationDomain.objects.create(
@@ -83,7 +83,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         with self.settings(**GITHUB_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "github"})
+        self.assertEqual(response.json(), {"sso_enforcement": "github", "saml_available": False})
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
         OrganizationDomain.objects.create(
@@ -98,7 +98,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             "/api/login/precheck", {"email": "spain@witw.app"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
 
 
 class TestEEAuthenticationAPI(APILicensedTest):
@@ -269,6 +269,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             response.json(),
             self.permission_denied_response("You need to be an administrator or owner to access this resource."),
         )
+
+    # Login precheck
+
+    def test_login_precheck_with_available_but_unenforced_saml(self):
+        response = self.client.post(
+            "/api/login/precheck", {"email": "helloworld@posthog.com"}
+        )  # Note Google OAuth is not configured
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True})
 
     # Initiate SAML flow
 
@@ -587,7 +596,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         # Login precheck returns SAML info
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "saml"})
+        self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
 
     def test_cannot_use_saml_without_enterprise_license(self):
         self.organization.available_features = [AvailableFeature.SSO_ENFORCEMENT]
@@ -598,7 +607,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
 
         # Cannot start SAML flow
         with self.assertRaises(AuthFailed) as e:

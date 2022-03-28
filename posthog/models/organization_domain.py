@@ -32,7 +32,37 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain=domain).first()
 
+    def get_is_saml_available_for_email(self, email: str) -> bool:
+        """
+        Returns whether SAML is available for a specific email address.
+        """
+        domain = email[email.index("@") + 1 :]
+        query = (
+            self.verified_domains()
+            .filter(domain=domain)
+            .exclude(
+                models.Q(saml_entity_id="")
+                | models.Q(saml_acs_url="")
+                | models.Q(saml_x509_cert="")
+                | models.Q(
+                    saml_entity_id__isnull=True
+                )  # normally we would have just a nil state (i.e. ""), but to avoid migration locks we had to introduce this
+                | models.Q(saml_acs_url__isnull=True)
+                | models.Q(saml_x509_cert__isnull=True)
+            )
+            .values("organization__available_features")
+            .first()
+        )
+
+        if query and AvailableFeature.SAML in query["organization__available_features"]:
+            return True
+        return False
+
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        """
+        Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
+        Validates SSO providers are properly configured and all the proper licenses exist.
+        """
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
@@ -118,7 +148,9 @@ class OrganizationDomain(UUIDModel):
 
     @property
     def has_saml(self) -> bool:
-        # TODO: Paygate
+        """
+        Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
+        """
         return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
