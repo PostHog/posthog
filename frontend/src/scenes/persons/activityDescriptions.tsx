@@ -52,7 +52,6 @@ const personActionsMapping: {
     is_identified: () => null,
 }
 
-// TODO only describes individual Persons, but might need to describe all Persons
 export function personActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')

@@ -8,6 +8,7 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    FeatureFlagType,
     FilterType,
     PluginLogEntry,
     PropertyDefinition,
@@ -24,7 +25,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { PersonFilters } from 'scenes/persons/personsLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { combineUrl } from 'kea-router'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -170,6 +170,35 @@ class ApiRequest {
         return this.addPathComponent('person')
     }
 
+    public person(id: number): ApiRequest {
+        return this.persons().addPathComponent(id)
+    }
+
+    public personActivity(id: number | undefined): ApiRequest {
+        if (typeof id === 'number') {
+            return this.person(id).addPathComponent('activity')
+        }
+        return this.persons().addPathComponent('activity')
+    }
+
+    public featureFlags(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feature_flags')
+    }
+
+    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.featureFlag(id, teamId).addPathComponent('activity')
+        }
+        return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -266,24 +295,24 @@ const api = {
     },
 
     activity: {
-        list(activityLogProps: ActivityLogProps, page: number = 1): Promise<CountedPaginatedResponse> {
-            const urlForScope: {
-                [key in ActivityScope]: (props: ActivityLogProps) => string
-            } = {
+        list(
+            activityLogProps: ActivityLogProps,
+            page: number = 1,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse> {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
-                    return props.id
-                        ? `/api/projects/@current/feature_flags/${props.id}/activity`
-                        : `/api/projects/@current/feature_flags/activity`
+                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
                 },
                 [ActivityScope.PERSON]: (props) => {
-                    return props.id ? `/api/person/${props.id}/activity` : `/api/person/activity`
+                    return new ApiRequest().personActivity(props.id)
                 },
             }
 
-            const activityURL = urlForScope[activityLogProps.scope](activityLogProps)
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-
-            return api.get(combineUrl(activityURL, pagingParameters).url)
+            return requestForScope[activityLogProps.scope](activityLogProps)
+                .withQueryString(toParams(pagingParameters))
+                .get()
         },
     },
 

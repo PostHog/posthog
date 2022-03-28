@@ -119,7 +119,6 @@ const featureFlagActionsMapping: {
     is_simple_flag: () => null,
 }
 
-// TODO only describes all Flags, but might need to describe individual Flags
 export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')

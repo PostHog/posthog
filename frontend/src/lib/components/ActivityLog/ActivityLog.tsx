@@ -77,10 +77,8 @@ export const ActivityLog = ({
                                 <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                                 <div className="details">
                                     <div className="activity-description">
-                                        <div>
-                                            <strong style={{ display: 'inline-block' }}>
-                                                {logItem.name ?? 'unknown user'}
-                                            </strong>
+                                        <div style={{ display: 'inline-block' }}>
+                                            <strong>{logItem.name ?? 'unknown user'}</strong>
                                         </div>{' '}
                                         {logItem.description}
                                     </div>
