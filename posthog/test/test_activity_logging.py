@@ -219,7 +219,7 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
         )
 
     @staticmethod
-    def _a_person_with(**kwargs) -> FeatureFlag:
+    def _a_person_with(**kwargs) -> Person:
         return Person(
             id=kwargs.get("id", 2),
             created_at=kwargs.get("created_at", parser.parse("12th April 2003")),
