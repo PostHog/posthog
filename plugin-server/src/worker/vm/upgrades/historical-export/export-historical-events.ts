@@ -196,20 +196,6 @@ export function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
-        if (payload.retriesPerformedSoFar === 0) {
-            const incrementTimestampCursor = events.length === 0
-
-            await meta.jobs
-                .exportHistoricalEvents({
-                    timestampCursor,
-                    incrementTimestampCursor,
-                    retriesPerformedSoFar: 0,
-                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-                    batchId: payload.batchId,
-                })
-                .runIn(1, 'seconds')
-        }
-
         let exportEventsError: Error | unknown | null = null
 
         if (!fetchEventsError) {
@@ -240,6 +226,18 @@ export function addHistoricalEventsExportCapability(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 })
                 .runIn(nextRetrySeconds, 'seconds')
+        } else if (payload.retriesPerformedSoFar === 0) {
+            const incrementTimestampCursor = events.length === 0
+
+            await meta.jobs
+                .exportHistoricalEvents({
+                    timestampCursor,
+                    incrementTimestampCursor,
+                    retriesPerformedSoFar: 0,
+                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+                    batchId: payload.batchId,
+                })
+                .runIn(1, 'seconds')
         }
 
         createLog(
