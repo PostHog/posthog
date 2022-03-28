@@ -53,11 +53,27 @@ def home(request, *args, **kwargs):
 def authorize_and_redirect(request):
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
-    url = request.GET["redirect"]
+    if not request.META.get("HTTP_REFERER"):
+        return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
+
+    referer_url = urlparse(request.META["HTTP_REFERER"])
+    redirect_url = urlparse(request.GET["redirect"])
+
+    if referer_url.hostname != redirect_url.hostname:
+        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
+
+    if referer_url.scheme != redirect_url.scheme:
+        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=400)
+
+    if referer_url.port != redirect_url.port:
+        return HttpResponse(
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
+        )
+
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": urlparse(url).hostname, "redirect_url": url,},
+        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
     )
 
 
