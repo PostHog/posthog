@@ -168,7 +168,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     },
                 },
             ],
-            name: '6619-query-events-by-date',
+            name: 'fantastic_new_feature',
         },
         created_at: '2022-03-21T12:48:27.811085Z',
     },
