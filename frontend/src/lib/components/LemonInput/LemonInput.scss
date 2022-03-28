@@ -8,7 +8,7 @@
 
     &.LemonInput--disabled {
         .LemonRow__icon {
-            opacity: var(--opacity);
+            opacity: var(--opacity-disabled);
         }
     }
 
@@ -20,18 +20,20 @@
         text-overflow: ellipsis;
 
         &:disabled {
-            opacity: var(--opacity);
+            opacity: var(--opacity-disabled);
             cursor: not-allowed;
         }
     }
+}
 
-    .LemonRow__icon:first-child {
+.LemonRow__icon:first-child {
+    .LemonInput & {
         font-size: 18px;
         color: var(--text-muted);
+    }
 
-        svg.LemonRow__icon__icon--active {
-            color: var(--primary);
-        }
+    .LemonInput.LemonInput--with-input & {
+        color: var(--primary);
     }
 }
 

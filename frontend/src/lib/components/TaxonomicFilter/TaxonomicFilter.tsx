@@ -74,7 +74,8 @@ export function TaxonomicFilter({
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
                         value={searchQuery}
-                        icon={<IconMagnifier className={clsx(searchQuery && 'LemonRow__icon__icon--active')} />}
+                        className={searchQuery && 'LemonInput--with-input'}
+                        icon={<IconMagnifier />}
                         sideIcon={
                             <Tooltip
                                 title={
