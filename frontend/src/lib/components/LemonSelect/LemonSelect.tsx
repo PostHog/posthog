@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { IconClose } from './icons'
-import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
+import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from 'lib/components/LemonButton'
 import clsx from 'clsx'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { LemonSpacer } from 'lib/components/LemonRow'
+import { IconClose } from 'lib/components/icons'
 
 interface LemonSelectOptionData {
     className?: string
@@ -39,8 +39,14 @@ export interface LemonSelectProps<O extends LemonSelectOptions, P extends LemonS
     onChange: (newValue: keyof O | null) => void
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
+    /** Classname for control input label */
+    controlClassName?: string
+    /** Classname for dropdown menu */
     dropdownClassName?: string
+    /** Popup props to extend on defaults */
     popup?: LemonSelectPopup
+    /** Whether to show icons in dropdown menu. */
+    showDropdownIcon?: boolean
 }
 
 interface LemonSelectOptionProps<Q extends LemonSelectOptionData> {
@@ -48,6 +54,7 @@ interface LemonSelectOptionProps<Q extends LemonSelectOptionData> {
     currentKey: string | number | symbol | null
     option: Q
     onClick: (key: string) => void
+    showDropdownIcon?: boolean
 }
 
 function LemonSelectOption<Q extends LemonSelectOptionData>({
@@ -55,6 +62,7 @@ function LemonSelectOption<Q extends LemonSelectOptionData>({
     currentKey,
     option,
     onClick,
+    showDropdownIcon,
 }: LemonSelectOptionProps<Q>): JSX.Element {
     const computedLabel = computeLabel(option.label, option) || optionKey
 
@@ -62,7 +70,7 @@ function LemonSelectOption<Q extends LemonSelectOptionData>({
         <LemonButton
             className="LemonSelect__dropdown__option"
             key={optionKey}
-            icon={option.icon}
+            icon={showDropdownIcon ? option.icon : undefined}
             onClick={() => {
                 if (optionKey != currentKey) {
                     onClick(optionKey)
@@ -84,6 +92,7 @@ function LemonSelectOption<Q extends LemonSelectOptionData>({
 
 export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectGroupOrFlatOptions>({
     className,
+    controlClassName,
     dropdownClassName,
     value,
     onChange,
@@ -91,6 +100,7 @@ export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectG
     placeholder,
     dropdownMatchSelectWidth = true,
     allowClear = false,
+    showDropdownIcon = true,
     popup,
     ...buttonProps
 }: LemonSelectProps<O, P>): JSX.Element {
@@ -143,6 +153,7 @@ export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectG
                                                 onChange(_key)
                                                 setLocalValue(_key)
                                             }}
+                                            showDropdownIcon={showDropdownIcon}
                                         />
                                     ))}
                                 </div>
@@ -159,6 +170,7 @@ export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectG
                                     onChange(_key)
                                     setLocalValue(_key)
                                 }}
+                                showDropdownIcon={showDropdownIcon}
                             />
                         )
                     }),
@@ -169,10 +181,11 @@ export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectG
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 {...buttonProps}
             >
-                {(localValue &&
-                    (computeLabel(flattenedOptions[localValue].label, flattenedOptions[localValue]) || localValue)) || (
-                    <span className="text-muted">{placeholder}</span>
-                )}
+                {(localValue && (
+                    <span className={clsx('LemonSelect__control__label', controlClassName)}>
+                        {computeLabel(flattenedOptions[localValue].label, flattenedOptions[localValue]) || localValue}
+                    </span>
+                )) || <span className="text-muted">{placeholder}</span>}
             </LemonButtonWithPopup>
             {isClearButtonShown && (
                 <LemonButton

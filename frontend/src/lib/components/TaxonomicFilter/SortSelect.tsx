@@ -93,12 +93,13 @@ interface SortSelectProps {
 
 export function SortSelect({ taxonomicFilterLogicProps }: SortSelectProps): JSX.Element {
     const logic = sortSelectLogic({ taxonomicFilterLogicKey: taxonomicFilterLogicProps.taxonomicFilterLogicKey })
-    const { option } = useValues(logic)
+    const { option, truncateControlLabel } = useValues(logic)
     const { selectOption } = useActions(logic)
 
     return (
         <LemonSelect
             className={clsx('taxonomic-sort-select', 'click-outside-block')}
+            controlClassName={clsx(truncateControlLabel && 'hide-control-label')}
             dropdownClassName={clsx('taxonomic-sort-select__dropdown', 'click-outside-block')}
             options={TAXONOMIC_SORT_OPTIONS}
             value={option}
@@ -107,6 +108,7 @@ export function SortSelect({ taxonomicFilterLogicProps }: SortSelectProps): JSX.
             }}
             outlined
             dropdownMatchSelectWidth={false}
+            showDropdownIcon={false}
             popup={{
                 placement: 'bottom-end',
             }}

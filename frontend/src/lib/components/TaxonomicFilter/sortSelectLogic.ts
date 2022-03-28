@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { TaxonomicSortOptionType } from 'lib/components/TaxonomicFilter/types'
 import { sortSelectLogicType } from './sortSelectLogicType'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 export interface SortSelectLogicProps {
     taxonomicFilterLogicKey?: string
@@ -19,5 +20,8 @@ export const sortSelectLogic = kea<sortSelectLogicType<SortSelectLogicProps>>({
                 selectOption: (_, { option }) => option,
             },
         ],
+    },
+    windowValues: {
+        truncateControlLabel: (window) => window.innerWidth < getBreakpoint('sm'),
     },
 })
