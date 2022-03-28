@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
 
@@ -31,13 +32,14 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/activity/': {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/activity/`]: {
                         results: featureFlagsActivityResponseJson,
                         next: 'a provided url',
                     },
                 },
             })
             initKeaTests()
+            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
@@ -68,7 +70,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: {
                         results: featureFlagsActivityResponseJson,
                         next: 'a provided url',
                     },
@@ -92,7 +94,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': (req) => {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: (req) => {
                         const isOnPageFour = req.url.searchParams.get('page') === '4'
 
                         return [
@@ -274,7 +276,7 @@ describe('the activity log logic', () => {
             const featureFlagsTestSetup = makeTestSetup(
                 ActivityScope.FEATURE_FLAG,
                 flagActivityDescriber,
-                '/api/projects/@current/feature_flags/7/activity/'
+                `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
             )
 
             it('can handle rollout percentage change', async () => {
