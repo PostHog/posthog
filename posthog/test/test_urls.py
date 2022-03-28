@@ -57,14 +57,6 @@ class TestUrls(APIBaseTest):
 
     def test_authorize_and_redirect_domain(self):
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com/sdf", HTTP_REFERER="https://domain.com/asd"
-        )
-        self.assertContains(
-            response,
-            "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
-        )
-
-        response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", HTTP_REFERER="https://not.com"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -87,3 +79,13 @@ class TestUrls(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue("Can only redirect to the same port as the referer: no port in URL" in str(response.content))
+
+        response = self.client.get(
+            "/authorize_and_redirect/?redirect=https://domain.com/sdf", HTTP_REFERER="https://domain.com/asd"
+        )
+        print(response.status_code)
+        print(response.content)
+        self.assertContains(
+            response,
+            "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
+        )
