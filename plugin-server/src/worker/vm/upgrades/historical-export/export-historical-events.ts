@@ -226,7 +226,7 @@ export function addHistoricalEventsExportCapability(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 })
                 .runIn(nextRetrySeconds, 'seconds')
-        } else if (payload.retriesPerformedSoFar === 0) {
+        } else {
             const incrementTimestampCursor = events.length === 0
 
             await meta.jobs
