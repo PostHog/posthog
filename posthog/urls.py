@@ -2,7 +2,7 @@ from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
@@ -21,6 +21,7 @@ from posthog.api import (
     signup,
     user,
 )
+from posthog.api.decide import hostname_in_app_urls
 from posthog.demo import demo
 
 from .utils import render_template
@@ -50,7 +51,7 @@ def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
-def authorize_and_redirect(request):
+def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
     if not request.META.get("HTTP_REFERER"):
@@ -58,6 +59,9 @@ def authorize_and_redirect(request):
 
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
+
+    if not hostname_in_app_urls(request.user.current_team, redirect_url.hostname):
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
 
     if referer_url.hostname != redirect_url.hostname:
         return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
