@@ -1381,3 +1381,51 @@ export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         </svg>
     )
 }
+
+/** Material Design Sort Ascending icon. */
+export function SortAscendingIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            {...props}
+        >
+            <path fill="currentColor" d="M19 17H22L18 21L14 17H17V3H19M2 17H12V19H2M6 5V7H2V5M2 11H9V13H2V11Z" />
+        </svg>
+    )
+}
+
+/** Material Design Sort Descending icon. */
+export function SortDescendingIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            {...props}
+        >
+            <path fill="currentColor" d="M19 7H22L18 3L14 7H17V21H19M2 17H12V19H2M6 5V7H2V5M2 11H9V13H2V11Z" />
+        </svg>
+    )
+}
+
+/** Material Design Sort Variant icon. */
+export function SortIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            {...props}
+        >
+            <path fill="currentColor" d="M3,13H15V11H3M3,6V8H21V6M3,18H9V16H3V18Z" />
+        </svg>
+    )
+}

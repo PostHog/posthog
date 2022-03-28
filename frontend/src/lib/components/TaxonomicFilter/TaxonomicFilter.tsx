@@ -8,6 +8,7 @@ import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
+import { SortSelect } from 'lib/components/TaxonomicFilter/SortSelect'
 
 let uniqueMemoizedIndex = 0
 
@@ -69,70 +70,78 @@ export function TaxonomicFilter({
                 )}
                 style={style}
             >
-                <div style={{ position: 'relative' }}>
-                    <Input
-                        style={{ flexGrow: 1 }}
-                        data-attr="taxonomic-filter-searchfield"
-                        placeholder={`Search ${searchPlaceholder}`}
-                        prefix={
-                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
-                        }
-                        value={searchQuery}
-                        ref={(ref) => (searchInputRef.current = ref)}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowUp') {
-                                e.preventDefault()
-                                moveUp()
+                <div style={{ position: 'relative', display: 'flex' }}>
+                    <div style={{ flex: 1, marginRight: '0.5rem' }}>
+                        <Input
+                            style={{ flexGrow: 1 }}
+                            data-attr="taxonomic-filter-searchfield"
+                            placeholder={`Search ${searchPlaceholder}`}
+                            prefix={
+                                <IconMagnifier
+                                    className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')}
+                                />
                             }
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault()
-                                moveDown()
-                            }
-                            if (e.key === 'ArrowLeft') {
-                                e.preventDefault()
-                                tabLeft()
-                            }
-                            if (e.key === 'ArrowRight') {
-                                e.preventDefault()
-                                tabRight()
-                            }
-                            if (e.key === 'Tab') {
-                                e.preventDefault()
-                                if (e.shiftKey) {
+                            value={searchQuery}
+                            ref={(ref) => (searchInputRef.current = ref)}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowUp') {
+                                    e.preventDefault()
+                                    moveUp()
+                                }
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault()
+                                    moveDown()
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                    e.preventDefault()
                                     tabLeft()
-                                } else {
+                                }
+                                if (e.key === 'ArrowRight') {
+                                    e.preventDefault()
                                     tabRight()
                                 }
-                            }
-
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                                selectSelected()
-                            }
-                            if (e.key === 'Escape') {
-                                e.preventDefault()
-                                onClose?.()
-                            }
-                        }}
-                        suffix={
-                            <Tooltip
-                                title={
-                                    <>
-                                        You can easily navigate between tabs with your keyboard.{' '}
-                                        <div>
-                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
-                                        </div>
-                                        <div>
-                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
-                                        </div>
-                                    </>
+                                if (e.key === 'Tab') {
+                                    e.preventDefault()
+                                    if (e.shiftKey) {
+                                        tabLeft()
+                                    } else {
+                                        tabRight()
+                                    }
                                 }
-                            >
-                                <IconKeyboard style={{ fontSize: '1.2em' }} className="text-muted-alt cursor-pointer" />
-                            </Tooltip>
-                        }
-                    />
+
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    selectSelected()
+                                }
+                                if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    onClose?.()
+                                }
+                            }}
+                            suffix={
+                                <Tooltip
+                                    title={
+                                        <>
+                                            You can easily navigate between tabs with your keyboard.{' '}
+                                            <div>
+                                                Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                            </div>
+                                            <div>
+                                                Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                            </div>
+                                        </>
+                                    }
+                                >
+                                    <IconKeyboard
+                                        style={{ fontSize: '1.2em' }}
+                                        className="text-muted-alt cursor-pointer"
+                                    />
+                                </Tooltip>
+                            }
+                        />
+                    </div>
+                    <SortSelect taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
                 </div>
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>

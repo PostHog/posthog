@@ -1,34 +1,111 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { IconClose } from './icons'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
+import clsx from 'clsx'
+import { PopupProps } from 'lib/components/Popup/Popup'
+import { LemonSpacer } from 'lib/components/LemonRow'
 
-export interface LemonSelectOption {
-    label: string
+interface LemonSelectOptionData {
+    className?: string
+    label: string | ((option: Record<string, any>) => React.ReactNode)
     icon?: React.ReactElement
     disabled?: boolean
     'data-attr'?: string
 }
 
-export type LemonSelectOptions = Record<string | number, LemonSelectOption>
+export type LemonSelectOptions = Record<string | number, LemonSelectOptionData>
+export type LemonSelectGroupOrFlatOptions = Record<string | number, LemonSelectOptions | LemonSelectOptionData>
+export type LemonSelectPopup = Omit<PopupProps, 'children' | 'overlay'>
 
-export interface LemonSelectProps<O extends LemonSelectOptions>
+function isGroupOption(option: LemonSelectOptions | LemonSelectOptionData): option is LemonSelectOptions {
+    return (option as LemonSelectOptionData)?.label === undefined
+}
+function isFlatOption(option: LemonSelectOptions | LemonSelectOptionData): option is LemonSelectOptionData {
+    return (option as LemonSelectOptionData)?.label !== undefined
+}
+
+function computeLabel(
+    label: string | ((option: Record<string, any>) => React.ReactNode),
+    option: LemonSelectOptionData
+): React.ReactNode {
+    return typeof label === 'function' ? label(option) : label
+}
+
+export interface LemonSelectProps<O extends LemonSelectOptions, P extends LemonSelectGroupOrFlatOptions>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
-    options: O
+    /** Options can be either 1-level nested (grouped with key as label) or flat objects. */
+    options: P
     value: keyof O | null
     onChange: (newValue: keyof O | null) => void
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
+    dropdownClassName?: string
+    popup?: LemonSelectPopup
 }
 
-export function LemonSelect<O extends LemonSelectOptions>({
+interface LemonSelectOptionProps<Q extends LemonSelectOptionData> {
+    optionKey: string
+    currentKey: string | number | symbol | null
+    option: Q
+    onClick: (key: string) => void
+}
+
+function LemonSelectOption<Q extends LemonSelectOptionData>({
+    optionKey,
+    currentKey,
+    option,
+    onClick,
+}: LemonSelectOptionProps<Q>): JSX.Element {
+    const computedLabel = computeLabel(option.label, option) || optionKey
+
+    return (
+        <LemonButton
+            className="LemonSelect__dropdown__option"
+            key={optionKey}
+            icon={option.icon}
+            onClick={() => {
+                if (optionKey != currentKey) {
+                    onClick(optionKey)
+                }
+            }}
+            type={
+                /* Intentionally == instead of === because JS treats object number keys as strings, */
+                /* messing comparisons up a bit */
+                optionKey == currentKey ? 'highlighted' : 'stealth'
+            }
+            disabled={option.disabled}
+            fullWidth
+            data-attr={option['data-attr']}
+        >
+            {computedLabel}
+        </LemonButton>
+    )
+}
+
+export function LemonSelect<O extends LemonSelectOptions, P extends LemonSelectGroupOrFlatOptions>({
+    className,
+    dropdownClassName,
     value,
     onChange,
     options,
     placeholder,
     dropdownMatchSelectWidth = true,
     allowClear = false,
+    popup,
     ...buttonProps
-}: LemonSelectProps<O>): JSX.Element {
+}: LemonSelectProps<O, P>): JSX.Element {
+    const flattenedOptions = useMemo<O>(() => {
+        return Object.entries(options).reduce<O>((aggregation, [key, flatOrGroupOption]) => {
+            if (isGroupOption(flatOrGroupOption)) {
+                return { ...aggregation, ...flatOrGroupOption }
+            }
+            // Typescript isn't smart enough to determine that if option isn't a group option, it should be typed as a flat option
+            if (isFlatOption(flatOrGroupOption)) {
+                return { ...aggregation, [key]: flatOrGroupOption }
+            }
+            return aggregation
+        }, {} as O)
+    }, [options])
     const [localValue, setLocalValue] = useState(value)
     const [hover, setHover] = useState(false)
 
@@ -42,42 +119,58 @@ export function LemonSelect<O extends LemonSelectOptions>({
 
     return (
         <div
-            className="LemonButtonWithSideAction"
+            className={clsx('LemonSelect', 'LemonButtonWithSideAction', className)}
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
         >
             <LemonButtonWithPopup
                 popup={{
-                    overlay: Object.entries(options).map(([key, option]) => (
-                        <LemonButton
-                            key={key}
-                            icon={option.icon}
-                            onClick={() => {
-                                if (key != localValue) {
-                                    onChange(key)
-                                    setLocalValue(key)
-                                }
-                            }}
-                            type={
-                                /* Intentionally == instead of === because JS treats object number keys as strings, */
-                                /* messing comparisons up a bit */
-                                key == localValue ? 'highlighted' : 'stealth'
-                            }
-                            disabled={option.disabled}
-                            fullWidth
-                            data-attr={option['data-attr']}
-                        >
-                            {option.label || key}
-                        </LemonButton>
-                    )),
+                    ...popup,
+                    className: dropdownClassName,
+                    overlay: Object.entries(options).map(([key, flatOrGroupOption]) => {
+                        if (isGroupOption(flatOrGroupOption)) {
+                            return (
+                                <div className="LemonSelect__dropdown__grouped-options">
+                                    <h5>{key}</h5>
+                                    <LemonSpacer />
+                                    {Object.entries(flatOrGroupOption).map(([optionKey, flatOption]) => (
+                                        <LemonSelectOption
+                                            key={`${key}-${optionKey}`}
+                                            optionKey={optionKey}
+                                            currentKey={localValue}
+                                            option={flatOption}
+                                            onClick={(_key) => {
+                                                onChange(_key)
+                                                setLocalValue(_key)
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <LemonSelectOption
+                                key={key}
+                                optionKey={key}
+                                currentKey={localValue}
+                                option={flatOrGroupOption}
+                                onClick={(_key) => {
+                                    onChange(_key)
+                                    setLocalValue(_key)
+                                }}
+                            />
+                        )
+                    }),
                     sameWidth: dropdownMatchSelectWidth,
                     actionable: true,
                 }}
-                icon={localValue && options[localValue]?.icon}
+                icon={localValue && flattenedOptions[localValue]?.icon}
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 {...buttonProps}
             >
-                {(localValue && (options[localValue]?.label || localValue)) || (
+                {(localValue &&
+                    (computeLabel(flattenedOptions[localValue].label, flattenedOptions[localValue]) || localValue)) || (
                     <span className="text-muted">{placeholder}</span>
                 )}
             </LemonButtonWithPopup>

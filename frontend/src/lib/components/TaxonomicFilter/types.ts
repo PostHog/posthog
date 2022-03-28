@@ -88,3 +88,17 @@ export type ListFuse = Fuse<{
 }> // local alias for typegen
 
 export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty
+
+export enum TaxonomicSortOptionType {
+    Auto = 'auto',
+    VerifiedAsc = 'verifiedAsc',
+    VerifiedDesc = 'verifiedDesc',
+    AlphabeticAsc = 'alphabeticAsc',
+    AlphabeticDesc = 'alphabeticDesc',
+    CreatedAtAsc = 'createdAtAsc',
+    CreatedAtDesc = 'createdAtDesc',
+    LastSeenAsc = 'lastSeenAsc',
+    LastSeenDesc = 'lastSeenDesc',
+    UpdatedAsc = 'updatedAsc',
+    UpdatedDesc = 'updatedDesc',
+}

@@ -1,0 +1,10 @@
+.taxonomic-sort-select,
+.taxonomic-sort-select__dropdown {
+    .taxonomic-sort-select__option {
+        .taxonomic-sort-select__option__sublabel {
+            color: var(--text-muted);
+            margin-left: 0.25rem;
+            font-weight: 300;
+        }
+    }
+}
