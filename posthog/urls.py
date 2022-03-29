@@ -1,4 +1,4 @@
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -23,6 +23,7 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_app_urls
 from posthog.demo import demo
+from posthog.models import User
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
@@ -57,10 +58,11 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.META.get("HTTP_REFERER"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
+    current_team = cast(User, request.user).team
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not hostname_in_app_urls(request.user.current_team, redirect_url.hostname):
+    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
 
     if referer_url.hostname != redirect_url.hostname:

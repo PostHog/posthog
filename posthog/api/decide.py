@@ -25,7 +25,10 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
     return hostname_in_app_urls(team, origin) or hostname_in_app_urls(team, referer)
 
 
-def hostname_in_app_urls(team: Team, hostname: str) -> bool:
+def hostname_in_app_urls(team: Team, hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+
     permitted_domains = ["127.0.0.1", "localhost"]
 
     for url in team.app_urls:
@@ -35,12 +38,13 @@ def hostname_in_app_urls(team: Team, hostname: str) -> bool:
 
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
-            pattern = "^{}$".format(permitted_domain.replace(".", "\\.").replace("*", "(.*)"))
-            if hostname and re.search(pattern, hostname):
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
+            if re.search(pattern, hostname):
                 return True
-        else:
-            if permitted_domain == hostname:
-                return True
+        elif permitted_domain == hostname:
+            return True
+
+    return False
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
