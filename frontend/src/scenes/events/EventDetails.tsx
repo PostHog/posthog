@@ -42,6 +42,7 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
                         ...displayedEventProperties,
                         ...visibleHiddenProperties,
                     }}
+                    useDetectedPropertyType={true}
                 />
                 {hiddenPropsCount > 0 && (
                     <small>
