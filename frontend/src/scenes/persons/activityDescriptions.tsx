@@ -5,14 +5,13 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 
-type personFields = keyof PersonType
-
 const isRecord = (candidate?: string | Record<string, any> | boolean): candidate is Record<string, any> =>
     typeof candidate === 'object'
 
-const personActionsMapping: {
-    [field in personFields]: (item: ActivityLogItem, change?: ActivityChange) => string | JSX.Element | null
-} = {
+const personActionsMapping: Record<
+    keyof PersonType,
+    (item: ActivityLogItem, change?: ActivityChange) => string | JSX.Element | null
+> = {
     properties: function onChangedProperty(_, change) {
         const before = change?.before
         const after = change?.after
@@ -43,7 +42,7 @@ const personActionsMapping: {
 
         return null
     },
-    // fields that shouldn't show in the log if they change
+    // fields that are excluded on the backend
     id: () => null,
     uuid: () => null,
     distinct_ids: () => null,

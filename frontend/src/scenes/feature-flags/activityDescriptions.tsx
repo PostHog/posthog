@@ -10,12 +10,9 @@ const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
 }
 
-type FlagFields = keyof FeatureFlagType
 type Description = string | JSX.Element | null
 
-const featureFlagActionsMapping: {
-    [field in FlagFields]: (change?: ActivityChange) => Description[] | null
-} = {
+const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => Description[] | null> = {
     name: function onName(change) {
         return [
             <>
@@ -112,7 +109,7 @@ const featureFlagActionsMapping: {
     key: function onKey(change) {
         return [<>changed flag key from ${change?.before}</>]
     },
-    // fields that shouldn't show in the log if they change
+    // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
