@@ -46,7 +46,9 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     return (
         <>
             {url && <Typography.Text type="secondary">{url}</Typography.Text>}
-            <h2>{title}</h2>
+            <h2>
+                <Typography.Text ellipsis={true}>{title}</Typography.Text>
+            </h2>
             <hr />
             <p>
                 started at {resourceTiming.entry.startTime || resourceTiming.entry.fetchStart}ms and took{' '}
@@ -64,7 +66,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                     <tbody>
                         {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
                             <tr key={index}>
-                                <td>{key}</td>
+                                <td className="key">{key}</td>
                                 <td>{part.start}</td>
                                 <td>{part.end}</td>
                                 <td>

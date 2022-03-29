@@ -1,7 +1,21 @@
 @import '~/vars';
 
 .performance-popup {
-    max-width: 300px;
+    max-width: 400px;
+}
+
+.performance-timings-table {
+    margin: auto;
+
+    th,
+    td {
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    td.key {
+        text-align: left;
+    }
 }
 
 .web-performance {
