@@ -11,11 +11,9 @@ interface SortSelectProps {
 }
 
 export function SortSelect({ taxonomicFilterLogicProps }: SortSelectProps): JSX.Element {
-    console.log('PROPS', taxonomicFilterLogicProps)
     const logic = sortSelectLogic(taxonomicFilterLogicProps)
-    const { option, truncateControlLabel, defaultOptions } = useValues(logic)
+    const { selectedOptionMap, truncateControlLabel, defaultOptions, activeTab } = useValues(logic)
     const { selectOption } = useActions(logic)
-    console.log('GROUP', defaultOptions)
 
     return (
         <LemonSelect
@@ -23,9 +21,9 @@ export function SortSelect({ taxonomicFilterLogicProps }: SortSelectProps): JSX.
             controlClassName={clsx(truncateControlLabel && 'hide-control-label')}
             dropdownClassName={clsx('taxonomic-sort-select__dropdown', 'click-outside-block')}
             options={defaultOptions}
-            value={option}
+            value={selectedOptionMap?.[activeTab] ?? TaxonomicSortOptionType.Auto}
             onChange={(newValue) => {
-                selectOption(newValue as TaxonomicSortOptionType)
+                selectOption(activeTab, newValue as TaxonomicSortOptionType)
             }}
             outlined
             dropdownMatchSelectWidth={false}

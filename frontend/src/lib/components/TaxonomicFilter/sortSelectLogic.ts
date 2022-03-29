@@ -1,5 +1,9 @@
 import { kea } from 'kea'
-import { TaxonomicFilterLogicProps, TaxonomicSortOptionType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicSortOptionType,
+} from 'lib/components/TaxonomicFilter/types'
 import { sortSelectLogicType } from './sortSelectLogicType'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import {
@@ -21,13 +25,13 @@ export const sortSelectLogic = kea<sortSelectLogicType>({
         values: [taxonomicFilterLogic(props), ['activeTab']],
     }),
     actions: {
-        selectOption: (option: TaxonomicSortOptionType) => ({ option }),
+        selectOption: (group: TaxonomicFilterGroupType, option: TaxonomicSortOptionType) => ({ group, option }),
     },
     reducers: {
-        option: [
-            TaxonomicSortOptionType.Auto as TaxonomicSortOptionType,
+        selectedOptionMap: [
+            {} as Record<TaxonomicFilterGroupType, TaxonomicSortOptionType>,
             {
-                selectOption: (_, { option }) => option,
+                selectOption: (state, { group, option }) => ({ ...state, [group]: option }),
             },
         ],
     },
