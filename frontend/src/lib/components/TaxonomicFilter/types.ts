@@ -90,6 +90,7 @@ export type ListFuse = Fuse<{
 export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty
 
 export enum TaxonomicSortOptionType {
+    /** Events and properties */
     Auto = 'auto',
     VerifiedAsc = 'verifiedAsc',
     VerifiedDesc = 'verifiedDesc',
@@ -101,4 +102,9 @@ export enum TaxonomicSortOptionType {
     LastSeenDesc = 'lastSeenDesc',
     UpdatedAsc = 'updatedAsc',
     UpdatedDesc = 'updatedDesc',
+    /** Cohorts */
+    TotalCountAsc = 'totalCountAsc',
+    TotalCountDesc = 'totalCountDesc',
+    LastCalculatedAsc = 'lastCalculatedAsc',
+    LastCalculatedDesc = 'lastCalculatedDesc',
 }
