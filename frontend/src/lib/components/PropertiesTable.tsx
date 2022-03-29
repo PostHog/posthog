@@ -192,7 +192,14 @@ export function PropertiesTable({
             <div>
                 {properties.length ? (
                     properties.map((item, index) => (
-                        <PropertiesTable key={index} properties={item} nestingLevel={nestingLevel + 1} />
+                        <PropertiesTable
+                            key={index}
+                            properties={item}
+                            nestingLevel={nestingLevel + 1}
+                            useDetectedPropertyType={
+                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
+                            }
+                        />
                     ))
                 ) : (
                     <div className="property-value-type">ARRAY (EMPTY)</div>
@@ -225,6 +232,9 @@ export function PropertiesTable({
                         rootKey={item[0]}
                         onEdit={onEdit}
                         nestingLevel={nestingLevel + 1}
+                        useDetectedPropertyType={
+                            ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
+                        }
                     />
                 )
             },
