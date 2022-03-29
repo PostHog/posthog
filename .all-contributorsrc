@@ -1816,6 +1816,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "dannysheridan",
+      "name": "Danny Sheridan",
+      "avatar_url": "https://avatars.githubusercontent.com/u/83524670?v=4",
+      "profile": "https://www.linkedin.com/in/sheridandanny/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
