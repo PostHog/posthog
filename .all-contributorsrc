@@ -1807,6 +1807,15 @@
         "ideas",
         "doc"
       ]
+    },
+    {
+      "login": "rahul3v",
+      "name": "Rahul",
+      "avatar_url": "https://avatars.githubusercontent.com/u/24385409?v=4",
+      "profile": "https://github.rahul3v.xyz",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
