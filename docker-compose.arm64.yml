@@ -113,10 +113,10 @@ services:
     object_storage:
         image: minio/minio
         ports:
-            - '9000:9000'
+            - '3206:3206'
         volumes:
             - ./storage/minio:/data
         environment:
             MINIO_ACCESS_KEY: object_storage_access_key
             MINIO_SECRET_KEY: object_storage_secret_key
-        command: server --address 0.0.0.0:9000 /data
+        command: server --address 0.0.0.0:3206 /data
