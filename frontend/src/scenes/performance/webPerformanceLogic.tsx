@@ -230,7 +230,6 @@ function calculatePerformanceParts(
 }
 
 function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
-    console.log(pageViewEvent, 'loading event')
     const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
     let maxTime = 0
@@ -390,13 +389,11 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
     }),
     urlToAction: ({ values, actions }) => ({
         [urls.webPerformance()]: () => {
-            console.log('matched top route')
             if (values.currentPage !== WebPerformancePage.TABLE) {
                 actions.setCurrentPage(WebPerformancePage.TABLE)
             }
         },
         [urls.webPerformanceWaterfall(':id')]: ({ id }) => {
-            console.log('matched id route')
             if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
                 actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
             }
