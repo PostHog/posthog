@@ -79,7 +79,6 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                     <Button
                         className={'session-recordings-button'}
                         data-attr="session-recordings-button"
-                        disabled={!sessionRecordings.length}
                         icon={<PlayCircleOutlined />}
                     >
                         Watch recording
