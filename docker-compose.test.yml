@@ -23,8 +23,4 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
+            - object_storage

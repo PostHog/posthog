@@ -53,6 +53,7 @@ services:
             - redis
             - clickhouse
             - kafka
+            - object_storage
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/posthog
             REDIS_URL: redis://redis:6379/
@@ -66,14 +67,19 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
         image: posthog/posthog:latest
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
         ports:
             - 8000:8000
             - 80:8000
+    object_storage:
+        image: minio/minio
+        ports:
+            - '9000:9000'
+        volumes:
+            - ./storage/minio:/data
+        environment:
+            MINIO_ACCESS_KEY: object_storage_access_key
+            MINIO_SECRET_KEY: object_storage_secret_key
+        command: server --address 0.0.0.0:9000 /data
 volumes:
     postgres-data:
 version: '3'

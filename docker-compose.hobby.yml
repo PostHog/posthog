@@ -79,11 +79,7 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
+            - object_storage
     web:
         <<: *worker
         command: /compose/start
@@ -117,11 +113,19 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
+            - object_storage
+
+    object_storage:
+        image: minio/minio
+        ports:
+            - '9000:9000'
+        volumes:
+            - ./storage/minio:/data
+        environment:
+            MINIO_ACCESS_KEY: object_storage_access_key
+            MINIO_SECRET_KEY: object_storage_secret_key
+        command: server --address 0.0.0.0:9000 /data
+
     asyncmigrationscheck:
         <<: *worker
         command: python manage.py run_async_migrations --check
