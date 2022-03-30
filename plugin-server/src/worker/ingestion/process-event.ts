@@ -8,7 +8,7 @@ import { DatabaseError } from 'pg'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
-import { S3 } from '../../main/services/object_storage'
+import { ObjectStorage } from '../../main/services/object_storage'
 import {
     Element,
     Event,
@@ -80,11 +80,13 @@ export class EventsProcessor {
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
+    objectStorage: ObjectStorage
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
+        this.objectStorage = pluginsServer.objectStorage
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
@@ -725,7 +727,7 @@ export class EventsProcessor {
         }
         // TODO: error handling
         // TODO store path on event
-        S3.putObject(params, (err: any, resp: any) => {
+        this.objectStorage.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.error(err)
                 this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)

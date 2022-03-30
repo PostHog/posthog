@@ -73,8 +73,8 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -154,8 +154,8 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -236,8 +236,8 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -318,8 +318,8 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2

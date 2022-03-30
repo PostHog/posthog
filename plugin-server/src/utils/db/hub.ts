@@ -12,7 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { S3 } from '../../main/services/object_storage'
+import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
 import { Hub, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -188,10 +188,10 @@ export async function createHub(
     status.info('👍', `Redis`)
 
     status.info('🤔', `Storage`)
+    let objectStorage: ObjectStorage
     try {
-        await S3.listBuckets().promise()
-        status.info('🪣', `read buckets from storage`)
-        status.info('👍', `storage`)
+        objectStorage = connectObjectStorage()
+        status.info('👍', `storage 🪣`)
     } catch (e) {
         status.error('❌', `could not read from storage: ${e}`)
         throw e
@@ -216,6 +216,7 @@ export async function createHub(
         kafka,
         kafkaProducer,
         statsd,
+        objectStorage,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
