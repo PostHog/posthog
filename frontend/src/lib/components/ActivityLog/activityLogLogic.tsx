@@ -23,18 +23,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
-                fetchNextPage: async (_, breakpoint) => {
-                    await breakpoint()
-                    return await api.activity.list(props, values.page)
-                },
+                fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
-                fetchPreviousPage: async () => {
-                    return await api.activity.list(props, values.page - 1)
-                },
+                fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },
         ],
     }),
@@ -77,7 +72,12 @@ export const activityLogLogic = kea<activityLogLogicType>({
             },
         ],
     }),
-    listeners: ({ actions }) => ({ setPage: actions.fetchNextPage }),
+    listeners: ({ actions }) => ({
+        setPage: async (_, breakpoint) => {
+            await breakpoint()
+            actions.fetchNextPage()
+        },
+    }),
     urlToAction: ({ values, actions, props }) => {
         const onPageChange = (
             searchParams: Record<string, any>,
