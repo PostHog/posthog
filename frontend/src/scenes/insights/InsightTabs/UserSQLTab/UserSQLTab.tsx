@@ -6,9 +6,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export function UserSQLTab(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, filters } = useValues(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
-    const [query, setQuery] = useState<string | undefined>('')
+    const [query, setQuery] = useState<string | undefined>(filters.user_sql || '')
 
     const onSubmit = (): void => {
         setFilters({
