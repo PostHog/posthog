@@ -16,6 +16,7 @@ from posthog.constants import (
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     BREAKDOWN_VALUES_LIMIT,
+    BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
     COMPARE,
     DATE_FROM,
@@ -37,6 +38,7 @@ from posthog.constants import (
     SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
+    TRENDS_HEDGEHOGGER,
 )
 from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
@@ -151,7 +153,11 @@ class BreakdownMixin(BaseParamMixin):
 
     @property
     def breakdown_limit_or_default(self) -> int:
-        return self._breakdown_limit or BREAKDOWN_VALUES_LIMIT
+        return self._breakdown_limit or (
+            BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+            if getattr(self, "display", None) == TRENDS_HEDGEHOGGER
+            else BREAKDOWN_VALUES_LIMIT
+        )
 
     @include_dict
     def breakdown_to_dict(self):
