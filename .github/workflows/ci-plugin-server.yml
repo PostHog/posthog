@@ -63,7 +63,10 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
-
+            OBJECT_STORAGE_HOST: 'localhost'
+            OBJECT_STORAGE_PORT: '19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
@@ -144,7 +147,10 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
-
+            OBJECT_STORAGE_HOST: 'localhost'
+            OBJECT_STORAGE_PORT: '19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
@@ -226,7 +232,10 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
-
+            OBJECT_STORAGE_HOST: 'localhost'
+            OBJECT_STORAGE_PORT: '19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
@@ -308,7 +317,10 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
-
+            OBJECT_STORAGE_HOST: 'localhost'
+            OBJECT_STORAGE_PORT: '19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
