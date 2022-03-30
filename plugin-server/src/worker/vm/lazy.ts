@@ -129,7 +129,6 @@ export class LazyPluginVM {
                         (vm.tasks?.schedule && Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
 
-                    console.log(this.pluginConfig.plugin?.name, vm.tasks.schedule, hasAsyncCapabilities)
 
                     const pluginBelongsInServer = this.determineIfPluginBelongsInServer(vm, hasAsyncCapabilities)
 
