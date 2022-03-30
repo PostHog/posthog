@@ -4,16 +4,27 @@ import { useActions, useValues } from 'kea'
 import { userSQLlogic } from 'scenes/userSQL/userSQLlogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
+import { format } from 'sql-formatter'
+import { LemonRow } from 'lib/components/LemonRow'
 
 export function UserSQLTab(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, filters } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
-    const [query, setQuery] = useState<string | undefined>('')
+    const [query, setQuery] = useState<string | undefined>(format(filters.user_sql || ''))
 
     const onSubmit = (): void => {
-        setFilters({
-            user_sql: query,
-        })
+        if (query !== filters.user_sql) {
+            setFilters({
+                user_sql: query,
+            })
+        } else {
+            loadResults()
+        }
+    }
+
+    const onFormat = (): void => {
+        setQuery(format(query || ''))
     }
 
     return (
@@ -27,11 +38,17 @@ export function UserSQLTab(): JSX.Element {
                 }}
                 options={{
                     minimap: { enabled: false },
+                    renderLineHighlight: 'none',
                 }}
             />
-            <LemonButton type="primary" onClick={onSubmit}>
-                Run
-            </LemonButton>
+            <LemonRow>
+                <LemonButton style={{ marginRight: 8 }} type="primary" onClick={onFormat}>
+                    Format
+                </LemonButton>
+                <LemonButton type="primary" onClick={onSubmit}>
+                    Run
+                </LemonButton>
+            </LemonRow>
         </div>
     )
 }

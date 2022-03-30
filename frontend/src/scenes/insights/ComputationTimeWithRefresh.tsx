@@ -5,14 +5,23 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { InsightType } from '~/types'
 
 const REFRESH_INTERVAL_MINUTES = 3
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
-    const { lastRefresh } = useValues(insightLogic)
-    const { loadResults } = useActions(insightLogic)
+    const { lastRefresh, activeView, insight } = useValues(insightLogic)
+    const { loadResults, setActiveView, setFilters } = useActions(insightLogic)
 
     usePeriodicRerender(15000)
+
+    const onClickSource = (): void => {
+        setFilters({
+            insight: InsightType.USER_SQL,
+            user_sql: insight.source_query,
+        })
+        setActiveView(InsightType.USER_SQL)
+    }
 
     return (
         <div className="text-muted-alt" style={{ height: 32, display: 'flex', alignItems: 'center' }}>
@@ -42,6 +51,14 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     <span style={{ fontSize: 14 }}>Refresh</span>
                 </Button>
             </Tooltip>
+            {activeView !== InsightType.TRENDS && (
+                <>
+                    <span style={{ padding: '0 4px' }}>•</span>
+                    <Button size="small" type="link" onClick={onClickSource} style={{ padding: 0 }}>
+                        <span style={{ fontSize: 14 }}>View source SQL</span>
+                    </Button>
+                </>
+            )}
         </div>
     )
 }

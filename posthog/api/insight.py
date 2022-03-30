@@ -34,7 +34,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.client import sync_execute
+from posthog.client import substitute_params, sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
@@ -392,12 +392,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+            funnel_builder = ClickhouseFunnelTrends(team=team, filter=filter)
+            source_query = substitute_params(funnel_builder.get_query(), funnel_builder.params)
+            return {"result": funnel_builder.run(), "source_query": source_query}
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
+            funnel_builder = ClickhouseFunnelTimeToConvert(team=team, filter=filter)
+            source_query = substitute_params(funnel_builder.get_query(), funnel_builder.params)
+            return {"result": funnel_builder.run(), "source_query": source_query}
         else:
-            funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run()}
+            funnel_order_class = get_funnel_order_class(filter)(team=team, filter=filter)
+            source_query = substitute_params(funnel_order_class.get_query(), funnel_order_class.params)
+            return {"result": funnel_order_class.run(), "source_query": source_query}
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -418,21 +423,34 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
-        return {"result": result}
+        query_class = ClickhouseRetention(base_uri=base_uri)
+        result = query_class.run(filter, team)
+        return {"result": result, "source_query": query_class.query}
 
     @action(methods=["GET"], detail=False)
     def user_sql(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_user_sql(request)
         return Response(result)
 
-    @cached_function
     def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
         user_sql_filter = Filter(request=request, team=self.team)
-        query_uuid = uuid.uuid4()
+        result = sync_execute(
+            user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60}, with_column_types=True
+        )
 
-        result = sync_execute(user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60},)
-        return {"result": result}
+        final = []
+        names = []
+
+        if len(result) == 2:
+
+            for name_type in result[1]:
+                names.append(name_type[0])
+
+            for row in result[0]:
+                final.append(dict(zip(names, row)))
+
+        return {"result": final}
+      
 
     # ******************************************
     # /projects/:id/insights/path
@@ -461,9 +479,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+        query_class = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter)
+        resp = query_class.run()
 
-        return {"result": resp}
+        return {"result": resp, "source_query": substitute_params(query_class.get_query(), query_class.params)}
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:
