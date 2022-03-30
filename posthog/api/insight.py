@@ -422,8 +422,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
-        return {"result": result}
+        query_class = ClickhouseRetention(base_uri=base_uri)
+        result = query_class.run(filter, team)
+        return {"result": result, "source_query": query_class.query}
 
     @action(methods=["GET"], detail=False)
     def user_sql(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -476,9 +477,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+        query_class = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter)
+        resp = query_class.run()
 
-        return {"result": resp}
+        return {"result": resp, "source_query": substitute_params(query_class.get_query(), query_class.params)}
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:
