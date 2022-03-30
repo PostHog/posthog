@@ -62,13 +62,41 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
             with freeze_time("2020-11-11 00:30:00"):
                 _create_person("new_user1", team=default_team)
                 _create_person("new_user2", team=default_team)
-                _create_event("new_user1", "$event1", "$web", now() - relativedelta(hours=12), team=default_team)
-                _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=default_team)
-                _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=default_team)
                 _create_event(
-                    "new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=default_team
+                    distinct_id="new_user1",
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=12),
+                    team=default_team,
                 )
-                _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=default_team)
+                _create_event(
+                    distinct_id="new_user1",
+                    event="$event2",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=11),
+                    team=default_team,
+                )
+                _create_event(
+                    distinct_id="new_user1",
+                    event="$event2",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=11),
+                    team=default_team,
+                )
+                _create_event(
+                    distinct_id="new_user1",
+                    event="$event2",
+                    properties={"$lib": "$mobile"},
+                    timestamp=now() - relativedelta(days=1, hours=1),
+                    team=default_team,
+                )
+                _create_event(
+                    distinct_id="new_user1",
+                    event="$event3",
+                    properties={"$lib": "$mobile"},
+                    timestamp=now() - relativedelta(weeks=5),
+                    team=default_team,
+                )
 
                 all_reports = send_all_reports(dry_run=True)
                 org_report = self.select_report_by_org_id(str(default_team.organization.id), all_reports)
@@ -79,7 +107,11 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 _create_person("new_user1", team=team_in_other_org)
                 _create_person("new_user2", team=team_in_other_org)
                 _create_event(
-                    "new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=team_in_other_org
+                    distinct_id="new_user1",
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(days=1, hours=2),
+                    team=team_in_other_org,
                 )
 
                 # Make sure the original team report is unchanged
@@ -87,10 +119,18 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
 
                 # Create an event before and after this current period
                 _create_event(
-                    "new_user1", "$eventAfter", "$web", now() + relativedelta(days=2, hours=2), team=default_team,
+                    distinct_id="new_user1",
+                    event="$eventAfter",
+                    properties={"$lib": "$web"},
+                    timestamp=now() + relativedelta(days=2, hours=2),
+                    team=default_team,
                 )
                 _create_event(
-                    "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=default_team
+                    distinct_id="new_user1",
+                    event="$eventBefore",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(days=2, hours=2),
+                    team=default_team,
                 )
 
                 # Check event totals are updated
@@ -111,13 +151,25 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
                 _create_person("new_user1", team=internal_metrics_team)
                 _create_event(
-                    "new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=internal_metrics_team,
+                    distinct_id="new_user1",
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(days=1, hours=2),
+                    team=internal_metrics_team,
                 )
                 _create_event(
-                    "new_user1", "$event2", "$web", now() - relativedelta(days=1, hours=2), team=internal_metrics_team,
+                    distinct_id="new_user1",
+                    event="$event2",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(days=1, hours=2),
+                    team=internal_metrics_team,
                 )
                 _create_event(
-                    "new_user1", "$event3", "$web", now() - relativedelta(days=1, hours=2), team=internal_metrics_team,
+                    distinct_id="new_user1",
+                    event="$event3",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(days=1, hours=2),
+                    team=internal_metrics_team,
                 )
 
                 # Verify that internal metrics events are not counted

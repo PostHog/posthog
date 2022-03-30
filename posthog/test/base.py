@@ -359,9 +359,12 @@ def _create_event(**kwargs):
     """
     Create an event in tests. NOTE: all events get batched and only created when sync_execute is called
     """
+    if not kwargs.get("event_uuid"):
+        kwargs["event_uuid"] = str(uuid.uuid4())
     if not kwargs.get("timestamp"):
         kwargs["timestamp"] = now()
     events_cache_tests.append(kwargs)
+    return kwargs["event_uuid"]
 
 
 def _create_person(**kwargs):
