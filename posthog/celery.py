@@ -149,6 +149,18 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+@app.task(ignore_result=True)
+def enqueue_clickhouse_execute_with_progress(query_uuid, query, args=None, settings=None, with_column_types=False):
+    """
+    Kick off query with progress reporting
+    Iterate over the progress status
+    Save status to redis
+    Once complete save results to redis
+    """
+    from posthog.client import enqueue_execute_with_progress
+    enqueue_execute_with_progress(query_uuid, query, args, settings, with_column_types)
+
+
 CLICKHOUSE_TABLES = [
     "events",
     "person",

@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, Type
+import uuid
 
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
@@ -428,6 +429,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     @cached_function
     def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
         user_sql_filter = Filter(request=request, team=self.team)
+        query_uuid = uuid.uuid4()
+
         result = sync_execute(user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60},)
         return {"result": result}
 

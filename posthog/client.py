@@ -1,21 +1,25 @@
 import asyncio
+from dataclasses import dataclass
 import hashlib
 import json
 import types
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
+import uuid
 
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
 from posthog import redis
+from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
@@ -160,6 +164,84 @@ def sync_execute(query, args=None, settings=None, with_column_types=False):
             if _request_information is not None and _request_information.get("save", False):
                 save_query(prepared_sql, execution_time)
     return result
+
+
+@dataclass_json
+@dataclass
+class QueryStatus:
+    num_rows: float
+    total_rows: float
+    complete: bool
+    done: float
+    error: bool
+    error_message: str
+    results: Any
+
+
+def execute_with_progress(query_uuid, query, args=None, settings=None, with_column_types=False):
+    """
+    Kick off query with progress reporting
+    Iterate over the progress status
+    Save status to redis
+    Once complete save results to redis
+    """
+
+    key = "uq_%s" % query_uuid
+    client = SyncClient
+    redis_client = redis.get_client()
+
+    start_time = perf_counter()
+
+    prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
+
+    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+
+    try:
+        progress = client.execute_with_progress(prepared_sql, params=prepared_args, settings=settings,
+                                     with_column_types=with_column_types)
+        for num_rows, total_rows in progress:
+            if total_rows:
+                done = float(num_rows) / total_rows
+            else:
+                done = total_rows
+            progress = QueryStatus(num_rows, total_rows, done, False, False, "", None)
+            redis_client.set(key, progress.to_json())
+        else:
+            rv = progress.get_result()
+            progress = QueryStatus(
+                num_rows=0,
+                total_rows=0,
+                done=1.0,
+                complete=True,
+                error=False,
+                error_message="",
+                results=rv,
+            )
+            redis_client.set(key, progress.to_json())
+
+    except Exception as err:
+        err = wrap_query_error(err)
+        tags["failed"] = True
+        tags["reason"] = type(err).__name__
+        incr("clickhouse_sync_execution_failure", tags=tags)
+
+        raise err
+    finally:
+        execution_time = perf_counter() - start_time
+
+        QUERY_TIMEOUT_THREAD.cancel(timeout_task)
+        timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))
+        if _request_information is not None and _request_information.get("save", False):
+            save_query(prepared_sql, execution_time)
+
+
+def enqueue_execute_with_progress(query, args=None, settings=None, with_column_types=False):
+    query_uuid = uuid.uuid4()
+    enqueue_clickhouse_execute_with_progress.delay(query_uuid, query, args, settings, with_column_types)
+    return query_uuid
 
 
 def substitute_params(query, params):
