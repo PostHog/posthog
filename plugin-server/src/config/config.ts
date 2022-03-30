@@ -32,7 +32,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: false,
-        KAFKA_ENABLED: true,
+        KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
