@@ -141,6 +141,7 @@ class Organization(UUIDModel):
         return self.available_features
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
+        # TODO: consider locking out cloud users who don't pay
         return feature in self.available_features
 
     @property

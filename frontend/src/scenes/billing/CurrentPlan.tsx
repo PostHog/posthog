@@ -1,5 +1,5 @@
-import { Alert, Button, Card, Input } from 'antd'
-import { useValues } from 'kea'
+import { Alert, Button, Card, InputNumber } from 'antd'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 import defaultImg from 'public/plan-default.svg'
 import { Link } from 'lib/components/Link'
@@ -10,6 +10,7 @@ import { PlanInterface } from '~/types'
 
 export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
     const { billing } = useValues(billingLogic)
+    const { setBillingLimit } = useActions(billingLogic)
 
     return (
         <>
@@ -59,24 +60,22 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             <div className="text-muted text-center">Get past invoices too</div>
                         </div>
                     </div>
-                    <div>
-                        <Input
-                            onChange={(event) => {
-                                setSpendLimit(event.target.value)
+                    <div className="centered">
+                        Set billing limit to{' '}
+                        <InputNumber
+                            style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                            onChange={(value): void => {
+                                if (billing) {
+                                    setBillingLimit({ ...billing, billing_limit: value })
+                                }
                             }}
-                            style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                        />
-                        <Button
-                            type="primary"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                updateSpendLimit({ name })
-                            }}
-                            //disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
-                            //loading={currentOrganizationLoading}
-                        >
-                            Set spend limit
-                        </Button>
+                            value={billing?.billing_limit || 0}
+                            min={0}
+                            step={10}
+                            // max={100}
+                            addonAfter="$"
+                        />{' '}
+                        (in US dollars per month)
                     </div>
                 </Card>
             )}

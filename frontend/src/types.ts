@@ -677,6 +677,7 @@ export interface BillingType {
     subscription_url: string
     current_bill_amount: number | null
     should_display_current_bill: boolean
+    billing_limit: number | null
 }
 
 export interface PlanInterface {

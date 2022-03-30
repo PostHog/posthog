@@ -32,6 +32,10 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     actions.registerInstrumentationProps()
                     return response as BillingType
                 },
+                setBillingLimit: async (billing: BillingType, breakpoint) => {
+                    await breakpoint(1000)
+                    return (await api.update('api/billing/', billing)) as BillingType
+                },
             },
         ],
         plans: [

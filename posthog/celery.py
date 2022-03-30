@@ -59,7 +59,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        # TODO: used for testing
+        sender.add_periodic_task(crontab(second=0), calculate_billing_daily_usage.s())  # every day midnight UTC
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
