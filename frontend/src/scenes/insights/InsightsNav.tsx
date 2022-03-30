@@ -70,6 +70,12 @@ export function InsightsNav(): JSX.Element {
                 dataAttr: 'insight-lifecycle-tab',
                 hotkey: 'l',
             },
+            {
+                label: 'SQL',
+                type: InsightType.USER_SQL,
+                dataAttr: 'insight-user-sql-tab',
+                hotkey: 'q',
+            },
         ],
         [funnelTab]
     )

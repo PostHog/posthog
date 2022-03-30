@@ -29,6 +29,7 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { UserSQLInsight } from 'scenes/userSQL/UserSQL'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -37,6 +38,7 @@ const VIEW_MAP = {
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.USER_SQL}`]: <UserSQLInsight />,
 }
 
 export function InsightContainer(
@@ -137,7 +139,6 @@ export function InsightContainer(
 
         return null
     }
-
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
