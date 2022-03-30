@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import hashlib
 import json
+import time
 import types
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -169,16 +170,22 @@ def sync_execute(query, args=None, settings=None, with_column_types=False):
 @dataclass_json
 @dataclass
 class QueryStatus:
-    num_rows: float
-    total_rows: float
-    complete: bool
-    done: float
-    error: bool
-    error_message: str
-    results: Any
+    team_id: int 
+    num_rows: float = 0
+    total_rows: float = 0
+    complete: bool = False
+    done: float = False
+    error: bool = False
+    error_message: str = ""
+    results: Any = None
 
 
-def execute_with_progress(query_uuid, query, args=None, settings=None, with_column_types=False):
+def generate_redis_results_key(query_uuid):
+    REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_with_progress"
+    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_uuid}"
+    return key
+
+def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, with_column_types=False, update_freq=0.2):
     """
     Kick off query with progress reporting
     Iterate over the progress status
@@ -186,29 +193,36 @@ def execute_with_progress(query_uuid, query, args=None, settings=None, with_colu
     Once complete save results to redis
     """
 
-    key = "uq_%s" % query_uuid
-    client = SyncClient
+    key = generate_redis_results_key(query_uuid) 
+    ch_client = default_client() 
     redis_client = redis.get_client()
 
     start_time = perf_counter()
 
-    prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
+    prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
 
     timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
     try:
-        progress = client.execute_with_progress(prepared_sql, params=prepared_args, settings=settings,
-                                     with_column_types=with_column_types)
+        progress = ch_client.execute_with_progress(
+            prepared_sql,
+            params=prepared_args,
+            settings=settings,
+            with_column_types=with_column_types,
+        )
         for num_rows, total_rows in progress:
             if total_rows:
                 done = float(num_rows) / total_rows
             else:
                 done = total_rows
-            progress = QueryStatus(num_rows, total_rows, done, False, False, "", None)
-            redis_client.set(key, progress.to_json())
+            query_status = QueryStatus(team_id, num_rows, total_rows, done, False, False, "", None)
+            redis_client.set(key, query_status.to_json())
+            time.sleep(update_freq)
         else:
+            print("shit shit shit") 
             rv = progress.get_result()
-            progress = QueryStatus(
+            query_status = QueryStatus(
+                team_id=team_id, 
                 num_rows=0,
                 total_rows=0,
                 done=1.0,
@@ -217,7 +231,7 @@ def execute_with_progress(query_uuid, query, args=None, settings=None, with_colu
                 error_message="",
                 results=rv,
             )
-            redis_client.set(key, progress.to_json())
+            redis_client.set(key, query_status.to_json())
 
     except Exception as err:
         err = wrap_query_error(err)
@@ -238,10 +252,30 @@ def execute_with_progress(query_uuid, query, args=None, settings=None, with_colu
             save_query(prepared_sql, execution_time)
 
 
-def enqueue_execute_with_progress(query, args=None, settings=None, with_column_types=False):
+def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
     query_uuid = uuid.uuid4()
-    enqueue_clickhouse_execute_with_progress.delay(query_uuid, query, args, settings, with_column_types)
+    enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
     return query_uuid
+
+
+def get_status_or_results(team_id, query_uuid):
+    """
+    Returns QueryStatus data class
+    QueryStatus data class contains either:
+    Current status of running query
+    Results of completed query
+    Error payload of failed query 
+    """ 
+    redis_client = redis.get_client()
+    key = generate_redis_results_key(query_uuid)
+    try: 
+        str_results = redis_client.get(key).decode("utf-8")
+        query_status = QueryStatus.from_json(str_results)
+        if query_status.team_id != team_id:
+            raise Exception("Requesting team is not executing team")
+    except Exception as e:
+        query_status = QueryStatus(team_id, error=True, error_message=str(e))
+    return query_status
 
 
 def substitute_params(query, params):
