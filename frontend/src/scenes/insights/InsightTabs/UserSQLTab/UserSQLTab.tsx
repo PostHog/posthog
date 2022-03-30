@@ -33,6 +33,7 @@ export function UserSQLTab(): JSX.Element {
                 }}
                 options={{
                     minimap: { enabled: false },
+                    renderLineHighlight: 'none',
                 }}
             />
             <LemonRow>
