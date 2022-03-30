@@ -1,18 +1,16 @@
 from datetime import timedelta
-from uuid import uuid4
 
 from django.test.client import Client
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.person import Person
 from posthog.queries.util import get_earliest_timestamp
+from posthog.test.base import _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -22,16 +20,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=event_name)
     return action
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
 
 
 def get_people_from_url_ok(client: Client, url: str):

@@ -1,37 +1,18 @@
-from typing import Dict, List, Union
+from typing import List
 from unittest.mock import patch
-from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import datetime, now
+from django.utils.timezone import now
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Organization, Person, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.org_usage_report import OrgReport, send_all_reports
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 from posthog.version import VERSION
-
-
-def _create_person(distinct_id: str, team: Team) -> Person:
-    return Person.objects.create(team=team, distinct_ids=[distinct_id])
-
-
-def _create_event(
-    distinct_id: str, event: str, lib: str, timestamp: Union[datetime, str], team: Team, properties: Dict = {}
-) -> None:
-    create_event(
-        event_uuid=uuid4(),
-        team=team,
-        distinct_id=distinct_id,
-        event=event,
-        timestamp=timestamp,
-        properties={"$lib": lib, **properties},
-    )
 
 
 class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):

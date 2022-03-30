@@ -10,16 +10,10 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_person
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
 
 
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):

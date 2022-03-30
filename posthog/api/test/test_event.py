@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
@@ -11,23 +10,11 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    event_uuid = uuid.uuid4()
-    kwargs.update({"event_uuid": event_uuid})
-    create_event(**kwargs)
-    return str(event_uuid)
-
-
-def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):

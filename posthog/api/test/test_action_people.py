@@ -3,12 +3,11 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, ActionStep, Cohort, Organization, Person
-from posthog.test.base import APIBaseTest
+from posthog.models import Action, ActionStep, Cohort, Organization
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -25,16 +24,6 @@ def _create_cohort(**kwargs):
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
     return cohort
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(uuid=None, **kwargs):
-    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
-    create_event(**kwargs)
 
 
 def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):

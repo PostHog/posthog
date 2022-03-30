@@ -2,28 +2,17 @@ import json
 import unittest
 from typing import Dict, List, Optional
 from unittest import mock
-from uuid import uuid4
 
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):

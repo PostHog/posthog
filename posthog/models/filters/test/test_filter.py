@@ -10,7 +10,7 @@ from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_person
 
 
 class TestFilter(BaseTest):
@@ -332,11 +332,6 @@ def _filter_persons(filter: Filter, team: Team):
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return str(person.uuid)
 
 
 class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person)):  # type: ignore

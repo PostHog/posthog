@@ -2,30 +2,18 @@ import json
 from datetime import timedelta
 from unittest.case import skip
 from unittest.mock import patch
-from uuid import uuid4
 
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import Cohort, Dashboard, Filter, Insight, Person, Team, User
+from posthog.models import Cohort, Dashboard, Filter, Insight, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):

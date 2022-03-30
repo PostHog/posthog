@@ -1,13 +1,12 @@
 from datetime import datetime
 from typing import List, Literal, Union, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
     PropertyGroup,
     get_property_string_expr,
@@ -21,24 +20,11 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
-from posthog.test.base import BaseTest
-
-
-def _create_event(**kwargs) -> UUID:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return pk
-
-
-def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+from posthog.test.base import BaseTest, _create_event, _create_person
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):

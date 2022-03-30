@@ -1,9 +1,6 @@
-from uuid import uuid4
-
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -15,17 +12,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_cohort(**kwargs):

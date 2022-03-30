@@ -1,12 +1,10 @@
 from datetime import datetime
 from unittest.case import skip
-from uuid import uuid4
 
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -22,9 +20,8 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
-from posthog.test.base import test_with_materialized_columns
+from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -39,16 +36,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
