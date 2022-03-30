@@ -72,7 +72,6 @@ export async function startQueues(
             ingestion: redisQueue,
             auxiliary: redisQueue,
         }
-        console.log('about to startQueueKafka 1', pluginServerMode, server.KAFKA_ENABLED)
         if (server.KAFKA_ENABLED) {
             console.log('about to startQueueKafka 2', pluginServerMode)
             queues.ingestion = await startQueueKafka(server, mergedWorkerMethods, pluginServerMode)
