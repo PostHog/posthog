@@ -430,7 +430,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         result = self.calculate_user_sql(request)
         return Response(result)
 
-    @cached_function
     def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
         user_sql_filter = Filter(request=request, team=self.team)
         result = sync_execute(user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60},)
