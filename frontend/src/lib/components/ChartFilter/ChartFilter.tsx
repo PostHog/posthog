@@ -27,11 +27,11 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const tableDisabled = false
-    const pieAndHedgehoggerDisabled =
-        filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
-    const barDisabled = filters.insight === InsightType.RETENTION
-    const barValueDisabled =
+    const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
+    const hedgehoggerDisabled: boolean =
+        pieDisabled || (!!filters.breakdown && filters.breakdown !== '$geoip_country_code')
+    const barDisabled: boolean = filters.insight === InsightType.RETENTION
+    const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const defaultDisplay: ChartDisplayType =
         filters.insight === InsightType.RETENTION
@@ -106,17 +106,16 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   {
                       value: ChartDisplayType.ActionsTable,
                       label: <Label icon={<TableOutlined />}>Table</Label>,
-                      disabled: tableDisabled,
                   },
                   {
                       value: ChartDisplayType.ActionsPie,
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieAndHedgehoggerDisabled,
+                      disabled: pieDisabled,
                   },
                   {
                       value: ChartDisplayType.Hedgehogger,
                       label: <Label icon={<CoffeeOutlined />}>Hedgehogger</Label>,
-                      disabled: pieAndHedgehoggerDisabled,
+                      disabled: hedgehoggerDisabled,
                   },
               ]
     return (

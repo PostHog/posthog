@@ -8,5 +8,8 @@
         stroke: var(--bg-light);
         stroke-width: 0.125rem;
         fill-rule: evenodd;
+        &:hover {
+            color: var(--primary-active) !important;
+        }
     }
 }
