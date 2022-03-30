@@ -1,4 +1,4 @@
-import { Alert, Button, Card } from 'antd'
+import { Alert, Button, Card, Input } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
 import defaultImg from 'public/plan-default.svg'
@@ -58,6 +58,25 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             </Button>
                             <div className="text-muted text-center">Get past invoices too</div>
                         </div>
+                    </div>
+                    <div>
+                        <Input
+                            onChange={(event) => {
+                                setSpendLimit(event.target.value)
+                            }}
+                            style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                        />
+                        <Button
+                            type="primary"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                updateSpendLimit({ name })
+                            }}
+                            //disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
+                            //loading={currentOrganizationLoading}
+                        >
+                            Set spend limit
+                        </Button>
                     </div>
                 </Card>
             )}
