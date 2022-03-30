@@ -21,20 +21,13 @@ class ClickhouseSessionRecording(SessionRecording):
             self._recording_snapshot_query, {"team_id": self._team.id, "session_id": self._session_recording_id,},
         )
 
-        events = []
-
-        for (session_id, window_id, distinct_id, timestamp, snapshot_data) in response:
-
-            loaded_data = try_read_from_object_storage(session_id, snapshot_data)
-
-            events.append(
-                SessionRecordingEvent(
-                    session_id=session_id,
-                    window_id=window_id,
-                    distinct_id=distinct_id,
-                    timestamp=timestamp,
-                    snapshot_data=loaded_data,
-                )
+        return [
+            SessionRecordingEvent(
+                session_id=session_id,
+                window_id=window_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                snapshot_data=try_read_from_object_storage(session_id, snapshot_data),
             )
-
-        return events
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
+        ]
