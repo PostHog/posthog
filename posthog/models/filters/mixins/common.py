@@ -15,6 +15,7 @@ from posthog.constants import (
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
+    BREAKDOWN_VALUES_LIMIT,
     BREAKDOWNS,
     COMPARE,
     DATE_FROM,
@@ -141,11 +142,16 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:
-        return self._data.get(BREAKDOWN_LIMIT)
+        if BREAKDOWN_LIMIT in self._data:
+            try:
+                return int(self._data[BREAKDOWN_LIMIT])
+            except ValueError:
+                pass
+        return None
 
     @property
     def breakdown_limit_or_default(self) -> int:
-        return self._breakdown_limit or 10
+        return self._breakdown_limit or BREAKDOWN_VALUES_LIMIT
 
     @include_dict
     def breakdown_to_dict(self):
