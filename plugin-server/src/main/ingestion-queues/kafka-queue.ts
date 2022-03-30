@@ -123,10 +123,6 @@ export class KafkaQueue implements Queue {
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
-                    if (this.pluginServerMode === PluginServerMode.Runner) {
-                        console.log('eachBatch')
-                        console.log(payload)
-                    }
 
                     try {
                         await this.eachBatch(payload)
