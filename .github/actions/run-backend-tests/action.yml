@@ -77,7 +77,7 @@ runs:
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
-              pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
+              pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' }}
@@ -88,13 +88,14 @@ runs:
                   --group ${{ inputs.group }} \
                   --store-durations \
                   --cov \
-                  --cov-report=xml:coverage-clickhouse.xml
+                  --cov-report=xml:coverage-clickhouse.xml \
+                  --durations=150
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
           shell: bash
           run: |
-              pytest posthog -m "ee"
+              pytest posthog -m "ee" --durations=150
 
         - uses: codecov/codecov-action@v2
           if: ${{ inputs.cloud == 'false' }}

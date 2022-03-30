@@ -313,4 +313,4 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy" --durations=100
