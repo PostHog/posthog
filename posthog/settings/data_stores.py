@@ -20,16 +20,8 @@ if TEST or DEBUG:
     PG_PORT = os.getenv("PGPORT", "5432")
     PG_DATABASE = os.getenv("PGDATABASE", "posthog")
     DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
-    OBJECT_STORAGE_HOST = os.getenv("OBJECT_STORAGE_HOST", "localhost")
-    OBJECT_STORAGE_PORT = os.getenv("OBJECT_STORAGE_PORT", "19000")
-    OBJECT_STORAGE_ACCESS_KEY_ID = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "object_storage_root_user")
-    OBJECT_STORAGE_SECRET_ACCESS_KEY = os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "object_storage_root_password")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
-    OBJECT_STORAGE_HOST = os.getenv("OBJECT_STORAGE_HOST", "")
-    OBJECT_STORAGE_PORT = os.getenv("OBJECT_STORAGE_PORT", "")
-    OBJECT_STORAGE_ACCESS_KEY_ID = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "")
-    OBJECT_STORAGE_SECRET_ACCESS_KEY = os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "")
 
 
 if DATABASE_URL:
