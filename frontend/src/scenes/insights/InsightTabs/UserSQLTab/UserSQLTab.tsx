@@ -1,17 +1,37 @@
-import React from 'react'
+import React, { useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
+import { useActions, useValues } from 'kea'
+import { userSQLlogic } from 'scenes/userSQL/userSQLlogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function UserSQLTab(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { setFilters } = useActions(userSQLlogic(insightProps))
+    const [query, setQuery] = useState<string | undefined>('')
+
+    const onSubmit = (): void => {
+        setFilters({
+            user_sql: query,
+        })
+    }
+
     return (
-        <MonacoEditor
-            language="sql"
-            height={400}
-            onChange={(value) => {
-                console.log(value)
-            }}
-            options={{
-                minimap: { enabled: false },
-            }}
-        />
+        <div>
+            <MonacoEditor
+                language="sql"
+                height={400}
+                value={query}
+                onChange={(value) => {
+                    setQuery(value)
+                }}
+                options={{
+                    minimap: { enabled: false },
+                }}
+            />
+            <LemonButton type="primary" onClick={onSubmit}>
+                Run
+            </LemonButton>
+        </div>
     )
 }

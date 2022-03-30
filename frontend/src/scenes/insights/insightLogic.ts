@@ -279,9 +279,16 @@ export const insightLogic = kea<insightLogicType>({
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else if (insight === InsightType.USER_SQL) {
-                            response = {
-                                result: [],
-                                next: null,
+                            if (params.user_sql) {
+                                response = await api.get(
+                                    `api/projects/${currentTeamId}/insights/user_sql?${toParams(params)}`
+                                )
+                            } else {
+                                // TODO: remove this once we have better null state
+                                response = {
+                                    result: [],
+                                    next: null,
+                                }
                             }
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
