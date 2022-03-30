@@ -41,7 +41,6 @@ export function createHttpServer(
         }
     })
 
-    console.log(pluginServerMode, pluginServerMode)
     server.listen(pluginServerMode === PluginServerMode.Ingestion ? HTTP_SERVER_PORT : 6739, () => {
         status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
     })

@@ -154,7 +154,8 @@ export async function startPluginsServer(
         scheduleControl = await startSchedule(hub, piscina)
         jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
 
-        const queues = await startQueues(hub, piscina)
+        console.log('about to startQueues', pluginServerMode)
+        const queues = await startQueues(hub, piscina, {}, pluginServerMode)
 
         // `queue` refers to the ingestion queue. With Celery ingestion, we only
         // have one queue for plugin jobs and ingestion. With Kafka ingestion, we

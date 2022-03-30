@@ -72,8 +72,10 @@ export async function startQueues(
             ingestion: redisQueue,
             auxiliary: redisQueue,
         }
+        console.log('about to startQueueKafka 1', pluginServerMode, server.KAFKA_ENABLED)
         if (server.KAFKA_ENABLED) {
-            queues.ingestion = await startQueueKafka(server, mergedWorkerMethods)
+            console.log('about to startQueueKafka 2', pluginServerMode)
+            queues.ingestion = await startQueueKafka(server, mergedWorkerMethods, pluginServerMode)
         }
         return queues
     } catch (error) {
@@ -118,8 +120,13 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
     return celeryQueue
 }
 
-async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<Queue> {
-    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
+async function startQueueKafka(
+    server: Hub,
+    workerMethods: WorkerMethods,
+    pluginServerMode: PluginServerMode
+): Promise<Queue> {
+    console.log('about to new KafkaQueue', pluginServerMode)
+    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods, pluginServerMode)
     await kafkaQueue.start()
 
     return kafkaQueue

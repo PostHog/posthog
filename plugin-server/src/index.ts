@@ -21,7 +21,9 @@ enum ServerMode {
 
 let serverMode: ServerMode = ServerMode.Ingestion
 
-if (argv.includes('--runner') || env.SERVER_MODE === 'runner') {
+if (defaultConfig.PLUGIN_SERVER_IDLE) {
+    serverMode = ServerMode.Idle
+} else if (argv.includes('--runner') || env.SERVER_MODE === 'runner') {
     serverMode = ServerMode.Runner
 } else if (argv.includes('--help') || argv.includes('-h')) {
     serverMode = ServerMode.Help
@@ -31,13 +33,12 @@ if (argv.includes('--runner') || env.SERVER_MODE === 'runner') {
     serverMode = ServerMode.Healthcheck
 } else if (argv.includes('--migrate')) {
     serverMode = ServerMode.Migrate
-} else if (defaultConfig.PLUGIN_SERVER_IDLE) {
-    serverMode = ServerMode.Idle
 }
 
 const status = new Status(serverMode)
 
 status.info('⚡', `@posthog/plugin-server v${version}`)
+status.info('⚡', `Starting plugin server in mode ${serverMode}`)
 
 switch (serverMode) {
     case ServerMode.Version:
@@ -83,6 +84,7 @@ switch (serverMode) {
     case ServerMode.Runner:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, PluginServerMode.Runner) // void the returned promise
+        break
     default:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
