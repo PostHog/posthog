@@ -10,7 +10,7 @@ import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleContr
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
-import { PubSub } from '../utils/pubsub'
+import { PubSub, PubSubTaskMap } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
@@ -31,9 +31,15 @@ export type ServerInstance = {
     stop: () => Promise<void>
 }
 
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
+}
+
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina
+    makePiscina: (config: PluginsServerConfig) => Piscina,
+    pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
 ): Promise<ServerInstance> {
     const timer = new Date()
 
@@ -164,6 +170,19 @@ export async function startPluginsServer(
         })
 
         // use one extra Redis connection for pub-sub
+        const pubSubChannelsConfig: PubSubTaskMap =
+            pluginServerMode === PluginServerMode.Ingestion
+                ? {
+                      'reload-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                      'drop-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                  }
+                : {
+                      'plugins-alert': async (message) =>
+                          await piscina?.run({ task: 'handleAlert', args: { alert: JSON.parse(message) } }),
+                  }
+
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 // wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
@@ -175,12 +194,7 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await scheduleControl?.reloadSchedule()
             },
-            'reload-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-            'drop-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-            'plugins-alert': async (message) =>
-                await piscina?.run({ task: 'handleAlert', args: { alert: JSON.parse(message) } }),
+            ...pubSubChannelsConfig,
         })
 
         await pubSub.start()

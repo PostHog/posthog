@@ -111,6 +111,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    KAFKA_RUNNER_TOPIC: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -338,12 +339,17 @@ export interface PluginTask {
     exec: (payload?: Record<string, any>) => Promise<any>
 }
 
-export type WorkerMethods = {
-    onEvent: (event: PluginEvent) => Promise<void>
-    onAction: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot: (event: PluginEvent) => Promise<void>
+export type WorkerMethods = IngestionWorkerMethods | RunnerWorkerMethods
+
+export type IngestionWorkerMethods = {
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    onAction: (action: Action, event: PluginEvent) => Promise<void>
+}
+
+export type RunnerWorkerMethods = {
+    onEvent: (event: PluginEvent) => Promise<void>
+    onSnapshot: (event: PluginEvent) => Promise<void>
 }
 
 export type VMMethods = {

@@ -1,14 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { Hub, WorkerMethods } from '../../types'
+import { Hub, IngestionWorkerMethods, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
 
 export async function ingestEvent(
     server: Hub,
-    workerMethods: WorkerMethods,
+    workerMethods: IngestionWorkerMethods,
     event: PluginEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<void> {
@@ -47,13 +47,6 @@ export async function ingestEvent(
                 statsKey: 'kafka_queue.single_ingestion',
                 timeoutMessage: 'After 30 seconds still ingesting event',
             }),
-            runInstrumentedFunction({
-                server,
-                event: processedEvent,
-                func: (event) => workerMethods[isSnapshot ? 'onSnapshot' : 'onEvent'](event),
-                statsKey: `kafka_queue.single_${isSnapshot ? 'on_snapshot' : 'on_event'}`,
-                timeoutMessage: `After 30 seconds still running ${isSnapshot ? 'onSnapshot' : 'onEvent'}`,
-            }),
         ])
 
         server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
@@ -86,7 +79,7 @@ export async function ingestEvent(
     countAndLogEvents()
 }
 
-async function runInstrumentedFunction({
+export async function runInstrumentedFunction({
     server,
     timeoutMessage,
     event,

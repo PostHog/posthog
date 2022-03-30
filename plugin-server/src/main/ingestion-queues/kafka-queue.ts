@@ -1,10 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
+import { PluginServerMode } from 'main/pluginsServer'
 
 import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
+import { onEvent } from '../runner/on-event'
+import { IngestionWorkerMethods, RunnerWorkerMethods } from './../../types'
 import { ingestEvent } from './ingest-event'
 
 export class KafkaQueue implements Queue {
@@ -13,13 +16,19 @@ export class KafkaQueue implements Queue {
     private consumer: Consumer
     private wasConsumerRan: boolean
     private workerMethods: WorkerMethods
+    private pluginServerMode: PluginServerMode
 
-    constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
+    constructor(
+        pluginsServer: Hub,
+        workerMethods: WorkerMethods,
+        pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
+    ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.consumer = KafkaQueue.buildConsumer(this.kafka)
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
+        this.pluginServerMode = pluginServerMode
     }
 
     private async eachMessage(message: KafkaMessage): Promise<void> {
@@ -31,7 +40,12 @@ export class KafkaQueue implements Queue {
             ip: combinedEvent.ip || null,
         })
 
-        await ingestEvent(this.pluginsServer, this.workerMethods, event)
+        // TODO: Better workerMethods typing
+        if (this.pluginServerMode === PluginServerMode.Ingestion) {
+            await ingestEvent(this.pluginsServer, this.workerMethods as IngestionWorkerMethods, event)
+        } else {
+            await onEvent(this.pluginsServer, this.workerMethods as RunnerWorkerMethods, event)
+        }
     }
 
     private async eachBatch({
@@ -87,7 +101,12 @@ export class KafkaQueue implements Queue {
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
-            await this.consumer.subscribe({ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! })
+            await this.consumer.subscribe({
+                topic:
+                    this.pluginServerMode === PluginServerMode.Ingestion
+                        ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
+                        : this.pluginsServer.KAFKA_RUNNER_TOPIC!,
+            })
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({

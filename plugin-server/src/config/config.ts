@@ -84,6 +84,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
+        KAFKA_RUNNER_TOPIC: 'plugin-server-runner-events',
     }
 }
 

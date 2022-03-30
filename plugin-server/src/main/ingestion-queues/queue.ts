@@ -1,6 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { PluginServerMode } from 'main/pluginsServer'
 
 import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -28,34 +29,42 @@ export function pauseQueueIfWorkerFull(
 export async function startQueues(
     server: Hub,
     piscina: Piscina,
-    workerMethods: Partial<WorkerMethods> = {}
+    workerMethods: Partial<WorkerMethods> = {},
+    pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
 ): Promise<Queues> {
+    const workerMethodsForMode =
+        pluginServerMode === PluginServerMode.Ingestion
+            ? {
+                  processEvent: (event: PluginEvent) => {
+                      server.lastActivity = new Date().valueOf()
+                      server.lastActivityType = 'processEvent'
+                      return piscina.run({ task: 'processEvent', args: { event } })
+                  },
+                  ingestEvent: (event: PluginEvent) => {
+                      server.lastActivity = new Date().valueOf()
+                      server.lastActivityType = 'ingestEvent'
+                      return piscina.run({ task: 'ingestEvent', args: { event } })
+                  },
+                  onAction: (action: Action, event: PluginEvent) => {
+                      server.lastActivity = new Date().valueOf()
+                      server.lastActivityType = 'onAction'
+                      return piscina.run({ task: 'onAction', args: { event, action } })
+                  },
+              }
+            : {
+                  onEvent: (event: PluginEvent) => {
+                      server.lastActivity = new Date().valueOf()
+                      server.lastActivityType = 'onEvent'
+                      return piscina.run({ task: 'onEvent', args: { event } })
+                  },
+                  onSnapshot: (event: PluginEvent) => {
+                      server.lastActivity = new Date().valueOf()
+                      server.lastActivityType = 'onSnapshot'
+                      return piscina.run({ task: 'onSnapshot', args: { event } })
+                  },
+              }
     const mergedWorkerMethods = {
-        onEvent: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onEvent'
-            return piscina.run({ task: 'onEvent', args: { event } })
-        },
-        onAction: (action: Action, event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onAction'
-            return piscina.run({ task: 'onAction', args: { event, action } })
-        },
-        onSnapshot: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onSnapshot'
-            return piscina.run({ task: 'onSnapshot', args: { event } })
-        },
-        processEvent: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'processEvent'
-            return piscina.run({ task: 'processEvent', args: { event } })
-        },
-        ingestEvent: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'ingestEvent'
-            return piscina.run({ task: 'ingestEvent', args: { event } })
-        },
+        ...workerMethodsForMode,
         ...workerMethods,
     }
 
@@ -104,39 +113,6 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
             }
         }
     )
-
-    // if kafka is enabled, we'll process events from there
-    if (!server.KAFKA_ENABLED) {
-        celeryQueue.register(
-            'posthog.tasks.process_event.process_event_with_plugins',
-            async (
-                distinct_id: string,
-                ip: string | null,
-                site_url: string,
-                data: Record<string, unknown>,
-                team_id: number,
-                now: string,
-                sent_at?: string
-            ) => {
-                const event = sanitizeEvent({
-                    distinct_id,
-                    ip,
-                    site_url,
-                    team_id,
-                    now,
-                    sent_at,
-                    uuid: new UUIDT().toString(),
-                    ...data,
-                } as PluginEvent)
-                try {
-                    const checkAndPause = () => pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
-                    await ingestEvent(server, workerMethods, event, checkAndPause)
-                } catch (e) {
-                    Sentry.captureException(e)
-                }
-            }
-        )
-    }
 
     // run in the background
     void celeryQueue.start()
