@@ -6,6 +6,7 @@ import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
 import {
     ActionType,
     CohortType,
+    DashboardType,
     EventDefinition,
     Experiment,
     FeatureFlagType,
@@ -31,6 +32,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 const eventTaxonomicGroupProps: Pick<UniversalSearchGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
@@ -253,6 +255,16 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                     getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                     getPopupHeader: () => 'Plugin',
+                },
+                {
+                    name: 'Dashboards',
+                    searchPlaceholder: 'dashboards',
+                    type: UniversalSearchGroupType.Dashboards,
+                    logic: dashboardsModel,
+                    value: 'nameSortedDashboards',
+                    getName: (dashboard: DashboardType) => dashboard.name,
+                    getValue: (dashboard: DashboardType) => dashboard.id,
+                    getPopupHeader: () => 'Dashboard',
                 },
                 ...groupAnalyticsTaxonomicGroups,
             ],

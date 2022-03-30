@@ -43,6 +43,7 @@ export enum UniversalSearchGroupType {
     Insights = 'insights',
     Experiments = 'experiments',
     Plugins = 'plugins',
+    Dashboards = 'dashboards',
 }
 
 export interface UniversalSearchGroup {
