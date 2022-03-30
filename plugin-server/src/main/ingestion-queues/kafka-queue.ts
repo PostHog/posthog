@@ -101,7 +101,6 @@ export class KafkaQueue implements Queue {
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
             this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
-                console.log('JOINEDDD')
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
