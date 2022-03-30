@@ -11,7 +11,7 @@
                 "options": {
                     "awslogs-group": "awslogs-posthog-production",
                     "awslogs-region": "us-east-1",
-                    "awslogs-stream-prefix": "posthog-production-plugins"
+                    "awslogs-stream-prefix": "posthog-production-plugins-runner"
                 }
             },
             "essential": true,
