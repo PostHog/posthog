@@ -431,6 +431,8 @@ def load_data_from_request(request):
         scope.set_context("data", data)
         scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
         scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -685,27 +687,6 @@ def get_available_sso_providers() -> Dict[str, bool]:
             print_warning(["You have SAML set up, but not the required license!"])
 
     return output
-
-
-def get_sso_enforced_provider() -> Optional[str]:
-    """
-    Returns the enforced SSO provider handle for the instance if SSO is properly configured and required license is present.
-        => response: `saml`, `google-oaut2`, `github`, `gitlab`, `None`.
-    """
-    sso_enforcement = getattr(settings, "SSO_ENFORCEMENT", None)
-
-    if sso_enforcement:
-        sso_providers = get_available_sso_providers()
-        if not sso_providers[settings.SSO_ENFORCEMENT]:
-            print_warning(
-                [
-                    f"You have configured `SSO_ENFORCEMENT` with value `{settings.SSO_ENFORCEMENT}`,"
-                    " but that provider is not properly configured or your instance does not have the required license."
-                ]
-            )
-            return None
-
-    return sso_enforcement
 
 
 def flatten(i: Union[List, Tuple]) -> Generator:

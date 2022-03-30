@@ -47,13 +47,8 @@ export const scene: SceneExport = {
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
     const { authenticate, precheck } = useActions(loginLogic)
-    const {
-        authenticateResponseLoading,
-        authenticateResponse,
-        precheckResponse,
-        precheckResponseLoading,
-        shouldPrecheckResponse,
-    } = useValues(loginLogic)
+    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -107,8 +102,7 @@ export function Login(): JSX.Element {
                             <div
                                 className={clsx(
                                     'password-wrapper',
-                                    shouldPrecheckResponse &&
-                                        (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
+                                    (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
                                         'hidden'
                                 )}
                             >

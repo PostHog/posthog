@@ -1,7 +1,8 @@
 from collections import defaultdict
 from typing import Dict, List, cast
 
-from rest_framework import mixins, request, response, serializers, viewsets
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
@@ -60,9 +61,10 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-
-    def get_queryset(self):
-        return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["group_type_index"]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["group_key"]
 
     @action(methods=["GET"], detail=False)
     def find(self, request: request.Request, **kw) -> response.Response:

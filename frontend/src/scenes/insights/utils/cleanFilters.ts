@@ -7,6 +7,7 @@ import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -211,6 +212,18 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
             cleanSearchParams['compare'] = false
+        }
+
+        if (cleanSearchParams.interval && cleanSearchParams.smoothing_intervals) {
+            if (
+                !smoothingOptions[cleanSearchParams.interval].find(
+                    (option) => option.value === cleanSearchParams.smoothing_intervals
+                )
+            ) {
+                if (cleanSearchParams.smoothing_intervals !== 1) {
+                    cleanSearchParams.smoothing_intervals = 1
+                }
+            }
         }
 
         if (cleanSearchParams.insight === InsightType.LIFECYCLE) {

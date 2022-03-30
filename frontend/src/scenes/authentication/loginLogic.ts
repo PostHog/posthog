@@ -16,15 +16,17 @@ interface PrecheckResponseType {
     status: 'pending' | 'completed'
 }
 
-export function afterLoginRedirect(): string {
+export function handleLoginRedirect(): void {
+    let nextURL = '/'
     try {
         const nextPath = router.values.searchParams['next'] || '/'
         const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
         if (url.protocol === 'http:' || url.protocol === 'https:') {
-            return location.origin + url.pathname + url.search + url.hash
+            nextURL = url.pathname + url.search + url.hash
         }
     } catch (e) {}
-    return location.origin
+    // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change.
+    router.actions.replace(nextURL)
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
@@ -32,15 +34,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
     connect: {
         values: [preflightLogic, ['preflight']],
     },
-    loaders: ({ values }) => ({
+    loaders: () => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
                 precheck: async ({ email }: { email: string }, breakpoint) => {
-                    if (!values.shouldPrecheckResponse) {
-                        return { status: 'completed' }
-                    }
-
                     if (!email) {
                         return { status: 'pending' }
                     }
@@ -72,12 +70,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
-                window.location.href = afterLoginRedirect()
+                handleLoginRedirect()
+                // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+                window.location.reload()
             }
         },
-    },
-    selectors: {
-        shouldPrecheckResponse: [(s) => [s.preflight], (preflight): boolean => !!preflight?.cloud],
     },
     urlToAction: ({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {

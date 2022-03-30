@@ -43,7 +43,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
 
                     try {
                         return await api.get(`api/signup/${id}/`)
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })

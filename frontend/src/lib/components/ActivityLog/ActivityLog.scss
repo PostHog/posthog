@@ -4,6 +4,7 @@
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
+        line-height: 24px;
 
         &:first-of-type {
             margin-top: $default_spacing / 2;
@@ -21,6 +22,23 @@
                 display: inline;
                 margin-left: $default_spacing / 4;
             }
+
+            .highlighted-activity {
+                background-color: $yellow_50;
+            }
+
+            .sentence-list {
+                display: inline;
+
+                div {
+                    display: inline;
+                }
+            }
         }
+    }
+    .PaginationControl {
+        border-width: 0;
+        border-radius: 0;
+        border-top-width: 1px;
     }
 }

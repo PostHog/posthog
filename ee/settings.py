@@ -6,7 +6,6 @@ from typing import Dict, List
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, TEST, get_from_env
-from posthog.utils import print_warning, str_to_bool
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -20,7 +19,6 @@ HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
 # SAML
 SAML_CONFIGURED = False
-SAML_ENFORCED = False
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
     "wantAttributeStatement": False,  # AttributeStatement is optional in the specification
@@ -51,11 +49,6 @@ if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML
         },
     }
 
-    # DEPRECATED: `SAML_ENFORCED` attribute is deprecated in favor of `SSO_ENFORCEMENT` and will be removed in 1.35.0 onwards.
-    SAML_ENFORCED = get_from_env("SAML_ENFORCED", False, type_cast=str_to_bool)
-    if SAML_ENFORCED:
-        print_warning(["`SAML_ENFOCED` attribute has been deprecated. Please use `SSO_ENFORCEMENT` instead."])
-
 
 # SSO
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
@@ -68,8 +61,6 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
 AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
     "social_core.backends.google.GoogleOAuth2",
 ]
-
-SSO_ENFORCEMENT = get_from_env("SSO_ENFORCEMENT", "saml" if SAML_ENFORCED else None, optional=True)
 
 # ClickHouse and Kafka
 KAFKA_ENABLED = not TEST
