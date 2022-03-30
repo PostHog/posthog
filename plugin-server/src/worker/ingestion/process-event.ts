@@ -711,6 +711,8 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
+        console.error('GUIDOOOO')
+
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
 
         // As we don't want to store the session recording payload in ClickHouse,
@@ -719,6 +721,7 @@ export class EventsProcessor {
         const object_storage_path = `${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
 
+        // TODO: error handling
         S3.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.log(err)
