@@ -719,9 +719,12 @@ export class EventsProcessor {
         const object_storage_path = `${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
 
-        S3.putObject(params, function (err, data) {
-            if (err) {console.log(err)}
-            else {console.log('Successfully uploaded data')}
+        S3.putObject(params, (err: any, resp: any) => {
+            if (err) {
+                console.log(err)
+            } else {
+                console.log(`Successfully uploaded data: ${resp}`)
+            }
         })
         delete snapshot_data.data
 
