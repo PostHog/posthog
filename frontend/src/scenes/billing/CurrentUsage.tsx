@@ -4,6 +4,7 @@ import { compactNumber } from 'lib/utils'
 import React from 'react'
 import { billingLogic } from './billingLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonTable } from 'lib/components/LemonTable'
 
 export function CurrentUsage(): JSX.Element | null {
     const { eventAllocation, percentage, strokeColor, billing } = useValues(billingLogic)
@@ -29,6 +30,30 @@ export function CurrentUsage(): JSX.Element | null {
                                 <div className="bill-amount">
                                     {`$${billing?.current_bill_amount?.toLocaleString()}`}
                                 </div>
+                                <LemonTable
+                                    columns={[
+                                        {
+                                            title: 'Tier',
+                                        },
+                                        {
+                                            title: 'Price per event',
+                                        },
+                                        {
+                                            title: 'Number of events',
+                                        },
+                                        {
+                                            title: 'Sub-total',
+                                        },
+                                    ]}
+                                    dataSource={[
+                                        ['0-1M', '$0.000225', '1,000,000', '$225'],
+                                        ['1-10M', '$0.000075', '4,999,999', '$374'],
+                                        ['10M-100M', '$0.000025', '0', '$0'],
+                                    ]}
+                                    pagination={{
+                                        pageSize: 10,
+                                    }}
+                                />
                             </>
                         ) : (
                             <>
