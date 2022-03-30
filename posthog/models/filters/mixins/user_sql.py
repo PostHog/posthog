@@ -7,8 +7,6 @@ class UserSQLMixin(BaseParamMixin):
     @cached_property
     def user_sql(self) -> str:
         query = self._data.get(USER_SQL, "")
-        if query:
-            query = "{} {}".format(query, "limit 2000")
         return query
 
     @include_dict

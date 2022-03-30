@@ -343,6 +343,7 @@ export const insightLogic = kea<insightLogicType>({
                         ...values.insight,
                         result: response.result,
                         next: response.next,
+                        source_query: response.source_query,
                         filters,
                     } as Partial<InsightModel>
                 },

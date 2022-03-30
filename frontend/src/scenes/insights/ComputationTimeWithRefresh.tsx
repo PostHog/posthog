@@ -10,7 +10,7 @@ import { InsightType } from '~/types'
 const REFRESH_INTERVAL_MINUTES = 3
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
-    const { lastRefresh, activeView } = useValues(insightLogic)
+    const { lastRefresh, activeView, insight } = useValues(insightLogic)
     const { loadResults, setActiveView, setFilters } = useActions(insightLogic)
 
     usePeriodicRerender(15000)
@@ -18,7 +18,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
     const onClickSource = (): void => {
         setFilters({
             insight: InsightType.USER_SQL,
-            user_sql: 'SELECT * FROM events limit 1',
+            user_sql: insight.source_query,
         })
         setActiveView(InsightType.USER_SQL)
     }

@@ -731,6 +731,7 @@ export interface InsightModel {
     effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+    source_query?: string
 }
 
 export interface DashboardType {
