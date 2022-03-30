@@ -1,6 +1,6 @@
 const aws = require('aws-sdk')
 
-const s3 = new aws.S3({
+export const S3 = new aws.S3({
     endpoint: 'http://localhost:19000',
     accessKeyId: 'object_storage_root_user',
     secretAccessKey: 'object_storage_root_password',

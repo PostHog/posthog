@@ -8,6 +8,7 @@ import { DatabaseError } from 'pg'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { S3 } from '../../main/services/object_storage'
 import {
     Element,
     Event,
@@ -711,6 +712,18 @@ export class EventsProcessor {
         )
 
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
+
+        // As we don't want to store the session recording payload in ClickHouse,
+        // let's intercept the event, parse the metadata and store the data in
+        // our object storage system.
+        const object_storage_path = `${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
+
+        S3.putObject(params, function (err, data) {
+            if (err) {console.log(err)}
+            else {console.log('Successfully uploaded data')}
+        })
+        delete snapshot_data.data
 
         const data: SessionRecordingEvent = {
             uuid,
