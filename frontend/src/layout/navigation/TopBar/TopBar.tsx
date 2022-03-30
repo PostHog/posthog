@@ -49,10 +49,15 @@ export function TopBar(): JSX.Element {
                             groupType={UniversalSearchGroupType.Events}
                             groupTypes={[
                                 UniversalSearchGroupType.Events,
-                                UniversalSearchGroupType.EventProperties,
+                                // UniversalSearchGroupType.EventProperties,
                                 UniversalSearchGroupType.Persons,
                                 UniversalSearchGroupType.Actions,
                                 UniversalSearchGroupType.Cohorts,
+                                UniversalSearchGroupType.Insights,
+                                UniversalSearchGroupType.FeatureFlags,
+                                // 'groups_0',
+                                'groups_1',
+                                // 'groups_2',
                             ]}
                             onChange={(value, groupType, item) => {
                                 console.log('new values:::', value, groupType, item)
@@ -91,6 +96,12 @@ export function TopBar(): JSX.Element {
                                     router.actions.push(urls.cohort(value))
                                 } else if (groupType === UniversalSearchGroupType.Persons) {
                                     router.actions.push(urls.person(value))
+                                } else if (groupType.startsWith(UniversalSearchGroupType.GroupsPrefix)) {
+                                    router.actions.push(urls.group(item.groupTypeIndex, value))
+                                } else if (groupType === UniversalSearchGroupType.Insights) {
+                                    router.actions.push(urls.insightView(value))
+                                } else if (groupType === UniversalSearchGroupType.FeatureFlags) {
+                                    router.actions.push(urls.featureFlag(value))
                                 }
                             }}
                         />

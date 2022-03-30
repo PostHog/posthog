@@ -40,6 +40,7 @@ export enum UniversalSearchGroupType {
     // Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
     FeatureFlags = 'feature_flags',
+    Insights = 'insights',
     Experiments = 'experiments',
 }
 

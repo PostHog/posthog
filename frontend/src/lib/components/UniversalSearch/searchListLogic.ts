@@ -10,6 +10,7 @@ import { SearchListLogicProps, UniversalSearchGroup } from 'lib/components/Unive
 import { universalSearchLogic } from './universalSearchLogic'
 
 import { searchListLogicType } from './searchListLogicType'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 /*
  by default the pop-up starts open for the first item in the list
  this can be used with actions.setIndex to allow a caller to override that
@@ -62,7 +63,13 @@ export const searchListLogic = kea<searchListLogicType>({
     key: (props) => `${props.universalSearchLogicKey}-${props.listGroupType}`,
 
     connect: (props: SearchListLogicProps) => ({
-        values: [universalSearchLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
+        // TODO: had to connect FF to get the model loaded for filtering
+        values: [
+            universalSearchLogic(props),
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            featureFlagsLogic,
+            ['featureFlags'],
+        ],
         actions: [universalSearchLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 

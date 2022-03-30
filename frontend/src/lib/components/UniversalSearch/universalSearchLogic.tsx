@@ -3,19 +3,30 @@ import { kea } from 'kea'
 import { TaxonomicFilterValue, ListStorage } from 'lib/components/TaxonomicFilter/types'
 import { UniversalSearchGroup, UniversalSearchGroupType, UniversalSearchLogicProps } from './types'
 import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
-import { ActionType, CohortType, EventDefinition, PersonType, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    FeatureFlagType,
+    Group,
+    InsightModel,
+    PersonType,
+    PropertyDefinition,
+} from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 
 import { universalSearchLogicType } from './universalSearchLogicType'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 const eventTaxonomicGroupProps: Pick<UniversalSearchGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
@@ -175,11 +186,23 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     name: 'Persons',
                     searchPlaceholder: 'persons',
                     type: UniversalSearchGroupType.Persons,
-                    // endpoint: `api/person`
                     endpoint: `api/projects/${teamId}/persons/`,
                     getName: (person: PersonType) => person.name || 'Anon user?',
                     getValue: (person: PersonType) => person.distinct_ids[0],
-                    ...propertyTaxonomicGroupProps,
+                    //TODO: Fix!
+                    getPopupHeader: (person: PersonType) => `${person.is_static ? 'Static' : 'Dynamic'} Cohort`,
+                },
+                {
+                    name: 'Insights',
+                    searchPlaceholder: 'insights',
+                    type: UniversalSearchGroupType.Insights,
+                    endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
+                        saved: true,
+                    }).url,
+                    getName: (insight: InsightModel) => insight.name,
+                    getValue: (insight: InsightModel) => insight.short_id,
+                    //TODO: Fix!
+                    getPopupHeader: (person: PersonType) => `${person.is_static ? 'Static' : 'Dynamic'} Cohort`,
                 },
                 {
                     name: 'Cohorts',
@@ -193,6 +216,19 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     getIcon: function _getIcon(): JSX.Element {
                         return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
                     },
+                },
+                {
+                    name: 'Feature Flags',
+                    searchPlaceholder: 'feature flags',
+                    type: UniversalSearchGroupType.FeatureFlags,
+                    logic: featureFlagsLogic,
+                    value: 'featureFlags',
+                    getName: (featureFlag: FeatureFlagType) => featureFlag.name || featureFlag.key,
+                    getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
+                    getPopupHeader: () => 'Feature Flag',
+                    // getIcon: function _getIcon(): JSX.Element {
+                    //     return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
+                    // },
                 },
                 ...groupAnalyticsTaxonomicGroups,
             ],
@@ -210,18 +246,15 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): UniversalSearchGroup[] =>
                 groupTypes.map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
-                    searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
-                    type: `${UniversalSearchGroupType.GroupsPrefix}_${type.group_type_index}` as UniversalSearchGroupType,
-                    logic: groupPropertiesModel,
-                    value: `groupProperties_${type.group_type_index}`,
-                    valuesEndpoint: (key) =>
-                        `api/projects/${teamId}/groups/property_values/?${toParams({
-                            key,
-                            group_type_index: type.group_type_index,
-                        })}`,
-                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
-                    getValue: (group) => group.name,
+                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
+                    searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
+                    type: `${UniversalSearchGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as UniversalSearchGroupType,
+                    endpoint: combineUrl(`api/projects/${teamId}/groups/`, {
+                        group_type_index: type.group_type_index,
+                    }).url,
+                    searchAlias: 'group_key',
+                    getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
+                    getValue: (group: Group) => group.group_key,
                     getPopupHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,

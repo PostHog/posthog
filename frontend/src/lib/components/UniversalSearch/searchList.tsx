@@ -124,10 +124,10 @@ const renderItemContents = ({
 
     return listGroupType === UniversalSearchGroupType.EventProperties ||
         listGroupType === UniversalSearchGroupType.NumericalEventProperties ||
-        listGroupType === UniversalSearchGroupType.PersonProperties ||
-        listGroupType === UniversalSearchGroupType.Events ||
+        listGroupType === UniversalSearchGroupType.Persons ||
         // listGroupType === UniversalSearchGroupType.CustomEvents ||
-        listGroupType.startsWith(UniversalSearchGroupType.GroupsPrefix) ? (
+        // listGroupType.startsWith(UniversalSearchGroupType.GroupsPrefix) ||
+        listGroupType === UniversalSearchGroupType.Events ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
@@ -148,7 +148,7 @@ const renderItemContents = ({
             ) : (
                 <>
                     {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
-                    {item.name ?? ''}
+                    {(item.name || group.getName(item)) ?? ''}
                 </>
             )}
         </div>
