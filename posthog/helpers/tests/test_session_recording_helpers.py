@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from pytest_mock import MockerFixture
@@ -15,6 +17,7 @@ from posthog.helpers.session_recording import (
     is_active_event,
     paginate_list,
     preprocess_session_recording_events,
+    try_read_from_object_storage,
 )
 
 
@@ -388,6 +391,21 @@ def test_paginate_list():
     assert paginate_list(list, None, 5) == PaginatedList(has_next=False, paginated_list=list[5:])
     assert paginate_list(list, 5, 5) == PaginatedList(has_next=False, paginated_list=list[5:10])
     assert paginate_list(list, 4, 5) == PaginatedList(has_next=True, paginated_list=list[5:9])
+
+
+@patch("posthog.helpers.session_recording.object_storage")
+def test_loading_snapshot_data_that_is_not_on_disk(object_storage):
+    actual = try_read_from_object_storage("session_id", json.dumps({"data": "something"}))
+    object_storage.read.assert_not_called()
+    assert actual == {"data": "something"}
+
+
+@patch("posthog.helpers.session_recording.object_storage")
+def test_loading_snapshot_data_reads_from_correct_disk_location(object_storage):
+    object_storage.read.return_value = "something from disk"
+    actual = try_read_from_object_storage("session_id", json.dumps({"chunk_id": "id", "chunk_index": "index"}))
+    object_storage.read.assert_called_with("session_id/id/index")
+    assert actual == {"chunk_id": "id", "chunk_index": "index", "data": "something from disk"}
 
 
 @pytest.fixture

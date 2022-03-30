@@ -1,18 +1,9 @@
-import json
-from typing import Dict, List
+from typing import List
 
 from posthog.client import sync_execute
+from posthog.helpers.session_recording import try_read_from_object_storage
 from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recordings.session_recording import SessionRecording
-from posthog.storage import object_storage
-
-
-def read_from_object_storage(session_id: str, snapshot_data: Dict) -> Dict:
-    file_content = object_storage.read(
-        f"{session_id}/{snapshot_data.get('chunk_id', 'unknown')}/{snapshot_data.get('chunk_index', 'unknown')}"
-    )
-    snapshot_data["data"] = file_content
-    return snapshot_data
 
 
 class ClickhouseSessionRecording(SessionRecording):
@@ -34,9 +25,7 @@ class ClickhouseSessionRecording(SessionRecording):
 
         for (session_id, window_id, distinct_id, timestamp, snapshot_data) in response:
 
-            snapshot_data = json.loads(snapshot_data)
-            has_payload_chunk = snapshot_data.get("Data", None) is not None
-            loaded_data = snapshot_data if has_payload_chunk else read_from_object_storage(session_id, snapshot_data)
+            loaded_data = try_read_from_object_storage(session_id, snapshot_data)
 
             events.append(
                 SessionRecordingEvent(
