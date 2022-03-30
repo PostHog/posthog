@@ -29,6 +29,7 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
+    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -48,7 +49,7 @@ export function DashboardItems(): JSX.Element {
                     updateContainerWidth(containerWidth, newCols)
                 }}
                 breakpoints={BREAKPOINTS}
-                resizeHandles={['s', 'e', 'se']}
+                resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
                 cols={BREAKPOINT_COLUMN_COUNTS}
                 onResize={(_layout: any, _oldItem: any, newItem: any) => {
                     if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -82,6 +83,7 @@ export function DashboardItems(): JSX.Element {
                         apiErrored={refreshStatus[item.short_id]?.error || false}
                         highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         showResizeHandles={dashboardMode === DashboardMode.Edit}
+                        canResizeWidth={canResizeWidth}
                         updateColor={(color) => updateItemColor(item.id, color)}
                         removeFromDashboard={() => removeItem(item.id)}
                         refresh={() => refreshAllDashboardItems([item])}
