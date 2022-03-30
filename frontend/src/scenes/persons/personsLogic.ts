@@ -257,9 +257,15 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
+                const searchParams = { ...router.values.searchParams }
+
+                if (values.activeTab !== PersonsTabType.HISTORY) {
+                    delete searchParams['page']
+                }
+
                 return [
                     router.values.location.pathname,
-                    router.values.searchParams,
+                    searchParams,
                     {
                         ...router.values.hashParams,
                         activeTab: values.activeTab,

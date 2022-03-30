@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
     ActorType,
@@ -8,12 +8,13 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    FeatureFlagType,
     FilterType,
     PluginLogEntry,
     PropertyDefinition,
     TeamType,
     UserType,
-} from '../types'
+} from '~/types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -22,11 +23,19 @@ import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { PersonFilters } from 'scenes/persons/personsLogic'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+
+export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+}
+
+export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+    total_count: number
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -165,6 +174,35 @@ class ApiRequest {
         return this.addPathComponent('person')
     }
 
+    public person(id: number): ApiRequest {
+        return this.persons().addPathComponent(id)
+    }
+
+    public personActivity(id: number | undefined): ApiRequest {
+        if (typeof id === 'number') {
+            return this.person(id).addPathComponent('activity')
+        }
+        return this.persons().addPathComponent('activity')
+    }
+
+    public featureFlags(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feature_flags')
+    }
+
+    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.featureFlag(id, teamId).addPathComponent('activity')
+        }
+        return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -257,6 +295,28 @@ const api = {
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
+        },
+    },
+
+    activity: {
+        list(
+            activityLogProps: ActivityLogProps,
+            page: number = 1,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse> {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+                [ActivityScope.FEATURE_FLAG]: (props) => {
+                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                },
+                [ActivityScope.PERSON]: (props) => {
+                    return new ApiRequest().personActivity(props.id)
+                },
+            }
+
+            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
+            return requestForScope[activityLogProps.scope](activityLogProps)
+                .withQueryString(toParams(pagingParameters))
+                .get()
         },
     },
 
