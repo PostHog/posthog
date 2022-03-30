@@ -403,9 +403,9 @@ def test_loading_snapshot_data_that_is_not_on_disk(object_storage):
 @patch("posthog.helpers.session_recording.object_storage")
 def test_loading_snapshot_data_reads_from_correct_disk_location(object_storage):
     object_storage.read.return_value = "something from disk"
-    actual = try_read_from_object_storage("session_id", json.dumps({"chunk_id": "id", "chunk_index": "index"}))
+    actual = try_read_from_object_storage("session_id", json.dumps({"object_storage_path": "session_id/id/index"}))
     object_storage.read.assert_called_with("session_id/id/index")
-    assert actual == {"chunk_id": "id", "chunk_index": "index", "data": "something from disk"}
+    assert actual == {"data": "something from disk", "object_storage_path": "session_id/id/index"}
 
 
 @pytest.fixture

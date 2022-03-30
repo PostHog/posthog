@@ -329,8 +329,8 @@ def try_read_from_object_storage(session_id: str, snapshot_data: str) -> Dict:
     if has_payload_chunk:
         return json_data
 
-    file_content = object_storage.read(
-        f"{session_id}/{json_data.get('chunk_id', 'unknown')}/{json_data.get('chunk_index', 'unknown')}"
-    )
+    object_storage_path = json_data["object_storage_path"]
+    file_content = object_storage.read(object_storage_path)
+
     json_data["data"] = file_content
     return json_data

@@ -736,6 +736,7 @@ export class EventsProcessor {
             }
         })
         delete snapshot_data.data
+        snapshot_data['object_storage_path'] = object_storage_path
 
         const data: SessionRecordingEvent = {
             uuid,
