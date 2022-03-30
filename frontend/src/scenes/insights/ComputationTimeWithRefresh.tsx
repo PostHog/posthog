@@ -51,7 +51,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     <span style={{ fontSize: 14 }}>Refresh</span>
                 </Button>
             </Tooltip>
-            {activeView === InsightType.FUNNELS && (
+            {activeView !== InsightType.TRENDS && (
                 <>
                     <span style={{ padding: '0 4px' }}>•</span>
                     <Button size="small" type="link" onClick={onClickSource} style={{ padding: 0 }}>
