@@ -45,6 +45,7 @@ from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
+from posthog.models.filters.mixins.user_sql import UserSQLMixin
 
 
 class Filter(
@@ -83,6 +84,7 @@ class Filter(
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
     SearchMixin,
+    UserSQLMixin,
     BaseFilter,
 ):
     """

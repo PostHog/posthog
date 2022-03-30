@@ -33,6 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
@@ -417,6 +418,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
         result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
+        return {"result": result}
+
+    @action(methods=["GET"], detail=False)
+    def user_sql(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_user_sql(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
+        user_sql_filter = Filter(request=request, team=self.team)
+        result = sync_execute(user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60},)
         return {"result": result}
 
     # ******************************************

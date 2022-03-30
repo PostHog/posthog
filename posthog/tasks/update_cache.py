@@ -20,6 +20,7 @@ from posthog.constants import (
     INSIGHT_RETENTION,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
+    INSIGHT_USER_SQL,
     TRENDS_STICKINESS,
     FunnelVizType,
 )
@@ -95,6 +96,8 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
+    elif filter.insight == INSIGHT_USER_SQL:
+        return CacheType.USER_SQL
     elif (
         filter.insight == INSIGHT_TRENDS
         and isinstance(filter, StickinessFilter)
@@ -141,7 +144,7 @@ def dashboard_item_update_task_params(
     item: Insight, dashboard: Optional[Dashboard] = None
 ) -> Tuple[str, CacheType, Dict]:
     filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
-    cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+    cache_key = generate_cache_key("{}_{}_{}".format(filter.toJSON(), item.sql, item.team_id))
 
     cache_type = get_cache_type(filter)
     payload = {"filter": filter.toJSON(), "team_id": item.team_id}
