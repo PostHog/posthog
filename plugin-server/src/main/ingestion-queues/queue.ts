@@ -123,7 +123,6 @@ async function startQueueKafka(
     workerMethods: WorkerMethods,
     pluginServerMode: PluginServerMode
 ): Promise<Queue> {
-    console.log('about to new KafkaQueue', pluginServerMode)
     const kafkaQueue: Queue = new KafkaQueue(server, workerMethods, pluginServerMode)
     await kafkaQueue.start()
 
