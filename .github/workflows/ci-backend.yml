@@ -24,6 +24,10 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_HOST: 'localhost'
+    OBJECT_STORAGE_PORT: '19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
 jobs:
     # Job to decide if we should run backend ci
@@ -236,7 +240,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
