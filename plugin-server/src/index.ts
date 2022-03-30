@@ -79,6 +79,15 @@ switch (serverMode) {
         })()
         break
     case ServerMode.Runner:
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+        console.log('333333')
+
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, PluginServerMode.Runner) // void the returned promise
     default:

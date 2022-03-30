@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { runInstrumentedFunction } from 'main/ingestion-queues/ingest-event'
 
+import { runInstrumentedFunction } from '../../main/ingestion-queues/ingest-event'
 import { Hub, RunnerWorkerMethods } from '../../types'
 
 export async function onEvent(
