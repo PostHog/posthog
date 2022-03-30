@@ -23,6 +23,7 @@ curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/chec
 
 ./bin/start-worker &
 /bin/plugin-server &
+/bin/plugin-server-runner &
 ./bin/start-backend &
 ./bin/start-frontend &
 
