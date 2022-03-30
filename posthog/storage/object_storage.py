@@ -18,20 +18,6 @@ s3 = boto3.resource(
 )
 
 
-def generate_big_random_bin_file(filename, size):
-    """
-    generate big binary file with the specified size in bytes
-    :param filename: the filename
-    :param size: the size in bytes
-    :return:void
-    """
-    import os
-
-    with open(filename, "wb") as file:
-        file.write(os.urandom(size))
-    pass
-
-
 def compress():
     pass
 
@@ -40,11 +26,9 @@ def decompress():
     pass
 
 
-def dump_test_file(file_name: str):
-    temp_file_name = "/tmp/test"
-    generate_big_random_bin_file(temp_file_name, 10 * 1024 * 1024)
-    s3.Bucket("posthog").upload_file(temp_file_name, file_name)
+def write(file_name: str, content: str):
+    s3.Bucket("posthog").put_object(Body=content, Key=file_name)
 
 
-def get_test_file(file_name: str):
+def read(file_name: str):
     return s3.Object("posthog", file_name)
