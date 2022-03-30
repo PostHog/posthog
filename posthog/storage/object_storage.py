@@ -1,7 +1,10 @@
 """
 Helpers to interact with our Object Storage system
 """
+import datetime
+
 import boto3
+import pytz
 from botocore.client import Config
 
 # TODO: we should pass to our client the compressed file and then decompress in the browser
@@ -30,3 +33,19 @@ def read(file_name: str):
     s3_object = s3.Object("posthog", file_name)
     content = s3_object.get()["Body"].read()
     return content.decode("utf-8")
+
+
+def list_all():
+    # TODO page these instead of loading them all
+    return s3.Bucket("posthog").objects.all()
+
+
+def delete(older_than: datetime.datetime):
+    date_limit = pytz.UTC.localize(older_than)
+    count = 0
+    for object in list_all():
+        if object.last_modified < date_limit:
+            object.delete()
+            count += 1
+
+    return count

@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 from random import randrange
@@ -12,6 +13,8 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
+from posthog.settings import CONSTANCE_CONFIG
+from posthog.storage import object_storage
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -127,6 +130,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
+
+    sender.add_periodic_task(
+        crontab(hour=0, minute=randrange(0, 40)),  # every day at a random minute past midnight,
+        delete_old_recordings_from_disk.s(),
+        name="delete old session recordings from object storage",
+    )
 
 
 # Set up clickhouse query instrumentation
@@ -370,3 +379,17 @@ def check_async_migration_health():
     from posthog.tasks.async_migrations import check_async_migration_health
 
     check_async_migration_health()
+
+
+@app.task(ignore_result=True)
+def delete_old_recordings_from_disk():
+    """
+    The clickhouse table has a TTL of a number of weeks before session recordings are deleted.
+    Once they are deleted the files they referenced can be deleted
+    """
+    from posthog.internal_metrics import gauge
+
+    ttl_weeks = CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"]
+    file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
+    number_of_deletions = object_storage.delete(datetime.datetime.now() - file_deletion_time_delta)
+    gauge("posthog_celery_session_recordings_deletion", number_of_deletions)
