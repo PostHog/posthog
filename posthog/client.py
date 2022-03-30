@@ -238,6 +238,17 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
         tags["failed"] = True
         tags["reason"] = type(err).__name__
         incr("clickhouse_sync_execution_failure", tags=tags)
+        query_status = QueryStatus(
+            team_id=team_id, 
+            num_rows=0,
+            total_rows=0,
+            done=1.0,
+            complete=False,
+            error=True,
+            error_message=str(err),
+            results=None,
+        )
+        redis_client.set(key, query_status.to_json())
 
         raise err
     finally:
