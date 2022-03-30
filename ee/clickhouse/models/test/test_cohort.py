@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.utils import timezone
@@ -336,7 +337,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
-    def test_cohortpeople_basic_paginating(self):
+    @patch("time.sleep", return_value=None)
+    def test_cohortpeople_basic_paginating(self, mock_sleep):
         for i in range(15):
             Person.objects.create(
                 team_id=self.team.pk,
