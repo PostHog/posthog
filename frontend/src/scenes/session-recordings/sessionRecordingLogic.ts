@@ -503,7 +503,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             '/recordings': urlToAction,
             '/person/*': urlToAction,
             '/insights/*': urlToAction,
-            [urls.webPerformanceWaterfall(':id')]: urlToAction,
+            [urls.webPerformanceWaterfall('*')]: urlToAction,
         }
     },
 })
