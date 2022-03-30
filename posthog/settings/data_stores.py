@@ -20,8 +20,17 @@ if TEST or DEBUG:
     PG_PORT = os.getenv("PGPORT", "5432")
     PG_DATABASE = os.getenv("PGDATABASE", "posthog")
     DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
+    MINIO_HOST = os.getenv("MINIO_HOST", "localhost")
+    MINIO_PORT = os.getenv("MINIO_PORT", "19000")
+    MINIO_ACCESS_KEY_ID = os.getenv("MINIO_ACCESS_KEY_ID", "object_storage_root_user")
+    MINIO_SECRET_ACCESS_KEY = os.getenv("MINIO_SECRET_ACCESS_KEY", "object_storage_root_password")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
+    MINIO_HOST = os.getenv("MINIO_HOST", "")
+    MINIO_PORT = os.getenv("MINIO_PORT", "")
+    MINIO_ACCESS_KEY_ID = os.getenv("MINIO_ACCESS_KEY_ID", "")
+    MINIO_SECRET_ACCESS_KEY = os.getenv("MINIO_SECRET_ACCESS_KEY", "")
+
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}

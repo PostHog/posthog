@@ -7,12 +7,13 @@ from botocore.client import Config
 # TODO: passing S3 settings
 # TODO: read -> compress -> stream to s3 on the fligh (without touching the disk)
 # TODO: we should pass to our client the compressed file and then decompress in the browser
+from posthog.settings import MINIO_ACCESS_KEY_ID, MINIO_HOST, MINIO_PORT, MINIO_SECRET_ACCESS_KEY
 
 s3 = boto3.resource(
     "s3",
-    endpoint_url="http://localhost:19000",
-    aws_access_key_id="object_storage_root_user",
-    aws_secret_access_key="object_storage_root_password",
+    endpoint_url=f"http://{MINIO_HOST}:{MINIO_PORT}",
+    aws_access_key_id=MINIO_ACCESS_KEY_ID,
+    aws_secret_access_key=MINIO_SECRET_ACCESS_KEY,
     config=Config(signature_version="s3v4"),
     region_name="us-east-1",
 )
