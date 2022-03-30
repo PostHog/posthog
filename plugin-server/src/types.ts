@@ -111,10 +111,10 @@ export interface PluginsServerConfig extends Record<string, any> {
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
-    MINIO_HOST: string
-    MINIO_PORT: number
-    MINIO_ACCESS_KEY_ID: string
-    MINIO_SECRET_ACCESS_KEY: string
+    OBJECT_STORAGE_HOST: string
+    OBJECT_STORAGE_PORT: number
+    OBJECT_STORAGE_ACCESS_KEY_ID: string
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
 }
 
 export interface Hub extends PluginsServerConfig {
