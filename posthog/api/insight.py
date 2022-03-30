@@ -33,7 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.client import sync_execute
+from posthog.client import substitute_params, sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
@@ -391,12 +391,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+            funnel_builder = ClickhouseFunnelTrends(team=team, filter=filter)
+            source_query = substitute_params(funnel_builder.get_query(), funnel_builder.params)
+            return {"result": funnel_builder.run(), "source_query": source_query}
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
+            funnel_builder = ClickhouseFunnelTimeToConvert(team=team, filter=filter)
+            source_query = substitute_params(funnel_builder.get_query(), funnel_builder.params)
+            return {"result": funnel_builder.run(), "source_query": source_query}
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run()}
+            source_query = substitute_params(funnel_order_class.get_query(), funnel_order_class.params)
+            return {"result": funnel_order_class(team=team, filter=filter).run(), "source_query": source_query}
 
     # ******************************************
     # /projects/:id/insights/retention
