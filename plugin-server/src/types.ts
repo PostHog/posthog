@@ -781,6 +781,7 @@ export enum TimestampFormat {
     ClickHouseSecondPrecision = 'clickhouse-second-precision',
     ClickHouse = 'clickhouse',
     ISO = 'iso',
+    DateOnly = 'date-only',
 }
 
 export enum Database {

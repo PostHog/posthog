@@ -386,13 +386,13 @@ def check_async_migration_health():
 def delete_old_recordings_from_disk():
     """
     The clickhouse table has a TTL of a number of weeks before session recordings are deleted.
-    Once they are deleted the files they referenced can be deleted
+    The recordings are stored in a confgiurable bucket, and within that in sub-buckets named by date (YYYY-MM-DD)
+    Once those buckets are older than the TTL, they can be deleted
     """
     from posthog.internal_metrics import gauge
 
     ttl_weeks = int(CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"])
     file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
-    number_of_deletions = object_storage.delete(
-        datetime.datetime.now() - file_deletion_time_delta, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET
-    )
+    ttl_date = (datetime.datetime.now() - file_deletion_time_delta).date()
+    number_of_deletions = object_storage.delete_older_than(ttl_date, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET)
     gauge("posthog_celery_session_recordings_deletion", number_of_deletions)

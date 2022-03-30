@@ -1,9 +1,8 @@
-import time
 import unittest
 import uuid
 from datetime import datetime, timedelta
 
-from posthog.storage.object_storage import delete, read, write
+from posthog.storage.object_storage import delete_older_than, read, write
 
 
 class TestStorage(unittest.TestCase):
@@ -12,7 +11,7 @@ class TestStorage(unittest.TestCase):
         """
         Delete the test_bucket after all of the tests are finished
         """
-        delete(datetime.now(), "test_bucket")
+        delete_older_than(datetime.now(), "test_bucket")
 
     def test_write_and_read_works_with_known_content(self):
         session_id = str(uuid.uuid4())
@@ -23,15 +22,16 @@ class TestStorage(unittest.TestCase):
         self.assertEqual(read(file_name), "my content")
 
     def test_deleting_old_files(self):
-        # can't write files frozen to thirty days ago because boto won't let us write files when clock appears skewed
-        write("test_bucket/test_deleting_old_files/2 seconds ago", "test")
-        time.sleep(1)
-        write("test_bucket/test_deleting_old_files/1 second ago ", "test")
-        time.sleep(1)
-        write("test_bucket/test_deleting_old_files/now", "test")
+        write("test_bucket/test_deleting_old_files/2014-04-01/very_old", "test")
 
-        one_second_ago = datetime.now() - timedelta(seconds=1)
+        thirty_one_days_ago = (datetime.now() - timedelta(days=31)).strftime("%Y-%m-%d")
+        write(f"test_bucket/test_deleting_old_files/{thirty_one_days_ago}/deletable ", "test")
 
-        deleted_count = delete(one_second_ago, prefix="test_bucket/test_deleting_old_files")
+        twenty_nine_days_ago = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
+        write(f"test_bucket/test_deleting_old_files/{twenty_nine_days_ago}/not_deletable", "test")
+
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+
+        deleted_count = delete_older_than(thirty_days_ago.date(), prefix="test_bucket/test_deleting_old_files")
 
         self.assertEqual(deleted_count, 2)  # does not delete the "now" file

@@ -721,7 +721,8 @@ export class EventsProcessor {
         // As we don't want to store the session recording payload in ClickHouse,
         // let's intercept the event, parse the metadata and store the data in
         // our object storage system.
-        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_BUCKET}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
+        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_BUCKET}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
 
         const tags = {
