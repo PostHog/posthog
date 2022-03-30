@@ -10,7 +10,7 @@ import { LemonRow } from 'lib/components/LemonRow'
 export function UserSQLTab(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
-    const [query, setQuery] = useState<string | undefined>(filters.user_sql || '')
+    const [query, setQuery] = useState<string | undefined>(format(filters.user_sql || ''))
 
     const onSubmit = (): void => {
         setFilters({
