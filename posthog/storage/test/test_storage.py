@@ -1,39 +1,37 @@
+import time
 import unittest
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch
-
-import pytz
 
 from posthog.storage.object_storage import delete, read, write
 
 
-def write_a_chunk(chunk_index: int, session_id: str, content: str) -> str:
-    chunk_id = uuid.uuid4()
-    file_name = f"{session_id}/{chunk_index}-{chunk_id}"
-    write(file_name, content)
-    return file_name
-
-
 class TestStorage(unittest.TestCase):
+    @classmethod
+    def teardown_class(cls):
+        """
+        Delete the test_bucket after all of the tests are finished
+        """
+        delete(datetime.now(), "test_bucket")
+
     def test_write_and_read_works_with_known_content(self):
-        file_name = write_a_chunk(chunk_index=0, session_id=str(uuid.uuid4()), content="my content")
+        session_id = str(uuid.uuid4())
+        chunk_id = uuid.uuid4()
+        name = f"{session_id}/{0}-{chunk_id}"
+        file_name = f"test_bucket/test_write_and_read_works_with_known_content/{name}"
+        write(file_name, "my content")
         self.assertEqual(read(file_name), "my content")
 
-    @patch("posthog.storage.object_storage.list_all")
-    def test_deleting_old_files(self, list_all):
-        old_mock_storage_object = Mock()
-        old_mock_storage_object.last_modified = pytz.UTC.localize(datetime.now() - timedelta(days=31))
+    def test_deleting_old_files(self):
+        # can't write files frozen to thirty days ago because boto won't let us write files when clock appears skewed
+        write("test_bucket/test_deleting_old_files/2 seconds ago", "test")
+        time.sleep(1)
+        write("test_bucket/test_deleting_old_files/1 second ago ", "test")
+        time.sleep(1)
+        write("test_bucket/test_deleting_old_files/now", "test")
 
-        fresh_mock_storage_object = Mock()
-        fresh_mock_storage_object.last_modified = pytz.UTC.localize(datetime.now() - timedelta(days=28))
+        one_second_ago = datetime.now() - timedelta(seconds=1)
 
-        list_all.return_value = [old_mock_storage_object, fresh_mock_storage_object]
+        deleted_count = delete(one_second_ago, prefix="test_bucket/test_deleting_old_files")
 
-        thirty_days_ago = datetime.now() - timedelta(days=30)
-
-        deleted_count = delete(thirty_days_ago)
-
-        self.assertEqual(deleted_count, 1)
-        old_mock_storage_object.delete.assert_called_once()
-        fresh_mock_storage_object.delete.assert_not_called()
+        self.assertEqual(deleted_count, 2)  # does not delete the "now" file

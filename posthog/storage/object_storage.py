@@ -2,6 +2,7 @@
 Helpers to interact with our Object Storage system
 """
 import datetime
+from typing import Optional
 
 import boto3
 import pytz
@@ -35,17 +36,21 @@ def read(file_name: str):
     return content.decode("utf-8")
 
 
-def list_all():
-    # TODO page these instead of loading them all
-    return s3.Bucket("posthog").objects.all()
+def page_stored_objects(prefix: Optional[str]):
+    objects = s3.Bucket("posthog").objects
+    if prefix is not None:
+        objects = objects.filter(Prefix=prefix)
+    return objects.page_size(500).pages()
 
 
-def delete(older_than: datetime.datetime):
+def delete(older_than: datetime.datetime, prefix: str):
     date_limit = pytz.UTC.localize(older_than)
     count = 0
-    for object in list_all():
-        if object.last_modified < date_limit:
-            object.delete()
-            count += 1
+    pages_of_objects = page_stored_objects(prefix)
+    for page in pages_of_objects:
+        for stored_object in page:
+            if stored_object.last_modified < date_limit:
+                stored_object.delete()
+                count += 1
 
     return count
