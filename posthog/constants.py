@@ -47,6 +47,7 @@ INSIGHT_LIFECYCLE = "LIFECYCLE"
 INSIGHT_FUNNELS = "FUNNELS"
 INSIGHT_PATHS = "PATHS"
 INSIGHT_RETENTION = "RETENTION"
+INSIGHT_USER_SQL = "USER_SQL"
 
 INSIGHT_TO_DISPLAY = {
     INSIGHT_TRENDS: TRENDS_LINEAR,
@@ -55,6 +56,7 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
     INSIGHT_RETENTION: TRENDS_RETENTION,
+    INSIGHT_USER_SQL: TRENDS_TABLE,
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
@@ -163,6 +165,7 @@ PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
+USER_SQL = "user_sql"
 
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group"]
 

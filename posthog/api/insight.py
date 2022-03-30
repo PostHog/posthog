@@ -419,6 +419,22 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
+    @action(methods=["GET"], detail=False)
+    def sql(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_sql(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_sql(self, request: request.Request) -> Dict[str, Any]:
+        team = self.team
+        data = {}
+        if not request.GET.get("date_from"):
+            data.update({"date_from": "-11d"})
+        filter = RetentionFilter(data=data, request=request, team=self.team)
+        base_uri = request.build_absolute_uri("/")
+        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
+        return {"result": result}
+
     # ******************************************
     # /projects/:id/insights/path
     # params:

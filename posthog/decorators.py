@@ -22,6 +22,7 @@ class CacheType(str, Enum):
     RETENTION = "Retention"
     STICKINESS = "Stickiness"
     PATHS = "Path"
+    USER_SQL = "UserSQL"
 
 
 ResultPackage = Union[Dict[str, Any], List[Dict[str, Any]]]
