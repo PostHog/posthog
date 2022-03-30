@@ -9,6 +9,9 @@ export function QueryTab(): JSX.Element {
             onChange={(value) => {
                 console.log(value)
             }}
+            options={{
+                minimap: { enabled: false },
+            }}
         />
     )
 }
