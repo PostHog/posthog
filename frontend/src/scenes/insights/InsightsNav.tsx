@@ -70,6 +70,12 @@ export function InsightsNav(): JSX.Element {
                 dataAttr: 'insight-lifecycle-tab',
                 hotkey: 'l',
             },
+            {
+                label: 'Query',
+                type: InsightType.QUERY,
+                dataAttr: 'insight-query-tab',
+                hotkey: 'q',
+            },
         ],
         [funnelTab]
     )
