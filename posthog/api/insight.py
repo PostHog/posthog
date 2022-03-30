@@ -399,9 +399,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             source_query = substitute_params(funnel_builder.get_query(), funnel_builder.params)
             return {"result": funnel_builder.run(), "source_query": source_query}
         else:
-            funnel_order_class = get_funnel_order_class(filter)
+            funnel_order_class = get_funnel_order_class(filter)(team=team, filter=filter)
             source_query = substitute_params(funnel_order_class.get_query(), funnel_order_class.params)
-            return {"result": funnel_order_class(team=team, filter=filter).run(), "source_query": source_query}
+            return {"result": funnel_order_class.run(), "source_query": source_query}
 
     # ******************************************
     # /projects/:id/insights/retention
