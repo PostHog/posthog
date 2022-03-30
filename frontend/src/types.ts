@@ -872,6 +872,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
+    Hedgehogger = 'Hedgehogger',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'

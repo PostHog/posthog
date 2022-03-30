@@ -3,7 +3,13 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import {
+    ACTIONS_BAR_CHART_VALUE,
+    ACTIONS_PIE_CHART,
+    ACTIONS_TABLE,
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_HEDGEHOGGER,
+} from 'lib/constants'
 import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -37,7 +43,9 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
         default:
-            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
+            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, ACTIONS_HEDGEHOGGER].includes(
+                filter.display || ''
+            )
     }
 }
 

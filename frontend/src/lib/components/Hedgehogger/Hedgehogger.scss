@@ -1,0 +1,11 @@
+.Hedgehogger {
+    margin: 1rem 0;
+    width: 100%;
+
+    .landxx {
+        fill: var(--border);
+        stroke: var(--bg-light);
+        stroke-width: 0.125rem;
+        fill-rule: evenodd;
+    }
+}

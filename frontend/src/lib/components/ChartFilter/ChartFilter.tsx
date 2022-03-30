@@ -8,6 +8,7 @@ import {
     LineChartOutlined,
     OrderedListOutlined,
     PieChartOutlined,
+    CoffeeOutlined,
     TableOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
@@ -27,7 +28,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const tableDisabled = false
-    const pieDisabled = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
+    const pieAndHedgehoggerDisabled =
+        filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
     const barDisabled = filters.insight === InsightType.RETENTION
     const barValueDisabled =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
@@ -109,7 +111,12 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   {
                       value: ChartDisplayType.ActionsPie,
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
+                      disabled: pieAndHedgehoggerDisabled,
+                  },
+                  {
+                      value: ChartDisplayType.Hedgehogger,
+                      label: <Label icon={<CoffeeOutlined />}>Hedgehogger</Label>,
+                      disabled: pieAndHedgehoggerDisabled,
                   },
               ]
     return (

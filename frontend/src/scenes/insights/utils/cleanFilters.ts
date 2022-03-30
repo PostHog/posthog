@@ -25,7 +25,7 @@ const cleanBreakdownParams = (
     featureFlags: Record<string, any>
 ): void => {
     const isStepsFunnel = filters.insight === InsightType.FUNNELS && filters.funnel_viz_type === FunnelVizType.Steps
-    const isTrends = filters.insight === InsightType.TRENDS
+    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const canBreakdown = isStepsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
@@ -34,8 +34,12 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown'] = undefined
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
-
     if (canBreakdown) {
+        if (filters.display === ChartDisplayType.Hedgehogger && !filters.breakdown) {
+            // For the map, make sure we are breaking down by country
+            cleanedParams['breakdown'] = '$geoip_country_code'
+            cleanedParams['breakdown_type'] = 'event'
+        }
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
         }

@@ -9,7 +9,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { getChartColors } from 'lib/colors'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { formatCompareLabel } from 'scenes/insights/InsightsTable/InsightsTable'
-import { InsightType } from '~/types'
+import { ChartDisplayType, InsightType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -20,7 +20,8 @@ export function InsightLegendButton(): JSX.Element | null {
 
     if (
         !(
-            (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+            ((activeView === InsightType.TRENDS && filters.display !== ChartDisplayType.Hedgehogger) ||
+                activeView === InsightType.STICKINESS) &&
             featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
         )
     ) {

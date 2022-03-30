@@ -7,7 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_HEDGEHOGGER, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -66,11 +66,10 @@ export function InsightContainer(
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
-                    {
-                        filters.display !== ACTIONS_TABLE && (
-                            <div className="trends-insights-container" />
-                        ) /* Tables don't need this padding, but graphs do for sizing */
-                    }
+                    {filters.display !== ACTIONS_TABLE && filters.display !== ACTIONS_HEDGEHOGGER && (
+                        /* Tables and hedgehogger don't need this padding, but graphs do for sizing */
+                        <div className="trends-insights-container" />
+                    )}
                     <Loading />
                 </>
             )

@@ -9,6 +9,7 @@ export const ACTIONS_TABLE = 'ActionsTable'
 export const ACTIONS_PIE_CHART = 'ActionsPie'
 export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
+export const ACTIONS_HEDGEHOGGER = 'Hedgehogger'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
