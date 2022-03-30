@@ -6,7 +6,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
+import { Hub, JobQueueConsumerControl, PluginServerMode, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
@@ -29,11 +29,6 @@ export type ServerInstance = {
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
-}
-
-export enum PluginServerMode {
-    Ingestion = 'INGESTION',
-    Runner = 'RUNNER',
 }
 
 export async function startPluginsServer(
@@ -151,8 +146,10 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        scheduleControl = await startSchedule(hub, piscina)
-        jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        if (pluginServerMode === PluginServerMode.Runner) {
+            scheduleControl = await startSchedule(hub, piscina)
+            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        }
 
         console.log('about to startQueues', pluginServerMode)
         const queues = await startQueues(hub, piscina, {}, pluginServerMode)

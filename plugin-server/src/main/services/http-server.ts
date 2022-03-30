@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { healthcheck } from '../../healthcheck'
-import { PluginServerMode } from '../../main/pluginsServer'
+import { PluginServerMode } from '../../types'
 import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'

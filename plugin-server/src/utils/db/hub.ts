@@ -8,11 +8,12 @@ import { Kafka, logLevel } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
+import { env } from 'process'
 import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, PluginId, PluginsServerConfig } from '../../types'
+import { Hub, PluginId, PluginServerMode, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -48,6 +49,9 @@ export async function createHub(
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
     let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
+
+    const pluginServerMode = env.SERVER_MODE === 'runner' ? PluginServerMode.Runner : PluginServerMode.Ingestion
+
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -197,6 +201,7 @@ export async function createHub(
 
     const hub: Omit<Hub, 'eventsProcessor'> = {
         ...serverConfig,
+        pluginServerMode,
         instanceId,
         db,
         postgres,

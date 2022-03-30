@@ -153,6 +153,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
+    pluginServerMode: PluginServerMode
 }
 
 export interface Pausable {
@@ -876,4 +877,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
 }

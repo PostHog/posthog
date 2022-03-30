@@ -1,5 +1,6 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
+import { PluginServerMode } from '../../types'
 import {
     Hub,
     Plugin,
@@ -58,7 +59,9 @@ export async function setupPlugins(server: Hub): Promise<void> {
         server.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
 
-    await loadSchedule(server)
+    if (server.pluginServerMode === PluginServerMode.Runner) {
+        await loadSchedule(server)
+    }
 }
 
 async function loadPluginsFromDB(

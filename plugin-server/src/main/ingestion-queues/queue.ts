@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { PluginServerMode } from '../../main/pluginsServer'
+import { PluginServerMode } from '../../types'
 import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
