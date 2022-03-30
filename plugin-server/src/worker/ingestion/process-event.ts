@@ -695,6 +695,20 @@ export class EventsProcessor {
         return [eventPayload, eventId, elements]
     }
 
+    public async dispatchEventToRunner(event: PluginEvent) {
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.queueMessage({
+                topic: this.pluginsServer.KAFKA_RUNNER_TOPIC,
+                messages: [
+                    {
+                        key: event.uuid,
+                        value: Buffer.from(JSON.stringify(event)),
+                    },
+                ],
+            })
+        }
+    }
+
     private async createSessionRecordingEvent(
         uuid: string,
         team_id: number,

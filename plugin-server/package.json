@@ -20,7 +20,7 @@
         "start:dist:runner": "BASE_DIR=.. node dist/index.js --runner",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. yarn start:dev:ingestion & yarn start:dev:runner",
         "start:dev:ingestion": "ts-node-dev --debug --exit-child src/index.ts",
-        "start:dev:runner": "ts-node-dev --debug --exit-child src/index.ts --runner",
+        "start:dev:runner": "SERVER_MODE='runner' ts-node-dev --debug --exit-child src/index.ts",
         "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",

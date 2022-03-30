@@ -7,19 +7,21 @@ import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')
-const { argv } = process
+const { argv, env } = process
 
 enum ServerMode {
     Help = 'HELP',
-    Version = 'VRSN',
-    Healthcheck = 'HLTH',
+    Version = 'VERSION',
+    Healthcheck = 'HEALTH',
     Idle = 'IDLE',
-    Migrate = 'MGRT',
-    Runner = 'RNNR',
+    Migrate = 'MIGRATE',
+    Runner = 'RUNNER',
+    Ingestion = 'INGESTION',
 }
 
-let serverMode: ServerMode | undefined
-if (argv.includes('--runner')) {
+let serverMode: ServerMode = ServerMode.Ingestion
+
+if (argv.includes('--runner') || env.SERVER_MODE === 'runner') {
     serverMode = ServerMode.Runner
 } else if (argv.includes('--help') || argv.includes('-h')) {
     serverMode = ServerMode.Help
@@ -79,15 +81,6 @@ switch (serverMode) {
         })()
         break
     case ServerMode.Runner:
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-        console.log('333333')
-
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, PluginServerMode.Runner) // void the returned promise
     default:

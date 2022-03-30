@@ -10,7 +10,8 @@ export const configHelp = getConfigHelp()
 export function getDefaultConfig(): PluginsServerConfig {
     const isTestEnv = determineNodeEnv() === NodeEnv.Test
     const isDevEnv = determineNodeEnv() === NodeEnv.Development
-    const coreCount = os.cpus().length
+    const cpuCores = os.cpus().length
+    const coreCount = isDevEnv ? Math.floor(cpuCores / 2) : cpuCores
 
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
@@ -85,6 +86,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         KAFKA_RUNNER_TOPIC: 'plugin-server-runner-events',
+        SERVER_MODE: 'ingestion',
     }
 }
 

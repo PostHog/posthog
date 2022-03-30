@@ -25,6 +25,8 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             uuid! // it will throw if it's undefined
         )
 
+        await hub.eventsProcessor.dispatchEventToRunner(event)
+
         let actionMatches: Action[] = []
 
         if (result) {

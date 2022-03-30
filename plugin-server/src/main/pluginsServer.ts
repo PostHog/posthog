@@ -274,7 +274,7 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverConfig)
+        httpServer = createHttpServer(hub, serverConfig, pluginServerMode)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')

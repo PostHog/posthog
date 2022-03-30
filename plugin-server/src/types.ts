@@ -112,6 +112,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     KAFKA_RUNNER_TOPIC: string
+    SERVER_MODE: 'ingestion' | 'runner'
 }
 
 export interface Hub extends PluginsServerConfig {

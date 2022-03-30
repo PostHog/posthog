@@ -16,7 +16,7 @@ export class Status implements StatusBlueprint {
     mode?: string
     logger: StructuredLogger
 
-    constructor(mode?: string) {
+    constructor(mode: string) {
         this.mode = mode
         const loggerOptions: Record<string, any> = {
             pathStackDepth: 1,
@@ -31,7 +31,9 @@ export class Status implements StatusBlueprint {
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, ...message: any[]) => {
             const singleMessage = [...message].filter(Boolean).join(' ')
-            const prefix = this.mode ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')
+            const thread = threadId ? threadId.toString().padStart(4, '_') : '__MAIN'
+            const prefix = `${this.mode}${thread}`
+
             const logMessage = `(${prefix}) ${icon} ${singleMessage}`
             this.logger[type](logMessage)
         }
@@ -43,4 +45,4 @@ export class Status implements StatusBlueprint {
     error = this.buildMethod('error')
 }
 
-export const status = new Status()
+export const status = new Status('')

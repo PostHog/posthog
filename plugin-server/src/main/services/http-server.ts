@@ -1,13 +1,18 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { healthcheck } from '../../healthcheck'
+import { PluginServerMode } from '../../main/pluginsServer'
 import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
 
-export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
+export function createHttpServer(
+    hub: Hub | undefined,
+    serverConfig: PluginsServerConfig,
+    pluginServerMode: PluginServerMode
+): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             const status = await healthcheck()
@@ -36,7 +41,8 @@ export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServ
         }
     })
 
-    server.listen(HTTP_SERVER_PORT, () => {
+    console.log(pluginServerMode, pluginServerMode)
+    server.listen(pluginServerMode === PluginServerMode.Ingestion ? HTTP_SERVER_PORT : 6739, () => {
         status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
     })
 
