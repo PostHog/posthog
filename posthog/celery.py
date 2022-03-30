@@ -389,7 +389,7 @@ def delete_old_recordings_from_disk():
     """
     from posthog.internal_metrics import gauge
 
-    ttl_weeks = CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"]
+    ttl_weeks = int(CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"])
     file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
     number_of_deletions = object_storage.delete(datetime.datetime.now() - file_deletion_time_delta)
     gauge("posthog_celery_session_recordings_deletion", number_of_deletions)
