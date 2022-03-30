@@ -188,7 +188,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
-        res = ClickhouseEventSerializer(query_result[0], many=False).data
+
+        query_context = {}
+        if request.query_params.get("include_person", False):
+            query_context["people"] = self._get_people(query_result, self.team)
+
+        res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
     @action(methods=["GET"], detail=False)
