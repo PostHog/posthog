@@ -111,11 +111,6 @@ export class KafkaQueue implements Queue {
                     ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
                     : this.pluginsServer.KAFKA_RUNNER_TOPIC!
 
-            console.log('TOPIC', topic)
-            console.log('TOPIC', topic)
-            console.log('TOPIC', topic)
-            console.log('TOPIC', topic)
-            console.log('TOPIC', topic)
 
             await this.consumer.subscribe({
                 topic,
