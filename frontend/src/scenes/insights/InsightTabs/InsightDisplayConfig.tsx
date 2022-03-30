@@ -36,6 +36,8 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
+        case InsightType.USER_SQL:
+            return false
         default:
             return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
@@ -51,6 +53,8 @@ const showChartFilter = function (activeView: InsightType): boolean {
             return false
         case InsightType.LIFECYCLE:
         case InsightType.PATHS:
+            return false
+        case InsightType.USER_SQL:
             return false
         default:
             return true // sometimes insights aren't set for trends

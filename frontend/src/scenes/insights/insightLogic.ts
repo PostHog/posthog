@@ -278,6 +278,11 @@ export const insightLogic = kea<insightLogicType>({
                             response = await pollFunnel(currentTeamId, params)
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
+                        } else if (insight === InsightType.USER_SQL) {
+                            response = {
+                                result: [],
+                                next: null,
+                            }
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }

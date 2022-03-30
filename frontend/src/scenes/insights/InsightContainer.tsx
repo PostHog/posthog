@@ -139,7 +139,6 @@ export function InsightContainer(
 
         return null
     }
-
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
