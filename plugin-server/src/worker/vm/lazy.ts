@@ -8,12 +8,13 @@ import {
     PluginConfigVMResponse,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginServerMode,
     PluginTask,
     PluginTaskType,
     VMMethods,
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
-import { disablePlugin, setPluginCapabilities, setPluginMetrics } from '../../utils/db/sql'
+import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
 import { createPluginConfigVM } from './vm'
@@ -23,6 +24,14 @@ export const INITIALIZATION_RETRY_MULTIPLIER = 2
 export const INITIALIZATION_RETRY_BASE_MS = 5000
 
 export class SetupPluginError extends Error {}
+
+export const INGESTION_SERVER_METHODS: (keyof Partial<VMMethods>)[] = ['processEvent', 'onAction']
+export const RUNNER_SERVER_METHODS: (keyof Partial<VMMethods>)[] = [
+    'handleAlert',
+    'onSnapshot',
+    'onEvent',
+    'exportEvents',
+]
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
@@ -114,11 +123,22 @@ export class LazyPluginVM {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
-                    const shouldSetupNow =
-                        (!this.ready && // harmless check used to skip setup in tests
-                            vm.tasks?.schedule &&
-                            Object.values(vm.tasks?.schedule).length > 0) ||
+
+                    // async capabilities = jobs or schedule
+                    const hasAsyncCapabilities =
+                        (vm.tasks?.schedule && Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
+
+
+                    const pluginBelongsInServer = this.determineIfPluginBelongsInServer(vm, hasAsyncCapabilities)
+
+                    if (!pluginBelongsInServer) {
+                        resolve(null)
+                        return
+                    }
+
+                    const shouldSetupNow = !this.ready && hasAsyncCapabilities
+
                     if (shouldSetupNow) {
                         await this._setupPlugin(vm.vm)
                         this.ready = true
@@ -185,6 +205,33 @@ export class LazyPluginVM {
                 throw new SetupPluginError(`setupPlugin failed for ${logInfo}. ${failureContextMessage}`)
             }
         }
+    }
+
+    private determineIfPluginBelongsInServer(vm: PluginConfigVMResponse, hasAsyncCapabilities: boolean) {
+        // We need to create the VM to see what methods the plugin has
+        // However, if it doesn't have any INGESTION_SERVER_METHODS, discard the VM
+        let pluginBelongsInServer = false
+
+        if (this.hub.pluginServerMode === PluginServerMode.Ingestion) {
+            for (const method of INGESTION_SERVER_METHODS) {
+                if (!!vm.methods[method]) {
+                    pluginBelongsInServer = true
+                    break
+                }
+            }
+        } else if (this.hub.pluginServerMode === PluginServerMode.Runner) {
+            if (hasAsyncCapabilities) {
+                return true
+            }
+            for (const method of RUNNER_SERVER_METHODS) {
+                if (!!vm.methods[method]) {
+                    pluginBelongsInServer = true
+                    break
+                }
+            }
+        }
+
+        return pluginBelongsInServer
     }
 
     private async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {

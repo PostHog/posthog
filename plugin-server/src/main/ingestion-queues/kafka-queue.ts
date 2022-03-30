@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
-import { PluginServerMode } from 'main/pluginsServer'
 
+import { PluginServerMode } from '../../types'
 import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
@@ -25,25 +25,28 @@ export class KafkaQueue implements Queue {
     ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka)
+        this.pluginServerMode = pluginServerMode
+        this.consumer = KafkaQueue.buildConsumer(
+            this.kafka,
+            pluginServerMode === PluginServerMode.Runner ? 'runner-consumer' : undefined
+        )
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
-        this.pluginServerMode = pluginServerMode
     }
 
     private async eachMessage(message: KafkaMessage): Promise<void> {
-        const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-        const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
-        const event: PluginEvent = sanitizeEvent({
-            ...combinedEvent,
-            site_url: combinedEvent.site_url || null,
-            ip: combinedEvent.ip || null,
-        })
-
         // TODO: Better workerMethods typing
         if (this.pluginServerMode === PluginServerMode.Ingestion) {
+            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+            const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
+            const event: PluginEvent = sanitizeEvent({
+                ...combinedEvent,
+                site_url: combinedEvent.site_url || null,
+                ip: combinedEvent.ip || null,
+            })
             await ingestEvent(this.pluginsServer, this.workerMethods as IngestionWorkerMethods, event)
         } else {
+            const event = JSON.parse(message.value!.toString())
             await onEvent(this.pluginsServer, this.workerMethods as RunnerWorkerMethods, event)
         }
     }
@@ -97,15 +100,20 @@ export class KafkaQueue implements Queue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.consumer.on(this.consumer.events.GROUP_JOIN, () => resolve())
+            this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
+                resolve()
+            })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
+            const topic =
+                this.pluginServerMode === PluginServerMode.Ingestion
+                    ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
+                    : this.pluginsServer.KAFKA_RUNNER_TOPIC!
+
+
             await this.consumer.subscribe({
-                topic:
-                    this.pluginServerMode === PluginServerMode.Ingestion
-                        ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-                        : this.pluginsServer.KAFKA_RUNNER_TOPIC!,
+                topic,
             })
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
@@ -115,6 +123,7 @@ export class KafkaQueue implements Queue {
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
+
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
@@ -176,9 +185,9 @@ export class KafkaQueue implements Queue {
         } catch {}
     }
 
-    private static buildConsumer(kafka: Kafka): Consumer {
+    private static buildConsumer(kafka: Kafka, groupId?: string): Consumer {
         const consumer = kafka.consumer({
-            groupId: 'clickhouse-ingestion',
+            groupId: groupId ?? 'clickhouse-ingestion',
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events

@@ -29,6 +29,8 @@ export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{
 # Make sure KAFKA_ENABLED is true - eventually this should be redundant
 export KAFKA_ENABLED="true"
 
+export SERVER_MODE="runner"
+
 ./bin/migrate-check
 
 cd plugin-server
@@ -44,12 +46,12 @@ if [ $? -ne 0 ]; then
 fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
-  echo "▶️ Starting plugin ingestion server..."
-  [[ -n $DEBUG ]] && yarn start:dev:ingestion || yarn start:dist:ingestion
+  echo "▶️ Starting plugin server runner..."
+  [[ -n $DEBUG ]] && yarn start:dev:runner || yarn start:dist:runner
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    [[ -n $DEBUG ]] && yarn start:dev:ingestion || yarn start:dist:ingestion
+    [[ -n $DEBUG ]] && yarn start:dev:runner || yarn start:dist:runner
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2

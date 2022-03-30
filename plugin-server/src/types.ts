@@ -112,6 +112,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     KAFKA_RUNNER_TOPIC: string
+    SERVER_MODE: 'ingestion' | 'runner'
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -152,6 +153,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
+    pluginServerMode: PluginServerMode
 }
 
 export interface Pausable {
@@ -875,4 +877,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
 }

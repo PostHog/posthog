@@ -6,7 +6,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
+import { Hub, JobQueueConsumerControl, PluginServerMode, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
@@ -29,11 +29,6 @@ export type ServerInstance = {
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
-}
-
-export enum PluginServerMode {
-    Ingestion = 'INGESTION',
-    Runner = 'RUNNER',
 }
 
 export async function startPluginsServer(
@@ -151,13 +146,12 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        scheduleControl = await startSchedule(hub, piscina)
-
-        if(pluginServerMode === PluginServerMode.Runner) {
+        if (pluginServerMode === PluginServerMode.Runner) {
+            scheduleControl = await startSchedule(hub, piscina)
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
         }
 
-        const queues = await startQueues(hub, piscina)
+        const queues = await startQueues(hub, piscina, {}, pluginServerMode)
 
         // `queue` refers to the ingestion queue. With Celery ingestion, we only
         // have one queue for plugin jobs and ingestion. With Kafka ingestion, we
@@ -277,7 +271,7 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverConfig)
+        httpServer = createHttpServer(hub, serverConfig, pluginServerMode)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')

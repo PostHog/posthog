@@ -2,24 +2,33 @@ import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
 import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
-import { PluginServerMode, startPluginsServer } from './main/pluginsServer'
+import { startPluginsServer } from './main/pluginsServer'
+import { PluginServerMode } from './types'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')
-const { argv } = process
+const { argv, env } = process
 
 enum ServerMode {
     Help = 'HELP',
-    Version = 'VRSN',
-    Healthcheck = 'HLTH',
+    Version = 'VERSION',
+    Healthcheck = 'HEALTH',
     Idle = 'IDLE',
-    Migrate = 'MGRT',
-    Runner = 'RNNR',
+    Migrate = 'MIGRATE',
+    Runner = 'RUNNER',
+    Ingestion = 'INGESTION',
 }
 
-let serverMode: ServerMode | undefined
-if (argv.includes('--runner')) {
+let serverMode: ServerMode = ServerMode.Ingestion
+
+if (env.SERVER_MODE && !['ingestion', 'runner'].includes(env.SERVER_MODE)) {
+    throw new Error(`SERVER_MODE must be 'ingestion' or 'runner'`)
+}
+
+if (defaultConfig.PLUGIN_SERVER_IDLE) {
+    serverMode = ServerMode.Idle
+} else if (argv.includes('--runner') || env.SERVER_MODE === 'runner') {
     serverMode = ServerMode.Runner
 } else if (argv.includes('--help') || argv.includes('-h')) {
     serverMode = ServerMode.Help
@@ -29,13 +38,12 @@ if (argv.includes('--runner')) {
     serverMode = ServerMode.Healthcheck
 } else if (argv.includes('--migrate')) {
     serverMode = ServerMode.Migrate
-} else if (defaultConfig.PLUGIN_SERVER_IDLE) {
-    serverMode = ServerMode.Idle
 }
 
 const status = new Status(serverMode)
 
 status.info('⚡', `@posthog/plugin-server v${version}`)
+status.info('⚡', `Starting plugin server in mode ${serverMode}`)
 
 switch (serverMode) {
     case ServerMode.Version:
@@ -81,6 +89,7 @@ switch (serverMode) {
     case ServerMode.Runner:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, PluginServerMode.Runner) // void the returned promise
+        break
     default:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
