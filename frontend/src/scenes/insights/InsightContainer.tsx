@@ -158,23 +158,25 @@ export function InsightContainer(
                 className="insights-graph-container"
             >
                 <div>
-                    <Row
-                        className={clsx('insights-graph-header', {
-                            funnels: activeView === InsightType.FUNNELS,
-                        })}
-                        align="middle"
-                        justify="space-between"
-                    >
-                        {/*Don't add more than two columns in this row.*/}
-                        <Col>
-                            <ComputationTimeWithRefresh />
-                        </Col>
-                        <Col>
-                            {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
-                            {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
-                            <InsightLegendButton />
-                        </Col>
-                    </Row>
+                    {activeView !== InsightType.USER_SQL && (
+                        <Row
+                            className={clsx('insights-graph-header', {
+                                funnels: activeView === InsightType.FUNNELS,
+                            })}
+                            align="middle"
+                            justify="space-between"
+                        >
+                            {/*Don't add more than two columns in this row.*/}
+                            <Col>
+                                <ComputationTimeWithRefresh />
+                            </Col>
+                            <Col>
+                                {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
+                                {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
+                                <InsightLegendButton />
+                            </Col>
+                        </Row>
+                    )}
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
