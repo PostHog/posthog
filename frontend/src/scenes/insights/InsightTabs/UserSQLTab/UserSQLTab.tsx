@@ -9,13 +9,18 @@ import { LemonRow } from 'lib/components/LemonRow'
 
 export function UserSQLTab(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
     const [query, setQuery] = useState<string | undefined>(format(filters.user_sql || ''))
 
     const onSubmit = (): void => {
-        setFilters({
-            user_sql: query,
-        })
+        if (query !== filters.user_sql) {
+            setFilters({
+                user_sql: query,
+            })
+        } else {
+            loadResults()
+        }
     }
 
     const onFormat = (): void => {
