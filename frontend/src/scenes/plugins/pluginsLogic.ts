@@ -639,6 +639,24 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 return pluginNameToMaintainerMap
             },
         ],
+        allPossiblePlugins: [
+            (s) => [s.repository, s.plugins],
+            (repository, plugins) => {
+                const allPossiblePlugins: { name: string; url?: string; tab: PluginTab }[] = []
+                for (const plugin of Object.values(plugins) as PluginType[]) {
+                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Installed })
+                }
+
+                const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
+
+                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                    if (!installedUrls.has(plugin.url)) {
+                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Repository })
+                    }
+                }
+                return allPossiblePlugins
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -707,6 +725,17 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             }
         },
     }),
+
+    urlToAction: ({ actions }) => ({
+        '/project/plugins': (url, { tab, name }) => {
+            console.log('got values: ', tab, name, url)
+            if (tab && name) {
+                actions.setSearchTerm(name)
+                actions.setPluginTab(tab as PluginTab)
+            }
+        },
+    }),
+
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPlugins()

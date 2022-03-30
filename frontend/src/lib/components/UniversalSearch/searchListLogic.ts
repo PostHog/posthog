@@ -11,6 +11,8 @@ import { universalSearchLogic } from './universalSearchLogic'
 
 import { searchListLogicType } from './searchListLogicType'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 /*
  by default the pop-up starts open for the first item in the list
  this can be used with actions.setIndex to allow a caller to override that
@@ -69,6 +71,10 @@ export const searchListLogic = kea<searchListLogicType>({
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
             featureFlagsLogic,
             ['featureFlags'],
+            experimentsLogic,
+            ['experiments'],
+            pluginsLogic,
+            ['plugins'],
         ],
         actions: [universalSearchLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),

@@ -55,6 +55,8 @@ export function TopBar(): JSX.Element {
                                 UniversalSearchGroupType.Cohorts,
                                 UniversalSearchGroupType.Insights,
                                 UniversalSearchGroupType.FeatureFlags,
+                                UniversalSearchGroupType.Plugins,
+                                UniversalSearchGroupType.Experiments,
                                 // 'groups_0',
                                 'groups_1',
                                 // 'groups_2',
@@ -102,6 +104,12 @@ export function TopBar(): JSX.Element {
                                     router.actions.push(urls.insightView(value))
                                 } else if (groupType === UniversalSearchGroupType.FeatureFlags) {
                                     router.actions.push(urls.featureFlag(value))
+                                } else if (groupType === UniversalSearchGroupType.Experiments) {
+                                    router.actions.push(urls.experiment(value))
+                                } else if (groupType === UniversalSearchGroupType.Plugins) {
+                                    router.actions.push(
+                                        combineUrl(urls.plugins(), { tab: item.tab, name: item.name }).url
+                                    )
                                 }
                             }}
                         />

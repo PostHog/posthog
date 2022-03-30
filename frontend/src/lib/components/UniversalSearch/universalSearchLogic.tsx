@@ -7,10 +7,12 @@ import {
     ActionType,
     CohortType,
     EventDefinition,
+    Experiment,
     FeatureFlagType,
     Group,
     InsightModel,
     PersonType,
+    PluginType,
     PropertyDefinition,
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -27,6 +29,8 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-m
 import { universalSearchLogicType } from './universalSearchLogicType'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 const eventTaxonomicGroupProps: Pick<UniversalSearchGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
@@ -229,6 +233,26 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     // getIcon: function _getIcon(): JSX.Element {
                     //     return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
                     // },
+                },
+                {
+                    name: 'Experiments',
+                    searchPlaceholder: 'experiments',
+                    type: UniversalSearchGroupType.Experiments,
+                    logic: experimentsLogic,
+                    value: 'experiments',
+                    getName: (experiment: Experiment) => experiment.name,
+                    getValue: (experiment: Experiment) => experiment.id,
+                    getPopupHeader: () => 'Experiment',
+                },
+                {
+                    name: 'Plugins',
+                    searchPlaceholder: 'plugins',
+                    type: UniversalSearchGroupType.Plugins,
+                    logic: pluginsLogic,
+                    value: 'allPossiblePlugins',
+                    getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
+                    getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
+                    getPopupHeader: () => 'Plugin',
                 },
                 ...groupAnalyticsTaxonomicGroups,
             ],

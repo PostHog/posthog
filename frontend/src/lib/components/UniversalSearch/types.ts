@@ -42,6 +42,7 @@ export enum UniversalSearchGroupType {
     FeatureFlags = 'feature_flags',
     Insights = 'insights',
     Experiments = 'experiments',
+    Plugins = 'plugins',
 }
 
 export interface UniversalSearchGroup {
