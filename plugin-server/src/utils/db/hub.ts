@@ -12,6 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
+import { S3 } from '../../main/services/object_storage'
 import { Hub, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -185,6 +186,11 @@ export async function createHub(
         }
     )
     status.info('👍', `Redis`)
+
+    status.info('🤔', `Storage`)
+    await S3.listBuckets().promise()
+    status.info('🪣', `read buckets from storage`)
+    status.info('👍', `storage`)
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
     const teamManager = new TeamManager(db, serverConfig, statsd)
