@@ -151,7 +151,6 @@ export async function startPluginsServer(
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
         }
 
-        console.log('about to startQueues', pluginServerMode)
         const queues = await startQueues(hub, piscina, {}, pluginServerMode)
 
         // `queue` refers to the ingestion queue. With Celery ingestion, we only
