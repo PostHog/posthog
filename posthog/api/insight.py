@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, Type
+import uuid
 
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
@@ -449,6 +450,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                 final.append(dict(zip(names, row)))
 
         return {"result": final}
+      
 
     # ******************************************
     # /projects/:id/insights/path
