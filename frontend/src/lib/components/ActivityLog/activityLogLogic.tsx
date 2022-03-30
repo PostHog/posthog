@@ -1,6 +1,11 @@
 import { kea } from 'kea'
 import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    ActivityScope,
+    humanize,
+    HumanizedActivityLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -18,7 +23,8 @@ export const activityLogLogic = kea<activityLogLogicType>({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
-                fetchNextPage: async () => {
+                fetchNextPage: async (_, breakpoint) => {
+                    await breakpoint()
                     return await api.activity.list(props, values.page)
                 },
             },
@@ -72,16 +78,16 @@ export const activityLogLogic = kea<activityLogLogicType>({
         ],
     }),
     listeners: ({ actions }) => ({ setPage: actions.fetchNextPage }),
-    urlToAction: ({ values, actions }) => {
-        const onPageChange = (searchParams: Record<string, any>): void => {
+    urlToAction: ({ values, actions, props }) => {
+        const onPageChange = (searchParams: Record<string, any>, pageScope: ActivityScope): void => {
             const pageInURL = searchParams['page']
-            if (pageInURL && pageInURL !== values.page) {
+            if (pageInURL && pageInURL !== values.page && pageScope === props.scope) {
                 actions.setPage(pageInURL)
             }
         }
         return {
-            '/person/*': ({}, searchParams) => onPageChange(searchParams),
-            [urls.featureFlags()]: ({}, searchParams) => onPageChange(searchParams),
+            '/person/*': ({}, searchParams) => onPageChange(searchParams, ActivityScope.PERSON),
+            [urls.featureFlags()]: ({}, searchParams) => onPageChange(searchParams, ActivityScope.FEATURE_FLAG),
         }
     },
     events: ({ actions }) => ({
