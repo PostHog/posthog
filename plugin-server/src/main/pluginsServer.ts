@@ -152,7 +152,10 @@ export async function startPluginsServer(
         piscina = makePiscina(serverConfig)
 
         scheduleControl = await startSchedule(hub, piscina)
-        jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+
+        if(pluginServerMode === PluginServerMode.Runner) {
+            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        }
 
         const queues = await startQueues(hub, piscina)
 

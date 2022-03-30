@@ -1,19 +1,15 @@
-import { gzipSync } from 'zlib'
 
+import AdmZip from 'adm-zip'
+import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
-import { LOCKED_RESOURCE } from '../src/main/job-queues/job-queue-consumer'
-import { JobQueueManager } from '../src/main/job-queues/job-queue-manager'
-import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { EnqueuedJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
-import { killProcess } from '../src/utils/kill'
-import { delay } from '../src/utils/utils'
+import { PluginServerMode, ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
+import { LogLevel, PluginsServerConfig } from '../src/types'
+import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { resetGraphileSchema } from './helpers/graphile'
-import { pluginConfig39 } from './helpers/plugins'
-import { resetTestDatabase } from './helpers/sql'
+import { insertRow } from './helpers/sql'
 
 const mS3WrapperInstance = {
     upload: jest.fn(),
@@ -35,28 +31,6 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.setTimeout(60000) // 60 sec timeout
 
-const { console: testConsole } = writeToFile
-
-const testCode = `
-    import { console } from 'test-utils/write-to-file'
-
-    export const jobs = {
-        logReply: (text, meta) => {
-            console.log('reply', text)
-        }
-    }
-    export async function processEvent (event, { jobs }) {
-        console.log('processEvent')
-        if (event.properties?.type === 'runIn') {
-            jobs.logReply('runIn').runIn(1, 'second')
-        } else if (event.properties?.type === 'runAt') {
-            jobs.logReply('runAt').runAt(new Date())
-        } else if (event.properties?.type === 'runNow') {
-            jobs.logReply('runNow').runNow()
-        }
-        return event
-    }
-`
 
 const createConfig = (config: Partial<PluginsServerConfig>): PluginsServerConfig => ({
     ...defaultConfig,
@@ -65,287 +39,200 @@ const createConfig = (config: Partial<PluginsServerConfig>): PluginsServerConfig
     ...config,
 })
 
-async function waitForLogEntries(number: number) {
-    const timeout = 20000
-    const start = new Date().valueOf()
-    while (testConsole.read().length < number) {
-        await delay(200)
-        if (new Date().valueOf() - start > timeout) {
-            console.error(`Did not find ${number} console logs:`, testConsole.read())
-            throw new Error(`Did not get ${number} console logs within ${timeout / 1000} seconds`)
-        }
+const initTest = async (
+    config: Partial<PluginsServerConfig>,
+    resetSchema = true
+): Promise<PluginsServerConfig> => {
+    const createdConfig = createConfig(config)
+    if (resetSchema) {
+        await resetGraphileSchema(createdConfig)
     }
+    return createdConfig
 }
 
-describe.skip('job queues', () => {
-    let server: ServerInstance
-    let posthog: DummyPostHog
 
-    beforeEach(async () => {
-        testConsole.reset()
+const { console: testConsole } = writeToFile
 
-        // reset lock in redis
-        const [tempHub, closeTempHub] = await createHub()
-        const redis = await tempHub.redisPool.acquire()
-        await redis.del(LOCKED_RESOURCE)
-        await tempHub.redisPool.release(redis)
-        await closeTempHub()
 
-        // reset test code
-        await resetTestDatabase(testCode)
+describe("ingest worker job handling", () => {
 
-        // try to deflake
-        await delay(100)
+    let ingest_worker: ServerInstance
+    let ingest_posthog: DummyPostHog
+
+
+    beforeAll(async () => {
+        const config = await initTest({ JOB_QUEUES: 'graphile' })
+        ingest_worker = await startPluginsServer(config, makePiscina, PluginServerMode.Ingestion)
     })
 
-    afterEach(async () => {
-        await server?.stop()
+    afterAll(async () => {
+        await ingest_worker?.stop()
     })
 
-    describe('fs queue', () => {
-        beforeEach(async () => {
-            server = await startPluginsServer(createConfig({ JOB_QUEUES: 'fs' }), makePiscina)
-            posthog = createPosthog(server.hub, pluginConfig39)
-        })
+    test("ingest server should not consume jobs to run", async () => {
+        // Add in a basic plugin that we can validate if the job has been run
+        const testPluginJs = `
+            import { console } from 'test-utils/write-to-file'
 
-        test('jobs get scheduled with runIn', async () => {
-            await posthog.capture('my event', { type: 'runIn' })
-            await waitForLogEntries(2)
-            expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
-        })
-
-        test('jobs get scheduled with runAt', async () => {
-            await posthog.capture('my event', { type: 'runAt' })
-            await waitForLogEntries(2)
-            expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runAt']])
-        })
-
-        test('jobs get scheduled with runNow', async () => {
-            await posthog.capture('my event', { type: 'runNow' })
-            await waitForLogEntries(2)
-            expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runNow']])
-        })
-    })
-
-    describe('graphile', () => {
-        async function initTest(
-            config: Partial<PluginsServerConfig>,
-            resetSchema = true
-        ): Promise<PluginsServerConfig> {
-            const createdConfig = createConfig(config)
-            if (resetSchema) {
-                await resetGraphileSchema(createdConfig)
-            }
-            return createdConfig
-        }
-
-        describe('jobs', () => {
-            beforeEach(async () => {
-                const config = await initTest({ JOB_QUEUES: 'graphile' })
-                server = await startPluginsServer(config, makePiscina)
-                posthog = createPosthog(server.hub, pluginConfig39)
-            })
-
-            test('graphile job queue', async () => {
-                await posthog.capture('my event', { type: 'runIn' })
-                await waitForLogEntries(2)
-                expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
-            })
-
-            test('polls for jobs in future', async () => {
-                const DELAY = 3000 // 3s
-
-                // return something to be picked up after a few loops (poll interval is 100ms)
-                const now = Date.now()
-
-                const job: EnqueuedJob = {
-                    type: 'pluginJob',
-                    payload: { key: 'value' },
-                    timestamp: now + DELAY,
-                    pluginConfigId: 2,
-                    pluginConfigTeam: 3,
+            export const jobs = {
+                logReply: (payload, meta) => {
+                    console.log('reply')
                 }
-
-                server.hub.jobQueueManager.enqueue(job)
-                const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
-                    server.hub.jobQueueManager.startConsumer((consumedJob) => {
-                        resolve(consumedJob[0])
-                    })
-                })
-
-                expect(consumedJob).toEqual(job)
-            })
-        })
-
-        describe('connection', () => {
-            test('default connection', async () => {
-                const config = await initTest({ JOB_QUEUES: 'graphile', JOB_QUEUE_GRAPHILE_URL: '' }, true)
-                server = await startPluginsServer(config, makePiscina)
-                posthog = createPosthog(server.hub, pluginConfig39)
-                await posthog.capture('my event', { type: 'runIn' })
-                await waitForLogEntries(2)
-                expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
-            })
-
-            describe('invalid host/domain', () => {
-                // This crashes the tests as well. So... it, uhm, passes :D.
-                // The crash only happens when running in Github Actions of course, so hard to debug.
-                // This mode will not be activated by default, and we will not use it on cloud (yet).
-                test.skip('crash', async () => {
-                    const config = await initTest(
-                        {
-                            JOB_QUEUES: 'graphile',
-                            JOB_QUEUE_GRAPHILE_URL: 'postgres://0.0.0.0:9212/database',
-                            CRASH_IF_NO_PERSISTENT_JOB_QUEUE: true,
-                        },
-                        false
-                    )
-                    server = await startPluginsServer(config, makePiscina)
-                    await delay(5000)
-                    expect(killProcess).toHaveBeenCalled()
-                })
-
-                test('no crash', async () => {
-                    const config = await initTest(
-                        {
-                            JOB_QUEUES: 'graphile',
-                            JOB_QUEUE_GRAPHILE_URL: 'postgres://0.0.0.0:9212/database',
-                            CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-                        },
-                        false
-                    )
-                    server = await startPluginsServer(config, makePiscina)
-                    posthog = createPosthog(server.hub, pluginConfig39)
-                    await posthog.capture('my event', { type: 'runIn' })
-                    await waitForLogEntries(1)
-                    expect(testConsole.read()).toEqual([['processEvent']])
-                })
-            })
-        })
-    })
-
-    describe('s3 queue', () => {
-        let jobQueue: JobQueueManager
-        let hub: Hub
-        let closeHub: () => Promise<void>
-
-        beforeEach(async () => {
-            mS3WrapperInstance.getObject.mockReturnValueOnce({ Body: 'test' })
-            ;[hub, closeHub] = await createHub(
-                createConfig({
-                    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: true,
-                    JOB_QUEUES: 's3',
-                    JOB_QUEUE_S3_PREFIX: 'prefix/',
-                    JOB_QUEUE_S3_BUCKET_NAME: 'bucket-name',
-                    JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: 'secret key',
-                    JOB_QUEUE_S3_AWS_ACCESS_KEY: 'access key',
-                    JOB_QUEUE_S3_AWS_REGION: 'region',
-                })
-            )
-        })
-
-        afterEach(async () => closeHub?.())
-
-        test('calls a few functions', async () => {
-            // calls a few functions to test the connection on init
-            expect(mS3WrapperInstance.getObject).toBeCalledWith({
-                Bucket: 'bucket-name',
-                Key: expect.stringContaining('prefix/CONNTEST/'),
-            })
-            expect(mS3WrapperInstance.upload).toBeCalledWith({
-                Body: 'test',
-                Bucket: 'bucket-name',
-                Key: expect.stringContaining('prefix/CONNTEST/'),
-            })
-            expect(mS3WrapperInstance.deleteObject).toBeCalledWith({
-                Bucket: 'bucket-name',
-                Key: expect.stringContaining('prefix/CONNTEST/'),
-            })
-            expect(mS3WrapperInstance.listObjectsV2).toBeCalledWith({
-                Bucket: 'bucket-name',
-                MaxKeys: 2,
-                Prefix: expect.stringContaining('prefix/'),
-            })
-
-            // calls the right functions to enqueue the job
-            mS3WrapperInstance.mockClear()
-            const job: EnqueuedJob = {
-                type: 'pluginJob',
-                payload: { key: 'value' },
-                timestamp: 1000000000,
-                pluginConfigId: 2,
-                pluginConfigTeam: 3,
             }
-            await hub.jobQueueManager.enqueue(job)
+        `
 
-            expect(mS3WrapperInstance.upload).toBeCalledWith({
-                Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
-                Bucket: 'bucket-name',
-                Key: expect.stringContaining('prefix/1970-01-12/19700112-134640.000Z-'),
-            })
-            expect(mS3WrapperInstance.getObject).not.toBeCalled()
-            expect(mS3WrapperInstance.deleteObject).not.toBeCalled()
-            expect(mS3WrapperInstance.listObjectsV2).not.toBeCalled()
+        const teamId = await createTeam(ingest_worker.hub.postgres)
+        const pluginId = await createPlugin(ingest_worker.hub.postgres, testPluginJs)
+        const pluginConfigId = await createPluginConfig(ingest_worker.hub.postgres, {teamId, pluginId})
 
-            // calls the right functions to read the enqueued job
-            mS3WrapperInstance.mockClear()
-            mS3WrapperInstance.listObjectsV2.mockReturnValueOnce({
-                Contents: [{ Key: `prefix/2020-01-01/20200101-123456.123Z-deadbeef.json.gz` }],
-            })
-            mS3WrapperInstance.getObject.mockReturnValueOnce({
-                Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
-            })
-
-            const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
-                hub.jobQueueManager.startConsumer((consumedJob) => {
-                    resolve(consumedJob[0])
-                })
-            })
-            expect(consumedJob).toEqual(job)
-            await delay(10)
-            expect(mS3WrapperInstance.deleteObject).toBeCalledWith({
-                Bucket: 'bucket-name',
-                Key: `prefix/2020-01-01/20200101-123456.123Z-deadbeef.json.gz`,
-            })
+        ingest_worker.hub.jobQueueManager.enqueue({
+            pluginConfigTeam: pluginConfigId,
+            pluginConfigId: pluginId,
+            type: 'logReply',
+            timestamp: 123,
+            payload: {
+            },
         })
 
-        test('polls for new jobs', async () => {
-            const DELAY = 10000 // 10s
-            // calls the right functions to read the enqueued job
-            mS3WrapperInstance.mockClear()
-
-            // return something to be picked up after a few loops (poll interval is 5s)
-            const now = Date.now()
-            const date = new Date(now + DELAY).toISOString()
-            const [day, time] = date.split('T')
-            const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
-
-            const job: EnqueuedJob = {
-                type: 'pluginJob',
-                payload: { key: 'value' },
-                timestamp: now,
-                pluginConfigId: 2,
-                pluginConfigTeam: 3,
-            }
-
-            mS3WrapperInstance.listObjectsV2.mockReturnValue({
-                Contents: [{ Key: `prefix/${day}/${dayTime}-deadbeef.json.gz` }],
-            })
-            mS3WrapperInstance.getObject.mockReturnValueOnce({
-                Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
-            })
-
-            const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
-                hub.jobQueueManager.startConsumer((consumedJob) => {
-                    resolve(consumedJob[0])
-                })
-            })
-            expect(consumedJob).toEqual(job)
-            await delay(10)
-            expect(mS3WrapperInstance.deleteObject).toBeCalledWith({
-                Bucket: 'bucket-name',
-                Key: `prefix/${day}/${dayTime}-deadbeef.json.gz`,
-            })
-        })
+        expect(testConsole.read()).toEqual([])
     })
 })
+
+
+describe("apps runner job handling", () => {
+    let apps_runner: ServerInstance
+
+    beforeAll(async () => {
+        const config = await initTest({ JOB_QUEUES: 'graphile' })
+        apps_runner = await startPluginsServer(config, makePiscina, PluginServerMode.Runner)
+    })
+
+    afterAll(async () => {
+        await apps_runner?.stop()
+    })
+
+    test("apps runner should consume jobs to run", async () => {
+        // Add in a basic plugin that we can validate if the job has been run
+        const testPluginJs = `
+            import { console } from 'test-utils/write-to-file'
+
+            export const jobs = {
+                logReply: (payload, meta) => {
+                    console.log('reply')
+                }
+            }
+        `
+
+        const teamId = await createTeam(apps_runner.hub.postgres)
+        const pluginId = await createPlugin(apps_runner.hub.postgres, testPluginJs)
+        const pluginConfigId = await createPluginConfig(apps_runner.hub.postgres, {teamId, pluginId})
+
+        apps_runner.hub.jobQueueManager.enqueue({
+            pluginConfigTeam: pluginConfigId,
+            pluginConfigId: pluginId,
+            type: 'logReply',
+            timestamp: 123,
+            payload: {
+            },
+        })
+
+        expect(testConsole.read()).toEqual(['reply'])
+    })
+})
+
+
+const createPluginConfig = async (postgres: Pool, {teamId, pluginId}: {teamId: number, pluginId: number}) => {
+    const pluginConfig = {
+        team_id: teamId,
+        plugin_id: pluginId,
+        enabled: true,
+        order: 0,
+        config: {},
+        error: undefined,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    }
+
+    return  await insertRow(postgres, 'posthog_pluginconfig', pluginConfig)
+
+}
+
+const createPlugin = async (postgres: Pool, testPluginJs: string) => {
+    const plugin = {
+        organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+        plugin_type: 'custom',
+        name: 'test-plugin',
+        description: 'Ingest GeoIP data via MaxMind',
+        url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
+        config_schema: {},
+        archive: createZipBuffer('test-plugin', { indexJs: testPluginJs }),
+
+        error: undefined,
+        from_json: false,
+        from_web: false,
+        is_global: false,
+        is_preinstalled: false,
+        is_stateless: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        capabilities: {}, // inferred on setup
+        metrics: {},
+    }
+
+    return await insertRow(postgres, 'posthog_plugin', plugin)
+}
+
+
+const createTeam = async (postgres: Pool) => {
+    return await insertRow(postgres, 'posthog_team', {
+        organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: new UUIDT().toString(),
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        access_control: false,
+    })
+}
+
+
+
+const createZipBuffer = (name: string, { indexJs, pluginJson }: { indexJs?: string; pluginJson?: string }): Buffer => {
+    const zip = new AdmZip()
+    if (indexJs) {
+        zip.addFile('testplugin/index.js', Buffer.alloc(indexJs.length, indexJs))
+    }
+    if (pluginJson) {
+        zip.addFile('testplugin/plugin.json', Buffer.alloc(pluginJson.length, pluginJson))
+    } else {
+        zip.addFile(
+            'testplugin/plugin.json',
+            Buffer.from(
+                JSON.stringify({
+                    name,
+                    description: 'just for testing',
+                    url: 'http://example.com/plugin',
+                    config: {},
+                    main: 'index.js',
+                })
+            )
+        )
+    }
+    return zip.toBuffer()
+}
