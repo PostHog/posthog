@@ -2,7 +2,7 @@ import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
 import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
-import { startPluginsServer } from './main/pluginsServer'
+import { PluginServerMode, startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
 
@@ -79,8 +79,8 @@ switch (serverMode) {
         })()
         break
     case ServerMode.Runner:
-        console.log('Coming soon...')
-        break
+        initApp(defaultConfig)
+        void startPluginsServer(defaultConfig, makePiscina, PluginServerMode.Runner) // void the returned promise
     default:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
