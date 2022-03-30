@@ -58,6 +58,7 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
+        insight,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -139,7 +140,9 @@ export function InsightContainer(
 
         return null
     }
-    return (
+    return activeView === InsightType.USER_SQL && insight.result.length === 0 ? (
+        <></>
+    ) : (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
