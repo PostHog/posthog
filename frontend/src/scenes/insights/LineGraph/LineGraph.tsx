@@ -603,6 +603,20 @@ export function LineGraph_({
                         display: false,
                     },
                     crosshair: false as CrosshairOptions,
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const label: string = context.label
+                                const currentValue = context.raw as number
+                                //@ts-expect-error
+                                const total: number = context.chart._metasets[context.datasetIndex].total
+
+                                const percentageLabel: number = parseFloat(((currentValue / total) * 100).toFixed(1))
+
+                                return label + ': ' + currentValue + ' (' + percentageLabel + '%)'
+                            },
+                        },
+                    },
                 },
                 onClick: options.onClick,
             }
