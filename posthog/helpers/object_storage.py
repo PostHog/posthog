@@ -4,6 +4,10 @@ Helpers to interact with our Object Storage system
 import boto3
 from botocore.client import Config
 
+# TODO: passing S3 settings
+# TODO: read -> compress -> stream to s3 on the fligh (without touching the disk)
+# TODO: we should pass to our client the compressed file and then decompress in the browser
+
 s3 = boto3.resource(
     "s3",
     endpoint_url="http://localhost:19000",
@@ -25,6 +29,14 @@ def generate_big_random_bin_file(filename, size):
 
     with open(filename, "wb") as file:
         file.write(os.urandom(size))
+    pass
+
+
+def compress():
+    pass
+
+
+def decompress():
     pass
 
 

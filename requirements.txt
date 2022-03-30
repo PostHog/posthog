@@ -285,6 +285,8 @@ zipp==3.1.0
     # via
     #   importlib-metadata
     #   importlib-resources
+zstandard==0.17.0
+    # via -r requirements.in
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools
