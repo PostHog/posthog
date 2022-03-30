@@ -79,15 +79,25 @@ export const activityLogLogic = kea<activityLogLogicType>({
     }),
     listeners: ({ actions }) => ({ setPage: actions.fetchNextPage }),
     urlToAction: ({ values, actions, props }) => {
-        const onPageChange = (searchParams: Record<string, any>, pageScope: ActivityScope): void => {
+        const onPageChange = (
+            searchParams: Record<string, any>,
+            hashParams: Record<string, any>,
+            pageScope: ActivityScope
+        ): void => {
             const pageInURL = searchParams['page']
-            if (pageInURL && pageInURL !== values.page && pageScope === props.scope) {
+
+            const shouldPage =
+                (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
+                (pageScope === ActivityScope.FEATURE_FLAG && searchParams['tab'] === 'history')
+
+            if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === props.scope) {
                 actions.setPage(pageInURL)
             }
         }
         return {
-            '/person/*': ({}, searchParams) => onPageChange(searchParams, ActivityScope.PERSON),
-            [urls.featureFlags()]: ({}, searchParams) => onPageChange(searchParams, ActivityScope.FEATURE_FLAG),
+            '/person/*': ({}, searchParams, hashParams) => onPageChange(searchParams, hashParams, ActivityScope.PERSON),
+            [urls.featureFlags()]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
         }
     },
     events: ({ actions }) => ({
