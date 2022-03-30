@@ -6,7 +6,10 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 class UserSQLMixin(BaseParamMixin):
     @cached_property
     def user_sql(self) -> str:
-        return self._data.get(USER_SQL + " limit 2000", "")
+        query = self._data.get(USER_SQL, "")
+        if query:
+            query = "{} {}".format(query, "limit 2000")
+        return query
 
     @include_dict
     def user_sql_to_dict(self):
