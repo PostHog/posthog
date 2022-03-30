@@ -71,9 +71,9 @@ export function InsightsNav(): JSX.Element {
                 hotkey: 'l',
             },
             {
-                label: 'Query',
-                type: InsightType.QUERY,
-                dataAttr: 'insight-query-tab',
+                label: 'SQL',
+                type: InsightType.USER_SQL,
+                dataAttr: 'insight-user-sql-tab',
                 hotkey: 'q',
             },
         ],

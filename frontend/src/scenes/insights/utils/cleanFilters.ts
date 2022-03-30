@@ -255,8 +255,8 @@ export function cleanFilters(
     } else if ((filters.insight as string) === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
-    } else if ((filters.insight as string) === 'QUERY') {
-        return { insight: InsightType.QUERY }
+    } else if ((filters.insight as string) === 'USER_SQL') {
+        return { insight: InsightType.USER_SQL }
     }
 
     throw new Error(`Unknown insight type "${filters.insight}" given to cleanFilters`)

@@ -30,7 +30,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { QueryTab } from './InsightTabs/QueryTab'
+import { UserSQLTab } from './InsightTabs/UserSQLTab'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -109,7 +109,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         [`${InsightType.FUNNELS}`]: <FunnelTab />,
         [`${InsightType.RETENTION}`]: <RetentionTab />,
         [`${InsightType.PATHS}`]: <PathTab />,
-        [`${InsightType.QUERY}`]: <QueryTab />,
+        [`${InsightType.USER_SQL}`]: <UserSQLTab />,
     }[activeView]
 
     const insightScene = (

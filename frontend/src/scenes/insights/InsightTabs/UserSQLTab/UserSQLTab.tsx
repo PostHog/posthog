@@ -1,7 +1,7 @@
 import React from 'react'
 import MonacoEditor from '@monaco-editor/react'
 
-export function QueryTab(): JSX.Element {
+export function UserSQLTab(): JSX.Element {
     return (
         <MonacoEditor
             language="sql"

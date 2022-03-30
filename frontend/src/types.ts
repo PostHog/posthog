@@ -885,7 +885,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    USER_SQL = 'USER_SQL',
 }
 
 export enum PathType {
