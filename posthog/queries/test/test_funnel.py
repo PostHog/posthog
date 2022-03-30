@@ -86,7 +86,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self._signup_event(distinct_id="stopped_after_signup2")
 
             result = funnel.run()
-            self.assertEqual(result[0]["count"], 0)
+            # BREAKING THIS TEST ON PURPOSE TO BLOCK MERGE
+            self.assertEqual(result[0]["count"], 1)
 
         def test_funnel_with_single_step(self):
             funnel = self._single_step_funnel()
