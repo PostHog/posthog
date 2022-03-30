@@ -32,6 +32,7 @@ export const urls = {
     insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
+    webPerformanceWaterfall: (id: string) => `/web-performance/${id}/waterfall`,
     sessionRecordings: () => '/recordings',
     person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
