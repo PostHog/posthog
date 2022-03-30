@@ -20,7 +20,7 @@ import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { Hedgehogger } from 'lib/components/Hedgehogger'
+import { Hedgehogger } from 'scenes/insights/Hedgehogger/Hedgehogger'
 
 interface Props {
     view: InsightType

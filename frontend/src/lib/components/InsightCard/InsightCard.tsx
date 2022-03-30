@@ -49,7 +49,7 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { Hedgehogger } from '../Hedgehogger'
+import { Hedgehogger } from 'scenes/insights/Hedgehogger/Hedgehogger'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
