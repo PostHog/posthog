@@ -724,6 +724,7 @@ export class EventsProcessor {
             session_id,
         }
         // TODO: error handling
+        // TODO store path on event
         S3.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.error(err)
