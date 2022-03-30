@@ -9,47 +9,50 @@ import { makePiscina } from './worker/piscina'
 const { version } = require('../package.json')
 const { argv } = process
 
-enum AlternativeMode {
+enum ServerMode {
     Help = 'HELP',
     Version = 'VRSN',
     Healthcheck = 'HLTH',
     Idle = 'IDLE',
     Migrate = 'MGRT',
+    Runner = 'RNNR',
 }
 
-let alternativeMode: AlternativeMode | undefined
-if (argv.includes('--help') || argv.includes('-h')) {
-    alternativeMode = AlternativeMode.Help
+let serverMode: ServerMode | undefined
+if (argv.includes('--runner')) {
+    serverMode = ServerMode.Runner
+} else if (argv.includes('--help') || argv.includes('-h')) {
+    serverMode = ServerMode.Help
 } else if (argv.includes('--version') || argv.includes('-v')) {
-    alternativeMode = AlternativeMode.Version
+    serverMode = ServerMode.Version
 } else if (argv.includes('--healthcheck')) {
-    alternativeMode = AlternativeMode.Healthcheck
+    serverMode = ServerMode.Healthcheck
 } else if (argv.includes('--migrate')) {
-    alternativeMode = AlternativeMode.Migrate
+    serverMode = ServerMode.Migrate
 } else if (defaultConfig.PLUGIN_SERVER_IDLE) {
-    alternativeMode = AlternativeMode.Idle
+    serverMode = ServerMode.Idle
 }
 
-const status = new Status(alternativeMode)
+const status = new Status(serverMode)
 
 status.info('⚡', `@posthog/plugin-server v${version}`)
 
-switch (alternativeMode) {
-    case AlternativeMode.Version:
+switch (serverMode) {
+    case ServerMode.Version:
         break
-    case AlternativeMode.Help:
+    case ServerMode.Help:
         status.info('⚙️', `Supported configuration environment variables:\n${formatConfigHelp(7)}`)
         break
-    case AlternativeMode.Healthcheck:
+    case ServerMode.Healthcheck:
         void healthcheckWithExit()
         break
-    case AlternativeMode.Idle:
+    case ServerMode.Idle:
         status.info('💤', `Disengaging this plugin server instance due to the PLUGIN_SERVER_IDLE env var...`)
         setInterval(() => {
             status.info('💤', 'Plugin server still disengaged with PLUGIN_SERVER_IDLE...')
         }, 30_000)
         break
-    case AlternativeMode.Migrate:
+    case ServerMode.Migrate:
         const isGraphileEnabled = defaultConfig.JOB_QUEUES.split(',')
             .map((s) => s.trim())
             .includes('graphile')
@@ -75,7 +78,9 @@ switch (alternativeMode) {
             }
         })()
         break
-
+    case ServerMode.Runner:
+        console.log('Coming soon...')
+        break
     default:
         initApp(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
