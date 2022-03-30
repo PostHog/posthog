@@ -14,6 +14,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
 from posthog.settings import CONSTANCE_CONFIG
+from posthog.settings.object_storage import OBJECT_STORAGE_SESSION_RECORDING_BUCKET
 from posthog.storage import object_storage
 
 # set the default Django settings module for the 'celery' program.
@@ -391,5 +392,7 @@ def delete_old_recordings_from_disk():
 
     ttl_weeks = int(CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"])
     file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
-    number_of_deletions = object_storage.delete(datetime.datetime.now() - file_deletion_time_delta)
+    number_of_deletions = object_storage.delete(
+        datetime.datetime.now() - file_deletion_time_delta, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET
+    )
     gauge("posthog_celery_session_recordings_deletion", number_of_deletions)

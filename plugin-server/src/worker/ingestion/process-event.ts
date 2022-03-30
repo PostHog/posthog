@@ -6,6 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import { DatabaseError } from 'pg'
 
+import { defaultConfig } from '../../config/config'
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import { ObjectStorage } from '../../main/services/object_storage'
@@ -38,6 +39,8 @@ import { PersonManager } from './person-manager'
 import { mergePersonProperties, updatePersonProperties, upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
+
+const { OBJECT_STORAGE_SESSION_RECORDING_BUCKET } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -718,7 +721,7 @@ export class EventsProcessor {
         // As we don't want to store the session recording payload in ClickHouse,
         // let's intercept the event, parse the metadata and store the data in
         // our object storage system.
-        const object_storage_path = `${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_BUCKET}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
 
         const tags = {

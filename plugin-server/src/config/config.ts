@@ -88,6 +88,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_PORT: 19000,
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        OBJECT_STORAGE_SESSION_RECORDING_BUCKET: 'session_recordings',
     }
 }
 
@@ -160,6 +161,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_PORT: 'minio storage port',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'access key for minio',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret key for minio',
+        OBJECT_STORAGE_SESSION_RECORDING_BUCKET: 'the top level bucket for storing session recordings',
     }
 }
 
