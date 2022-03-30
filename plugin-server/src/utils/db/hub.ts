@@ -188,9 +188,14 @@ export async function createHub(
     status.info('👍', `Redis`)
 
     status.info('🤔', `Storage`)
-    await S3.listBuckets().promise()
-    status.info('🪣', `read buckets from storage`)
-    status.info('👍', `storage`)
+    try {
+        await S3.listBuckets().promise()
+        status.info('🪣', `read buckets from storage`)
+        status.info('👍', `storage`)
+    } catch (e) {
+        status.error('❌', `could not read from storage: ${e}`)
+        throw e
+    }
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
     const teamManager = new TeamManager(db, serverConfig, statsd)
