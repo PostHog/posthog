@@ -432,8 +432,22 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
         user_sql_filter = Filter(request=request, team=self.team)
-        result = sync_execute(user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60},)
-        return {"result": result}
+        result = sync_execute(
+            user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60}, with_column_types=True
+        )
+
+        final = []
+        names = []
+
+        if len(result) == 2:
+
+            for name_type in result[1]:
+                names.append(name_type[0])
+
+            for row in result[0]:
+                final.append(dict(zip(names, row)))
+
+        return {"result": final}
 
     # ******************************************
     # /projects/:id/insights/path
