@@ -719,7 +719,6 @@ export class EventsProcessor {
         const object_storage_path = `${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
 
-        const uploadStart = new Date()
         const tags = {
             team_id: team_id.toString(),
             session_id,
@@ -731,7 +730,6 @@ export class EventsProcessor {
                 this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
             } else {
                 this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
-                this.pluginsServer.statsd?.timing('session_data.storage_upload.timing', uploadStart, tags)
             }
         })
         delete snapshot_data.data
