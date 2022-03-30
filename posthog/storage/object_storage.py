@@ -40,5 +40,11 @@ def decompress():
     pass
 
 
-random_file = generate_big_random_bin_file("/tmp/test", 10 * 1024 * 1024)
-s3.Bucket("posthog").upload_file("/tmp/test", "test")
+def dump_test_file(file_name: str):
+    temp_file_name = "/tmp/test"
+    generate_big_random_bin_file(temp_file_name, 10 * 1024 * 1024)
+    s3.Bucket("posthog").upload_file(temp_file_name, file_name)
+
+
+def get_test_file(file_name: str):
+    return s3.Object("posthog", file_name)
