@@ -31,4 +31,14 @@ def write(file_name: str, content: str):
 
 
 def read(file_name: str):
-    return s3.Object("posthog", file_name)
+    s3_object = s3.Object("posthog", file_name)
+    content = s3_object.get()["Body"].read()
+    return content.decode("utf-8")
+
+
+def list_files(prefix: str):
+    files = []
+    for object_summary in s3.Bucket("posthog").objects.filter(Prefix=prefix):
+        files.append(object_summary.key.replace(prefix + "/", ""))
+
+    return files
