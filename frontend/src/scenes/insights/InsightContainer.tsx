@@ -1,4 +1,4 @@
-import { Card, Col, Row } from 'antd'
+import { Card, Col, Progress, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
@@ -58,6 +58,7 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
+        percentResultsLoaded,
         insight,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
@@ -66,15 +67,22 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (
+            activeView !== loadedView ||
+            ((insightLoading || (insight.status && !insight.status.complete)) && !showTimeoutMessage)
+        ) {
             return (
                 <>
+                    {filters.insight === InsightType.USER_SQL ? (
+                        <Progress percent={percentResultsLoaded ?? 0} showInfo={false} />
+                    ) : (
+                        <Loading />
+                    )}
                     {
                         filters.display !== ACTIONS_TABLE && (
                             <div className="trends-insights-container" />
                         ) /* Tables don't need this padding, but graphs do for sizing */
                     }
-                    <Loading />
                 </>
             )
         }
@@ -86,7 +94,7 @@ export function InsightContainer(
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!isValidFunnel && !insightLoading && insight.status?.complete) {
                 return <InsightEmptyState />
             }
         }

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { clamp, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -523,6 +523,23 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     400
                 ),
+        ],
+        percentResultsLoaded: [
+            (s) => [s.insight],
+            (insight) => {
+                if (!insight?.status) {
+                    return 0
+                }
+                if (insight.status.complete === true) {
+                    return 100
+                }
+
+                if (insight.status.complete === false) {
+                    const percentComplete = (100 * insight.status.num_rows) / insight.status.total_rows
+                    return clamp(percentComplete, 10, 90)
+                }
+                return 0
+            },
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         canEditInsight: [
