@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 from posthog.internal_metrics import gauge
 
 
-def delete_session_recording_files_order_than_ttl():
+def delete_session_recording_files_order_than_ttl() -> None:
     """
         The clickhouse table has a TTL of a number of weeks before session recordings are deleted.
         The recordings are stored in a confgiurable bucket, and within that in sub-buckets named by date (YYYY-MM-DD)
