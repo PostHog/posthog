@@ -1323,9 +1323,6 @@ export enum DashboardMode { // Default mode is null
     Sharing = 'sharing', // When the sharing configuration is opened
 }
 
-// Reserved hotkeys globally available
-export type GlobalHotKeys = 'g'
-
 // Hotkeys for local (component) actions
 export type HotKeys =
     | 'a'
