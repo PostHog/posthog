@@ -1,6 +1,6 @@
-
 import AdmZip from 'adm-zip'
 import { Pool } from 'pg'
+
 import { defaultConfig } from '../src/config/config'
 import { PluginServerMode, ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
@@ -31,7 +31,6 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.setTimeout(60000) // 60 sec timeout
 
-
 const createConfig = (config: Partial<PluginsServerConfig>): PluginsServerConfig => ({
     ...defaultConfig,
     WORKER_CONCURRENCY: 2,
@@ -39,10 +38,7 @@ const createConfig = (config: Partial<PluginsServerConfig>): PluginsServerConfig
     ...config,
 })
 
-const initTest = async (
-    config: Partial<PluginsServerConfig>,
-    resetSchema = true
-): Promise<PluginsServerConfig> => {
+const initTest = async (config: Partial<PluginsServerConfig>, resetSchema = true): Promise<PluginsServerConfig> => {
     const createdConfig = createConfig(config)
     if (resetSchema) {
         await resetGraphileSchema(createdConfig)
@@ -50,15 +46,11 @@ const initTest = async (
     return createdConfig
 }
 
-
 const { console: testConsole } = writeToFile
 
-
-describe("ingest worker job handling", () => {
-
+describe('ingest worker job handling', () => {
     let ingest_worker: ServerInstance
     let ingest_posthog: DummyPostHog
-
 
     beforeAll(async () => {
         const config = await initTest({ JOB_QUEUES: 'graphile' })
@@ -69,7 +61,7 @@ describe("ingest worker job handling", () => {
         await ingest_worker?.stop()
     })
 
-    test("ingest server should not consume jobs to run", async () => {
+    test('ingest server should not consume jobs to run', async () => {
         // Add in a basic plugin that we can validate if the job has been run
         const testPluginJs = `
             import { console } from 'test-utils/write-to-file'
@@ -83,23 +75,21 @@ describe("ingest worker job handling", () => {
 
         const teamId = await createTeam(ingest_worker.hub.postgres)
         const pluginId = await createPlugin(ingest_worker.hub.postgres, testPluginJs)
-        const pluginConfigId = await createPluginConfig(ingest_worker.hub.postgres, {teamId, pluginId})
+        const pluginConfigId = await createPluginConfig(ingest_worker.hub.postgres, { teamId, pluginId })
 
         ingest_worker.hub.jobQueueManager.enqueue({
             pluginConfigTeam: pluginConfigId,
             pluginConfigId: pluginId,
             type: 'logReply',
             timestamp: 123,
-            payload: {
-            },
+            payload: {},
         })
 
         expect(testConsole.read()).toEqual([])
     })
 })
 
-
-describe("apps runner job handling", () => {
+describe('apps runner job handling', () => {
     let apps_runner: ServerInstance
 
     beforeAll(async () => {
@@ -111,7 +101,7 @@ describe("apps runner job handling", () => {
         await apps_runner?.stop()
     })
 
-    test("apps runner should consume jobs to run", async () => {
+    test('apps runner should consume jobs to run', async () => {
         // Add in a basic plugin that we can validate if the job has been run
         const testPluginJs = `
             import { console } from 'test-utils/write-to-file'
@@ -125,23 +115,21 @@ describe("apps runner job handling", () => {
 
         const teamId = await createTeam(apps_runner.hub.postgres)
         const pluginId = await createPlugin(apps_runner.hub.postgres, testPluginJs)
-        const pluginConfigId = await createPluginConfig(apps_runner.hub.postgres, {teamId, pluginId})
+        const pluginConfigId = await createPluginConfig(apps_runner.hub.postgres, { teamId, pluginId })
 
         apps_runner.hub.jobQueueManager.enqueue({
             pluginConfigTeam: pluginConfigId,
             pluginConfigId: pluginId,
             type: 'logReply',
             timestamp: 123,
-            payload: {
-            },
+            payload: {},
         })
 
         expect(testConsole.read()).toEqual(['reply'])
     })
 })
 
-
-const createPluginConfig = async (postgres: Pool, {teamId, pluginId}: {teamId: number, pluginId: number}) => {
+const createPluginConfig = async (postgres: Pool, { teamId, pluginId }: { teamId: number; pluginId: number }) => {
     const pluginConfig = {
         team_id: teamId,
         plugin_id: pluginId,
@@ -153,8 +141,7 @@ const createPluginConfig = async (postgres: Pool, {teamId, pluginId}: {teamId: n
         updated_at: new Date().toISOString(),
     }
 
-    return  await insertRow(postgres, 'posthog_pluginconfig', pluginConfig)
-
+    return await insertRow(postgres, 'posthog_pluginconfig', pluginConfig)
 }
 
 const createPlugin = async (postgres: Pool, testPluginJs: string) => {
@@ -181,7 +168,6 @@ const createPlugin = async (postgres: Pool, testPluginJs: string) => {
 
     return await insertRow(postgres, 'posthog_plugin', plugin)
 }
-
 
 const createTeam = async (postgres: Pool) => {
     return await insertRow(postgres, 'posthog_team', {
@@ -210,8 +196,6 @@ const createTeam = async (postgres: Pool) => {
         access_control: false,
     })
 }
-
-
 
 const createZipBuffer = (name: string, { indexJs, pluginJson }: { indexJs?: string; pluginJson?: string }): Buffer => {
     const zip = new AdmZip()

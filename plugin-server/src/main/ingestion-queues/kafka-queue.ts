@@ -111,7 +111,6 @@ export class KafkaQueue implements Queue {
                     ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
                     : this.pluginsServer.KAFKA_RUNNER_TOPIC!
 
-
             await this.consumer.subscribe({
                 topic,
             })
@@ -123,7 +122,6 @@ export class KafkaQueue implements Queue {
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
-
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
