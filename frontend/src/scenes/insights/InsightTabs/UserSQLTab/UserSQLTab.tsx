@@ -6,12 +6,20 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { format } from 'sql-formatter'
 import { LemonRow } from 'lib/components/LemonRow'
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export function UserSQLTab(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const { loadResultsWithProgress } = useActions(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
     const [query, setQuery] = useState<string | undefined>(format(filters.user_sql || ''))
+
+    useEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            onSubmit()
+        }
+    })
 
     const onSubmit = (): void => {
         if (query !== filters.user_sql) {
