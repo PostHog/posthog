@@ -7,7 +7,7 @@ import { SearchList } from 'lib/components/UniversalSearch/searchList'
 import { UniversalSearchGroupType, UniversalSearchLogicProps } from './types'
 import clsx from 'clsx'
 
-export interface InfiniteSelectResultsProps {
+export interface SearchResultsProps {
     focusInput: () => void
     universalSearchLogicProps: UniversalSearchLogicProps
 }
@@ -25,12 +25,10 @@ function CategoryPill({
 }): JSX.Element {
     const logic = searchListLogic({ ...universalSearchLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(universalSearchLogic)
-    const { totalResultCount, totalListCount } = useValues(logic)
+    const { totalResultCount } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
-
-    // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
-    const canInteract = totalListCount > 0
+    const canInteract = totalResultCount > 0
 
     return (
         <Tag
@@ -45,10 +43,7 @@ function CategoryPill({
     )
 }
 
-export function InfiniteSelectResults({
-    focusInput,
-    universalSearchLogicProps,
-}: InfiniteSelectResultsProps): JSX.Element {
+export function SearchResults({ focusInput, universalSearchLogicProps }: SearchResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(universalSearchLogic)
     const { setActiveTab } = useActions(universalSearchLogic)
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalSearchGroupType } from './types'
+import { SearchDefinitionTypes, UniversalSearchGroupType } from './types'
 import { Popup } from 'lib/components/Popup/Popup'
 import { UniversalSearch } from './UniversalSearch'
 import { Button } from 'antd'
@@ -12,7 +12,7 @@ export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
     groupType: UniversalSearchGroupType
     value?: ValueType
-    onChange: (value: ValueType, groupType: UniversalSearchGroupType) => void
+    onChange: (value: ValueType, groupType: UniversalSearchGroupType, item: SearchDefinitionTypes) => void
 
     groupTypes?: UniversalSearchGroupType[]
     renderValue?: (value: ValueType) => JSX.Element

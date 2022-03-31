@@ -1,58 +1,20 @@
-import './InfiniteList.scss'
+import './SearchList.scss'
 import '../Popup/Popup.scss'
-import React, { useState } from 'react'
+import React from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import {
-    getKeyMapping,
-    PropertyKeyDescription,
-    PropertyKeyInfo,
-    PropertyKeyTitle,
-} from 'lib/components/PropertyKeyInfo'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useActions, useValues } from 'kea'
 import { searchListLogic, NO_ITEM_SELECTED } from './searchListLogic'
 import { universalSearchLogic } from './universalSearchLogic'
-import {
-    TaxonomicDefinitionTypes,
-    // UniversalSearchGroup,
-    // UniversalSearchGroupType,
-} from 'lib/components/TaxonomicFilter/types'
-import ReactDOM from 'react-dom'
-import { usePopper } from 'react-popper'
-import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
-import { AimOutlined } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
-import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
-import { urls } from 'scenes/urls'
+import { EventDefinition, PersonType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
-import { pluralize } from 'lib/utils'
-import { UniversalSearchGroup, UniversalSearchGroupType } from './types'
-
-enum ListTooltip {
-    None = 0,
-    Left = 1,
-    Right = 2,
-}
-
-export function tooltipDesiredState(element?: Element | null): ListTooltip {
-    let desiredState: ListTooltip = ListTooltip.None
-    const rect = element?.getBoundingClientRect()
-    if (rect) {
-        if (window.innerWidth - rect.right > 300) {
-            desiredState = ListTooltip.Right
-        } else if (rect.left > 300) {
-            desiredState = ListTooltip.Left
-        }
-    }
-    return desiredState
-}
+import { SearchDefinitionTypes, UniversalSearchGroup, UniversalSearchGroupType } from './types'
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
@@ -68,252 +30,54 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
-const unusedIndicator = (eventNames: string[]): JSX.Element => {
-    return (
-        <Tooltip
-            title={
-                <>
-                    This property has not been seen on{' '}
-                    {eventNames ? (
-                        <>
-                            the event{eventNames.length > 1 ? 's' : ''}{' '}
-                            {eventNames.map((e, index) => (
-                                <>
-                                    {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
-                                    <strong>"{e}"</strong>
-                                </>
-                            ))}
-                        </>
-                    ) : (
-                        'this event'
-                    )}
-                    , but has been seen on other events.
-                </>
-            }
-        >
-            <Tag className="lemonade-tag">Not seen</Tag>
-        </Tooltip>
-    )
-}
-
 const renderItemContents = ({
     item,
     listGroupType,
     group,
     featureFlags,
-    eventNames,
 }: {
-    item: TaxonomicDefinitionTypes
+    item: SearchDefinitionTypes
     listGroupType: UniversalSearchGroupType
     group: UniversalSearchGroup
     featureFlags: FeatureFlagsSet
-    eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
         (listGroupType === UniversalSearchGroupType.Events && !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
-    const isUnusedEventProperty =
-        (listGroupType === UniversalSearchGroupType.NumericalEventProperties ||
-            listGroupType === UniversalSearchGroupType.EventProperties) &&
-        (item as PropertyDefinition).is_event_property !== null &&
-        !(item as PropertyDefinition).is_event_property
-
-    const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>
-
-    return listGroupType === UniversalSearchGroupType.EventProperties ||
-        listGroupType === UniversalSearchGroupType.NumericalEventProperties ||
-        listGroupType === UniversalSearchGroupType.Persons ||
-        // listGroupType === UniversalSearchGroupType.CustomEvents ||
-        // listGroupType.startsWith(UniversalSearchGroupType.GroupsPrefix) ||
-        listGroupType === UniversalSearchGroupType.Events ? (
+    return listGroupType === UniversalSearchGroupType.Persons || listGroupType === UniversalSearchGroupType.Events ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
-                {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
                 <PropertyKeyInfo
-                    value={item.name ?? ''}
+                    value={(item as EventDefinition | PersonType).name ?? ''}
                     disablePopover
                     disableIcon={!!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]}
                     style={{ maxWidth: '100%' }}
                 />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
-            {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents">
-            {listGroupType === UniversalSearchGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
-            ) : (
-                <>
-                    {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
-                    {(item.name || group.getName(item)) ?? ''}
-                </>
-            )}
-        </div>
-    )
-}
-
-const renderItemPopupWithoutTaxonomy = (
-    item: PropertyDefinition | CohortType | ActionType,
-    listGroupType: UniversalSearchGroupType,
-    group: UniversalSearchGroup
-): JSX.Element | string => {
-    const width = 265
-    let data: KeyMapping | null = null
-    const value = group.getValue(item)
-
-    if (value) {
-        if (listGroupType === UniversalSearchGroupType.Actions && 'id' in item) {
-            return (
-                <div style={{ width, overflowWrap: 'break-word' }}>
-                    <AimOutlined /> Actions
-                    <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
-                        edit
-                    </Link>
-                    <br />
-                    <h3>
-                        <PropertyKeyInfo value={item.name ?? ''} style={{ maxWidth: '100%' }} />
-                    </h3>
-                    {item && <ActionSelectInfo entity={item as ActionType} />}
-                </div>
-            )
-        }
-
-        if (
-            // NB: also update "selectedItemHasPopup" below
-            listGroupType === UniversalSearchGroupType.Events ||
-            listGroupType === UniversalSearchGroupType.EventProperties ||
-            listGroupType === UniversalSearchGroupType.NumericalEventProperties ||
-            listGroupType === UniversalSearchGroupType.PersonProperties
-        ) {
-            data = getKeyMapping(value.toString(), 'event')
-        } else if (listGroupType === UniversalSearchGroupType.Elements) {
-            data = getKeyMapping(value.toString(), 'element')
-        }
-
-        if (data) {
-            return (
-                <div style={{ width, overflowWrap: 'break-word' }}>
-                    <PropertyKeyTitle data={data} />
-                    {data.description ? <hr /> : null}
-                    <PropertyKeyDescription
-                        data={data}
-                        value={value.toString()}
-                        propertyType={(item as PropertyDefinition)?.property_type}
-                    />
-                    {'volume_30_day' in item && (item.volume_30_day || 0) > 0 ? (
-                        <p>
-                            Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                        </p>
-                    ) : null}
-                    {'query_usage_30_day' in item && (item.query_usage_30_day || 0) > 0 ? (
-                        <p>
-                            Used in <strong>{item.query_usage_30_day}</strong> queries.
-                        </p>
-                    ) : null}
-                </div>
-            )
-        }
-    }
-
-    return item.name ?? ''
-}
-
-const selectedItemHasPopup = (
-    item?: TaxonomicDefinitionTypes,
-    listGroupType?: UniversalSearchGroupType,
-    group?: UniversalSearchGroup,
-    showNewPopups: boolean = false
-): boolean => {
-    if (showNewPopups) {
-        return (
-            // NB: also update "renderItemPopup" above
-            !!item &&
-            !!group?.getValue(item) &&
-            !!listGroupType &&
-            ([
-                UniversalSearchGroupType.Actions,
-                // UniversalSearchGroupType.Elements,
-                UniversalSearchGroupType.Events,
-                // UniversalSearchGroupType.CustomEvents,
-                UniversalSearchGroupType.EventProperties,
-                UniversalSearchGroupType.NumericalEventProperties,
-                UniversalSearchGroupType.PersonProperties,
-                UniversalSearchGroupType.Cohorts,
-                // UniversalSearchGroupType.CohortsWithAllUsers,
-            ].includes(listGroupType) ||
-                listGroupType.startsWith(UniversalSearchGroupType.GroupsPrefix))
-        )
-    }
-
-    return (
-        // NB: also update "renderItemPopup" above
-        !!item &&
-        !!group?.getValue(item) &&
-        (listGroupType === UniversalSearchGroupType.Actions ||
-            ((listGroupType === UniversalSearchGroupType.Events ||
-                // listGroupType === UniversalSearchGroupType.Elements ||
-                listGroupType === UniversalSearchGroupType.EventProperties ||
-                listGroupType === UniversalSearchGroupType.NumericalEventProperties ||
-                listGroupType === UniversalSearchGroupType.PersonProperties) &&
-                !!getKeyMapping(group?.getValue(item), 'event')))
+        <>{(item.name || group.getName(item)) ?? ''}</>
     )
 }
 
 export function SearchList(): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
-        useValues(universalSearchLogic)
+    const { mouseInteractionsEnabled, searchQuery, value, groupType } = useValues(universalSearchLogic)
     const { selectItem } = useActions(universalSearchLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        isLoading,
-        results,
-        index,
-        listGroupType,
-        group,
-        selectedItem,
-        selectedItemInView,
-        isExpandable,
-        totalResultCount,
-        totalListCount,
-        expandedCount,
-        showPopover,
-    } = useValues(searchListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(searchListLogic)
+    const { isLoading, results, index, listGroupType, group, totalResultCount, showPopover } =
+        useValues(searchListLogic)
+    const { onRowsRendered, setIndex } = useActions(searchListLogic)
 
-    const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalListCount === 0 && !isLoading
-    const showNewPopups = !!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]
-
-    const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-
-    const { styles, attributes, forceUpdate } = usePopper(referenceElement, popperElement, {
-        placement: 'right',
-        modifiers: [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 10],
-                },
-            },
-            {
-                name: 'preventOverflow',
-                options: {
-                    padding: 10,
-                },
-            },
-        ],
-    })
+    const showEmptyState = totalResultCount === 0 && !isLoading
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
         const itemValue = item ? group?.getValue?.(item) : null
         const isSelected = listGroupType === groupType && itemValue === value
-        const isHighlighted = rowIndex === index && isActiveTab
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
@@ -326,7 +90,6 @@ export function SearchList(): JSX.Element {
             // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
-            ref: isHighlighted ? setReferenceElement : null,
         }
 
         return item && group ? (
@@ -340,23 +103,7 @@ export function SearchList(): JSX.Element {
                     listGroupType,
                     group,
                     featureFlags,
-                    eventNames,
                 })}
-            </div>
-        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
-            <div
-                {...commonDivProps}
-                className={`${commonDivProps.className} expand-row`}
-                data-attr={`expand-list-${listGroupType}`}
-                onClick={expand}
-            >
-                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
-                        expandedCount - totalResultCount,
-                        'row',
-                        'rows',
-                        false
-                    )}`}
             </div>
         ) : (
             <div
@@ -396,7 +143,7 @@ export function SearchList(): JSX.Element {
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
+                            rowCount={isLoading && totalResultCount === 0 ? 7 : totalResultCount}
                             overscanRowCount={100}
                             rowHeight={32}
                             rowRenderer={renderItem}
@@ -406,54 +153,6 @@ export function SearchList(): JSX.Element {
                     )}
                 </AutoSizer>
             )}
-            {isActiveTab &&
-            selectedItemInView &&
-            selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
-            tooltipDesiredState(referenceElement) !== ListTooltip.None &&
-            showPopover ? (
-                <Provider>
-                    {ReactDOM.createPortal(
-                        selectedItem && group ? (
-                            showNewPopups ? (
-                                <BindLogic
-                                    logic={definitionPopupLogic}
-                                    props={{
-                                        type: listGroupType,
-                                        updateRemoteItem,
-                                    }}
-                                >
-                                    <ControlledDefinitionPopupContents
-                                        item={selectedItem}
-                                        group={group}
-                                        popper={{
-                                            styles: styles.popper,
-                                            attributes: attributes.popper,
-                                            forceUpdate,
-                                            setRef: setPopperElement,
-                                            ref: popperElement,
-                                        }}
-                                    />
-                                </BindLogic>
-                            ) : (
-                                <div
-                                    className="popper-tooltip click-outside-block Popup Popup__box"
-                                    ref={setPopperElement}
-                                    // zIndex: 1063 ensures it opens above the overlay and taxonomic filter
-                                    style={{ ...styles.popper, transition: 'none', zIndex: 1063 }}
-                                    {...attributes.popper}
-                                >
-                                    {renderItemPopupWithoutTaxonomy(
-                                        selectedItem as PropertyDefinition | CohortType | ActionType,
-                                        listGroupType,
-                                        group
-                                    )}
-                                </div>
-                            )
-                        ) : null,
-                        document.querySelector('body') as HTMLElement
-                    )}
-                </Provider>
-            ) : null}
         </div>
     )
 }

@@ -1,7 +1,12 @@
-import React from 'react'
 import { kea } from 'kea'
-import { TaxonomicFilterValue, ListStorage } from 'lib/components/TaxonomicFilter/types'
-import { UniversalSearchGroup, UniversalSearchGroupType, UniversalSearchLogicProps } from './types'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    SearchDefinitionTypes,
+    UniversalSearchGroup,
+    UniversalSearchGroupType,
+    UniversalSearchLogicProps,
+    ListStorage,
+} from './types'
 import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
 import {
     ActionType,
@@ -14,18 +19,14 @@ import {
     InsightModel,
     PersonType,
     PluginType,
-    PropertyDefinition,
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { ActionStack, CohortIcon } from 'lib/components/icons'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 
 import { universalSearchLogicType } from './universalSearchLogicType'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
@@ -33,27 +34,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-const eventTaxonomicGroupProps: Pick<UniversalSearchGroup, 'getPopupHeader' | 'getIcon'> = {
-    getPopupHeader: (eventDefinition: EventDefinition): string => {
-        if (!!keyMapping.event[eventDefinition.name]) {
-            return 'Verified Event'
-        }
-        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
-    },
-    getIcon: getEventDefinitionIcon,
-}
-
-const propertyTaxonomicGroupProps = (
-    verified: boolean = false
-): Pick<UniversalSearchGroup, 'getPopupHeader' | 'getIcon'> => ({
-    getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (verified || !!keyMapping.event[propertyDefinition.name]) {
-            return 'Verified Property'
-        }
-        return 'Property'
-    },
-    getIcon: getPropertyDefinitionIcon,
-})
 
 export const universalSearchLogic = kea<universalSearchLogicType>({
     path: (key) => ['lib', 'components', 'UniversalSearch', 'universalSearchLogic', key],
@@ -78,12 +58,12 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: UniversalSearchGroupType) => ({ activeTab }),
-        selectItem: (group: UniversalSearchGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (group: UniversalSearchGroup, value: TaxonomicFilterValue | null, item: SearchDefinitionTypes) => ({
             group,
             value,
             item,
         }),
-        infiniteListResultsReceived: (groupType: UniversalSearchGroupType, results: ListStorage) => ({
+        searchListResultsReceived: (groupType: UniversalSearchGroupType, results: ListStorage) => ({
             groupType,
             results,
         }),
@@ -124,10 +104,9 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             () => [(_, props) => props.universalSerchLogicKey],
             (universalSerchLogicKey) => universalSerchLogicKey,
         ],
-        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups, selectors.eventNames],
-            (teamId, groupAnalyticsTaxonomicGroups, eventNames): UniversalSearchGroup[] => [
+            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
+            (teamId, groupAnalyticsTaxonomicGroups): UniversalSearchGroup[] => [
                 {
                     name: 'Events',
                     searchPlaceholder: 'events',
@@ -135,7 +114,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                    ...eventTaxonomicGroupProps,
                 },
                 {
                     name: 'Actions',
@@ -145,48 +123,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'actions',
                     getName: (action: ActionType) => action.name || '',
                     getValue: (action: ActionType) => action.id,
-                    getPopupHeader: () => 'Action',
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
-                    },
-                },
-                {
-                    name: 'Event properties',
-                    searchPlaceholder: 'event properties',
-                    type: UniversalSearchGroupType.EventProperties,
-                    endpoint: combineUrl(
-                        `api/projects/${teamId}/property_definitions`,
-                        eventNames.length > 0 ? { event_names: eventNames } : {}
-                    ).url,
-                    scopedEndpoint:
-                        eventNames.length > 0
-                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                                  event_names: eventNames,
-                                  is_event_property: true,
-                              }).url
-                            : undefined,
-                    expandLabel: ({ count, expandedCount }) =>
-                        `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                            eventNames.length,
-                            'has',
-                            'have',
-                            false
-                        )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
-                    getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    ...propertyTaxonomicGroupProps(),
-                },
-                {
-                    name: 'Numerical event properties',
-                    searchPlaceholder: 'numerical event properties',
-                    type: UniversalSearchGroupType.NumericalEventProperties,
-                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
-                        is_numerical: true,
-                        event_names: eventNames,
-                    }).url,
-                    getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    ...propertyTaxonomicGroupProps(),
                 },
                 {
                     name: 'Persons',
@@ -195,8 +131,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     endpoint: `api/projects/${teamId}/persons/`,
                     getName: (person: PersonType) => person.name || 'Anon user?',
                     getValue: (person: PersonType) => person.distinct_ids[0],
-                    //TODO: Fix!
-                    getPopupHeader: (person: PersonType) => `${person.is_static ? 'Static' : 'Dynamic'} Cohort`,
                 },
                 {
                     name: 'Insights',
@@ -207,8 +141,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     }).url,
                     getName: (insight: InsightModel) => insight.name,
                     getValue: (insight: InsightModel) => insight.short_id,
-                    //TODO: Fix!
-                    getPopupHeader: (person: PersonType) => `${person.is_static ? 'Static' : 'Dynamic'} Cohort`,
                 },
                 {
                     name: 'Cohorts',
@@ -218,10 +150,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'cohorts',
                     getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                     getValue: (cohort: CohortType) => cohort.id,
-                    getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
-                    },
                 },
                 {
                     name: 'Feature Flags',
@@ -231,10 +159,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'featureFlags',
                     getName: (featureFlag: FeatureFlagType) => featureFlag.name || featureFlag.key,
                     getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
-                    getPopupHeader: () => 'Feature Flag',
-                    // getIcon: function _getIcon(): JSX.Element {
-                    //     return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
-                    // },
                 },
                 {
                     name: 'Experiments',
@@ -244,7 +168,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'experiments',
                     getName: (experiment: Experiment) => experiment.name,
                     getValue: (experiment: Experiment) => experiment.id,
-                    getPopupHeader: () => 'Experiment',
                 },
                 {
                     name: 'Plugins',
@@ -254,7 +177,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'allPossiblePlugins',
                     getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                     getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                    getPopupHeader: () => 'Plugin',
                 },
                 {
                     name: 'Dashboards',
@@ -264,7 +186,15 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'nameSortedDashboards',
                     getName: (dashboard: DashboardType) => dashboard.name,
                     getValue: (dashboard: DashboardType) => dashboard.id,
-                    getPopupHeader: () => 'Dashboard',
+                },
+                {
+                    name: 'Dashboards',
+                    searchPlaceholder: 'dashboards',
+                    type: UniversalSearchGroupType.Dashboards,
+                    logic: dashboardsModel,
+                    value: 'nameSortedDashboards',
+                    getName: (dashboard: DashboardType) => dashboard.name,
+                    getValue: (dashboard: DashboardType) => dashboard.id,
                 },
                 ...groupAnalyticsTaxonomicGroups,
             ],
@@ -291,12 +221,10 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     searchAlias: 'group_key',
                     getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
                     getValue: (group: Group) => group.group_key,
-                    getPopupHeader: () => `Property`,
-                    getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),
         ],
-        infiniteListLogics: [
+        searchListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
             (taxonomicGroupTypes, props): Record<string, ReturnType<typeof searchListLogic.build>> =>
                 Object.fromEntries(
@@ -313,9 +241,9 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             (s) => [
                 (state, props) =>
                     Object.fromEntries(
-                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
+                        Object.entries(s.searchListLogics(state, props)).map(([groupType, logic]) => [
                             groupType,
-                            logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0,
+                            logic.isMounted() ? logic.selectors.totalResultCount(state, logic.props) : 0,
                         ])
                     ),
             ],
@@ -427,9 +355,9 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             }
         },
 
-        infiniteListResultsReceived: ({ groupType, results }) => {
+        searchListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
+            if (groupType === values.activeTab && !results.count) {
                 actions.tabRight()
             }
         },

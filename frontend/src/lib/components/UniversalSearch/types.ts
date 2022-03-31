@@ -1,4 +1,15 @@
 import { LogicWrapper } from 'kea'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    Experiment,
+    FeatureFlagType,
+    GroupType,
+    InsightType,
+    PersonType,
+    PluginType,
+} from '~/types'
 import { SimpleOption, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 
 export interface UniversalSearchLogicProps extends UniversalSearchProps {
@@ -7,6 +18,26 @@ export interface UniversalSearchLogicProps extends UniversalSearchProps {
 
 export interface SearchListLogicProps extends UniversalSearchLogicProps {
     listGroupType: UniversalSearchGroupType
+}
+
+export type SearchDefinitionTypes =
+    | EventDefinition
+    | CohortType
+    | ActionType
+    | Experiment
+    | PersonType
+    | GroupType
+    | FeatureFlagType
+    | InsightType
+    | PluginType
+
+export interface ListStorage {
+    results: SearchDefinitionTypes[]
+    searchQuery?: string // Query used for the results currently in state
+    count: number
+    expandedCount?: number
+    queryChanged?: boolean
+    first?: boolean
 }
 
 export interface UniversalSearchProps {
@@ -61,8 +92,8 @@ export interface UniversalSearchGroup {
     valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
-    getPopupHeader: (instance: any) => string
-    getIcon?: (instance: any) => JSX.Element
+    // getPopupHeader: (instance: any) => string
+    // getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
 }

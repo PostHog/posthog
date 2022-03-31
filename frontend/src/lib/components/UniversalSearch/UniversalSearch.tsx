@@ -2,7 +2,7 @@ import './UniversalSearch.scss'
 import React, { useEffect, useMemo, useRef } from 'react'
 import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
-import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { SearchResults } from './SearchResults'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
@@ -134,7 +134,7 @@ export function UniversalSearch({
                         }
                     />
                 </div>
-                <InfiniteSelectResults focusInput={focusInput} universalSearchLogicProps={universalSearchLogicProps} />
+                <SearchResults focusInput={focusInput} universalSearchLogicProps={universalSearchLogicProps} />
             </div>
         </BindLogic>
     )

@@ -5,8 +5,13 @@ import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
-import { ListFuse, ListStorage, LoaderOptions, TaxonomicDefinitionTypes } from 'lib/components/TaxonomicFilter/types'
-import { SearchListLogicProps, UniversalSearchGroup } from 'lib/components/UniversalSearch/types'
+import { ListFuse, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
+import {
+    SearchDefinitionTypes,
+    SearchListLogicProps,
+    UniversalSearchGroup,
+    ListStorage,
+} from 'lib/components/UniversalSearch/types'
 import { universalSearchLogic } from './universalSearchLogic'
 
 import { searchListLogicType } from './searchListLogicType'
@@ -39,8 +44,8 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-let apiCache: Record<string, ListStorage> = {}
-let apiCacheTimers: Record<string, number> = {}
+const apiCache: Record<string, ListStorage> = {}
+const apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
@@ -76,7 +81,7 @@ export const searchListLogic = kea<searchListLogicType>({
             pluginsLogic,
             ['plugins'],
         ],
-        actions: [universalSearchLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
+        actions: [universalSearchLogic(props), ['setSearchQuery', 'selectItem', 'searchListResultsReceived']],
     }),
 
     actions: {
@@ -87,8 +92,6 @@ export const searchListLogic = kea<searchListLogicType>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
-        updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
-        expand: true,
     },
 
     reducers: ({ props }) => ({
@@ -108,7 +111,6 @@ export const searchListLogic = kea<searchListLogicType>({
         ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
-        isExpanded: [false, { expand: () => true }],
     }),
 
     loaders: ({ values }) => ({
@@ -125,7 +127,7 @@ export const searchListLogic = kea<searchListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery } = values
+                    const { remoteEndpoint, searchQuery } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -138,21 +140,7 @@ export const searchListLogic = kea<searchListLogicType>({
                         offset,
                     }
 
-                    const [response, expandedCountResponse] = await Promise.all([
-                        // get the list of results
-                        fetchCachedListResponse(
-                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                            searchParams
-                        ),
-                        // if this is an unexpanded scoped list, get the count for the normafull list
-                        scopedRemoteEndpoint && !isExpanded
-                            ? fetchCachedListResponse(remoteEndpoint, {
-                                  ...searchParams,
-                                  limit: 1,
-                                  offset: 0,
-                              })
-                            : null,
-                    ])
+                    const response = await fetchCachedListResponse(remoteEndpoint, searchParams)
                     breakpoint()
 
                     const queryChanged = values.items.searchQuery !== values.searchQuery
@@ -166,16 +154,6 @@ export const searchListLogic = kea<searchListLogicType>({
                         searchQuery: values.searchQuery,
                         queryChanged,
                         count: response.count || (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
-                    }
-                },
-                updateRemoteItem: ({ item }) => {
-                    // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
-                    return {
-                        ...values.remoteItems,
-                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
                     }
                 },
             },
@@ -205,25 +183,18 @@ export const searchListLogic = kea<searchListLogicType>({
             }
         },
         moveUp: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index - 1 + totalListCount) % totalListCount)
+            const { index, totalResultCount } = values
+            actions.setIndex((index - 1 + totalResultCount) % totalResultCount)
         },
         moveDown: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index + 1) % totalListCount)
+            const { index, totalResultCount } = values
+            actions.setIndex((index + 1) % totalResultCount)
         },
         selectSelected: () => {
-            if (values.isExpandableButtonSelected) {
-                actions.expand()
-            } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
-            }
+            actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
-            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
-        },
-        expand: () => {
-            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
+            actions.searchListResultsReceived(props.listGroupType, remoteItems)
         },
     }),
 
@@ -236,21 +207,6 @@ export const searchListLogic = kea<searchListLogicType>({
                 taxonomicGroups.find((g) => g.type === listGroupType) as UniversalSearchGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
-        isExpandable: [
-            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
-            (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
-                !!(
-                    remoteEndpoint &&
-                    scopedRemoteEndpoint &&
-                    remoteItems.expandedCount &&
-                    remoteItems.expandedCount > remoteItems.count
-                ),
-        ],
-        isExpandableButtonSelected: [
-            (s) => [s.isExpandable, s.index, s.totalListCount],
-            (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
-        ],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
@@ -307,16 +263,10 @@ export const searchListLogic = kea<searchListLogicType>({
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
-        totalExtraCount: [(s) => [s.isExpandable], (isExpandable) => (isExpandable ? 1 : 0)],
-        totalListCount: [
-            (s) => [s.totalResultCount, s.totalExtraCount],
-            (totalResultCount, totalExtraCount) => totalResultCount + totalExtraCount,
-        ],
-        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
         results: [(s) => [s.items], (items) => items.results],
         selectedItem: [
             (s) => [s.index, s.items],
-            (index, items): TaxonomicDefinitionTypes | undefined => (index >= 0 ? items.results[index] : undefined),
+            (index, items): SearchDefinitionTypes | undefined => (index >= 0 ? items.results[index] : undefined),
         ],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
