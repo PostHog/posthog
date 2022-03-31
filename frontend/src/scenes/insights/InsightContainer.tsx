@@ -54,6 +54,7 @@ export function InsightContainer(
         activeView,
         loadedView,
         filters,
+        insight,
         showTimeoutMessage,
         showErrorMessage,
     } = useValues(insightLogic)
@@ -62,12 +63,15 @@ export function InsightContainer(
     )
 
     // Empty states that completely replace the graph
-    const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+    const emptyState = (() => {
+        if (
+            activeView !== loadedView ||
+            (insightLoading && !showTimeoutMessage && !(insight.result && filters.display === ACTIONS_HEDGEHOGGER))
+        ) {
             return (
                 <>
-                    {filters.display !== ACTIONS_TABLE && filters.display !== ACTIONS_HEDGEHOGGER && (
-                        /* Tables and hedgehogger don't need this padding, but graphs do for sizing */
+                    {filters.display !== ACTIONS_TABLE && (
+                        /* Tables don't need this padding, but graphs do for sizing */
                         <div className="trends-insights-container" />
                     )}
                     <Loading />
@@ -173,8 +177,8 @@ export function InsightContainer(
                             <InsightLegendButton />
                         </Col>
                     </Row>
-                    {!!BlockingEmptyState ? (
-                        BlockingEmptyState
+                    {!!emptyState ? (
+                        emptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
                       filters.show_legend ? (

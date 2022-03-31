@@ -1,12 +1,12 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId, ChartDisplayType } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -29,6 +29,8 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
+const LIVE_MODE_INTERVAL_MS = 15000
+
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
@@ -47,7 +49,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         sourceDashboardId,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, loadResults } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -60,6 +62,19 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+
+    useEffect(() => {
+        if (insight.filters?.display === ChartDisplayType.Hedgehogger) {
+            const timeout = setInterval(() => {
+                loadResults(true)
+            }, LIVE_MODE_INTERVAL_MS)
+            return () => clearInterval(timeout)
+        }
+    }, [insight])
+
+    useEffect(() => {
+        loadResults(true)
+    }, [])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
