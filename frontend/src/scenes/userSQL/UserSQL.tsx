@@ -1,12 +1,31 @@
 import { useValues } from 'kea'
 import { LemonTable } from 'lib/components/LemonTable'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+function convertArrayToString(payload): any {
+    return payload.map((item) => {
+        const newItem = {}
+        Object.keys(item).map((key) => {
+            if (Array.isArray(item[key])) {
+                newItem[key] = JSON.stringify(item[key])
+            } else {
+                newItem[key] = item[key]
+            }
+        })
+        return newItem
+    })
+}
 
 export function UserSQLInsight(): JSX.Element {
     const { insight } = useValues(insightLogic)
+    const [cleanedResult, setResult] = useState(convertArrayToString(insight.result))
 
-    const keys = Object.keys(insight?.result?.[0] || [])
+    useEffect(() => {
+        setResult(convertArrayToString(insight.result))
+    }, [insight.result])
+
+    const keys = Object.keys(cleanedResult?.[0] || [])
 
     const columns = keys.map((key) => {
         return {
@@ -19,7 +38,7 @@ export function UserSQLInsight(): JSX.Element {
     })
 
     const isResultSingle = (): boolean => {
-        return insight?.result?.length === 1 && Object.keys(insight.result[0]).length === 1
+        return cleanedResult?.length === 1 && Object.keys(cleanedResult[0]).length === 1
     }
 
     const getSingleResult = (result): number => {
@@ -37,14 +56,14 @@ export function UserSQLInsight(): JSX.Element {
                 fontWeight: 'bold',
             }}
         >
-            {getSingleResult(insight.result)}
+            {getSingleResult(cleanedResult)}
         </div>
     ) : (
         <LemonTable
             columns={columns}
             size="small"
             rowKey="0"
-            dataSource={insight.result}
+            dataSource={cleanedResult}
             emptyState="This property value is an empty object."
         />
     )
