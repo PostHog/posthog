@@ -12,14 +12,13 @@ import { UniversalSearchLogicProps, UniversalSearchProps } from './types'
 let uniqueMemoizedIndex = 0
 
 export function UniversalSearch({
-    taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
+    universalSearchFilterLogicKey,
     groupType,
     value,
     onChange,
     onClose,
-    taxonomicGroupTypes,
+    searchGroupTypes,
     optionsFromProp,
-    eventNames,
     height,
     width,
     popoverEnabled = true,
@@ -27,8 +26,8 @@ export function UniversalSearch({
 }: UniversalSearchProps): JSX.Element {
     // Generate a unique key for each unique UniversalSearch that's rendered
     const universalSearchLogicKey = useMemo(
-        () => taxonomicFilterLogicKeyInput || `universal-search-${uniqueMemoizedIndex++}`,
-        [taxonomicFilterLogicKeyInput]
+        () => universalSearchFilterLogicKey || `universal-search-${uniqueMemoizedIndex++}`,
+        [universalSearchFilterLogicKey]
     )
 
     const searchInputRef = useRef<Input | null>(null)
@@ -39,9 +38,8 @@ export function UniversalSearch({
         groupType,
         value,
         onChange,
-        taxonomicGroupTypes,
+        searchGroupTypes,
         optionsFromProp,
-        eventNames,
         popoverEnabled,
         selectFirstItem,
     }
@@ -64,7 +62,7 @@ export function UniversalSearch({
             <div
                 className={clsx(
                     'universal-search',
-                    taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
+                    searchGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
                 style={style}

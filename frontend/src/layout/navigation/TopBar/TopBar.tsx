@@ -63,10 +63,9 @@ export function TopBar(): JSX.Element {
                                 // 'groups_2',
                             ]}
                             onChange={(value, groupType, item) => {
-                                console.log('new values:::', value, groupType, item)
                                 if (groupType === UniversalSearchGroupType.Events) {
                                     // Go to Insights instead?
-                                    router.actions.push(combineUrl(urls.events(), { eventFilter: value }).url)
+                                    // router.actions.push(combineUrl(urls.events(), { eventFilter: value }).url)
                                     router.actions.push(
                                         combineUrl(
                                             urls.insightNew({

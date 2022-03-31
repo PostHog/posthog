@@ -30,7 +30,6 @@ export function UniversalSearchPopup({
     renderValue,
     groupTypes,
     dataAttr,
-    eventNames = [],
     placeholder = 'Please select',
     style,
     fullWidth = true,
@@ -47,8 +46,7 @@ export function UniversalSearchPopup({
                         onChange?.(payload, type, item)
                         setVisible(false)
                     }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
+                    searchGroupTypes={groupTypes ?? [groupType]}
                 />
             }
             visible={visible}

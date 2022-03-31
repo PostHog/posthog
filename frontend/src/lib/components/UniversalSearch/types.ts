@@ -45,10 +45,9 @@ export interface UniversalSearchProps {
     value?: TaxonomicFilterValue
     onChange?: (group: UniversalSearchGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
-    taxonomicGroupTypes: UniversalSearchGroupType[]
-    taxonomicFilterLogicKey?: string
+    searchGroupTypes: UniversalSearchGroupType[]
+    // taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<UniversalSearchGroupType, SimpleOption[]>>
-    eventNames?: string[]
     height?: number
     width?: number
     popoverEnabled?: boolean

@@ -73,7 +73,7 @@ export const searchListLogic = kea<searchListLogicType>({
         // TODO: had to connect FF to get the model loaded for filtering
         values: [
             universalSearchLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            ['searchQuery', 'value', 'groupType', 'searchGroups'],
             featureFlagsLogic,
             ['featureFlags'],
             experimentsLogic,
@@ -202,17 +202,17 @@ export const searchListLogic = kea<searchListLogicType>({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
-            (s) => [s.listGroupType, s.taxonomicGroups],
-            (listGroupType, taxonomicGroups): UniversalSearchGroup =>
-                taxonomicGroups.find((g) => g.type === listGroupType) as UniversalSearchGroup,
+            (s) => [s.listGroupType, s.searchGroups],
+            (listGroupType, searchGroups): UniversalSearchGroup =>
+                searchGroups.find((g) => g.type === listGroupType) as UniversalSearchGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
                 (state, props) => {
-                    const taxonomicGroups = selectors.taxonomicGroups(state)
-                    const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
+                    const searchGroups = selectors.searchGroups(state)
+                    const group = searchGroups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
                     }

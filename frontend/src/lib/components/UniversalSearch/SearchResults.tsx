@@ -24,10 +24,10 @@ function CategoryPill({
     onClick: () => void
 }): JSX.Element {
     const logic = searchListLogic({ ...universalSearchLogicProps, listGroupType: groupType })
-    const { taxonomicGroups } = useValues(universalSearchLogic)
+    const { searchGroups } = useValues(universalSearchLogic)
     const { totalResultCount } = useValues(logic)
 
-    const group = taxonomicGroups.find((g) => g.type === groupType)
+    const group = searchGroups.find((g) => g.type === groupType)
     const canInteract = totalResultCount > 0
 
     return (
@@ -44,26 +44,26 @@ function CategoryPill({
 }
 
 export function SearchResults({ focusInput, universalSearchLogicProps }: SearchResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(universalSearchLogic)
+    const { activeTab, searchGroups, searchGroupTypes } = useValues(universalSearchLogic)
     const { setActiveTab } = useActions(universalSearchLogic)
 
-    if (taxonomicGroupTypes.length === 1) {
+    if (searchGroupTypes.length === 1) {
         return (
             <BindLogic
                 logic={searchListLogic}
-                props={{ ...universalSearchLogicProps, listGroupType: taxonomicGroupTypes[0] }}
+                props={{ ...universalSearchLogicProps, listGroupType: searchGroupTypes[0] }}
             >
                 <SearchList />
             </BindLogic>
         )
     }
 
-    const openTab = activeTab || taxonomicGroups[0].type
+    const openTab = activeTab || searchGroups[0].type
     return (
         <>
             <div className={'taxonomic-group-title'}>Categories</div>
             <div className={'taxonomic-pills'}>
-                {taxonomicGroupTypes.map((groupType) => {
+                {searchGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill
                             key={groupType}
@@ -79,9 +79,9 @@ export function SearchResults({ focusInput, universalSearchLogicProps }: SearchR
                 })}
             </div>
             <div className={'taxonomic-group-title with-border'}>
-                {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+                {searchGroups.find((g) => g.type === openTab)?.name || openTab}
             </div>
-            {taxonomicGroupTypes.map((groupType) => {
+            {searchGroupTypes.map((groupType) => {
                 return (
                     <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
                         <BindLogic

@@ -1,12 +1,6 @@
 import { kea } from 'kea'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import {
-    SearchDefinitionTypes,
-    UniversalSearchGroup,
-    UniversalSearchGroupType,
-    UniversalSearchLogicProps,
-    ListStorage,
-} from './types'
+import { UniversalSearchGroup, UniversalSearchGroupType, UniversalSearchLogicProps, ListStorage } from './types'
 import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
 import {
     ActionType,
@@ -58,7 +52,7 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: UniversalSearchGroupType) => ({ activeTab }),
-        selectItem: (group: UniversalSearchGroup, value: TaxonomicFilterValue | null, item: SearchDefinitionTypes) => ({
+        selectItem: (group: UniversalSearchGroup, value: TaxonomicFilterValue | null, item: any) => ({
             group,
             value,
             item,
@@ -78,7 +72,7 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
         ],
         activeTab: [
             (state: any): UniversalSearchGroupType => {
-                return selectors.groupType(state) || selectors.taxonomicGroupTypes(state)[0]
+                return selectors.groupType(state) || selectors.searchGroupTypes(state)[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -104,7 +98,7 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             () => [(_, props) => props.universalSerchLogicKey],
             (universalSerchLogicKey) => universalSerchLogicKey,
         ],
-        taxonomicGroups: [
+        searchGroups: [
             (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
             (teamId, groupAnalyticsTaxonomicGroups): UniversalSearchGroup[] => [
                 {
@@ -200,13 +194,12 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
             ],
         ],
         activeTaxonomicGroup: [
-            (s) => [s.activeTab, s.taxonomicGroups],
-            (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
+            (s) => [s.activeTab, s.searchGroups],
+            (activeTab, searchGroups) => searchGroups.find((g) => g.type === activeTab),
         ],
-        taxonomicGroupTypes: [
-            (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
-            (groupTypes, taxonomicGroups): UniversalSearchGroupType[] =>
-                groupTypes || taxonomicGroups.map((g) => g.type),
+        searchGroupTypes: [
+            (selectors) => [(_, props) => props.searchGroupTypes, selectors.searchGroups],
+            (groupTypes, searchGroups): UniversalSearchGroupType[] => groupTypes || searchGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroups: [
             (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
@@ -225,10 +218,10 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                 })),
         ],
         searchListLogics: [
-            (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, ReturnType<typeof searchListLogic.build>> =>
+            (s) => [s.searchGroupTypes, (_, props) => props],
+            (searchGroupTypes, props): Record<string, ReturnType<typeof searchListLogic.build>> =>
                 Object.fromEntries(
-                    taxonomicGroupTypes.map((groupType) => [
+                    searchGroupTypes.map((groupType) => [
                         groupType,
                         searchListLogic.build({
                             ...props,
@@ -252,11 +245,11 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
         currentTabIndex: [
-            (s) => [s.taxonomicGroupTypes, s.activeTab],
+            (s) => [s.searchGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),
         ],
         searchPlaceholder: [
-            (s) => [s.taxonomicGroups, s.taxonomicGroupTypes],
+            (s) => [s.searchGroups, s.searchGroupTypes],
             (allTaxonomicGroups, searchGroupTypes) => {
                 if (searchGroupTypes.length > 1) {
                     searchGroupTypes = searchGroupTypes.filter(
@@ -320,22 +313,22 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
-            for (let i = 1; i < taxonomicGroupTypes.length; i++) {
-                const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
-                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
-                    actions.setActiveTab(taxonomicGroupTypes[newIndex])
+            const { currentTabIndex, searchGroupTypes, infiniteListCounts } = values
+            for (let i = 1; i < searchGroupTypes.length; i++) {
+                const newIndex = (currentTabIndex - i + searchGroupTypes.length) % searchGroupTypes.length
+                if (infiniteListCounts[searchGroupTypes[newIndex]] > 0) {
+                    actions.setActiveTab(searchGroupTypes[newIndex])
                     return
                 }
             }
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
-            for (let i = 1; i < taxonomicGroupTypes.length; i++) {
-                const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
-                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
-                    actions.setActiveTab(taxonomicGroupTypes[newIndex])
+            const { currentTabIndex, searchGroupTypes, infiniteListCounts } = values
+            for (let i = 1; i < searchGroupTypes.length; i++) {
+                const newIndex = (currentTabIndex + i) % searchGroupTypes.length
+                if (infiniteListCounts[searchGroupTypes[newIndex]] > 0) {
+                    actions.setActiveTab(searchGroupTypes[newIndex])
                     return
                 }
             }
