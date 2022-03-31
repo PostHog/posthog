@@ -9,14 +9,26 @@ import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 export interface ActivityLogProps {
-    scope: 'FeatureFlag'
+    scope: 'FeatureFlag' | 'Person'
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer
     startingPage?: number
+    caption?: string | JSX.Element
 }
 
-const Empty = (): JSX.Element => <div className="text-muted">There is no history for this item</div>
+const Empty = ({ scope }: { scope: string }): JSX.Element => {
+    const noun = scope
+        .replace(/([A-Z])/g, ' $1')
+        .trim()
+        .toLowerCase()
+    return (
+        <div className="empty">
+            <h1>There is no history for this {noun}</h1>
+            <div>As changes are made to this {noun}, they'll show up here</div>
+        </div>
+    )
+}
 
 const SkeletonLog = (): JSX.Element => {
     return (
@@ -40,14 +52,21 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, describer, startingPage })
+export const ActivityLog = ({
+    scope,
+    id,
+    describer,
+    caption,
+    startingPage = 1,
+}: ActivityLogProps): JSX.Element | null => {
+    const logic = activityLogLogic({ scope, id, describer, caption, startingPage })
     const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="activity-log">
+            {caption && <div className="page-caption">{caption}</div>}
             {nextPageLoading && humanizedActivity.length === 0 ? (
                 <Loading />
             ) : humanizedActivity.length > 0 ? (
@@ -58,9 +77,9 @@ export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: Activity
                                 <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                                 <div className="details">
                                     <div className="activity-description">
-                                        <strong style={{ display: 'inline-block' }}>
-                                            {logItem.name ?? 'unknown user'}
-                                        </strong>{' '}
+                                        <div style={{ display: 'inline-block' }}>
+                                            <strong>{logItem.name ?? 'unknown user'}</strong>
+                                        </div>{' '}
                                         {logItem.description}
                                     </div>
                                     <div className={'text-muted'}>
@@ -73,7 +92,7 @@ export const ActivityLog = ({ scope, id, describer, startingPage = 1 }: Activity
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (
-                <Empty />
+                <Empty scope={scope} />
             )}
         </div>
     )

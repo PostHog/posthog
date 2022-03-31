@@ -209,7 +209,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")

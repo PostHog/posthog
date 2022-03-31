@@ -1,10 +1,26 @@
 @import '~/vars.scss';
 
 .activity-log {
+    .empty {
+        text-align: center;
+
+        h1 {
+            font-weight: 700;
+            line-height: 26px;
+            margin-top: $default_spacing * 5;
+            margin-bottom: 0;
+        }
+
+        div {
+            line-height: 24px;
+        }
+    }
+
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
         line-height: 24px;
+        max-width: 50rem;
 
         &:first-of-type {
             margin-top: $default_spacing / 2;
@@ -40,5 +56,9 @@
         border-width: 0;
         border-radius: 0;
         border-top-width: 1px;
+    }
+
+    .page-caption {
+        max-width: 50rem;
     }
 }
