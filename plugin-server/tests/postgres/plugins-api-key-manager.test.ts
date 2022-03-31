@@ -1,6 +1,6 @@
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql'
+import { createUserTeamAndOrganization } from '../helpers/sql'
 import { PluginsApiKeyManager } from './../../src/worker/vm/extensions/helpers/api-key-manager'
 import { POSTGRES_TRUNCATE_TABLES_QUERY } from './../helpers/sql'
 

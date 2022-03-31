@@ -123,7 +123,7 @@ describe('e2e', () => {
 
             const uuid = new UUIDT().toString()
 
-            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
+            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: { data: 'yes way' } })
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -133,8 +133,11 @@ describe('e2e', () => {
 
             expect(events.length).toBe(1)
 
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
+            // processEvent stored data to disk and added path to the snapshot data
+            const snapshotData = JSON.parse(events[0].snapshot_data)
+            expect(snapshotData['object_storage_path']).toEqual(
+                'session_recordings/2022-03-31/1234abc/undefined/undefined'
+            )
 
             // onSnapshot ran
             expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])

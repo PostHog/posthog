@@ -130,9 +130,9 @@ export interface Hub extends PluginsServerConfig {
     clickhouse?: ClickHouse
     kafka?: Kafka
     kafkaProducer?: KafkaProducerWrapper
+    objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
-    objectStorage: ObjectStorage
     internalMetrics?: InternalMetrics
     pluginMetricsManager: PluginMetricsManager
     pluginMetricsJob: Job | undefined
