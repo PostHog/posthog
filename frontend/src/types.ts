@@ -700,6 +700,14 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
+export interface InsightResponseStatus {
+    num_rows: number
+    total_rows: number
+    complete: boolean
+    error: boolean
+    error_message: string | null
+}
+
 export interface InsightModel {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
@@ -732,6 +740,8 @@ export interface InsightModel {
     /** Only used in the frontend to store the next breakdown url */
     next?: string
     source_query?: string
+    status?: InsightResponseStatus
+    resultQueryId?: string
 }
 
 export interface DashboardType {
