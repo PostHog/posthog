@@ -1,6 +1,6 @@
 import { mocked } from 'ts-jest/utils'
 
-import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
+import { PluginLogEntrySource, PluginLogEntryType, PluginServerMode, PluginTaskType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
@@ -32,7 +32,7 @@ describe('LazyPluginVM', () => {
         postgresLogsWrapper,
     }
 
-    const mockServer: any = { db }
+    const mockServer: any = { db, pluginServerMode: PluginServerMode.Ingestion }
 
     const createVM = () => {
         const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)
