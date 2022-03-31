@@ -320,6 +320,28 @@ def friendly_time(seconds: float):
     ).strip()
 
 
+def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]:
+    append: Dict[str, Any] = {}
+    append["data"] = []
+    append["labels"] = []
+    append["days"] = []
+
+    days_format = "%Y-%m-%d"
+
+    if interval == "hour":
+        days_format += " %H:%M:%S"
+
+    for item in dates_filled:
+        date = item[0]
+        value = item[1]
+        append["days"].append(date.strftime(days_format))
+        append["labels"].append(format_label_date(date, interval))
+        append["data"].append(value)
+    if math == "sum":
+        append["count"] = sum(append["data"])
+    return append
+
+
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
