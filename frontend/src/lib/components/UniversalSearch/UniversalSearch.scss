@@ -1,4 +1,53 @@
+@import '~/vars';
+
+.SearchBox {
+    // transition: background-color 200ms ease, border-color 200ms ease;
+    // display: none;
+    // align-items: center;
+    max-width: 483px;
+    // height: 100%;
+    // padding: 0 0.625rem;
+    // border-radius: var(--radius);
+    // border: 1px solid var(--border-dark);
+    // color: var(--text-muted);
+    // user-select: none;
+    cursor: pointer;
+    // &:hover {
+    //     background-color: var(--bg-shaded);
+    // }
+    // &:active {
+    //     border-color: var(--border-active);
+    // }
+
+    transition: 200ms ease margin;
+    .ant-input-affix-wrapper,
+    input {
+        background: var(--bg-bridge);
+    }
+
+    &.SearchBox--sidebar-shown {
+        margin-left: 55px;
+    }
+    @media screen and (min-width: $sm) {
+        display: flex;
+    }
+}
+
 .universal-search {
+    .ant-input {
+        cursor: pointer;
+    }
+
+    .magnifier-icon {
+        font-size: 18px;
+        color: var(--text-muted);
+        &.magnifier-icon-active {
+            color: var(--primary);
+        }
+    }
+}
+
+.universal-search-popup {
     width: 550px;
     max-width: calc(100vw - 40px);
     background: white;

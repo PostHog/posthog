@@ -1,16 +1,19 @@
 import React, { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { SearchDefinitionTypes, UniversalSearchGroupType } from './types'
+import { SearchDefinitionTypes, UniversalSearchGroupType, UniversalSearchProps } from './types'
 import { Popup } from 'lib/components/Popup/Popup'
 import { UniversalSearch } from './UniversalSearch'
-import { Button } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
 import { combineUrl, router } from 'kea-router'
-import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 import { ActionType, ChartDisplayType, Group, InsightModel, InsightType } from '~/types'
 import { PluginSelectionType } from 'scenes/plugins/pluginsLogic'
+import clsx from 'clsx'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { useValues } from 'kea'
+import { universalSearchLogic } from './universalSearchLogic'
+import { IconMagnifier } from '../icons'
+import { Input } from 'antd'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -87,47 +90,88 @@ export function UniversalSearchPopup({
     groupType,
     value,
     onChange,
-    renderValue,
     groupTypes,
     dataAttr,
-    placeholder = 'Please select',
     style,
     fullWidth = true,
 }: UniversalSearchPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
+    const { isSideBarShown } = useValues(navigationLogic)
+    const universalSearchLogicProps: UniversalSearchProps = {
+        groupType,
+        value,
+        onChange: ({ type }, payload, item) => {
+            onChange?.(payload, type, item)
+            setVisible(false)
+        },
+        searchGroupTypes: groupTypes ?? [groupType],
+        optionsFromProp: undefined,
+        popoverEnabled: true,
+        selectFirstItem: true,
+    }
+    const logic = universalSearchLogic(universalSearchLogicProps)
+    const { searchQuery, searchPlaceholder } = useValues(logic)
+
     return (
-        <Popup
-            overlay={
-                <UniversalSearch
-                    groupType={groupType}
-                    value={value}
-                    onChange={({ type }, payload, item) => {
-                        redirectOnSelectItems(payload, type, item)
-                        onChange?.(payload, type, item)
-                        setVisible(false)
-                    }}
-                    searchGroupTypes={groupTypes ?? [groupType]}
-                />
-            }
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-        >
-            {({ setRef }) => (
-                <Button
-                    data-attr={dataAttr}
-                    onClick={() => setVisible(!visible)}
-                    ref={setRef}
-                    className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
-                    style={style}
-                >
-                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
-                    </span>
-                    <div style={{ flexGrow: 1 }} />
-                    <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-            )}
-        </Popup>
+        <div className="universal-search">
+            <Popup
+                overlay={
+                    <UniversalSearch
+                        groupType={groupType}
+                        value={value}
+                        onChange={({ type }, payload, item) => {
+                            redirectOnSelectItems(payload, type, item)
+                            onChange?.(payload, type, item)
+                            setVisible(false)
+                        }}
+                        searchGroupTypes={groupTypes ?? [groupType]}
+                    />
+                }
+                visible={visible}
+                placement="right-start"
+                fallbackPlacements={['bottom']}
+                onClickOutside={() => setVisible(false)}
+                modifier={{
+                    name: 'offset',
+                    options: {
+                        offset: ({ placement }) => {
+                            if (placement === 'right-start') {
+                                return [-10, -249 - 243]
+                            } else {
+                                return []
+                            }
+                        },
+                    },
+                }}
+            >
+                {({ setRef }) => (
+                    <div
+                        data-attr={dataAttr}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setVisible(!visible)
+                        }}
+                        ref={setRef}
+                        className={clsx(
+                            { 'full-width': fullWidth },
+                            '',
+                            'SearchBox',
+                            isSideBarShown && 'SearchBox--sidebar-shown'
+                        )}
+                        style={style}
+                    >
+                        <Input
+                            style={{ flexGrow: 1, cursor: 'pointer', opacity: visible ? '0' : '1' }}
+                            data-attr="universal-search-field"
+                            placeholder={searchPlaceholder}
+                            value={searchQuery}
+                            prefix={<IconMagnifier className={clsx('magnifier-icon', 'magnifier-icon-active222')} />}
+                        />
+                    </div>
+                )}
+            </Popup>
+        </div>
     )
 }
