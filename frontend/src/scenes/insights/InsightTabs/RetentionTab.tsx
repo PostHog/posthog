@@ -107,8 +107,8 @@ export function RetentionTab(): JSX.Element {
                             <Input
                                 type="number"
                                 style={{ width: 80 }}
-                                value={String(filters.total_intervals ?? 10)}
-                                onChange={(e) => setFilters({ total_intervals: parseInt(e.target.value) })}
+                                value={String((filters.total_intervals ?? 11) - 1)}
+                                onChange={(e) => setFilters({ total_intervals: parseInt(e.target.value) + 1 })}
                             />
                         </Col>
                         <Col>
@@ -147,7 +147,7 @@ export function RetentionTab(): JSX.Element {
                                 customRowPrefix={<span />}
                             />
                         </Col>
-                        <Col>on the following {dateOptionPlurals[filters.period ?? 'Day']}</Col>
+                        <Col>on any of the next {dateOptionPlurals[filters.period ?? 'Day']}</Col>
                     </Row>
                     <Row>
                         <Col>

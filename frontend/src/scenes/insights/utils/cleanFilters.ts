@@ -89,7 +89,7 @@ export function cleanFilters(
             retention_reference: filters.retention_reference,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
-            total_intervals: Math.min(Math.max(filters.total_intervals ?? 10, 0), 52),
+            total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
