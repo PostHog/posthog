@@ -14,8 +14,6 @@ from sentry_sdk.api import capture_exception
 from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
-from posthog.settings import OBJECT_STORAGE_ENABLED
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
 app = Celery("posthog")
@@ -130,7 +128,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="calculate event property usage",
         )
 
-    if OBJECT_STORAGE_ENABLED:
+    if settings.OBJECT_STORAGE_ENABLED:
         sender.add_periodic_task(
             crontab(hour=0, minute=randrange(0, 40)),  # every day at a random minute past midnight,
             delete_old_recordings_from_disk.s(),
