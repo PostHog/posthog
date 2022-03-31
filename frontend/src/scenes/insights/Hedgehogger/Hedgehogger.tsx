@@ -45,7 +45,7 @@ function countryCodeToFlag(countryCode: string): string {
     return `${letterToRegionalIndicator[countryCode[0]]}${letterToRegionalIndicator[countryCode[1]]}`
 }
 
-const countryCodeToName = {
+export const countryCodeToName = {
     AE: 'United Arab Emirates',
     AF: 'Afghanistan',
     AG: 'Antigua and Barbuda',
@@ -9349,11 +9349,17 @@ const hedgehoggerLogic = kea<hedgehoggerLogicType>({
         updateTooltipCoordinates: (x: number, y: number) => ({ x, y }),
     },
     reducers: {
+        tooltipOpacity: [
+            0,
+            {
+                showTooltip: () => 1,
+                hideTooltip: () => 0,
+            },
+        ],
         currentTooltip: [
             null as [string, number] | null,
             {
                 showTooltip: (_, { countryCode, aggregatedValue }) => [countryCode, aggregatedValue],
-                hideTooltip: () => null,
             },
         ],
         tooltipCoordinates: [
@@ -9390,7 +9396,8 @@ const SATURATION_FLOOR = 0.25
 export function Hedgehogger(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const localLogic = hedgehoggerLogic(insightProps)
-    const { countryCodeToSeries, maxAggregatedValue, currentTooltip, tooltipCoordinates } = useValues(localLogic)
+    const { tooltipOpacity, countryCodeToSeries, maxAggregatedValue, currentTooltip, tooltipCoordinates } =
+        useValues(localLogic)
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
 
     const tooltipElement = useRef<HTMLElement | null>(null)
@@ -9398,14 +9405,14 @@ export function Hedgehogger(): JSX.Element {
 
     useEffect(() => {
         tooltipElement.current = ensureTooltipElement()
-        tooltipElement.current.style.opacity = currentTooltip ? '1' : '0'
+        tooltipElement.current.style.opacity = tooltipOpacity.toString()
         tooltipElement.current.style.left = tooltipCoordinates
             ? `${window.pageXOffset + tooltipCoordinates[0] + 8}px`
             : 'revert'
         tooltipElement.current.style.top = tooltipCoordinates
             ? `${window.pageYOffset + tooltipCoordinates[1] + 8}px`
             : 'revert'
-    }, [currentTooltip, tooltipCoordinates])
+    }, [tooltipOpacity, currentTooltip, tooltipCoordinates])
 
     return (
         <>
@@ -9417,9 +9424,6 @@ export function Hedgehogger(): JSX.Element {
                     width="100%"
                     height="100%"
                     id="svg"
-                    onMouseMove={(e) => {
-                        updateTooltipCoordinates(e.clientX, e.clientY)
-                    }}
                     ref={svgRef}
                 >
                     {Object.entries(countries).map(([countryCode, countryElement]) => {
@@ -9439,6 +9443,9 @@ export function Hedgehogger(): JSX.Element {
                             style: { color: fill },
                             onMouseEnter: () => showTooltip(countryCode, aggregatedValue),
                             onMouseLeave: () => hideTooltip(),
+                            onMouseMove: (e: MouseEvent) => {
+                                updateTooltipCoordinates(e.clientX, e.clientY)
+                            },
                         })
                     })}
                 </svg>

@@ -25,6 +25,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport, IconEdit } from 'lib/components/icons'
+import { countryCodeToName } from 'scenes/insights/Hedgehogger/Hedgehogger'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -198,6 +199,16 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
+        if (filters.display === ChartDisplayType.Hedgehogger) {
+            columns.push({
+                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
+                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                key: 'breakdown_addendum',
+                sorter: (a, b) => {
+                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                },
+            })
+        }
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
