@@ -116,6 +116,7 @@ class Team(UUIDClassicModel):
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
     )  # Dashboard shown on project homepage
+    ingestion_disabled: models.BooleanField = models.BooleanField(null=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id

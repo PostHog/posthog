@@ -2,10 +2,8 @@ import { Alert, Button, Card, InputNumber } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import defaultImg from 'public/plan-default.svg'
-import { Link } from 'lib/components/Link'
-import { IconOpenInNew } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
-import { billingLogic, UTM_TAGS } from './billingLogic'
+import { billingLogic } from './billingLogic'
 import { PlanInterface } from '~/types'
 
 export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
@@ -44,10 +42,27 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             <h3 className="l3" style={{ marginBottom: 8 }}>
                                 {plan.name}
                             </h3>
-                            <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
+                            {/* <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
                                 More plan details <IconOpenInNew />
-                            </Link>
+                            </Link> */}
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
+                            <div style={{ marginTop: 8, marginBottom: 8, alignItems: 'center', display: 'flex' }}>
+                                Set monthly billing limit to{' '}
+                                <InputNumber
+                                    style={{ width: 200, marginLeft: 8, marginRight: 8 }}
+                                    onChange={(value): void => {
+                                        if (billing) {
+                                            setBillingLimit({ ...billing, billing_limit: value })
+                                        }
+                                    }}
+                                    value={billing?.billing_limit || 0}
+                                    min={0}
+                                    step={10}
+                                    // max={100}
+                                    addonAfter="$"
+                                />{' '}
+                                (in US dollars)
+                            </div>
                             <div className="text-muted mt">
                                 Click on <b>manage subscription</b> to cancel your billing agreement,{' '}
                                 <b>update your card</b> or other billing information,
@@ -59,23 +74,6 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             </Button>
                             <div className="text-muted text-center">Get past invoices too</div>
                         </div>
-                    </div>
-                    <div className="centered">
-                        Set billing limit to{' '}
-                        <InputNumber
-                            style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                            onChange={(value): void => {
-                                if (billing) {
-                                    setBillingLimit({ ...billing, billing_limit: value })
-                                }
-                            }}
-                            value={billing?.billing_limit || 0}
-                            min={0}
-                            step={10}
-                            // max={100}
-                            addonAfter="$"
-                        />{' '}
-                        (in US dollars per month)
                     </div>
                 </Card>
             )}

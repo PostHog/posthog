@@ -4,7 +4,6 @@ import { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
@@ -13,6 +12,7 @@ export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of e
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
+    UsageLimitExceeded = 'usage_limit_exceeded',
 }
 
 export const billingLogic = kea<billingLogicType<BillingAlertType>>({
@@ -33,6 +33,9 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     return response as BillingType
                 },
                 setBillingLimit: async (billing: BillingType, breakpoint) => {
+                    // TODO: only allow setting billing limit to be higher than current usage
+                    // TODO: we should show a confirmation pop-up
+                    // TODO: suggest setting the limit just after having entered the cc
                     await breakpoint(1000)
                     return (await api.update('api/billing/', billing)) as BillingType
                 },
@@ -89,21 +92,40 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
-            (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
+            (
+                eventAllocation: number | null,
+                percentage: number,
+                billing: BillingType
+            ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
+
+                // why didn't percentage usage work???
+                // let percentageCalculated = 0
+                // if (eventAllocation && billing?.current_usage) {
+                //     percentageCalculated = Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
+                // }
+                // console.log(percentageCalculated)
+                // console.log(eventAllocation)
+                // console.log(billing?.current_usage)
 
                 // Priority 1: In-progress incomplete billing setup
                 if (billing?.should_setup_billing && billing?.subscription_url) {
                     return BillingAlertType.SetupBilling
                 }
 
+                if (billing?.billing_limit_exceeded) {
+                    return BillingAlertType.UsageLimitExceeded
+                }
+
+                // console.log(percentageCalculated >= ALLOCATION_THRESHOLD_ALERT)
+                // console.log(scene)
                 // Priority 2: Event allowance near limit
                 if (
-                    scene !== Scene.Billing &&
+                    // scene !== Scene.Billing &&
+                    billing?.current_usage &&
                     eventAllocation &&
-                    billing.current_usage &&
-                    billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
+                    percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }

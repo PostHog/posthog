@@ -678,6 +678,16 @@ export interface BillingType {
     current_bill_amount: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
+    billing_limit_exceeded: boolean | null
+    tiers: BillingTierType[] | null
+}
+
+export interface BillingTierType {
+    name: string
+    price_per_event: number
+    number_of_events: number
+    subtotal: number
+    running_total: number
 }
 
 export interface PlanInterface {
