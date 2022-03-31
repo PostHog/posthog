@@ -11,7 +11,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, INSERT_COHORT_ALL_PEOPLE_SQL, PERSON_STATIC_COHORT_TABLE
-from posthog.client import sync_execute
+from posthog.client import substitute_params, sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -46,13 +46,15 @@ class ClickhouseStickiness:
         """
 
         counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
-        return self.process_result(counts, filter, entity)
+        return self.process_result(
+            counts, filter, entity, substitute_params(query, {**event_params, "num_intervals": filter.total_intervals}),
+        )
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
         _, serialized_actors = ClickhouseStickinessActors(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
-    def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
+    def process_result(self, counts: List, filter: StickinessFilter, entity: Entity, query: str) -> Dict[str, Any]:
         response: Dict[int, int] = {}
         for result in counts:
             response[result[1]] = result[0]
@@ -72,6 +74,7 @@ class ClickhouseStickiness:
             "count": sum(data),
             "filter": filter_params,
             "persons_urls": self._get_persons_url(filter, entity),
+            "source_query": query,
         }
 
     def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> List[Dict[str, Any]]:
@@ -101,14 +104,14 @@ class ClickhouseStickiness:
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}"},
             )
         return persons_url
 
 
 def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: StickinessFilter) -> None:
     content_sql, params = ClickhouseStickinessActors(
-        entity=target_entity, filter=filter, team=cohort.team
+        entity=target_entity, filter=filter, team=cohort.team,
     ).actor_query()
 
     try:

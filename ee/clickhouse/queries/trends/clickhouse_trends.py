@@ -10,7 +10,7 @@ from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
-from posthog.client import sync_execute
+from posthog.client import substitute_params, sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -47,7 +47,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         result = sync_execute(sql, params)
 
         result = parse_function(result)
-        serialized_data = self._format_serialized(entity, result)
+        serialized_data = self._format_serialized(entity, result, substitute_params(sql, params))
 
         if filter.display == TRENDS_CUMULATIVE:
             serialized_data = self._handle_cumulative(serialized_data)
@@ -59,12 +59,14 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
         parse_functions: List[Union[None, Callable]] = [None] * len(filter.entities)
+        queries: List[str] = [None] * len(filter.entities)
         jobs = []
 
         for entity in filter.entities:
             sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
             parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
+            queries[entity.index] = substitute_params(sql, params)
+            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params))
             jobs.append(thread)
 
         # Start the threads (i.e. calculate the random number lists)
@@ -78,7 +80,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         # Parse results for each thread
         for entity in filter.entities:
             serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
-            serialized_data = self._format_serialized(entity, serialized_data)
+            serialized_data = self._format_serialized(entity, serialized_data, queries[entity.index])
 
             if filter.display == TRENDS_CUMULATIVE:
                 serialized_data = self._handle_cumulative(serialized_data)
@@ -119,7 +121,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
 
         return result
 
-    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]], query: str):
         serialized_data = []
 
         serialized: Dict[str, Any] = {
@@ -129,6 +131,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             "data": [],
             "labels": [],
             "days": [],
+            "source_query": query,
         }
 
         for queried_metric in result:
