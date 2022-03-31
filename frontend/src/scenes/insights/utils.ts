@@ -214,9 +214,9 @@ export function summarizeInsightFilters(
                 return 'Custom query'
             }
             if (filters.user_sql.length < 100) {
-                return filters.user_sql
+                return filters.user_sql.replaceAll("\n"," ").replaceAll("\t", "")
             }
-            return filters.user_sql.slice(0, 100) + '...'
+            return filters.user_sql.replaceAll("\n"," ").replaceAll("\t", "").slice(0, 100) + '...'
         default:
             const localFilters = toLocalFilters(filters)
             switch (insightType) {
