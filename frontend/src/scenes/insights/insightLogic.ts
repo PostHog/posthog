@@ -9,6 +9,7 @@ import {
     FilterType,
     InsightLogicProps,
     InsightModel,
+    InsightResponseStatus,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -40,6 +41,14 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+
+const INITIAL_STATUS_OBJECT: InsightResponseStatus = {
+    num_rows: 0,
+    total_rows: 0,
+    complete: false,
+    error: false,
+    error_message: null,
+}
 
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
@@ -137,6 +146,8 @@ export const insightLogic = kea<insightLogicType>({
             insight,
             callback,
         }),
+        loadResultsWithProgress: (refresh = false) => ({ refresh }),
+        checkForResults: () => true,
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
@@ -279,16 +290,10 @@ export const insightLogic = kea<insightLogicType>({
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else if (insight === InsightType.USER_SQL) {
-                            if (params.user_sql) {
-                                response = await api.get(
-                                    `api/projects/${currentTeamId}/insights/user_sql?${toParams(params)}`
-                                )
-                            } else {
-                                // TODO: remove this once we have better null state
-                                response = {
-                                    result: [],
-                                    next: null,
-                                }
+                            // SUPER HACK to enable loadResultsWithProgress in this case
+                            response = {
+                                result: [],
+                                next: null,
                             }
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
@@ -344,8 +349,49 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result,
                         next: response.next,
                         source_query: response.source_query,
+                        status: response.status,
                         filters,
                     } as Partial<InsightModel>
+                },
+                loadResultsWithProgress: async () => {
+                    const { currentTeamId } = values
+                    const { filters } = values
+                    const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                    const params = { refresh: true, ...filters }
+                    let queryResultId = null
+                    if (insight === InsightType.USER_SQL) {
+                        if (params.user_sql) {
+                            const response = await api.get(
+                                `api/projects/${currentTeamId}/insights/user_sql?${toParams(params)}`
+                            )
+                            queryResultId = response.query_id
+                        }
+                    }
+                    return {
+                        ...values.insight,
+                        resultQueryId: queryResultId,
+                        status: INITIAL_STATUS_OBJECT,
+                    }
+                },
+
+                checkInsightResultProgress: async () => {
+                    const { currentTeamId } = values
+                    const resultQueryId = values.insight.resultQueryId
+                    const response = await api.get(
+                        `api/projects/${currentTeamId}/insights/check_insight_result?${toParams({
+                            query_id: resultQueryId,
+                        })}`
+                    )
+                    const status = response.status as InsightResponseStatus
+                    delete status['results']
+
+                    const result = status.complete ? response.result : undefined
+
+                    return {
+                        ...values.insight,
+                        result,
+                        status,
+                    }
                 },
             },
         ],
@@ -761,6 +807,15 @@ export const insightLogic = kea<insightLogicType>({
                 actions.loadResults()
             }
         },
+        loadResultsWithProgressSuccess: async () => {
+            actions.checkInsightResultProgress()
+        },
+        checkInsightResultProgressSuccess: async () => {
+            if (!values.insight.status?.complete && !values.insight.status?.error) {
+                setTimeout(actions.checkInsightResultProgress, 300)
+            }
+        },
+
         toggleInsightLegend: () => {
             actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
         },
