@@ -34,7 +34,6 @@ celery==4.4.2
     #   celery-redbeat
 certifi==2019.11.28
     # via
-    #   minio
     #   requests
     #   sentry-sdk
 cffi==1.14.5
@@ -134,6 +133,8 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
+importlib-resources==5.6.0
+    # via jsonschema
 git+https://github.com/PostHog/infi.clickhouse_orm@bbc5638f1d2ee19bef388a12b4d16fc138354220
     # via -r requirements.in
 inflection==0.5.1
@@ -162,8 +163,6 @@ lxml==4.7.1
     #   toronado
     #   xmlsec
 lzstring==1.0.4
-    # via -r requirements.in
-minio==7.1.5
     # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
@@ -272,7 +271,6 @@ uritemplate==4.1.1
 urllib3==1.26.5
     # via
     #   botocore
-    #   minio
     #   requests
     #   sentry-sdk
 vine==1.3.0
@@ -284,9 +282,9 @@ whitenoise==5.2.0
 xmlsec==1.3.12
     # via python3-saml
 zipp==3.1.0
-    # via importlib-metadata
-zstandard==0.17.0
-    # via -r requirements.in
+    # via
+    #   importlib-metadata
+    #   importlib-resources
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

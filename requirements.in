@@ -62,5 +62,3 @@ social-auth-core==4.1.0
 statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
-zstandard==0.17.0
-minio==7.1.5
