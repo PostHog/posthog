@@ -6,9 +6,7 @@ import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -49,9 +47,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         sourceDashboardId,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -63,36 +60,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
-
-    const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
-        setActiveView(view)
-        reportHotkeyNavigation('insights', hotkey)
-    }
-
-    useKeyboardHotkeys({
-        t: {
-            action: () => handleHotkeyNavigation(InsightType.TRENDS, 't'),
-        },
-        f: {
-            action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
-        },
-        r: {
-            action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
-        },
-        p: {
-            action: () => handleHotkeyNavigation(InsightType.PATHS, 'p'),
-        },
-        i: {
-            action: () => handleHotkeyNavigation(InsightType.STICKINESS, 'i'),
-        },
-        l: {
-            action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
-        },
-        e: {
-            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.View,
-        },
-    })
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
