@@ -55,7 +55,8 @@ export function castingCompare(
     // Check basic case first
     switch (operator) {
         case PropertyOperator.Exact:
-            if (Array.isArray(b) && !Array.isArray(!a)) {
+            // string on event, array in filter
+            if (Array.isArray(b) && !Array.isArray(a)) {
                 return b.includes(a)
             }
             if (a == b) {
@@ -63,6 +64,7 @@ export function castingCompare(
             }
             break
         case PropertyOperator.IsNot:
+            // string on event, array in filter
             if (Array.isArray(b) && !Array.isArray(a)) {
                 return !b.includes(a)
             }

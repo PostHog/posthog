@@ -118,7 +118,14 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator exact', async () => {
             const actionDefinitionOpExact: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: 'exact' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: PropertyOperator.Exact }],
+                },
+            ])
+            const actionDefinitionOpExactArray: Action = await createTestAction([
+                {
+                    properties: [
+                        { type: 'event', key: 'foo', value: ['bar', 'baz'], operator: PropertyOperator.Exact },
+                    ],
                 },
             ])
             const actionDefinitionOpUndefined: Action = await createTestAction([
@@ -131,7 +138,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -142,15 +148,16 @@ describe('ActionMatcher', () => {
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([
                 actionDefinitionOpExact,
+                actionDefinitionOpExactArray,
                 actionDefinitionOpUndefined,
             ])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([
                 actionDefinitionOpExact,
+                actionDefinitionOpExactArray,
                 actionDefinitionOpUndefined,
             ])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([actionDefinitionOpExact])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpExactArray])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([])
@@ -163,42 +170,13 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator is not', async () => {
             const actionDefinitionOpIsNot: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: 'is_not' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: PropertyOperator.IsNot }],
                 },
             ])
-
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
-
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsNot])
-        })
-
-        it('returns a match in case of event property operator contains', async () => {
-            const actionDefinitionOpContains: Action = await createTestAction([
+            const actionDefinitionOpIsNotArray: Action = await createTestAction([
                 {
                     properties: [
-                        { type: 'event', key: 'foo', value: 'bar', operator: 'icontains' as PropertyOperator },
+                        { type: 'event', key: 'foo', value: ['bar', 'baz'], operator: PropertyOperator.IsNot },
                     ],
                 },
             ])
@@ -207,7 +185,65 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
+            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing: PluginEvent = createTestEvent()
+            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
+            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsNotArray])
+            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsNotArray])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooBarabara)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooTrue)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+            expect(await actionMatcher.match(eventFooNull)).toEqual([
+                actionDefinitionOpIsNot,
+                actionDefinitionOpIsNotArray,
+            ])
+        })
+
+        it('returns a match in case of event property operator contains', async () => {
+            const actionDefinitionOpContains: Action = await createTestAction([
+                {
+                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: PropertyOperator.IContains }],
+                },
+            ])
+
+            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -220,7 +256,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpContains])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpContains])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpContains])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpContains])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([])
@@ -233,9 +268,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator does not contain', async () => {
             const actionDefinitionOpNotContains: Action = await createTestAction([
                 {
-                    properties: [
-                        { type: 'event', key: 'foo', value: 'bar', operator: 'not_icontains' as PropertyOperator },
-                    ],
+                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: PropertyOperator.NotIContains }],
                 },
             ])
 
@@ -243,7 +276,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -256,7 +288,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpNotContains])
@@ -269,13 +300,13 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator regex', async () => {
             const actionDefinitionOpRegex1: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', value: '^bar', operator: 'regex' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', value: '^bar', operator: PropertyOperator.Regex }],
                 },
             ])
             const actionDefinitionOpRegex2: Action = await createTestAction([
                 {
                     properties: [
-                        { type: 'event', key: 'foo', value: '(?:.+bar|[A-Z])', operator: 'regex' as PropertyOperator },
+                        { type: 'event', key: 'foo', value: '(?:.+bar|[A-Z])', operator: PropertyOperator.Regex },
                     ],
                 },
             ])
@@ -284,7 +315,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -297,7 +327,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpRegex1])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpRegex2])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([
                 actionDefinitionOpRegex1,
                 actionDefinitionOpRegex2,
@@ -313,9 +342,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator not regex', async () => {
             const actionDefinitionOpNotRegex1: Action = await createTestAction([
                 {
-                    properties: [
-                        { type: 'event', key: 'foo', value: '^bar', operator: 'not_regex' as PropertyOperator },
-                    ],
+                    properties: [{ type: 'event', key: 'foo', value: '^bar', operator: PropertyOperator.NotRegex }],
                 },
             ])
             const actionDefinitionOpNotRegex2: Action = await createTestAction([
@@ -325,7 +352,7 @@ describe('ActionMatcher', () => {
                             type: 'event',
                             key: 'foo',
                             value: '(?:.+bar|[A-Z])',
-                            operator: 'not_regex' as PropertyOperator,
+                            operator: PropertyOperator.NotRegex,
                         },
                     ],
                 },
@@ -335,7 +362,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -351,7 +377,6 @@ describe('ActionMatcher', () => {
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpNotRegex1])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([
@@ -379,7 +404,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator is set', async () => {
             const actionDefinitionOpIsSet: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', operator: 'is_set' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', operator: PropertyOperator.IsSet }],
                 },
             ])
 
@@ -387,7 +412,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -400,7 +424,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsSet])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
@@ -413,7 +436,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator is not set', async () => {
             const actionDefinitionOpIsNotSet: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', operator: 'is_not_set' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', operator: PropertyOperator.IsNotSet }],
                 },
             ])
 
@@ -421,7 +444,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
@@ -434,7 +456,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
             expect(await actionMatcher.match(eventFooNumber)).toEqual([])
@@ -447,7 +468,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator greater than', async () => {
             const actionDefinitionOpGreaterThan: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', value: 5, operator: 'gt' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', value: 5, operator: PropertyOperator.GreaterThan }],
                 },
             ])
 
@@ -455,7 +476,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumberMinusOne: PluginEvent = createTestEvent({ properties: { foo: -1 } })
@@ -470,7 +490,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
             expect(await actionMatcher.match(eventFooNumberMinusOne)).toEqual([])
@@ -485,7 +504,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of event property operator less than', async () => {
             const actionDefinitionOpLessThan: Action = await createTestAction([
                 {
-                    properties: [{ type: 'event', key: 'foo', value: 5, operator: 'lt' as PropertyOperator }],
+                    properties: [{ type: 'event', key: 'foo', value: 5, operator: PropertyOperator.LessThan }],
                 },
             ])
 
@@ -493,7 +512,6 @@ describe('ActionMatcher', () => {
             const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
             const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
             const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooArray: PluginEvent = createTestEvent({ properties: { foo: ['baz', 'buzz', 'bar'] } })
             const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
             const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
             const eventFooNumberMinusOne: PluginEvent = createTestEvent({ properties: { foo: -1 } })
@@ -508,7 +526,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
             expect(await actionMatcher.match(eventFooBaR)).toEqual([])
             expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooArray)).toEqual([])
             expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
             expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
             expect(await actionMatcher.match(eventFooNumberMinusOne)).toEqual([actionDefinitionOpLessThan])
@@ -699,7 +716,7 @@ describe('ActionMatcher', () => {
         it('returns a match in case of person property operator exact', async () => {
             const actionDefinitionOpExact: Action = await createTestAction([
                 {
-                    properties: [{ type: 'person', key: 'foo', value: 'bar', operator: 'exact' as PropertyOperator }],
+                    properties: [{ type: 'person', key: 'foo', value: 'bar', operator: PropertyOperator.Exact }],
                 },
             ])
             const actionDefinitionOpUndefined: Action = await createTestAction([
