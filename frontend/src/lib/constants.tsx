@@ -172,3 +172,6 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
 // pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
 export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
     cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
+
+export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi

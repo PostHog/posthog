@@ -35,10 +35,14 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     if (canBreakdown) {
-        if (filters.display === ChartDisplayType.Hedgehogger && !filters.breakdown) {
-            // For the map, make sure we are breaking down by country
+        // For the map, make sure we are breaking down by country
+        // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
+        if (filters.display === ChartDisplayType.Hedgehogger) {
             cleanedParams['breakdown'] = '$geoip_country_code'
-            cleanedParams['breakdown_type'] = 'event'
+            if (!cleanedParams['breakdown_type']) {
+                cleanedParams['breakdown_type'] = 'event'
+            }
+            return
         }
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type

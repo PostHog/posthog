@@ -13,6 +13,7 @@ interface AuthenticateResponseType {
 
 interface PrecheckResponseType {
     sso_enforcement?: SSOProviders | null
+    saml_available: boolean
     status: 'pending' | 'completed'
 }
 
@@ -80,6 +81,7 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
         '/login': ({}, { error_code, error_detail }) => {
             if (error_code) {
                 actions.authenticateSuccess({ success: false, errorCode: error_code, errorDetail: error_detail })
+                router.actions.replace('/login', {})
             }
         },
     }),

@@ -61,7 +61,6 @@ export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
-    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -144,6 +143,10 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProviders | ''
+    has_saml: boolean
+    saml_entity_id: string
+    saml_acs_url: string
+    saml_x509_cert: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -1320,9 +1323,6 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
-
-// Reserved hotkeys globally available
-export type GlobalHotKeys = 'g'
 
 // Hotkeys for local (component) actions
 export type HotKeys =

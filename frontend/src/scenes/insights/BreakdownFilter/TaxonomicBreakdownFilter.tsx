@@ -7,7 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breakdown, FilterType } from '~/types'
+import { Breakdown, ChartDisplayType, FilterType } from '~/types'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
@@ -70,7 +70,11 @@ export function BreakdownFilter({
                               })
                           }
                       } else {
-                          setFilters({ breakdown: undefined, breakdown_type: null })
+                          setFilters({
+                              breakdown: undefined,
+                              breakdown_type: undefined,
+                              display: filters.display !== ChartDisplayType.Hedgehogger ? filters.display : undefined,
+                          })
                       }
                   }
               }

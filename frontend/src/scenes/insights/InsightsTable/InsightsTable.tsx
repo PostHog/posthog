@@ -25,7 +25,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport, IconEdit } from 'lib/components/icons'
-import { countryCodeToName } from 'scenes/insights/Hedgehogger/Hedgehogger'
+import { countryCodeToName } from '../Hedgehogger/countryCodes'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
