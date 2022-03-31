@@ -87,21 +87,17 @@ export function InsightContainer(
     }, [percentResultsLoaded, insight.status?.complete])
 
     useEffect(() => {
-        console.log(percentResultsLoaded)
         if (
             filters.insight === InsightType.USER_SQL &&
             showProgress &&
             !showVideoTimeout.current &&
             percentResultsLoaded
         ) {
-            console.log('setting timeout')
             showVideoTimeout.current = setTimeout(() => {
-                console.log('show video')
                 setShowVideo(true)
             }, 3000)
         }
         if (!showProgress && showVideoTimeout.current) {
-            console.log('clearing timeout')
             clearTimeout(showVideoTimeout.current)
             showVideoTimeout.current = null
             if (showVideo) {
@@ -137,7 +133,7 @@ export function InsightContainer(
                                         frameBorder="0"
                                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                         allowFullScreen
-                                     />
+                                    />
                                     {showResultsReady && (
                                         <div
                                             style={{
@@ -159,6 +155,14 @@ export function InsightContainer(
                                             </LemonButton>
                                         </div>
                                     )}
+                                </div>
+                            )}
+                            {insight.status && insight.status?.error && (
+                                <div style={{ padding: 30 }}>
+                                    <h1 style={{ marginBottom: 20 }}>Big ole error</h1>
+                                    <div>
+                                        <code style={{ color: 'red' }}>{insight.status.error_message}</code>
+                                    </div>
                                 </div>
                             )}
                         </>

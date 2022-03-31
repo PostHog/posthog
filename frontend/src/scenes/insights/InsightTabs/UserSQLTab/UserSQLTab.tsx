@@ -7,12 +7,14 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { format } from 'sql-formatter'
 import { LemonRow } from 'lib/components/LemonRow'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { Switch } from 'antd'
 
 export function UserSQLTab(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const { loadResultsWithProgress } = useActions(insightLogic)
     const { setFilters } = useActions(userSQLlogic(insightProps))
     const [query, setQuery] = useState<string | undefined>(format(filters.user_sql || ''))
+    const [theme, setTheme] = useState('light')
 
     useEventListener('keydown', (event) => {
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -36,9 +38,19 @@ export function UserSQLTab(): JSX.Element {
 
     return (
         <div>
+            <Switch
+                checkedChildren="dark"
+                unCheckedChildren="light"
+                style={{ marginBottom: 8, float: 'right' }}
+                onChange={() => {
+                    const newTheme = theme === 'light' ? 'vs-dark' : 'light'
+                    setTheme(newTheme)
+                }}
+            />
             <MonacoEditor
                 language="sql"
                 height={400}
+                theme={theme}
                 value={query}
                 onChange={(value) => {
                     setQuery(value)
