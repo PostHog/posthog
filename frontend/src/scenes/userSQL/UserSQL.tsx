@@ -4,6 +4,10 @@ import React, { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 function convertArrayToString(payload): any {
+    if (!payload) {
+        return []
+    }
+
     return payload.map((item) => {
         const newItem = {}
         Object.keys(item).map((key) => {
