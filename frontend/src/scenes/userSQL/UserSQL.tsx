@@ -18,15 +18,33 @@ export function UserSQLInsight(): JSX.Element {
         }
     })
 
-    return (
+    const isResultSingle = (): boolean => {
+        return insight?.result?.length === 1 && Object.keys(insight.result[0]).length === 1
+    }
+
+    const getSingleResult = (result): number => {
+        return Object.values(result[0])[0] as number
+    }
+
+    return isResultSingle() ? (
+        <div
+            style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                margin: 30,
+                fontSize: 55,
+                fontWeight: 'bold',
+            }}
+        >
+            {getSingleResult(insight.result)}
+        </div>
+    ) : (
         <LemonTable
             columns={columns}
-            // showHeader={!embedded}
             size="small"
             rowKey="0"
-            // embedded={embedded}
             dataSource={insight.result}
-            // className={className}
             emptyState="This property value is an empty object."
         />
     )
