@@ -48,7 +48,7 @@ const initTest = async (config: Partial<PluginsServerConfig>, resetSchema = true
 
 const { console: testConsole } = writeToFile
 
-describe('ingest worker job handling', () => {
+describe.skip('ingest worker job handling', () => {
     let ingest_worker: ServerInstance
     let ingest_posthog: DummyPostHog
 
