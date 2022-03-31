@@ -102,6 +102,7 @@ export function UniversalSearchPopup({
         groupType,
         value,
         onChange: ({ type }, payload, item) => {
+            redirectOnSelectItems(payload, type, item)
             onChange?.(payload, type, item)
             setVisible(false)
         },
@@ -117,16 +118,7 @@ export function UniversalSearchPopup({
         <div className="universal-search">
             <Popup
                 overlay={
-                    <UniversalSearch
-                        groupType={groupType}
-                        value={value}
-                        onChange={({ type }, payload, item) => {
-                            redirectOnSelectItems(payload, type, item)
-                            onChange?.(payload, type, item)
-                            setVisible(false)
-                        }}
-                        searchGroupTypes={groupTypes ?? [groupType]}
-                    />
+                    <UniversalSearch groupType={groupType} value={value} searchGroupTypes={groupTypes ?? [groupType]} />
                 }
                 visible={visible}
                 placement="right-start"

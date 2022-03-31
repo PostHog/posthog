@@ -60,7 +60,7 @@ export function Popup({
             {
                 name: 'offset',
                 options: {
-                    offset: [0, -250],
+                    offset: [0, 4],
                 },
             },
             fallbackPlacements
