@@ -201,7 +201,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
         password=CLICKHOUSE_PASSWORD,
         ca_certs=CLICKHOUSE_CA,
         verify=CLICKHOUSE_VERIFY,
-        settings={"mutations_sync": "1"} if TEST else {},
     ) 
     redis_client = redis.get_client()
 
