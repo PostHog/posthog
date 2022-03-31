@@ -69,6 +69,7 @@ export function UserSQLInsight(): JSX.Element {
             rowKey="0"
             dataSource={cleanedResult}
             emptyState="This property value is an empty object."
+            pagination={{ pageSize: 100 }}
         />
     )
 }
