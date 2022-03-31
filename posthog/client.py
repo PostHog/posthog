@@ -210,10 +210,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             with_column_types=with_column_types,
         )
         for num_rows, total_rows in progress:
-            if total_rows:
-                done = float(num_rows) / total_rows
-            else:
-                done = total_rows
             query_status = QueryStatus(
                 team_id=team_id,
                 num_rows=num_rows,
