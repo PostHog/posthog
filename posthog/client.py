@@ -207,6 +207,7 @@ def execute_with_progress(
         password=CLICKHOUSE_PASSWORD,
         ca_certs=CLICKHOUSE_CA,
         verify=CLICKHOUSE_VERIFY,
+        settings={"max_result_rows": "10000"},
     )
     redis_client = redis.get_client()
 
