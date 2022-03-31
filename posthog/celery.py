@@ -392,6 +392,10 @@ def delete_old_recordings_from_disk():
     from posthog.internal_metrics import gauge
 
     ttl_weeks = int(CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"])
+
+    if not isinstance(ttl_weeks, int):
+        raise ValueError("`CONSTANCE_CONFIG['RECORDINGS_TTL_WEEKS']` must be an integer")
+
     file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
     ttl_date = (datetime.datetime.now() - file_deletion_time_delta).date()
     number_of_deletions = object_storage.delete_older_than(ttl_date, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET)
