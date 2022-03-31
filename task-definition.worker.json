@@ -130,7 +130,7 @@
                 },
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
-                    "value": "20"
+                    "value": "5"
                 }
             ],
             "secrets": [
