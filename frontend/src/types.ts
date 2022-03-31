@@ -941,7 +941,7 @@ export interface FilterType {
 
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-
+    total_intervals?: number // retention total intervals
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>

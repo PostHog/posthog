@@ -1,15 +1,15 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import {
-    retentionTableLogic,
+    dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
+    retentionTableLogic,
 } from 'scenes/retention/retentionTableLogic'
-import { Select, Row, Col } from 'antd'
+import { Col, Input, Row, Select } from 'antd'
 import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
-import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -27,6 +27,7 @@ import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } fr
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from '../common'
 import { MathAvailability } from '../ActionFilter/ActionFilterRow/ActionFilterRow'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -45,6 +46,20 @@ export function RetentionTab(): JSX.Element {
             <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
                 <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
                     <Row gutter={8} align="middle">
+                        <Col>Show</Col>
+                        <Col>
+                            {showGroupsOptions ? (
+                                <AggregationSelect
+                                    aggregationGroupTypeIndex={filters.aggregation_group_type_index}
+                                    onChange={(groupTypeIndex) =>
+                                        setFilters({ aggregation_group_type_index: groupTypeIndex })
+                                    }
+                                />
+                            ) : (
+                                <b>Unique users</b>
+                            )}
+                        </Col>
+                        <Col>who performed event or action</Col>
                         <Col>
                             <ActionFilter
                                 horizontalUI
@@ -64,22 +79,7 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table"
-                                customRowPrefix={
-                                    <>
-                                        Showing{' '}
-                                        {showGroupsOptions ? (
-                                            <AggregationSelect
-                                                aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-                                                onChange={(groupTypeIndex) =>
-                                                    setFilters({ aggregation_group_type_index: groupTypeIndex })
-                                                }
-                                            />
-                                        ) : (
-                                            <b>Unique users</b>
-                                        )}{' '}
-                                        who did
-                                    </>
-                                }
+                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>
@@ -102,7 +102,15 @@ export function RetentionTab(): JSX.Element {
                                 </Select>
                             </div>
                         </Col>
-                        <Col>grouped by</Col>
+                        <Col>in the last</Col>
+                        <Col>
+                            <Input
+                                type="number"
+                                style={{ width: 80 }}
+                                value={String(filters.total_intervals ?? 10)}
+                                onChange={(e) => setFilters({ total_intervals: parseInt(e.target.value) })}
+                            />
+                        </Col>
                         <Col>
                             <Select
                                 value={filters.period}
@@ -111,13 +119,12 @@ export function RetentionTab(): JSX.Element {
                             >
                                 {dateOptions.map((period) => (
                                     <Select.Option key={period} value={period}>
-                                        {period}
+                                        {dateOptionPlurals[period] || period}
                                     </Select.Option>
                                 ))}
                             </Select>
                         </Col>
-                    </Row>
-                    <Row gutter={8} align="middle" className="mt">
+                        <Col>and then came back to perform event or action</Col>
                         <Col>
                             <ActionFilter
                                 horizontalUI
@@ -137,9 +144,10 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table-returning"
-                                customRowPrefix="... who then came back and did"
+                                customRowPrefix={<span />}
                             />
                         </Col>
+                        <Col>on the following {dateOptionPlurals[filters.period ?? 'Day']}</Col>
                     </Row>
                     <Row>
                         <Col>
