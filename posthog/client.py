@@ -203,9 +203,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
 
     timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
-    query_status = QueryStatus(team_id=team_id)
-    redis_client.set(key, query_status.to_json())
-
     try:
         progress = ch_client.execute_with_progress(
             prepared_sql,
@@ -267,6 +264,13 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
 
 def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
     query_uuid = uuid.uuid4()
+    key = generate_redis_results_key(query_uuid) 
+
+    # Immediately set status so we don't have race with celery 
+    redis_client = redis.get_client()
+    query_status = QueryStatus(team_id=team_id)
+    redis_client.set(key, query_status.to_json())
+
     enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
     return query_uuid
 
