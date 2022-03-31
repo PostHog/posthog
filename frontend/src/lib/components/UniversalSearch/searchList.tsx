@@ -59,7 +59,7 @@ const renderItemContents = ({
             {isStale && staleIndicator(parsedLastSeen)}
         </>
     ) : (
-        <>{(item.name || group.getName(item)) ?? ''}</>
+        <>{group.getName(item) ?? ''}</>
     )
 }
 

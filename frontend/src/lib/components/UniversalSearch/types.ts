@@ -1,14 +1,14 @@
 import { LogicWrapper } from 'kea'
+import { PluginSelectionType } from 'scenes/plugins/pluginsLogic'
 import {
     ActionType,
     CohortType,
     EventDefinition,
     Experiment,
     FeatureFlagType,
-    GroupType,
-    InsightType,
+    Group,
+    InsightModel,
     PersonType,
-    PluginType,
 } from '~/types'
 import { SimpleOption, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 
@@ -26,10 +26,10 @@ export type SearchDefinitionTypes =
     | ActionType
     | Experiment
     | PersonType
-    | GroupType
+    | Group
     | FeatureFlagType
-    | InsightType
-    | PluginType
+    | InsightModel
+    | PluginSelectionType
 
 export interface ListStorage {
     results: SearchDefinitionTypes[]
@@ -46,7 +46,7 @@ export interface UniversalSearchProps {
     onChange?: (group: UniversalSearchGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
     searchGroupTypes: UniversalSearchGroupType[]
-    // taxonomicFilterLogicKey?: string
+    universalSearchFilterLogicKey?: string
     optionsFromProp?: Partial<Record<UniversalSearchGroupType, SimpleOption[]>>
     height?: number
     width?: number

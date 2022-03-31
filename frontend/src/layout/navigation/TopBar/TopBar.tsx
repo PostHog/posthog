@@ -16,9 +16,6 @@ import './TopBar.scss'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
 import { UniversalSearchGroupType } from 'lib/components/UniversalSearch/types'
-import { urls } from 'scenes/urls'
-import { combineUrl, router } from 'kea-router'
-import { ChartDisplayType, InsightType } from '~/types'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -49,7 +46,6 @@ export function TopBar(): JSX.Element {
                             groupType={UniversalSearchGroupType.Events}
                             groupTypes={[
                                 UniversalSearchGroupType.Events,
-                                // UniversalSearchGroupType.EventProperties,
                                 UniversalSearchGroupType.Persons,
                                 UniversalSearchGroupType.Actions,
                                 UniversalSearchGroupType.Cohorts,
@@ -58,62 +54,11 @@ export function TopBar(): JSX.Element {
                                 UniversalSearchGroupType.Plugins,
                                 UniversalSearchGroupType.Experiments,
                                 UniversalSearchGroupType.Dashboards,
-                                // 'groups_0',
+                                // UniversalSearchGroupType.GroupsPrefix,
+                                'groups_0',
                                 'groups_1',
-                                // 'groups_2',
+                                // // 'groups_2',
                             ]}
-                            onChange={(value, groupType, item) => {
-                                if (groupType === UniversalSearchGroupType.Events) {
-                                    // Go to Insights instead?
-                                    // router.actions.push(combineUrl(urls.events(), { eventFilter: value }).url)
-                                    router.actions.push(
-                                        combineUrl(
-                                            urls.insightNew({
-                                                insight: InsightType.TRENDS,
-                                                interval: 'day',
-                                                display: ChartDisplayType.ActionsLineGraph,
-                                                events: [{ id: value, name: value, type: 'events', math: 'dau' }],
-                                            })
-                                        ).url
-                                    )
-                                } else if (groupType === UniversalSearchGroupType.Actions) {
-                                    router.actions.push(
-                                        combineUrl(
-                                            urls.insightNew({
-                                                insight: InsightType.TRENDS,
-                                                interval: 'day',
-                                                display: ChartDisplayType.ActionsLineGraph,
-                                                actions: [
-                                                    {
-                                                        id: item.id,
-                                                        name: item.name,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                    },
-                                                ],
-                                            })
-                                        ).url
-                                    )
-                                } else if (groupType === UniversalSearchGroupType.Cohorts) {
-                                    router.actions.push(urls.cohort(value))
-                                } else if (groupType === UniversalSearchGroupType.Persons) {
-                                    router.actions.push(urls.person(value))
-                                } else if (groupType.startsWith(UniversalSearchGroupType.GroupsPrefix)) {
-                                    router.actions.push(urls.group(item.groupTypeIndex, value))
-                                } else if (groupType === UniversalSearchGroupType.Insights) {
-                                    router.actions.push(urls.insightView(value))
-                                } else if (groupType === UniversalSearchGroupType.FeatureFlags) {
-                                    router.actions.push(urls.featureFlag(value))
-                                } else if (groupType === UniversalSearchGroupType.Experiments) {
-                                    router.actions.push(urls.experiment(value))
-                                } else if (groupType === UniversalSearchGroupType.Plugins) {
-                                    router.actions.push(
-                                        combineUrl(urls.plugins(), { tab: item.tab, name: item.name }).url
-                                    )
-                                } else if (groupType === UniversalSearchGroupType.Dashboards) {
-                                    router.actions.push(urls.dashboard(value))
-                                }
-                            }}
                         />
                     </div>
                     <SearchBox />

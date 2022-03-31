@@ -151,7 +151,7 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     type: UniversalSearchGroupType.FeatureFlags,
                     logic: featureFlagsLogic,
                     value: 'featureFlags',
-                    getName: (featureFlag: FeatureFlagType) => featureFlag.name || featureFlag.key,
+                    getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                     getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                 },
                 {
@@ -171,15 +171,6 @@ export const universalSearchLogic = kea<universalSearchLogicType>({
                     value: 'allPossiblePlugins',
                     getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                     getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                },
-                {
-                    name: 'Dashboards',
-                    searchPlaceholder: 'dashboards',
-                    type: UniversalSearchGroupType.Dashboards,
-                    logic: dashboardsModel,
-                    value: 'nameSortedDashboards',
-                    getName: (dashboard: DashboardType) => dashboard.name,
-                    getValue: (dashboard: DashboardType) => dashboard.id,
                 },
                 {
                     name: 'Dashboards',
