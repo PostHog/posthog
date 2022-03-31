@@ -189,7 +189,9 @@ export async function startPluginsServer(
 
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await scheduleControl?.reloadSchedule()
+                if (pluginServerMode === PluginServerMode.Runner) {
+                    await scheduleControl?.reloadSchedule()
+                }
             },
             ...pubSubChannelsConfig,
         })
