@@ -4,12 +4,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { universalSearchLogic } from './universalSearchLogic'
 import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
 import { SearchList } from 'lib/components/UniversalSearch/searchList'
-import { UniversalSearchGroupType, UniversalSearchLogicProps } from './types'
+import { UniversalSearchGroupType, UniversalSearchProps } from './types'
 import clsx from 'clsx'
 
 export interface SearchResultsProps {
     focusInput: () => void
-    universalSearchLogicProps: UniversalSearchLogicProps
+    universalSearchLogicProps: UniversalSearchProps
 }
 
 function CategoryPill({
@@ -20,7 +20,7 @@ function CategoryPill({
 }: {
     isActive: boolean
     groupType: UniversalSearchGroupType
-    universalSearchLogicProps: UniversalSearchLogicProps
+    universalSearchLogicProps: UniversalSearchProps
     onClick: () => void
 }): JSX.Element {
     const logic = searchListLogic({ ...universalSearchLogicProps, listGroupType: groupType })

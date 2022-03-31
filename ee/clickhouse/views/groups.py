@@ -60,9 +60,9 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    # filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    # filter_backends = [filters.SearchFilter]
     # filterset_fields = ["group_type_index"]
-    # search_fields = ["group_key"]
+    # search_fields = ["group_key", "group_properties"]
 
     def get_queryset(self):
         return (

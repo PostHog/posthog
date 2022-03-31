@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { UniversalSearchGroup, UniversalSearchGroupType, UniversalSearchLogicProps, ListStorage } from './types'
+import { UniversalSearchGroup, UniversalSearchGroupType, UniversalSearchProps, ListStorage } from './types'
 import { searchListLogic } from 'lib/components/UniversalSearch/searchListLogic'
 import {
     ActionType,
@@ -31,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const universalSearchLogic = kea<universalSearchLogicType>({
     path: (key) => ['lib', 'components', 'UniversalSearch', 'universalSearchLogic', key],
-    props: {} as UniversalSearchLogicProps,
+    props: {} as UniversalSearchProps,
     key: () => `universal-search`,
     connect: {
         values: [

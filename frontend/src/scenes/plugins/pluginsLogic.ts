@@ -733,8 +733,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
     }),
 
     urlToAction: ({ actions }) => ({
-        '/project/plugins': (url, { tab, name }) => {
-            console.log('got values: ', tab, name, url)
+        '/project/plugins': (_, { tab, name }) => {
             if (tab && name) {
                 actions.setSearchTerm(name)
                 actions.setPluginTab(tab as PluginTab)

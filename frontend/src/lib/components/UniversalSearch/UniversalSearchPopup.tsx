@@ -14,6 +14,7 @@ import { useValues } from 'kea'
 import { universalSearchLogic } from './universalSearchLogic'
 import { IconMagnifier } from '../icons'
 import { Input } from 'antd'
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -113,6 +114,13 @@ export function UniversalSearchPopup({
     }
     const logic = universalSearchLogic(universalSearchLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
+
+    useEventListener('keydown', (event) => {
+        if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            setVisible(!visible)
+        }
+    })
 
     return (
         <div className="universal-search">
