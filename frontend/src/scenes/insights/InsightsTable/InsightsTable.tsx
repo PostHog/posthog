@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -98,22 +98,24 @@ export function InsightsTable({
         }
     }
 
-    const calcColumnMenu = (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setCalcColumnState(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
+    // The calc menu doesn't make sense for the map
+    const calcColumnMenu =
+        filters.display === ChartDisplayType.Hedgehogger ? null : (
+            <Menu>
+                {Object.keys(CALC_COLUMN_LABELS).map((key) => (
+                    <Menu.Item
+                        key={key}
+                        onClick={(e) => {
+                            setCalcColumnState(key as CalcColumnState)
+                            reportInsightsTableCalcToggled(key)
+                            e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
+                        }}
+                    >
+                        {CALC_COLUMN_LABELS[key as CalcColumnState]}
+                    </Menu.Item>
+                ))}
+            </Menu>
+        )
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumns<IndexedTrendResult> = []
@@ -228,13 +230,15 @@ export function InsightsTable({
 
     if (showTotalCount) {
         columns.push({
-            title: (
+            title: calcColumnMenu ? (
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]}
                         <DownOutlined className="ml-025" />
                     </span>
                 </Dropdown>
+            ) : (
+                CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(count: any, item: IndexedTrendResult) {
                 if (calcColumnState === 'average') {

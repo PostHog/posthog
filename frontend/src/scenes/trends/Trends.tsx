@@ -13,7 +13,7 @@ import {
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { ChartDisplayType, InsightType, ItemMode } from '~/types'
+import { InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
@@ -89,29 +89,20 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {_filters.breakdown && _filters.display !== ChartDisplayType.Hedgehogger && (
+            {_filters.breakdown && loadMoreBreakdownUrl && (
                 <div className="mt text-center">
-                    {loadMoreBreakdownUrl ? (
-                        <>
-                            <div className="text-muted mb">
-                                For readability, <b>not all breakdown values are displayed</b>. Click below to load
-                                them.
-                            </div>
-                            <div>
-                                <Button
-                                    style={{ textAlign: 'center', marginBottom: 16 }}
-                                    onClick={loadMoreBreakdownValues}
-                                    loading={breakdownValuesLoading}
-                                >
-                                    Load more breakdown values
-                                </Button>
-                            </div>
-                        </>
-                    ) : (
-                        <span className="text-muted">
-                            Showing <b>all breakdown values</b>
-                        </span>
-                    )}
+                    <div className="text-muted mb">
+                        For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                    </div>
+                    <div>
+                        <Button
+                            style={{ textAlign: 'center', marginBottom: 16 }}
+                            onClick={loadMoreBreakdownValues}
+                            loading={breakdownValuesLoading}
+                        >
+                            Load more breakdown values
+                        </Button>
+                    </div>
                 </div>
             )}
             <PersonsModal
