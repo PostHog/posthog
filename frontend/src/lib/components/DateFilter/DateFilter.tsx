@@ -9,6 +9,7 @@ import { dateMappingOption } from '~/types'
 export interface DateFilterProps {
     defaultValue: string
     showCustom?: boolean
+    showLive?: boolean
     bordered?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     style?: React.CSSProperties
@@ -29,6 +30,7 @@ export function DateFilter({
     bordered,
     defaultValue,
     showCustom,
+    showLive = false,
     style,
     disabled,
     makeLabel,
@@ -141,6 +143,10 @@ export function DateFilter({
         >
             {[
                 ...Object.entries(dateOptions).map(([key, { values, inactive }]) => {
+                    if (key === 'Live' && !showLive) {
+                        return null
+                    }
+
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }

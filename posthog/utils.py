@@ -133,7 +133,10 @@ def relative_date_parse(input: str) -> datetime.datetime:
     date = timezone.now()
     if not match:
         return date
-    if match.group("type") == "h":
+    if match.group("type") == "M":
+        date -= relativedelta(minutes=int(match.group("number")))
+        return date.replace(second=0, microsecond=0)
+    elif match.group("type") == "h":
         date -= relativedelta(hours=int(match.group("number")))
         return date.replace(minute=0, second=0, microsecond=0)
     elif match.group("type") == "d":

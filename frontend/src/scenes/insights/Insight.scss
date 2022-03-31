@@ -143,6 +143,24 @@ $funnel_canvas_background: #fff;
                 align-items: center;
                 margin: 0.5rem 0;
             }
+
+            .live-indicator {
+                position: relative;
+                display: inline-block;
+                width: 0.875rem;
+                height: 0.875rem;
+                vertical-align: -0.15em;
+                &:after {
+                    position: absolute;
+                    top: 0.125rem;
+                    left: 0.125rem;
+                    content: '';
+                    width: 0.625rem;
+                    height: 0.625rem;
+                    border-radius: 100%;
+                    background: #f00;
+                }
+            }
         }
 
         .ant-card-body {

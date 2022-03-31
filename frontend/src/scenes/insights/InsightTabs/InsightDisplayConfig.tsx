@@ -10,7 +10,7 @@ import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_HEDGEHOGGER,
 } from 'lib/constants'
-import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
+import { FilterType, FunnelVizType, ItemMode, InsightType, ChartDisplayType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
@@ -105,12 +105,15 @@ export function InsightDisplayConfig({
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
                             defaultValue="Last 7 days"
+                            showLive={
+                                activeView === InsightType.TRENDS && filters.display === ChartDisplayType.Hedgehogger
+                            }
                             disabled={disabled || (showFunnelBarOptions && isFunnelEmpty(filters))}
                             bordered
                             makeLabel={(key) => (
                                 <>
-                                    <CalendarOutlined /> {key}
-                                    {key == 'All time' && (
+                                    {key === 'Live' ? <div className="live-indicator" /> : <CalendarOutlined />} {key}
+                                    {key === 'All time' && (
                                         <Tooltip title={`Only events dated after 2015 will be shown`}>
                                             <InfoCircleOutlined className="info-indicator" />
                                         </Tooltip>

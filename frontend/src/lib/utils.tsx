@@ -694,6 +694,9 @@ const DATE_FORMAT = 'D MMM YYYY'
 
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },
+    Live: {
+        values: ['-30M'],
+    },
     Today: {
         values: ['dStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
