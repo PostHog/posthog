@@ -167,6 +167,8 @@ def sync_execute(query, args=None, settings=None, with_column_types=False):
     return result
 
 
+REDIS_STATUS_TTL = 600  # 10 minutes
+
 @dataclass_json
 @dataclass
 class QueryStatus:
@@ -229,7 +231,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 error_message="",
                 results=None
             )
-            redis_client.set(key, query_status.to_json())
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
             time.sleep(update_freq)
         else:
             rv = progress.get_result()
@@ -243,7 +245,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 error_message="",
                 results=rv,
             )
-            redis_client.set(key, query_status.to_json())
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
 
     except Exception as err:
         err = wrap_query_error(err)
@@ -260,7 +262,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             error_message=str(err),
             results=None,
         )
-        redis_client.set(key, query_status.to_json())
+        redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
 
         raise err
     finally:
@@ -282,7 +284,7 @@ def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with
     # Immediately set status so we don't have race with celery 
     redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, status="submitted")
-    redis_client.set(key, query_status.to_json())
+    redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
 
     enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
     return query_uuid
