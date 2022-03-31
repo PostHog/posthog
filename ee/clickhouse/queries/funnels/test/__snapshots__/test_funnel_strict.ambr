@@ -20,7 +20,7 @@
        AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -143,7 +143,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -264,7 +264,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -357,7 +357,7 @@
   WHERE steps IN [1, 2, 3]
     AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('finance')))
   ORDER BY aggregation_target
-  LIMIT 100
+  LIMIT 250
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -382,7 +382,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -475,7 +475,7 @@
   WHERE steps IN [2, 3]
     AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('finance')))
   ORDER BY aggregation_target
-  LIMIT 100
+  LIMIT 250
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -500,7 +500,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -593,7 +593,7 @@
   WHERE steps IN [1, 2, 3]
     AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('technology')))
   ORDER BY aggregation_target
-  LIMIT 100
+  LIMIT 250
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -618,7 +618,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -711,7 +711,7 @@
   WHERE steps IN [2, 3]
     AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('technology')))
   ORDER BY aggregation_target
-  LIMIT 100
+  LIMIT 250
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
   '
 ---
