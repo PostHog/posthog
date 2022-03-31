@@ -213,6 +213,7 @@ export const countryCodeToName = {
     NL: 'Netherlands',
     LB: 'Lebanon',
     ME: 'Montenegro',
+    UA: 'Ukraine',
     SZ: 'Swaziland',
     GS: 'South Georgia and the South Sandwich Islands',
     GM: 'Gambia',
