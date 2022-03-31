@@ -129,6 +129,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Whether loading timed out. */
     timedOut?: boolean
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor?: (newColor: InsightModel['color']) => void
@@ -463,6 +464,7 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
         updateColor,
         removeFromDashboard,
         deleteWithUndo,
@@ -550,9 +552,9 @@ function InsightCardInternal(
             </BindLogic>
             {showResizeHandles && (
                 <>
-                    <ResizeHandle1D orientation="vertical" />
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
                     <ResizeHandle1D orientation="horizontal" />
-                    <ResizeHandle2D />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
                 </>
             )}
             {children /* Extras, such as resize handles */}

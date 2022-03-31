@@ -89,7 +89,7 @@ export function TaxonomicPopup({
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
 export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.Element {
     return (
-        <LemonTaxonomicProps
+        <LemonTaxonomicPopup
             {...props}
             value={String(props.value)}
             onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
@@ -98,7 +98,7 @@ export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): J
     )
 }
 
-export function LemonTaxonomicProps({
+export function LemonTaxonomicPopup({
     groupType,
     value,
     onChange,

@@ -84,13 +84,25 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         <>
             <div className="LemonRow__main-area">
                 {icon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--prefix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {icon}
                     </span>
                 )}
                 {children && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--suffix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {sideIcon}
                     </span>
                 )}

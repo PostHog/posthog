@@ -118,6 +118,7 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     HEDGEHOGGER: 'hedgehogger', // owner: @Twixes
+    PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
