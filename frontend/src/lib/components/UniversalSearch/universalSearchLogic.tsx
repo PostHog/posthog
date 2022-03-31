@@ -32,7 +32,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 export const universalSearchLogic = kea<universalSearchLogicType>({
     path: (key) => ['lib', 'components', 'UniversalSearch', 'universalSearchLogic', key],
     props: {} as UniversalSearchLogicProps,
-    key: (props) => `${props.universalSearchLogicKey}`,
+    key: () => `universal-search`,
     connect: {
         values: [
             teamLogic,

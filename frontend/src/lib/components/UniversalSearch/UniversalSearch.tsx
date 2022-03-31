@@ -1,5 +1,5 @@
 import './UniversalSearch.scss'
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { SearchResults } from './SearchResults'
@@ -7,12 +7,9 @@ import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { universalSearchLogic } from './universalSearchLogic'
-import { UniversalSearchLogicProps, UniversalSearchProps } from './types'
-
-let uniqueMemoizedIndex = 0
+import { UniversalSearchProps } from './types'
 
 export function UniversalSearch({
-    universalSearchFilterLogicKey,
     groupType,
     value,
     onChange,
@@ -25,16 +22,11 @@ export function UniversalSearch({
     selectFirstItem = true,
 }: UniversalSearchProps): JSX.Element {
     // Generate a unique key for each unique UniversalSearch that's rendered
-    const universalSearchLogicKey = useMemo(
-        () => universalSearchFilterLogicKey || `universal-search-${uniqueMemoizedIndex++}`,
-        [universalSearchFilterLogicKey]
-    )
 
     const searchInputRef = useRef<Input | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
-    const universalSearchLogicProps: UniversalSearchLogicProps = {
-        universalSearchLogicKey,
+    const universalSearchLogicProps: UniversalSearchProps = {
         groupType,
         value,
         onChange,
@@ -61,7 +53,7 @@ export function UniversalSearch({
         <BindLogic logic={universalSearchLogic} props={universalSearchLogicProps}>
             <div
                 className={clsx(
-                    'universal-search',
+                    'universal-search-popup',
                     searchGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
@@ -70,7 +62,7 @@ export function UniversalSearch({
                 <div style={{ position: 'relative' }}>
                     <Input
                         style={{ flexGrow: 1 }}
-                        data-attr="taxonomic-filter-searchfield"
+                        data-attr="universal-search-field"
                         placeholder={`Search ${searchPlaceholder}`}
                         prefix={
                             <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />

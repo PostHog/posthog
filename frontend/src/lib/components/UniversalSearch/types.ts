@@ -12,11 +12,7 @@ import {
 } from '~/types'
 import { SimpleOption, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 
-export interface UniversalSearchLogicProps extends UniversalSearchProps {
-    universalSearchLogicKey: string
-}
-
-export interface SearchListLogicProps extends UniversalSearchLogicProps {
+export interface SearchListLogicProps extends UniversalSearchProps {
     listGroupType: UniversalSearchGroupType
 }
 

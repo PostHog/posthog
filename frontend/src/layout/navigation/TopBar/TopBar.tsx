@@ -3,7 +3,6 @@ import React from 'react'
 import { FriendlyLogo } from '../../../toolbar/assets/FriendlyLogo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
-import { SearchBox } from './SearchBox'
 import { navigationLogic } from '../navigationLogic'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
@@ -44,7 +43,7 @@ export function TopBar(): JSX.Element {
                     <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
                     </Link>
-                    <div>
+                    <div style={{ flexGrow: 1 }}>
                         <UniversalSearchPopup
                             groupType={UniversalSearchGroupType.Events}
                             groupTypes={[
@@ -116,7 +115,6 @@ export function TopBar(): JSX.Element {
                             }}
                         />
                     </div>
-                    <SearchBox />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     <HelpButton />
