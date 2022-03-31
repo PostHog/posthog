@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 
-from posthog.settings import CONSTANCE_CONFIG, OBJECT_STORAGE_SESSION_RECORDING_BUCKET
+from posthog.settings import CONSTANCE_CONFIG, OBJECT_STORAGE_SESSION_RECORDING_FOLDER
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
@@ -28,7 +28,7 @@ def delete_session_recording_files_order_than_ttl() -> None:
 
         file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
         ttl_date = (datetime.datetime.now() - file_deletion_time_delta).date()
-        number_of_deletions = object_storage.delete_older_than(ttl_date, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET)
+        number_of_deletions = object_storage.delete_older_than(ttl_date, prefix=OBJECT_STORAGE_SESSION_RECORDING_FOLDER)
         gauge("posthog_celery_session_recordings_deletion", number_of_deletions)
     except Exception as e:
         logger.error(

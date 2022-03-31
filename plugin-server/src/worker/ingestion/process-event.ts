@@ -40,7 +40,7 @@ import { mergePersonProperties, updatePersonProperties, upsertGroup } from './pr
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
-const { OBJECT_STORAGE_SESSION_RECORDING_BUCKET } = defaultConfig
+const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -722,15 +722,14 @@ export class EventsProcessor {
         // let's intercept the event, parse the metadata and store the data in
         // our object storage system.
         const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_BUCKET}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
-        const params = { Bucket: 'posthog', Key: object_storage_path, Body: snapshot_data.data }
+        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
 
         const tags = {
             team_id: team_id.toString(),
             session_id,
         }
         // TODO: error handling
-        // TODO store path on event
         this.objectStorage.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.error(err)

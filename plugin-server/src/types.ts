@@ -116,6 +116,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_PORT: number
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
+    OBJECT_STORAGE_BUCKET: string
 }
 
 export interface Hub extends PluginsServerConfig {

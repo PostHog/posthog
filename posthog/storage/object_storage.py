@@ -10,6 +10,7 @@ from botocore.client import Config
 # TODO: we should pass to our client the compressed file and then decompress in the browser
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_HOST,
     OBJECT_STORAGE_PORT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -35,11 +36,11 @@ client = boto3.client(
 
 
 def write(file_name: str, content: str):
-    s3.Bucket("posthog").put_object(Body=content, Key=file_name)
+    s3.Bucket(OBJECT_STORAGE_BUCKET).put_object(Body=content, Key=file_name)
 
 
 def read(file_name: str):
-    s3_object = s3.Object("posthog", file_name)
+    s3_object = s3.Object(OBJECT_STORAGE_BUCKET, file_name)
     content = s3_object.get()["Body"].read()
     return content.decode("utf-8")
 
@@ -61,7 +62,7 @@ def page_buckets(prefix: str) -> List[Dict]:
     """
     paginator = client.get_paginator("list_objects")
     prefix = _ensure_ends_with_slash(prefix)
-    return paginator.paginate(Bucket="posthog", Prefix=prefix, Delimiter="/").search("CommonPrefixes")
+    return paginator.paginate(Bucket=OBJECT_STORAGE_BUCKET, Prefix=prefix, Delimiter="/").search("CommonPrefixes")
 
 
 def delete_older_than(date_limit: datetime.date, prefix: str) -> int:
@@ -77,7 +78,7 @@ def delete_older_than(date_limit: datetime.date, prefix: str) -> int:
             folder_date_key = _ensure_no_slashes(folder_date_key)
             folder_date: datetime.date = datetime.datetime.strptime(folder_date_key, "%Y-%m-%d").date()
             if folder_date < date_limit:
-                old_bucket = s3.Object("posthog", f"{prefix}/{folder_date_key}")
+                old_bucket = s3.Object(OBJECT_STORAGE_BUCKET, f"{prefix}/{folder_date_key}")
                 old_bucket.delete()  # deletes the entire bucket in one operation
                 count += 1
         except ValueError:
