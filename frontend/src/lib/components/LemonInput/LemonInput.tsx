@@ -1,5 +1,5 @@
 import './LemonInput.scss'
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -27,20 +27,21 @@ export interface LemonInputProps
 }
 
 /** Styled input */
-export function LemonInputInternal({
-    ref,
-    className,
-    onChange,
-    onFocus,
-    onBlur,
-    onPressEnter,
-    embedded = false,
-    allowClear = false,
-    icon,
-    sideIcon,
-    ...inputProps
-}: LemonInputProps): JSX.Element {
-    const inputRef = useRef<HTMLInputElement | null>(null)
+export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+    {
+        className,
+        onChange,
+        onFocus,
+        onBlur,
+        onPressEnter,
+        embedded = false,
+        allowClear = false,
+        icon,
+        sideIcon,
+        ...inputProps
+    },
+    ref
+): JSX.Element {
     const [focused, setFocused] = useState<boolean>(Boolean(inputProps.autoFocus))
 
     const rowProps: LemonRowProps<'span'> = {
@@ -73,7 +74,9 @@ export function LemonInputInternal({
             }
         },
         onClick: () => {
-            inputRef?.current?.focus()
+            if (ref && 'current' in ref) {
+                ref.current?.focus()
+            }
             setFocused(true)
         },
         outlined: !embedded,
@@ -96,15 +99,8 @@ export function LemonInputInternal({
     }
 
     return (
-        <LemonRow {...rowProps} ref={ref as React.Ref<JSX.IntrinsicElements['input']>}>
-            <input {...props} ref={inputRef} />
+        <LemonRow {...rowProps}>
+            <input {...props} ref={ref} />
         </LemonRow>
     )
-}
-
-export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInputInternal(
-    props,
-    ref
-): JSX.Element {
-    return <LemonInputInternal {...props} ref={ref} />
 })

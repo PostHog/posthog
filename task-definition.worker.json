@@ -127,6 +127,10 @@
                 {
                     "name": "PARALLEL_DASHBOARD_ITEM_CACHE",
                     "value": "7"
+                },
+                {
+                    "name": "CALCULATE_X_COHORTS_PARALLEL",
+                    "value": "5"
                 }
             ],
             "secrets": [
