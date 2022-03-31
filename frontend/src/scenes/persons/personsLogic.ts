@@ -296,7 +296,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
+                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
                     actions.navigateToTab(PersonsTabType.PROPERTIES)
                 }
 
