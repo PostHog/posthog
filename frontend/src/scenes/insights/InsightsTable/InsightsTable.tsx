@@ -15,7 +15,7 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_HEDGEHOGGER, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
@@ -260,7 +260,8 @@ export function InsightsTable({
                     calcColumnState === 'total' &&
                     (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
                         filters.display === ACTIONS_TABLE ||
-                        filters.display === ACTIONS_PIE_CHART)
+                        filters.display === ACTIONS_PIE_CHART ||
+                        filters.display === ACTIONS_HEDGEHOGGER)
                 ) {
                     return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
