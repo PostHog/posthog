@@ -105,13 +105,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
             (currentOrganization): boolean =>
                 currentOrganization?.available_features.includes(AvailableFeature.SSO_ENFORCEMENT) ?? false,
         ],
-        isFeatureAvailable: [
-            (s) => [s.currentOrganization, s.isSSOEnforcementAvailable],
-            (currentOrganization, isSSOEnforcementAvailable): boolean =>
-                (isSSOEnforcementAvailable ||
-                    currentOrganization?.available_features.includes(AvailableFeature.SAML)) ??
-                false,
-        ],
+        isFeatureAvailable: [(s) => [s.currentOrganization, s.isSSOEnforcementAvailable], (): boolean => true],
     },
     events: ({ actions }) => ({
         afterMount: [actions.loadVerifiedDomains],
