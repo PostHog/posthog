@@ -32,7 +32,10 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
     const hedgehoggerDisabled: boolean =
-        pieDisabled || (!!filters.breakdown && filters.breakdown !== '$geoip_country_code')
+        pieDisabled ||
+        (!!filters.breakdown &&
+            filters.breakdown !== '$geoip_country_code' &&
+            filters.breakdown !== '$geoip_country_name')
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
     const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION

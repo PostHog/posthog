@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton, Select } from 'antd'
-import { FilterType, InsightType, ActorType } from '~/types'
+import { FilterType, InsightType, ActorType, ChartDisplayType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
+import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/Hedgehogger/countryCodes'
 export interface PersonsModalProps {
     visible: boolean
     view: InsightType
@@ -81,9 +82,18 @@ export function PersonsModal({
                     {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
                     <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
+            ) : filters.display === ChartDisplayType.Hedgehogger ? (
+                <>
+                    {capitalizeFirstLetter(actorLabel)}
+                    {peopleParams?.breakdown_value
+                        ? ` in ${countryCodeToFlag(peopleParams?.breakdown_value as string)} ${
+                              countryCodeToName[peopleParams?.breakdown_value as string]
+                          }`
+                        : ''}
+                </>
             ) : (
                 <>
-                    {capitalizeFirstLetter(actorLabel)} list on{' '}
+                    {capitalizeFirstLetter(actorLabel)} on{' '}
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
