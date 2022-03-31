@@ -6,7 +6,10 @@ import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
-export const HTTP_SERVER_PORT = 6738
+export const HTTP_SERVER_PORTS = {
+    [PluginServerMode.Ingestion]: 6738,
+    [PluginServerMode.Runner]: 8000,
+}
 
 export function createHttpServer(
     hub: Hub | undefined,
@@ -41,8 +44,10 @@ export function createHttpServer(
         }
     })
 
-    server.listen(pluginServerMode === PluginServerMode.Ingestion ? HTTP_SERVER_PORT : 6739, () => {
-        status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
+    const port = HTTP_SERVER_PORTS[pluginServerMode]
+
+    server.listen(port, () => {
+        status.info('🩺', `Status server listening on port ${port}`)
     })
 
     return server

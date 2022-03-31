@@ -189,7 +189,9 @@ export async function startPluginsServer(
 
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await scheduleControl?.reloadSchedule()
+                if (pluginServerMode === PluginServerMode.Runner) {
+                    await scheduleControl?.reloadSchedule()
+                }
             },
             ...pubSubChannelsConfig,
         })
@@ -270,7 +272,6 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        // start http server used for the healthcheck
         httpServer = createHttpServer(hub, serverConfig, pluginServerMode)
 
         hub.statsd?.timing('total_setup_time', timer)

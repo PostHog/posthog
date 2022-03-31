@@ -124,11 +124,12 @@ export class LazyPluginVM {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
 
+                    await this.inferPluginCapabilities(vm)
+
                     // async capabilities = jobs or schedule
                     const hasAsyncCapabilities =
                         (vm.tasks?.schedule && Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
-
 
                     const pluginBelongsInServer = this.determineIfPluginBelongsInServer(vm, hasAsyncCapabilities)
 
@@ -145,7 +146,6 @@ export class LazyPluginVM {
                     }
                     await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    await this.inferPluginCapabilities(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)

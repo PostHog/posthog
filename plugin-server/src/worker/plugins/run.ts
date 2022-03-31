@@ -121,12 +121,6 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
                 return null
             }
         }
-
-        const onEvent = await pluginConfig.vm?.getOnEvent()
-        const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
-        if (onEvent || onSnapshot) {
-            pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
-        }
     }
 
     if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0 || pluginsDeferred.length > 0) {
@@ -134,7 +128,6 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
             ...event.properties,
             $plugins_succeeded: pluginsSucceeded,
             $plugins_failed: pluginsFailed,
-            $plugins_deferred: pluginsDeferred,
         }
     }
 
