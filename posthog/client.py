@@ -203,6 +203,9 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
 
     timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
+    query_status = QueryStatus(team_id=team_id)
+    redis_client.set(key, query_status.to_json())
+
     try:
         progress = ch_client.execute_with_progress(
             prepared_sql,
@@ -219,7 +222,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             redis_client.set(key, query_status.to_json())
             time.sleep(update_freq)
         else:
-            print("shit shit shit") 
             rv = progress.get_result()
             query_status = QueryStatus(
                 team_id=team_id, 
