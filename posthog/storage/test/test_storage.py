@@ -6,10 +6,9 @@ from posthog.storage.object_storage import delete_older_than, read, write
 
 
 class TestStorage(unittest.TestCase):
-    @classmethod
-    def teardown_class(cls):
-        """
-        Delete the test_bucket after all of the tests are finished
+    def teardown_method(self, method):
+        """ teardown any state that was previously setup with a setup_method
+        call.
         """
         delete_older_than(datetime.now(), "test_bucket")
 

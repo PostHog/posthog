@@ -78,8 +78,8 @@ def delete_older_than(date_limit: datetime.date, prefix: str) -> int:
             folder_date_key = _ensure_no_slashes(folder_date_key)
             folder_date: datetime.date = datetime.datetime.strptime(folder_date_key, "%Y-%m-%d").date()
             if folder_date < date_limit:
-                old_bucket = s3.Object(OBJECT_STORAGE_BUCKET, f"{prefix}/{folder_date_key}")
-                old_bucket.delete()  # deletes the entire bucket in one operation
+                old_folder = s3.Bucket(OBJECT_STORAGE_BUCKET).objects.filter(Prefix=f"{prefix}/{folder_date_key}")
+                old_folder.delete()  # deletes the entire bucket in one operation
                 count += 1
         except ValueError:
             # the bucket name can't be cast to a date
