@@ -829,7 +829,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         checkInsightResultProgressSuccess: async () => {
             if (!values.insight.status?.complete && !values.insight.status?.error) {
-                setTimeout(actions.checkInsightResultProgress, 300)
+                setTimeout(actions.checkInsightResultProgress, 100)
             }
         },
 

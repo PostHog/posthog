@@ -12,7 +12,7 @@ import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelSte
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -30,6 +30,7 @@ import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { UserSQLInsight } from 'scenes/userSQL/UserSQL'
+import { LemonButton } from 'lib/components/LemonButton'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -67,6 +68,10 @@ export function InsightContainer(
 
     const [delayedPercentComplete, setDelayedPercentComplete] = useState(0)
     const [showProgress, setShowProgress] = useState(false)
+    const showVideoTimeout = useRef(null)
+
+    const [showVideo, setShowVideo] = useState(false)
+    const [showResultsReady, setShowResultsReady] = useState(false)
 
     useEffect(() => {
         if (insight.status && insight.status?.complete) {
@@ -74,20 +79,89 @@ export function InsightContainer(
             setTimeout(() => {
                 setShowProgress(false)
                 setDelayedPercentComplete(0)
-            }, 1000)
+            }, 500)
         } else {
             setShowProgress(true)
             setDelayedPercentComplete(percentResultsLoaded)
         }
     }, [percentResultsLoaded, insight.status?.complete])
 
+    useEffect(() => {
+        console.log(percentResultsLoaded)
+        if (
+            filters.insight === InsightType.USER_SQL &&
+            showProgress &&
+            !showVideoTimeout.current &&
+            percentResultsLoaded
+        ) {
+            console.log('setting timeout')
+            showVideoTimeout.current = setTimeout(() => {
+                console.log('show video')
+                setShowVideo(true)
+            }, 3000)
+        }
+        if (!showProgress && showVideoTimeout.current) {
+            console.log('clearing timeout')
+            clearTimeout(showVideoTimeout.current)
+            showVideoTimeout.current = null
+            if (showVideo) {
+                setShowResultsReady(true)
+            } else {
+                setShowVideo(false)
+            }
+        }
+    }, [showProgress, percentResultsLoaded])
+
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || ((insightLoading || showProgress) && !showTimeoutMessage)) {
+        if (
+            activeView !== loadedView ||
+            ((insightLoading || (filters.insight === InsightType.USER_SQL && (showProgress || showVideo))) &&
+                !showTimeoutMessage)
+        ) {
             return (
                 <>
                     {filters.insight === InsightType.USER_SQL ? (
-                        <Progress percent={delayedPercentComplete ?? 0} showInfo={false} />
+                        <>
+                            <Progress percent={delayedPercentComplete ?? 0} showInfo={false} />
+                            {showVideo && (
+                                <div style={{ textAlign: 'center', padding: 15 }}>
+                                    <h1 style={{ textAlign: 'center', paddingBottom: 15 }}>
+                                        You're stretching our database. Why not stretch your back while we're at it?
+                                    </h1>
+                                    <iframe
+                                        width="560"
+                                        height="315"
+                                        src="https://www.youtube.com/embed/Ezo-IsqfEVo?autoplay=1"
+                                        title="YouTube video player"
+                                        frameBorder="0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                     />
+                                    {showResultsReady && (
+                                        <div
+                                            style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <LemonButton
+                                                type="primary"
+                                                style={{ marginTop: 15, alignSelf: 'center' }}
+                                                onClick={() => {
+                                                    setShowResultsReady(false)
+                                                    setShowVideo(false)
+                                                }}
+                                            >
+                                                Results are ready
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
                     ) : (
                         <Loading />
                     )}
