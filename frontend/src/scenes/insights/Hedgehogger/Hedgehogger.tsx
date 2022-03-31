@@ -9459,7 +9459,7 @@ export function Hedgehogger(): JSX.Element {
                                         count: currentTooltip[1],
                                     },
                                 ]}
-                                renderSeries={(value: React.ReactNode, datum: SeriesDatum) =>
+                                renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                                     typeof datum.breakdown_value === 'string' && (
                                         <div className="flex-center">
                                             <span style={{ fontSize: '1.25rem' }} className="mr-025">
