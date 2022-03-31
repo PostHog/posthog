@@ -174,7 +174,6 @@ class QueryStatus:
     num_rows: float = 0
     total_rows: float = 0
     complete: bool = False
-    done: float = False
     error: bool = False
     error_message: str = ""
     results: Any = None
@@ -215,7 +214,15 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 done = float(num_rows) / total_rows
             else:
                 done = total_rows
-            query_status = QueryStatus(team_id, num_rows, total_rows, done, False, False, "", None)
+            query_status = QueryStatus(
+                team_id=team_id,
+                num_rows=num_rows,
+                total_rows=total_rows,
+                complete=False,
+                error=False,
+                error_message="",
+                results=None
+            )
             redis_client.set(key, query_status.to_json())
             time.sleep(update_freq)
         else:
@@ -224,7 +231,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 team_id=team_id, 
                 num_rows=0,
                 total_rows=0,
-                done=1.0,
                 complete=True,
                 error=False,
                 error_message="",
@@ -241,7 +247,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             team_id=team_id, 
             num_rows=0,
             total_rows=0,
-            done=1.0,
             complete=False,
             error=True,
             error_message=str(err),
