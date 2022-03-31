@@ -1,4 +1,3 @@
-import datetime
 import os
 import time
 from random import randrange
@@ -13,9 +12,6 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
-from posthog.settings import CONSTANCE_CONFIG
-from posthog.settings.object_storage import OBJECT_STORAGE_SESSION_RECORDING_BUCKET
-from posthog.storage import object_storage
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -384,19 +380,6 @@ def check_async_migration_health():
 
 @app.task(ignore_result=True)
 def delete_old_recordings_from_disk():
-    """
-    The clickhouse table has a TTL of a number of weeks before session recordings are deleted.
-    The recordings are stored in a confgiurable bucket, and within that in sub-buckets named by date (YYYY-MM-DD)
-    Once those buckets are older than the TTL, they can be deleted
-    """
-    from posthog.internal_metrics import gauge
+    from posthog.tasks.delete_session_recordings import delete_session_recording_files_order_than_ttl
 
-    ttl_weeks = int(CONSTANCE_CONFIG["RECORDINGS_TTL_WEEKS"])
-
-    if not isinstance(ttl_weeks, int):
-        raise ValueError("`CONSTANCE_CONFIG['RECORDINGS_TTL_WEEKS']` must be an integer")
-
-    file_deletion_time_delta = datetime.timedelta(weeks=ttl_weeks, days=1)
-    ttl_date = (datetime.datetime.now() - file_deletion_time_delta).date()
-    number_of_deletions = object_storage.delete_older_than(ttl_date, prefix=OBJECT_STORAGE_SESSION_RECORDING_BUCKET)
-    gauge("posthog_celery_session_recordings_deletion", number_of_deletions)
+    delete_session_recording_files_order_than_ttl()
