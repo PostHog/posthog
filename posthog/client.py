@@ -174,7 +174,6 @@ class QueryStatus:
     num_rows: float = 0
     total_rows: float = 0
     complete: bool = False
-    done: float = False
     error: bool = False
     error_message: str = ""
     results: Any = None
@@ -194,7 +193,16 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
     """
 
     key = generate_redis_results_key(query_uuid) 
-    ch_client = default_client() 
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database="posthog",
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"mutations_sync": "1"} if TEST else {},
+    ) 
     redis_client = redis.get_client()
 
     start_time = perf_counter()
@@ -211,11 +219,15 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             with_column_types=with_column_types,
         )
         for num_rows, total_rows in progress:
-            if total_rows:
-                done = float(num_rows) / total_rows
-            else:
-                done = total_rows
-            query_status = QueryStatus(team_id, num_rows, total_rows, done, False, False, "", None)
+            query_status = QueryStatus(
+                team_id=team_id,
+                num_rows=num_rows,
+                total_rows=total_rows,
+                complete=False,
+                error=False,
+                error_message="",
+                results=None
+            )
             redis_client.set(key, query_status.to_json())
             time.sleep(update_freq)
         else:
@@ -224,7 +236,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 team_id=team_id, 
                 num_rows=0,
                 total_rows=0,
-                done=1.0,
                 complete=True,
                 error=False,
                 error_message="",
@@ -241,7 +252,6 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             team_id=team_id, 
             num_rows=0,
             total_rows=0,
-            done=1.0,
             complete=False,
             error=True,
             error_message=str(err),
