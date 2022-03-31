@@ -193,7 +193,16 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
     """
 
     key = generate_redis_results_key(query_uuid) 
-    ch_client = default_client() 
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database="posthog",
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"mutations_sync": "1"} if TEST else {},
+    ) 
     redis_client = redis.get_client()
 
     start_time = perf_counter()
