@@ -173,6 +173,7 @@ class QueryStatus:
     team_id: int 
     num_rows: float = 0
     total_rows: float = 0
+    status: str = "submitted" 
     complete: bool = False
     error: bool = False
     error_message: str = ""
@@ -222,6 +223,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 team_id=team_id,
                 num_rows=num_rows,
                 total_rows=total_rows,
+                status="executing", 
                 complete=False,
                 error=False,
                 error_message="",
@@ -235,6 +237,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
                 team_id=team_id, 
                 num_rows=0,
                 total_rows=0,
+                status="complete", 
                 complete=True,
                 error=False,
                 error_message="",
@@ -251,6 +254,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
             team_id=team_id, 
             num_rows=0,
             total_rows=0,
+            status="errored", 
             complete=False,
             error=True,
             error_message=str(err),
@@ -277,7 +281,7 @@ def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with
 
     # Immediately set status so we don't have race with celery 
     redis_client = redis.get_client()
-    query_status = QueryStatus(team_id=team_id)
+    query_status = QueryStatus(team_id=team_id, status="submitted")
     redis_client.set(key, query_status.to_json())
 
     enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
