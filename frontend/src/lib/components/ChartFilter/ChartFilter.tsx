@@ -8,12 +8,14 @@ import {
     LineChartOutlined,
     OrderedListOutlined,
     PieChartOutlined,
-    CoffeeOutlined,
+    GlobalOutlined,
     TableOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -25,6 +27,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { insightProps } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
@@ -112,11 +115,15 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                       disabled: pieDisabled,
                   },
-                  {
-                      value: ChartDisplayType.Hedgehogger,
-                      label: <Label icon={<CoffeeOutlined />}>Hedgehogger</Label>,
-                      disabled: hedgehoggerDisabled,
-                  },
+                  ...(featureFlags[FEATURE_FLAGS.HEDGEHOGGER]
+                      ? [
+                            {
+                                value: ChartDisplayType.Hedgehogger,
+                                label: <Label icon={<GlobalOutlined />}>Map</Label>,
+                                disabled: hedgehoggerDisabled,
+                            },
+                        ]
+                      : []),
               ]
     return (
         <Select
