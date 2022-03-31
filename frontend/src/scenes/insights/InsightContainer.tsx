@@ -12,7 +12,7 @@ import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelSte
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -65,16 +65,30 @@ export function InsightContainer(
         funnelLogic(insightProps)
     )
 
+    const [delayedPercentComplete, setDelayedPercentComplete] = useState(0)
+    const [showProgress, setShowProgress] = useState(false)
+
+    useEffect(() => {
+        console.log(showProgress, delayedPercentComplete, insight.status?.complete)
+        if (insight.status && insight.status?.complete) {
+            setDelayedPercentComplete(100)
+            setTimeout(() => {
+                setShowProgress(false)
+                setDelayedPercentComplete(0)
+            }, 1000)
+        } else {
+            setShowProgress(true)
+            setDelayedPercentComplete(percentResultsLoaded)
+        }
+    }, [percentResultsLoaded, insight.status?.complete])
+
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (
-            activeView !== loadedView ||
-            ((insightLoading || (insight.status && !insight.status.complete)) && !showTimeoutMessage)
-        ) {
+        if (activeView !== loadedView || ((insightLoading || showProgress) && !showTimeoutMessage)) {
             return (
                 <>
                     {filters.insight === InsightType.USER_SQL ? (
-                        <Progress percent={percentResultsLoaded ?? 0} showInfo={false} />
+                        <Progress percent={delayedPercentComplete ?? 0} showInfo={false} />
                     ) : (
                         <Loading />
                     )}
