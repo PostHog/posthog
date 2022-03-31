@@ -69,7 +69,6 @@ export function InsightContainer(
     const [showProgress, setShowProgress] = useState(false)
 
     useEffect(() => {
-        console.log(showProgress, delayedPercentComplete, insight.status?.complete)
         if (insight.status && insight.status?.complete) {
             setDelayedPercentComplete(100)
             setTimeout(() => {
