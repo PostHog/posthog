@@ -73,6 +73,7 @@ export function TaxonomicFilter({
                     <LemonInput
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
+                        autoFocus
                         value={searchQuery}
                         className={searchQuery && 'LemonInput--with-input'}
                         icon={<IconMagnifier />}
