@@ -1,12 +1,12 @@
 import asyncio
-from dataclasses import dataclass
 import hashlib
 import json
 import time
 import types
+import uuid
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
-import uuid
 
 import sqlparse
 from aioch import Client
@@ -172,10 +172,10 @@ REDIS_STATUS_TTL = 600  # 10 minutes
 @dataclass_json
 @dataclass
 class QueryStatus:
-    team_id: int 
+    team_id: int
     num_rows: float = 0
     total_rows: float = 0
-    status: str = "submitted" 
+    status: str = "submitted"
     complete: bool = False
     error: bool = False
     error_message: str = ""
@@ -187,7 +187,10 @@ def generate_redis_results_key(query_uuid):
     key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_uuid}"
     return key
 
-def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, with_column_types=False, update_freq=0.2):
+
+def execute_with_progress(
+    team_id, query_uuid, query, args=None, settings=None, with_column_types=False, update_freq=0.2
+):
     """
     Kick off query with progress reporting
     Iterate over the progress status
@@ -195,7 +198,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
     Once complete save results to redis
     """
 
-    key = generate_redis_results_key(query_uuid) 
+    key = generate_redis_results_key(query_uuid)
     ch_client = SyncClient(
         host=CLICKHOUSE_HOST,
         database="posthog",
@@ -204,7 +207,7 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
         password=CLICKHOUSE_PASSWORD,
         ca_certs=CLICKHOUSE_CA,
         verify=CLICKHOUSE_VERIFY,
-    ) 
+    )
     redis_client = redis.get_client()
 
     start_time = perf_counter()
@@ -215,31 +218,28 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
 
     try:
         progress = ch_client.execute_with_progress(
-            prepared_sql,
-            params=prepared_args,
-            settings=settings,
-            with_column_types=with_column_types,
+            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
         )
         for num_rows, total_rows in progress:
             query_status = QueryStatus(
                 team_id=team_id,
                 num_rows=num_rows,
                 total_rows=total_rows,
-                status="executing", 
+                status="executing",
                 complete=False,
                 error=False,
                 error_message="",
-                results=None
+                results=None,
             )
             redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
             time.sleep(update_freq)
         else:
             rv = progress.get_result()
             query_status = QueryStatus(
-                team_id=team_id, 
+                team_id=team_id,
                 num_rows=0,
                 total_rows=0,
-                status="complete", 
+                status="complete",
                 complete=True,
                 error=False,
                 error_message="",
@@ -253,10 +253,10 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
         tags["reason"] = type(err).__name__
         incr("clickhouse_sync_execution_failure", tags=tags)
         query_status = QueryStatus(
-            team_id=team_id, 
+            team_id=team_id,
             num_rows=0,
             total_rows=0,
-            status="errored", 
+            status="errored",
             complete=False,
             error=True,
             error_message=str(err),
@@ -279,9 +279,9 @@ def execute_with_progress(team_id, query_uuid, query, args=None, settings=None, 
 
 def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
     query_uuid = uuid.uuid4()
-    key = generate_redis_results_key(query_uuid) 
+    key = generate_redis_results_key(query_uuid)
 
-    # Immediately set status so we don't have race with celery 
+    # Immediately set status so we don't have race with celery
     redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, status="submitted")
     redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
@@ -296,11 +296,11 @@ def get_status_or_results(team_id, query_uuid):
     QueryStatus data class contains either:
     Current status of running query
     Results of completed query
-    Error payload of failed query 
-    """ 
+    Error payload of failed query
+    """
     redis_client = redis.get_client()
     key = generate_redis_results_key(query_uuid)
-    try: 
+    try:
         str_results = redis_client.get(key).decode("utf-8")
         query_status = QueryStatus.from_json(str_results)
         if query_status.team_id != team_id:

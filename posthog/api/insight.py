@@ -1,6 +1,5 @@
 import json
 from typing import Any, Dict, Type
-import uuid
 
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
@@ -34,7 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.client import substitute_params, sync_execute
+from posthog.client import enqueue_execute_with_progress, get_status_or_results, substitute_params
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
@@ -434,23 +433,35 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def calculate_user_sql(self, request: request.Request) -> Dict[str, Any]:
         user_sql_filter = Filter(request=request, team=self.team)
-        result = sync_execute(
-            user_sql_filter.user_sql, settings={"timeout_before_checking_execution_speed": 60}, with_column_types=True
+        query_id = enqueue_execute_with_progress(
+            self.team_id,
+            user_sql_filter.user_sql,
+            settings={"timeout_before_checking_execution_speed": 60},
+            with_column_types=True,
         )
+        return {"query_id": query_id}
 
-        final = []
-        names = []
+    @action(methods=["GET"], detail=False)
+    def check_insight_result(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        query_id = request.GET.get("query_id")
 
-        if len(result) == 2:
+        status_or_result = get_status_or_results(self.team_id, query_id)
+        if status_or_result.complete:
+            result = status_or_result.results
+            final = []
+            names = []
 
-            for name_type in result[1]:
-                names.append(name_type[0])
+            if result and len(result) == 2:
 
-            for row in result[0]:
-                final.append(dict(zip(names, row)))
+                for name_type in result[1]:
+                    names.append(name_type[0])
 
-        return {"result": final}
-      
+                for row in result[0]:
+                    final.append(dict(zip(names, row)))
+
+            return Response({"result": final, "status": status_or_result.to_dict()})
+        else:
+            return Response({"result": None, "status": status_or_result.to_dict()})
 
     # ******************************************
     # /projects/:id/insights/path

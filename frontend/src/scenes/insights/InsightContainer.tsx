@@ -140,7 +140,7 @@ export function InsightContainer(
 
         return null
     }
-    return activeView === InsightType.USER_SQL && insight.result.length === 0 ? (
+    return activeView === InsightType.USER_SQL && insight.result?.length === 0 ? (
         <></>
     ) : (
         <>
