@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { SearchDefinitionTypes, UniversalSearchGroupType } from './types'
+import { SearchDefinitionTypes, UniversalSearchGroupType, UniversalSearchProps } from './types'
 import { Popup } from 'lib/components/Popup/Popup'
 import { UniversalSearch } from './UniversalSearch'
 import { Input } from 'antd'
@@ -38,8 +38,19 @@ export function UniversalSearchPopup({
     const [visible, setVisible] = useState(false)
 
     const { isSideBarShown } = useValues(navigationLogic)
-
-    const logic = universalSearchLogic()
+    const universalSearchLogicProps: UniversalSearchProps = {
+        groupType,
+        value,
+        onChange: ({ type }, payload, item) => {
+            onChange?.(payload, type, item)
+            setVisible(false)
+        },
+        searchGroupTypes: groupTypes ?? [groupType],
+        optionsFromProp: undefined,
+        popoverEnabled: true,
+        selectFirstItem: true,
+    }
+    const logic = universalSearchLogic(universalSearchLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
 
     return (
