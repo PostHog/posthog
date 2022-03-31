@@ -323,6 +323,14 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
 
 
 def try_read_from_object_storage(session_id: str, snapshot_data: str) -> Dict:
+    """
+    Session recording payloads were orignally stored in ClickHouse, using a lot of expensive storage
+
+    Now, the plugin server (when configured to) removes the payload data from session recording events
+    and stores that data in object storage.
+
+    The data must be present in either the ClickHouse entry or object storage to be valid
+    """
     json_data = json.loads(snapshot_data)
     has_payload_chunk = json_data.get("data", None) is not None
 

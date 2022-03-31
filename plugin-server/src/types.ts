@@ -112,6 +112,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    OBJECT_STORAGE_ENABLED: boolean
     OBJECT_STORAGE_HOST: string
     OBJECT_STORAGE_PORT: number
     OBJECT_STORAGE_ACCESS_KEY_ID: string

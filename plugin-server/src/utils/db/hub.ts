@@ -191,7 +191,13 @@ export async function createHub(
     let objectStorage: ObjectStorage
     try {
         objectStorage = connectObjectStorage()
-        status.info('👍', `storage 🪣`)
+
+        if (defaultConfig.OBJECT_STORAGE_ENABLED) {
+            await objectStorage.healthCheck()
+            status.info('👍', `storage 🪣`)
+        } else {
+            status.info('🪣', `storage not in use`)
+        }
     } catch (e) {
         status.error('❌', `could not read from storage: ${e}`)
         throw e

@@ -40,7 +40,7 @@ import { mergePersonProperties, updatePersonProperties, upsertGroup } from './pr
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
-const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET } = defaultConfig
+const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_ENABLED } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -718,28 +718,12 @@ export class EventsProcessor {
 
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
 
-        // As we don't want to store the session recording payload in ClickHouse,
-        // let's intercept the event, parse the metadata and store the data in
-        // our object storage system.
-        const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
-        const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
-
-        const tags = {
-            team_id: team_id.toString(),
+        const processed_snapshot_data = this.tryStoreSessionRecordingToObjectStorage(
+            timestamp,
             session_id,
-        }
-        // TODO: error handling
-        this.objectStorage.putObject(params, (err: any, resp: any) => {
-            if (err) {
-                console.error(err)
-                this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
-            } else {
-                this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
-            }
-        })
-        delete snapshot_data.data
-        snapshot_data['object_storage_path'] = object_storage_path
+            snapshot_data,
+            team_id
+        )
 
         const data: SessionRecordingEvent = {
             uuid,
@@ -747,7 +731,7 @@ export class EventsProcessor {
             distinct_id: distinct_id,
             session_id: session_id,
             window_id: window_id,
-            snapshot_data: JSON.stringify(snapshot_data),
+            snapshot_data: JSON.stringify(processed_snapshot_data),
             timestamp: timestampString,
             created_at: timestampString,
         }
@@ -776,6 +760,45 @@ export class EventsProcessor {
             return eventCreated as PostgresSessionRecordingEvent
         }
         return data
+    }
+
+    private tryStoreSessionRecordingToObjectStorage(
+        timestamp: DateTime,
+        session_id: string,
+        snapshot_data: Record<any, any>,
+        team_id: number
+    ): Record<any, any> {
+        // As we don't want to store the session recording payload in ClickHouse,
+        // let's intercept the event, parse the metadata and store the data in
+        // our object storage system.
+
+        if (!OBJECT_STORAGE_ENABLED) {
+            return snapshot_data
+        }
+
+        const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
+        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
+
+        const tags = {
+            team_id: team_id.toString(),
+            session_id,
+        }
+        // TODO: error handling
+        this.objectStorage.putObject(params, (err: any, resp: any) => {
+            if (err) {
+                console.error(err)
+                this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
+            } else {
+                this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
+            }
+        })
+
+        const altered_data = { ...snapshot_data }
+        delete altered_data.data
+        altered_data['object_storage_path'] = object_storage_path
+
+        return altered_data
     }
 
     private async createPersonIfDistinctIdIsNew(
