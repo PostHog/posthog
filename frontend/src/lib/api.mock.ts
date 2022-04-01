@@ -37,7 +37,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
-    updated_at: '2022-03-17T16:09:21.566252Z',
+    updated_at: '2022-03-17T16:09:21.566253Z',
     anonymize_ips: false,
     completed_snippet_onboarding: true,
     ingested_event: true,
