@@ -21,7 +21,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            "{}.person_id as aggregation_target".format(
+            "{} as aggregation_target".format(
                 get_aggregation_target_field(
                     self._filter.aggregation_group_type_index,
                     self.EVENT_TABLE_ALIAS,
@@ -91,7 +91,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
+        if self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
