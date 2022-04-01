@@ -42,7 +42,13 @@ describe('sessionRecordingLogic', () => {
         it('has default values', async () => {
             await expectLogic(logic).toMatchValues({
                 sessionRecordingId: null,
-                sessionPlayerData: null,
+                sessionPlayerData: {
+                    bufferedTo: null,
+                    metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                    next: undefined,
+                    person: null,
+                    snapshotsByWindowId: {},
+                },
                 sessionEventsData: null,
                 filters: {},
                 chunkPaginationIndex: 0,
@@ -105,7 +111,9 @@ describe('sessionRecordingLogic', () => {
         it('fetch snapshots and then metadata', async () => {
             const resultAfterSnapshotResponse = {
                 bufferedTo: null,
+                metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                 next: undefined,
+                person: null,
                 snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
             }
 
@@ -149,7 +157,13 @@ describe('sessionRecordingLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaFailure'])
                 .toMatchValues({
-                    sessionPlayerData: null,
+                    sessionPlayerData: {
+                        bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        next: undefined,
+                        person: null,
+                        snapshotsByWindowId: {},
+                    },
                 })
                 .toFinishAllListeners()
             resumeKeaLoadersErrors()
@@ -160,7 +174,9 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         next: undefined,
+                        person: null,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
                     },
                 })
@@ -354,7 +370,9 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         next: undefined,
+                        person: null,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
                     },
                 })
@@ -388,8 +406,10 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         snapshotsByWindowId: { '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snaps },
                         next: firstNext,
+                        person: null,
                     },
                 })
                 .toDispatchActions([
@@ -399,10 +419,12 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [...snaps, ...snaps],
                         },
                         next: undefined,
+                        person: null,
                     },
                 })
 
@@ -433,8 +455,10 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
+                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         snapshotsByWindowId: { '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snaps },
                         next: firstNext,
+                        person: null,
                     },
                 })
                 .toDispatchActions([
