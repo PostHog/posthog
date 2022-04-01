@@ -56,7 +56,7 @@ Object {
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": Array [],
-        "primary_dashboard": 20464,
+        "primary_dashboard": 1,
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [
