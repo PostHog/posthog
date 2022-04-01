@@ -91,7 +91,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._aggregate_users_by_distinct_id:
+        if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
