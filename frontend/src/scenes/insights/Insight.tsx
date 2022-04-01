@@ -29,7 +29,7 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
-const LIVE_MODE_INTERVAL_MS = 15000
+const LIVE_MODE_INTERVAL_MS = 30000
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -65,16 +65,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     useEffect(() => {
         if (insight.filters?.display === ChartDisplayType.Hedgehogger) {
+            loadResults(true)
             const timeout = setInterval(() => {
                 loadResults(true)
             }, LIVE_MODE_INTERVAL_MS)
             return () => clearInterval(timeout)
         }
-    }, [insight])
-
-    useEffect(() => {
-        loadResults(true)
-    }, [])
+    }, [insight.filters?.display])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
