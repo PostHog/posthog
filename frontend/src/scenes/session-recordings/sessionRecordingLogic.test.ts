@@ -238,6 +238,16 @@ describe('sessionRecordingLogic', () => {
             percentageOfRecordingDuration: 1.4308651234056042,
         })
 
+        expected_events.push({
+            ...events[4],
+            playerTime: 39998,
+            playerPosition: {
+                time: 40000,
+                windowId: events[2].properties.$window_id as string,
+            },
+            percentageOfRecordingDuration: 1.46755585429964,
+        })
+
         it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
@@ -287,7 +297,14 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionEventsData: {
                         next: undefined,
-                        events: [expected_events[0], expected_events[0], expected_events[1], expected_events[1]],
+                        events: [
+                            expected_events[0],
+                            expected_events[0],
+                            expected_events[1],
+                            expected_events[1],
+                            expected_events[2],
+                            expected_events[2],
+                        ],
                     },
                 })
                 .toNotHaveDispatchedActions(['loadEvents'])
