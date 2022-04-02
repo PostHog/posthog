@@ -42,7 +42,7 @@ python manage.py migrate_clickhouse
 
 ## parallel block
 python manage.py setup_dev &
-yarn add cypress@9.5.3 cypress-terminal-report@3.4.2 @cypress/webpack-preprocessor@5.11.1 & wait
+yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 & wait
 
 ## parallel block
 ./bin/plugin-server &
