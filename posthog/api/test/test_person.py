@@ -1,13 +1,16 @@
 import json
 import unittest
+from typing import Dict, List, Optional
 from unittest import mock
 from uuid import uuid4
 
 from django.utils import timezone
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
@@ -251,6 +254,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["results"], [])
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person(self):
         person = _create_person(
             team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
@@ -268,6 +272,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+        self._assert_person_activity(
+            person_id=None,  # can't query directly for deleted person
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "deleted",
+                    "scope": "Person",
+                    "item_id": str(person.pk),
+                    # don't store deleted person's name, so user primary key
+                    "detail": {"changes": None, "merge": None, "name": str(person.pk)},
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
+
     def test_filter_uuid(self) -> None:
         person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
         person2 = _create_person(team=self.team, properties={"random_prop": "asdf"})
@@ -277,8 +296,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     @mock.patch("posthog.api.capture.capture_internal")
     def test_merge_people(self, mock_capture_internal) -> None:
+
         # created first
         person3 = _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={"oh": "hello"})
         person1 = _create_person(
@@ -313,6 +334,63 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 201)
         self.assertCountEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
 
+        person_one_dict = PersonSerializer(person1).data
+        person_two_dict = PersonSerializer(person2).data
+        person_three_dict = PersonSerializer(person3).data
+
+        person_three_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "was_merged_into_person",
+            "scope": "Person",
+            "item_id": str(person3.pk),
+            "detail": {
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": person_three_dict, "target": person_one_dict},
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+        person_one_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "people_merged_into",
+            "scope": "Person",
+            # don't store deleted person's name, so user primary key
+            "item_id": str(person1.pk),
+            "detail": {
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": [person_three_dict, person_two_dict], "target": person_one_dict},
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+        person_two_log = {
+            "user": {"first_name": "", "email": "user1@posthog.com"},
+            "activity": "was_merged_into_person",
+            "scope": "Person",
+            "item_id": str(person2.pk),
+            "detail": {
+                "changes": None,
+                "name": None,
+                "merge": {"type": "Person", "source": person_two_dict, "target": person_one_dict},
+            },
+            "created_at": "2021-08-25T22:09:14.252000Z",
+        }
+
+        self._assert_person_activity(
+            person_id=None,  # changes for all three people
+            expected=[person_three_log, person_one_log, person_two_log,],
+        )
+        self._assert_person_activity(
+            person_id=person1.pk, expected=[person_one_log,],
+        )
+        self._assert_person_activity(
+            person_id=person2.pk, expected=[person_two_log,],
+        )
+        self._assert_person_activity(
+            person_id=person3.pk, expected=[person_three_log,],
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
         # created first
         person1 = _create_person(
@@ -329,6 +407,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertEqual(people[1].distinct_ids, ["2"])
         self.assertEqual(people[2].distinct_ids, ["3"])
+
+        self._assert_person_activity(
+            person_id=person1.pk,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "split_person",
+                    "scope": "Person",
+                    "item_id": str(person1.pk),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Person",
+                                "action": "split",
+                                "field": None,
+                                "before": None,
+                                "after": {"distinct_ids": ["1", "2", "3"]},
+                            }
+                        ],
+                        "name": None,
+                        "merge": None,
+                    },
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
 
     def test_split_people_delete_props(self) -> None:
         # created first
@@ -421,6 +525,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_patch_user_property(self):
+        person = _create_person(
+            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+
+        created_person = self.client.get("/api/person/%s/" % person.pk).json()
+        created_person["properties"]["a"] = "b"
+        response = self.client.patch("/api/person/%s/" % person.pk, created_person)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        updated_person_response = self.client.get("/api/person/%s/" % person.pk)
+        person = updated_person_response.json()
+
+        self.assertEqual(person["properties"], {"$browser": "whatever", "$os": "Mac OS X", "a": "b"})
+
+        self._assert_person_activity(
+            person_id=person["id"],
+            expected=[
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Person",
+                    "item_id": str(person["id"]),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Person",
+                                "action": "changed",
+                                "field": "properties",
+                                "before": {"$browser": "whatever", "$os": "Mac OS X"},
+                                "after": {"$browser": "whatever", "$os": "Mac OS X", "a": "b"},
+                            },
+                        ],
+                        "merge": None,
+                        "name": None,
+                    },
+                }
+            ],
+        )
+
     def test_csv_export(self):
         _create_person(
             team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
@@ -442,3 +588,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             )
         response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 10)
+
+    def _get_person_activity(self, person_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK):
+        if person_id:
+            url = f"/api/person/{person_id}/activity"
+        else:
+            url = f"/api/person/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def _assert_person_activity(self, person_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_person_activity(person_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
+        )

@@ -23,6 +23,7 @@ interface BasePropertyType {
 
 interface ValueDisplayType extends BasePropertyType {
     value: any
+    useDetectedPropertyType?: boolean
 }
 
 function EditTextValueComponent({
@@ -42,7 +43,13 @@ function EditTextValueComponent({
     )
 }
 
-function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
+function ValueDisplay({
+    value,
+    rootKey,
+    onEdit,
+    nestingLevel,
+    useDetectedPropertyType,
+}: ValueDisplayType): JSX.Element {
     const { describeProperty } = useValues(propertyDefinitionsModel)
 
     const [editing, setEditing] = useState(false)
@@ -53,7 +60,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
 
     let propertyType
-    if (rootKey) {
+    if (rootKey && useDetectedPropertyType) {
         propertyType = describeProperty(rootKey)
     }
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
@@ -137,6 +144,8 @@ interface PropertiesTableType extends BasePropertyType {
     embedded?: boolean
     onDelete?: (key: string) => void
     className?: string
+    /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
+    useDetectedPropertyType?: boolean
 }
 
 export function PropertiesTable({
@@ -149,6 +158,7 @@ export function PropertiesTable({
     nestingLevel = 0,
     onDelete,
     className,
+    useDetectedPropertyType,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -183,7 +193,14 @@ export function PropertiesTable({
             <div>
                 {properties.length ? (
                     properties.map((item, index) => (
-                        <PropertiesTable key={index} properties={item} nestingLevel={nestingLevel + 1} />
+                        <PropertiesTable
+                            key={index}
+                            properties={item}
+                            nestingLevel={nestingLevel + 1}
+                            useDetectedPropertyType={
+                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
+                            }
+                        />
                     ))
                 ) : (
                     <div className="property-value-type">ARRAY (EMPTY)</div>
@@ -216,6 +233,9 @@ export function PropertiesTable({
                         rootKey={item[0]}
                         onEdit={onEdit}
                         nestingLevel={nestingLevel + 1}
+                        useDetectedPropertyType={
+                            ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
+                        }
                     />
                 )
             },
@@ -284,5 +304,13 @@ export function PropertiesTable({
         )
     }
     // if none of above, it's a value
-    return <ValueDisplay value={properties} rootKey={rootKey} onEdit={onEdit} nestingLevel={nestingLevel} />
+    return (
+        <ValueDisplay
+            value={properties}
+            rootKey={rootKey}
+            onEdit={onEdit}
+            nestingLevel={nestingLevel}
+            useDetectedPropertyType={useDetectedPropertyType}
+        />
+    )
 }

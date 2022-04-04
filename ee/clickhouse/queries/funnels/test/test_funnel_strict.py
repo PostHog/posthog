@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from constance.test import override_config
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -182,7 +184,9 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        person1_stopped_after_signup = _create_person(
+            distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"test": "okay"}
+        )
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
 
         person2_stopped_after_one_pageview = _create_person(
@@ -260,6 +264,14 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_actor_ids_at_step(filter, 3), [person7.uuid],
         )
+
+        with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{self.team.pk}"):
+
+            result = funnel.run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[1]["name"], "$pageview")
+            self.assertEqual(result[2]["name"], "insight viewed")
+            self.assertEqual(result[0]["count"], 7)
 
     def test_advanced_strict_funnel(self):
 

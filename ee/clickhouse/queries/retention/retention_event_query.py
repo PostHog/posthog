@@ -56,7 +56,13 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             _fields += [f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"]
         else:
             _fields += [
-                f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target"
+                "{} as target".format(
+                    get_aggregation_target_field(
+                        self._filter.aggregation_group_type_index,
+                        self.EVENT_TABLE_ALIAS,
+                        f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+                    )
+                )
             ]
 
         if self._filter.breakdowns and self._filter.breakdown_type:

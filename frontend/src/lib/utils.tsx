@@ -349,16 +349,10 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
 }
 
-export function chooseOperatorMap(
-    propertyType: PropertyType | undefined,
-    allowQueryingEventsByDateTime: boolean
-): Record<string, string> {
+export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
-            choice = genericOperatorMap
-        }
     }
     return choice
 }
