@@ -1124,9 +1124,7 @@ describe('vm tests', () => {
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
 
             // adds exportEventsWithRetry job and onEvent function
-            expect(Object.keys(vm.tasks.job)).toEqual(
-                expect.arrayContaining(['exportEventsWithRetry', 'exportHistoricalEvents', 'Export historical events'])
-            )
+            expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
             expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
             expect(
                 Object.keys(vm.methods)
