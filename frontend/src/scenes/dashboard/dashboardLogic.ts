@@ -343,10 +343,13 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 if (!items || !items.length) {
                     return null
                 }
-                let oldestLastRefreshed = items[0].last_refresh ? dayjs(items[0].last_refresh) : null
+                let oldestLastRefreshed = null
                 for (const item of items) {
                     const itemLastRefreshed = item.last_refresh ? dayjs(item.last_refresh) : null
-                    if (!oldestLastRefreshed || (itemLastRefreshed && itemLastRefreshed < oldestLastRefreshed)) {
+                    if (
+                        !oldestLastRefreshed ||
+                        (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
+                    ) {
                         oldestLastRefreshed = itemLastRefreshed
                     }
                 }
@@ -673,7 +676,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            if (values.lastRefreshed && values.lastRefreshed < now().subtract(3, 'hours')) {
+            if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
                 actions.refreshAllDashboardItems()
             } else {
                 const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
