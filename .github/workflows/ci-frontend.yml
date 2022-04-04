@@ -38,13 +38,35 @@ jobs:
               run: |
                   ./bin/check-typescript-strict
 
-    jest:
-        name: Jest tests
+    jest-setup:
         runs-on: ubuntu-20.04
+        outputs:
+            test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+            test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
+        steps:
+            - uses: actions/checkout@v1
+            - run: yarn install --frozen-lockfile
+            - id: set-test-chunks
+              name: Set Chunks
+              run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 2 | ceil)]')"
+            - id: set-test-chunk-ids
+              name: Set Chunk IDs
+              run: echo "::set-output name=test-chunk-ids::$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')"
+              env:
+                  CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+
+    jest:
+        runs-on: ubuntu-20.04
+        name: test (chunk ${{ matrix.chunk }})
+        needs:
+            - jest-setup
+
+        strategy:
+            matrix:
+                chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
 
         steps:
             - uses: actions/checkout@v1
-
             - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
@@ -64,4 +86,6 @@ jobs:
               run: yarn install --frozen-lockfile
 
             - name: Test with Jest
-              run: yarn test:sequential
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test:sequential
+              env:
+                  CHUNKS: ${{ needs.setup.outputs['test-chunks'] }}
