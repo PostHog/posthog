@@ -25,7 +25,7 @@ MATH_FUNCTIONS = {
 
 
 def process_math(
-    entity: Entity, team: Team, event_table_alias: Optional[str] = None
+    entity: Entity, team: Team, event_table_alias: Optional[str] = None, person_id_alias: str = "person_id"
 ) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
@@ -36,7 +36,7 @@ def process_math(
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
             join_condition = EVENT_JOIN_PERSON_SQL
-            aggregate_operation = "count(DISTINCT person_id)"
+            aggregate_operation = f"count(DISTINCT {person_id_alias})"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 

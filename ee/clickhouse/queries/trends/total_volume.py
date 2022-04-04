@@ -23,7 +23,7 @@ class ClickhouseTrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity, team)
+        aggregate_operation, join_condition, math_params = process_math(entity, team, "person_id")
 
         trend_event_query = TrendsEventQuery(
             filter=filter,

@@ -73,7 +73,9 @@ class ClickhouseTrendsBreakdown:
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-        aggregate_operation, _, math_params = process_math(self.entity, self.team, event_table_alias="e")
+        aggregate_operation, _, math_params = process_math(
+            self.entity, self.team, event_table_alias="e", person_id_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         action_query = ""
         action_params: Dict = {}
