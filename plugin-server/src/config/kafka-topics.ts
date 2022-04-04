@@ -6,6 +6,7 @@ const isTestEnv = determineNodeEnv() === NodeEnv.Test
 const suffix = isTestEnv ? '_test' : ''
 
 export const KAFKA_EVENTS = `clickhouse_events_proto${suffix}`
+export const KAFKA_EVENTS_JSON = `clickhouse_events_json${suffix}`
 export const KAFKA_PERSON = `clickhouse_person${suffix}`
 export const KAFKA_PERSON_UNIQUE_ID = `clickhouse_person_unique_id${suffix}`
 export const KAFKA_PERSON_DISTINCT_ID = `clickhouse_person_distinct_id${suffix}`

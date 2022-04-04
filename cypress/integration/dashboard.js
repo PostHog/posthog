@@ -144,7 +144,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name-input]').clear().type('Watermelon')
         cy.get('button').contains('Create').click()
 
-        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add Insight').click()
+        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click()
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
 
