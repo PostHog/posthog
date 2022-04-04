@@ -4,7 +4,7 @@ import { interpolateHsl } from 'lib/utils'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendResult } from '~/types'
+import { ChartParams, TrendResult } from '~/types'
 import './Hedgehogger.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '../InsightTooltip/insightTooltipUtils'
@@ -9068,11 +9068,16 @@ const countries: Record<string, JSX.Element> = {
     ),
 }
 
-const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
-const BORDER_HSL: [number, number, number] = [228, 0, 85]
+/** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
 const SATURATION_FLOOR = 0.25
+/** --border in HSL for saturation mixing */
+const BORDER_HSL: [number, number, number] = [228, 0, 85]
+/** --primary in HSL for saturation mixing */
+const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
+/** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
+const TOOLTIP_OFFSET_PX = 8
 
-export function Hedgehogger(): JSX.Element {
+export function Hedgehogger({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const localLogic = hedgehoggerLogic(insightProps)
     const { tooltipOpacity, countryCodeToSeries, maxAggregatedValue, currentTooltip, tooltipCoordinates } =
@@ -9084,72 +9089,84 @@ export function Hedgehogger(): JSX.Element {
     const svgRef = useRef<SVGSVGElement>(null)
 
     useEffect(() => {
+        const svgRect = svgRef.current?.getBoundingClientRect()
         tooltipElement.current = ensureTooltipElement()
         tooltipElement.current.style.opacity = tooltipOpacity.toString()
-        tooltipElement.current.style.left = tooltipCoordinates
-            ? `${window.pageXOffset + tooltipCoordinates[0] + 8}px`
-            : 'revert'
-        tooltipElement.current.style.top = tooltipCoordinates
-            ? `${window.pageYOffset + tooltipCoordinates[1] + 8}px`
-            : 'revert'
+        const tooltipRect = tooltipElement.current.getBoundingClientRect()
+        if (tooltipCoordinates) {
+            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+            let xOffset: number
+            if (
+                svgRect &&
+                tooltipRect &&
+                tooltipCoordinates[0] + tooltipRect.width + TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+            ) {
+                xOffset = -(tooltipRect.width + TOOLTIP_OFFSET_PX)
+            } else {
+                xOffset = TOOLTIP_OFFSET_PX
+            }
+            tooltipElement.current.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
+            tooltipElement.current.style.top = `${window.pageYOffset + tooltipCoordinates[1] + TOOLTIP_OFFSET_PX}px`
+        } else {
+            tooltipElement.current.style.left = 'revert'
+            tooltipElement.current.style.top = 'revert'
+        }
     }, [tooltipOpacity, currentTooltip, tooltipCoordinates])
 
     return (
         <>
-            <div className="Hedgehogger">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    version="1.1"
-                    viewBox="0 0 2754 1200"
-                    width="100%"
-                    height="100%"
-                    id="svg"
-                    ref={svgRef}
-                >
-                    {Object.entries(countries).map(([countryCode, countryElement]) => {
-                        const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
-                        const aggregatedValue = countrySeries?.aggregated_value || 0
-                        const fill =
-                            countryCode in countryCodeToSeries
-                                ? interpolateHsl(
-                                      BORDER_HSL,
-                                      PRIMARY_HSL,
-                                      SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
-                                  )
-                                : undefined
+            <svg
+                className="Hedgehogger"
+                xmlns="http://www.w3.org/2000/svg"
+                version="1.1"
+                viewBox="0 0 2754 1200"
+                width="100%"
+                height="100%"
+                id="svg"
+                ref={svgRef}
+            >
+                {Object.entries(countries).map(([countryCode, countryElement]) => {
+                    const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
+                    const aggregatedValue = countrySeries?.aggregated_value || 0
+                    const fill =
+                        countryCode in countryCodeToSeries
+                            ? interpolateHsl(
+                                  BORDER_HSL,
+                                  PRIMARY_HSL,
+                                  SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
+                              )
+                            : undefined
 
-                        return React.cloneElement(countryElement, {
-                            key: countryCode,
-                            style: { color: fill },
-                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
-                            onMouseLeave: () => hideTooltip(),
-                            onMouseMove: (e: MouseEvent) => {
-                                updateTooltipCoordinates(e.clientX, e.clientY)
-                            },
-                            onClick: () => {
-                                if (countrySeries) {
-                                    loadPeople({
-                                        action: countrySeries.action,
-                                        label: countryCodeToName[countrySeries.breakdown_value as string],
-                                        date_from: countrySeries.filter?.date_from as string,
-                                        date_to: countrySeries.filter?.date_to as string,
-                                        filters: countrySeries.filter || {},
-                                        breakdown_value: countrySeries.breakdown_value,
-                                        saveOriginal: true,
-                                        pointValue: countrySeries.aggregated_value,
-                                    })
-                                }
-                            },
-                        })
-                    })}
-                </svg>
-            </div>
+                    return React.cloneElement(countryElement, {
+                        key: countryCode,
+                        style: { color: fill },
+                        onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
+                        onMouseLeave: () => hideTooltip(),
+                        onMouseMove: (e: MouseEvent) => {
+                            updateTooltipCoordinates(e.clientX, e.clientY)
+                        },
+                        onClick: () => {
+                            if (showPersonsModal && countrySeries) {
+                                loadPeople({
+                                    action: countrySeries.action,
+                                    label: countryCodeToName[countrySeries.breakdown_value as string],
+                                    date_from: countrySeries.filter?.date_from as string,
+                                    date_to: countrySeries.filter?.date_to as string,
+                                    filters: countrySeries.filter || {},
+                                    breakdown_value: countrySeries.breakdown_value,
+                                    saveOriginal: true,
+                                    pointValue: countrySeries.aggregated_value,
+                                })
+                            }
+                        },
+                    })
+                })}
+            </svg>
             {tooltipElement.current &&
                 ReactDOM.render(
                     <Provider store={getContext().store}>
                         {currentTooltip && (
                             <InsightTooltip
-                                date={'2021-04-08'}
                                 seriesData={[
                                     {
                                         dataIndex: 1,
@@ -9174,7 +9191,7 @@ export function Hedgehogger(): JSX.Element {
                                 }
                                 showHeader={false}
                                 hideColorCol
-                                hideInspectActorsSection={!currentTooltip[1]}
+                                hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
                             />
                         )}
                     </Provider>,
