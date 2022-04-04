@@ -57,12 +57,12 @@ jobs:
 
     jest:
         runs-on: ubuntu-20.04
-        name: test (chunk ${{ matrix.chunk }})
-        needs:
-            - jest-setup
+        name: Jest test (chunk ${{ matrix.chunk }})
+        needs: [jest-setup]
 
         strategy:
             matrix:
+                fail-fast: false
                 chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
 
         steps:
