@@ -51,7 +51,7 @@ class RelatedActorsQuery:
         person_ids = self._take_first(
             sync_execute(
                 f"""
-            SELECT DISTINCT person_id
+            SELECT DISTINCT {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             FROM events e
             {self._distinct_ids_join}
             WHERE team_id = %(team_id)s
