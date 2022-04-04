@@ -22,7 +22,7 @@ import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
 import { HomeIcon } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
-import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -34,7 +34,7 @@ export function Dashboards(): JSX.Element {
     const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
-    const { showNewDashboardModal, addDashboard } = useActions(newDashboardForm)
+    const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
 

@@ -17,8 +17,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterLogicalOperator } from '~/types'
@@ -54,7 +52,6 @@ export function TaxonomicPropertyFilter({
     }
     const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
@@ -165,7 +162,6 @@ export function TaxonomicPropertyFilter({
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
                             propertyDefinitions={propertyDefinitions}
-                            allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}

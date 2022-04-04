@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0223_organizationdomain"),
+        ("posthog", "0224_saml_multitenant"),
     ]
 
     operations = [

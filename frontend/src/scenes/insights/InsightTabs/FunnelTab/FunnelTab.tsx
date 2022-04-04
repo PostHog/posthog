@@ -28,6 +28,7 @@ import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/Proper
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -80,7 +81,7 @@ export function FunnelTab(): JSX.Element {
                                 filters={filters}
                                 setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
-                                hideMathSelector={true}
+                                mathAvailability={MathAvailability.None}
                                 hideDeleteBtn={filterSteps.length === 1}
                                 buttonCopy="Add step"
                                 buttonType="link"

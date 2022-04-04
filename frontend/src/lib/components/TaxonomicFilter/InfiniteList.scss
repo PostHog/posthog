@@ -64,7 +64,8 @@
         }
 
         &.hover {
-            background: rgba(0, 0, 0, 0.1);
+            background-color: var(--primary-bg-hover);
+            border-radius: var(--radius);
         }
 
         &.selected {
