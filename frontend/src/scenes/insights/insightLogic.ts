@@ -142,7 +142,6 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
-        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -444,12 +443,6 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 setTagLoading: (_, { tagLoading }) => tagLoading,
-            },
-        ],
-        sourceDashboardId: [
-            null as number | null,
-            {
-                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
             },
         ],
     }),
