@@ -10,8 +10,6 @@ import {
     DashboardType,
     PersonType,
     DashboardMode,
-    HotKeys,
-    GlobalHotKeys,
     EntityType,
     InsightModel,
     InsightType,
@@ -285,7 +283,6 @@ export const eventUsageLogic = kea<
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
         reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -713,9 +710,6 @@ export const eventUsageLogic = kea<
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
-        reportHotkeyNavigation: async (payload) => {
-            posthog.capture('hotkey navigation', payload)
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -811,8 +805,8 @@ export const eventUsageLogic = kea<
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
-                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: recordingData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,

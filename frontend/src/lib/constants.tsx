@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -169,3 +170,6 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
 // pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
 export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
     cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
+
+export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi

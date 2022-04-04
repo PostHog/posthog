@@ -64,7 +64,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('body').type('l') // Tab is cut off on narrow screens; plus we test hotkeys too
+        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
         cy.get('h4').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph
