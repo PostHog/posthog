@@ -77,6 +77,7 @@ class Insight(models.Model):
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
 
     class Meta:
+        # TODO this table name should be changed when PostHog 2.0 allows for breaking changes
         db_table = "posthog_dashboarditem"
         unique_together = (
             "team",
