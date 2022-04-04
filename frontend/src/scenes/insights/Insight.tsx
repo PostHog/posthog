@@ -63,7 +63,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     useEffect(() => {
-        if (insight.filters?.display === ChartDisplayType.Hedgehogger) {
+        if (insight.filters?.display === ChartDisplayType.WorldMap) {
             loadResults(true)
             const timeout = setInterval(() => {
                 loadResults(true)
