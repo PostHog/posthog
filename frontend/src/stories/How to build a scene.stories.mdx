@@ -193,7 +193,7 @@ export function NewDashboard (): JSX.Element {
         // change the URL
         router.actions.push(urls.dashboard(2))
         // call various other actions to set the initial state
-        newDashboardForm.actions.showNewDashboardModal()
+        newDashboardLogic.actions.showNewDashboardModal()
     }, [])
     return <App />
 }

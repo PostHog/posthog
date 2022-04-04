@@ -23,7 +23,6 @@ const Template: ComponentStory<typeof SSOSelect> = (args) => {
                         github: true,
                         gitlab: false,
                         'google-oauth2': true,
-                        saml: false,
                     },
                 }),
             ],
@@ -40,4 +39,5 @@ export const SSOSelect_ = Template.bind({})
 
 SSOSelect_.args = {
     loading: false,
+    samlAvailable: true,
 }

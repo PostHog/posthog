@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
-import { afterLoginRedirect } from './authentication/loginLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
@@ -243,7 +243,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
                     if (scene === Scene.Login) {
-                        router.actions.replace(afterLoginRedirect())
+                        handleLoginRedirect()
                     } else {
                         router.actions.replace(urls.default())
                     }
@@ -300,7 +300,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(scene)
                     importedScene = await props.scenes[scene]()
-                } catch (error) {
+                } catch (error: any) {
                     if (
                         error.name === 'ChunkLoadError' || // webpack
                         error.message?.includes('Failed to fetch dynamically imported module') // esbuild
