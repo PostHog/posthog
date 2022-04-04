@@ -458,7 +458,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT person_id,
+                (SELECT pdi.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e

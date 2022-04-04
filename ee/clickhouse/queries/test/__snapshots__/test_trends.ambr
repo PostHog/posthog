@@ -370,7 +370,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['oh', 'uh'] as breakdown_value) ARRAY
+                (SELECT ['uh', 'oh'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -390,7 +390,7 @@
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-12 23:59:59'
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['oh', 'uh'])
+             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
