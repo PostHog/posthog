@@ -49,7 +49,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
             {
                 loadRecordings: async (_, breakpoint) => {
                     const paramsDict = {
-                        limit: 10,
+                        limit: 5,
                         session_recording_duration: DEFAULT_DURATION_FILTER,
                     }
                     const response = (await api.get(
