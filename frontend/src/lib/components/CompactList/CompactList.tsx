@@ -33,7 +33,7 @@ export function CompactList({
             </div>
             <div className="scrollable-list">
                 {loading ? (
-                    <div style={{ width: '100%' }}>
+                    <div className="skeleton-container">
                         {Array.from({ length: 6 }, (_, index) => (
                             <Skeleton key={index} active paragraph={false} />
                         ))}

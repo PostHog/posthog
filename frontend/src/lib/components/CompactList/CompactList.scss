@@ -24,5 +24,10 @@
         overflow-y: auto;
         overflow-x: auto;
         padding: 0 $default_spacing/2 $default_spacing $default_spacing/2;
+
+        .skeleton-container {
+            width: 100%;
+            padding: 0 $default_spacing/2;
+        }
     }
 }
