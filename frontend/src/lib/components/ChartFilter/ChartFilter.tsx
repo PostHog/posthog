@@ -32,7 +32,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
-    const hedgehoggerDisabled: boolean =
+    const worldMapDisabled: boolean =
         filters.insight === InsightType.RETENTION ||
         filters.insight === InsightType.STICKINESS ||
         (!!filters.breakdown &&
@@ -124,9 +124,9 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   ...(featureFlags[FEATURE_FLAGS.HEDGEHOGGER]
                       ? [
                             {
-                                value: ChartDisplayType.Hedgehogger,
+                                value: ChartDisplayType.WorldMap,
                                 label: <Label icon={<GlobalOutlined />}>Map</Label>,
-                                disabled: hedgehoggerDisabled,
+                                disabled: worldMapDisabled,
                             },
                         ]
                       : []),

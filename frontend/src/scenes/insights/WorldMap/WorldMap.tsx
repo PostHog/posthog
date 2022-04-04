@@ -5,11 +5,11 @@ import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartParams, TrendResult } from '~/types'
-import './Hedgehogger.scss'
+import './WorldMap.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '../InsightTooltip/insightTooltipUtils'
 import { ensureTooltipElement } from '../LineGraph/LineGraph'
-import { hedgehoggerLogic } from './hedgehoggerLogic'
+import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
@@ -9077,9 +9077,9 @@ const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const TOOLTIP_OFFSET_PX = 8
 
-export function Hedgehogger({ showPersonsModal = true }: ChartParams): JSX.Element {
+export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const localLogic = hedgehoggerLogic(insightProps)
+    const localLogic = worldMapLogic(insightProps)
     const { tooltipOpacity, countryCodeToSeries, maxAggregatedValue, currentTooltip, tooltipCoordinates } =
         useValues(localLogic)
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
@@ -9116,7 +9116,7 @@ export function Hedgehogger({ showPersonsModal = true }: ChartParams): JSX.Eleme
     return (
         <>
             <svg
-                className="Hedgehogger"
+                className="WorldMap"
                 xmlns="http://www.w3.org/2000/svg"
                 version="1.1"
                 viewBox="0 0 2754 1200"

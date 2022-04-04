@@ -2,12 +2,12 @@ import { kea } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from '../sharedUtils'
-import type { hedgehoggerLogicType } from './hedgehoggerLogicType'
+import type { worldMapLogicType } from './worldMapLogicType'
 
-export const hedgehoggerLogic = kea<hedgehoggerLogicType>({
+export const worldMapLogic = kea<worldMapLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'Hedgehogger', key],
+    path: (key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key],
     connect: {
         values: [insightLogic, ['insight']],
     },

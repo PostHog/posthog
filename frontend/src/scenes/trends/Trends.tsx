@@ -5,22 +5,19 @@ import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
     ACTIONS_TABLE,
-    ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_HEDGEHOGGER,
 } from 'lib/constants'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { Hedgehogger } from 'scenes/insights/Hedgehogger/Hedgehogger'
+import { WorldMap } from 'scenes/insights/WorldMap/WorldMap'
 
 interface Props {
     view: InsightType
@@ -65,14 +62,14 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </BindLogic>
             )
         }
-        if (_filters.display === ACTIONS_PIE_CHART) {
+        if (_filters.display === ChartDisplayType.ActionsPie) {
             return <ActionsPie />
         }
-        if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
+        if (_filters.display === ChartDisplayType.ActionsBarValue) {
             return <ActionsHorizontalBar />
         }
-        if (_filters.display === ACTIONS_HEDGEHOGGER) {
-            return <Hedgehogger />
+        if (_filters.display === ChartDisplayType.WorldMap) {
+            return <WorldMap />
         }
     }
 
@@ -81,9 +78,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
             {(_filters.actions || _filters.events) && (
                 <div
                     className={
-                        _filters.display !== ACTIONS_TABLE && _filters.display !== ACTIONS_HEDGEHOGGER
+                        _filters.display !== ACTIONS_TABLE && _filters.display !== ChartDisplayType.WorldMap
                             ? 'trends-insights-container'
-                            : undefined /* Tables and hedgehogger don't need this padding, but graphs do for sizing */
+                            : undefined /* Tables and world map don't need this padding, but graphs do for sizing */
                     }
                 >
                     {renderViz()}

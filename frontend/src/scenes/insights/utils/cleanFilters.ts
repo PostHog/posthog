@@ -49,7 +49,7 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown'] = undefined
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
-    if (isTrends && filters.display === ChartDisplayType.Hedgehogger) {
+    if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'

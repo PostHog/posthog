@@ -49,7 +49,7 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { Hedgehogger } from 'scenes/insights/Hedgehogger/Hedgehogger'
+import { WorldMap } from 'scenes/insights/WorldMap/WorldMap'
 import { AlertMessage } from '../InfoMessage/AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
@@ -100,9 +100,9 @@ const displayMap: Record<
         className: 'paths-viz',
         element: Paths,
     },
-    Hedgehogger: {
-        className: 'hedgehogger',
-        element: Hedgehogger,
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
     },
 }
 

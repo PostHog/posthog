@@ -21,7 +21,7 @@ export function InsightLegendButton(): JSX.Element | null {
     if (
         !(
             ((activeView === InsightType.TRENDS &&
-                filters.display !== ChartDisplayType.Hedgehogger &&
+                filters.display !== ChartDisplayType.WorldMap &&
                 filters.display !== ChartDisplayType.ActionsTable) ||
                 activeView === InsightType.STICKINESS) &&
             featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]

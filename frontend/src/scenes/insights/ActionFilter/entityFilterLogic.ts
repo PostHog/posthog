@@ -232,7 +232,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 },
             ])
             // When adding a 2nd or later series, switch away from map view, as it only works for one series at a time
-            if (props.filters.display === ChartDisplayType.Hedgehogger && newLength > 1) {
+            if (props.filters.display === ChartDisplayType.WorldMap && newLength > 1) {
                 props?.setFilters({ display: undefined })
             }
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Default)

@@ -15,7 +15,6 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_HEDGEHOGGER, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
@@ -25,7 +24,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport, IconEdit } from 'lib/components/icons'
-import { countryCodeToName } from '../Hedgehogger/countryCodes'
+import { countryCodeToName } from '../WorldMap/countryCodes'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -101,7 +100,7 @@ export function InsightsTable({
 
     // The calc menu doesn't make sense for the map
     const calcColumnMenu =
-        filters.display === ChartDisplayType.Hedgehogger ? null : (
+        filters.display === ChartDisplayType.WorldMap ? null : (
             <Menu>
                 {Object.keys(CALC_COLUMN_LABELS).map((key) => (
                     <Menu.Item
@@ -199,7 +198,7 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
-        if (filters.display === ChartDisplayType.Hedgehogger) {
+        if (filters.display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
                 render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
@@ -258,10 +257,10 @@ export function InsightsTable({
                     return median(item.data).toLocaleString()
                 } else if (
                     calcColumnState === 'total' &&
-                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        filters.display === ACTIONS_TABLE ||
-                        filters.display === ACTIONS_PIE_CHART ||
-                        filters.display === ACTIONS_HEDGEHOGGER)
+                    (filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
+                        filters.display === ChartDisplayType.ActionsTable ||
+                        filters.display === ChartDisplayType.ActionsPie ||
+                        filters.display === ChartDisplayType.WorldMap)
                 ) {
                     return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
