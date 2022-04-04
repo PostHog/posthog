@@ -1130,7 +1130,7 @@ describe('vm tests', () => {
                 Object.keys(vm.methods)
                     .filter((m) => !!vm.methods[m as keyof typeof vm.methods])
                     .sort()
-            ).toEqual(expect.arrayContaining(['exportEvents', 'onEvent', 'teardownPlugin', 'setupPlugin']))
+            ).toEqual(expect.arrayContaining(['exportEvents', 'onEvent', 'teardownPlugin']))
         })
 
         test('retries', async () => {
