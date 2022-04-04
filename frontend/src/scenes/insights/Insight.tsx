@@ -44,7 +44,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insight,
         insightChanged,
         tagLoading,
-        sourceDashboardId,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
@@ -107,9 +106,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && (
-                            <SaveToDashboard insight={insight} sourceDashboardId={sourceDashboardId} />
-                        )}
+                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <LemonButton
