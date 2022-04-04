@@ -8,6 +8,7 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import { LocalFilter, toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -17,6 +18,20 @@ export function getDefaultEvent(): Entity {
         type: EntityTypes.EVENTS,
         order: 0,
     }
+}
+
+/** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
+const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
+    const series: LocalFilter | undefined = toLocalFilters(filters)[0]
+    cleanedParams['breakdown_type'] =
+        (series?.math &&
+            (series.math === 'unique_group'
+                ? 'group'
+                : ['dau', 'weekly_active', 'monthly_active'].includes(series.math)
+                ? 'person'
+                : null)) ||
+        'event'
+    cleanedParams['breakdown_group_type_index'] = series?.math_group_type_index
 }
 
 const cleanBreakdownParams = (
@@ -34,16 +49,14 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown'] = undefined
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
-    if (canBreakdown) {
+    if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
-        if (filters.display === ChartDisplayType.Hedgehogger) {
-            cleanedParams['breakdown'] = '$geoip_country_code'
-            if (!cleanedParams['breakdown_type']) {
-                cleanedParams['breakdown_type'] = 'event'
-            }
-            return
-        }
+        cleanedParams['breakdown'] = '$geoip_country_code'
+        useMostRelevantBreakdownType(cleanedParams, filters)
+        return
+    }
+    if (canBreakdown) {
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
         }

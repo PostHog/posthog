@@ -1,19 +1,7 @@
-import { useValues, getContext, useActions } from 'kea'
-import { Provider } from 'react-redux'
-import { interpolateHsl } from 'lib/utils'
-import React, { useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendResult } from '~/types'
-import './Hedgehogger.scss'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { SeriesDatum } from '../InsightTooltip/insightTooltipUtils'
-import { ensureTooltipElement } from '../LineGraph/LineGraph'
-import { hedgehoggerLogic } from './hedgehoggerLogic'
-import { countryCodeToFlag, countryCodeToName } from './countryCodes'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import React from 'react'
 
-const countries: Record<string, JSX.Element> = {
+/** An SVG element for each country on the map. */
+export const countryVectors: Record<string, JSX.Element> = {
     SD: (
         <path
             id="SD"
@@ -6383,7 +6371,6 @@ const countries: Record<string, JSX.Element> = {
                 className="landxx ma"
                 d="m 1207.6,456.891 c 1.42,-0.515 2.97,-0.581 4.43,-0.903 2.71,-0.598 5.47,-1.456 7.52,-3.42 2.01,-1.926 4.1,-3.439 6.2,-5.224 2.01,-1.709 3.55,-3.989 5.17,-6.064 1.09,-1.408 3.6,-5.462 1.48,-6.998 -0.82,-0.594 -1.39,-0.614 -0.87,-1.715 0.52,-1.093 0.47,-2.186 0.53,-3.378 0.16,-3.319 1.36,-4.8 3.39,-7.273 1.16,-1.414 0.84,-2.853 1.33,-4.479 0.35,-1.177 1.32,-2.089 2.2,-2.89 1.88,-1.713 3.37,-3.822 5.73,-4.888 2.57,-1.161 5.3,-2.068 7.75,-3.465 4.86,-2.765 7.19,-9.5 9.03,-14.457 0.18,-0.479 0.82,-2.923 1.56,-2.848 0.91,0.09 1.83,-0.275 2.6,-0.69 0.98,-0.524 1.17,0.773 1.45,1.471 0.55,1.348 1.28,2.264 2.47,3.108 2.48,1.762 4.54,1.269 7.38,0.929 2.35,-0.281 5.34,1.149 6.77,-1.614 0,0.9 0.22,1.124 0.35,1.807 0.13,0.732 1.46,1.102 0.3,-0.08 0.63,0.872 1.75,1.317 2.76,0.814 1.03,-0.513 1.65,0.544 2.28,1.13 0.68,0.629 1.89,0.985 2.3,1.872 0.46,1.014 -0.54,1.943 0.87,2.52 -0.76,0.599 -0.52,1.699 -0.37,2.505 0.23,1.276 -0.2,2.398 0,3.629 0.12,0.989 0.76,1.62 0.51,2.682 -0.37,1.597 -0.19,2.164 0.57,3.569 0.39,0.715 0,1.352 0.43,2.007 0.57,0.974 1.47,1.361 2.32,2.032 1.57,1.237 -3.12,3.291 -0.61,4.24 -2.59,0.664 -11.65,-2.445 -12.98,1.065 -0.69,1.833 -2.5,2.531 -4.46,2.367 -1.48,-0.125 -3.3,1.99 -1.28,2.544 -1.71,1.562 1.43,2.719 0.68,3.46 -0.86,0.847 -2.35,0.541 -3.28,1.214 -0.96,0.706 -2.02,1.764 -3.17,2.159 -0.86,0.298 -1.84,0.272 -2.65,0.726 -1.57,0.879 -2.21,2.722 -3.36,4.012 -1.32,1.479 -3.77,2.057 -5.69,2.133 -1.44,0.06 -3,-0.549 -3.58,1.172 -0.62,1.836 -2.43,0.461 -3.87,0.568 -1.02,0.07 -1.62,0.584 -2.27,1.292 -0.67,0.72 -1.45,0.568 -2.28,0.9 -0.96,0.383 -1.55,1.331 -2.32,1.969 -0.81,0.678 -1.82,1.1 -2.65,1.773 -1.62,1.313 -3.04,1.504 -2.88,3.776 0.16,2.26 -0.1,4.765 -0.33,7.012 l -33.295,0.2355 c 0.325,-0.3805 1.445,-2.1625 1.835,-2.3065 z"
             />
-            , EH:{' '}
             <g id="EH">
                 <path
                     id="eh-"
@@ -7761,9 +7748,9 @@ const countries: Record<string, JSX.Element> = {
                 id="Australia_Macquarie_Island"
                 d="m 2332,1162 c -0.96,0.47 -1.28,2.76 -0.64,2.42 0.62,-0.33 0.43,-1.84 0.64,-2.42"
             />
-            , CX: <g id="CX" />
-            , CC: <g id="CC" />
-            , HM: <g id="HM" />, NF:{' '}
+            <g id="CX" />
+            <g id="CC" />
+            <g id="HM" />
             <g id="NF">
                 <path
                     id="nf-"
@@ -7858,25 +7845,6 @@ const countries: Record<string, JSX.Element> = {
                     d="m 2150.31,501.822 c 0.1,0.436 0.1,0.593 0.58,0.721 -0.2,-0.241 -0.39,-0.481 -0.58,-0.721"
                 />
             </g>
-            , HK:{' '}
-            <g id="HK">
-                <g id="hk-" className="landxx coastxx cn hk">
-                    <path
-                        id="path2764"
-                        className="landxx cn hk"
-                        d="m 2154.34,503.838 c 0.75,-0.259 1.47,-0.625 2.09,0.144 -0.23,0.215 -0.47,0.406 -0.72,0.576 0.3,-0.263 0.86,-0.448 1.22,-0.17 1.12,0.867 -1.25,0.08 -0.28,1.395 -0.85,-0.179 -4.02,-0.834 -2.31,-1.945"
-                    />
-                    <path
-                        id="path2762"
-                        d="m 2153.33,506.502 c 0,-0.753 0.9,-0.923 1.37,-1.224 0.1,0.788 -0.68,1.256 -1.37,1.224"
-                    />
-                    <path
-                        id="path2760"
-                        d="m 2155.78,505.782 c 0,0.375 0.19,0.615 0.58,0.72 -0.1,-0.326 -0.29,-0.566 -0.58,-0.72"
-                    />
-                </g>
-            </g>
-            , MO:{' '}
             <g id="MO">
                 <path
                     id="mo-"
@@ -7884,17 +7852,37 @@ const countries: Record<string, JSX.Element> = {
                     d="m 2151.1,506.502 c 0.13,-0.08 0.24,0.421 0.15,-0.145 0.12,0.278 0.14,0.566 0.1,0.864 -0.1,-0.239 -0.15,-0.479 -0.22,-0.719"
                 />
             </g>
-            , TW:{' '}
-            <g id="TW" className="landxx coastxx cn tw">
+        </g>
+    ),
+    HK: (
+        <g id="HK">
+            <g id="hk-" className="landxx coastxx cn hk">
                 <path
-                    id="path2738"
-                    d="m 2183.73,486.335 c -0.26,0.216 -0.54,0.384 -0.86,0.504 0.45,0.267 0.93,0.339 1.44,0.217 -0.17,-0.26 -0.36,-0.5 -0.58,-0.721"
+                    id="path2764"
+                    className="landxx cn hk"
+                    d="m 2154.34,503.838 c 0.75,-0.259 1.47,-0.625 2.09,0.144 -0.23,0.215 -0.47,0.406 -0.72,0.576 0.3,-0.263 0.86,-0.448 1.22,-0.17 1.12,0.867 -1.25,0.08 -0.28,1.395 -0.85,-0.179 -4.02,-0.834 -2.31,-1.945"
                 />
                 <path
-                    id="path2746"
-                    d="m 2197.91,494.903 c 0.19,0.717 0.58,1.315 0.34,2.076 -0.19,0.624 -0.39,1.169 0.15,1.7 1,0.976 1.33,2.582 1.97,3.848 0.74,1.471 2.34,1.896 3.29,3.167 0.3,0.408 0.94,3.044 1.69,2.651 0.98,-0.507 0.4,-2.174 0.29,-2.985 -0.18,-1.308 0.19,-2.287 0.93,-3.354 1.77,-2.551 2.09,-7.293 1.89,-10.309 -0.1,-0.624 -0.46,-1.561 -0.25,-2.175 0.2,-0.617 0.53,-0.972 0.6,-1.652 0.16,-1.583 -0.38,-2.74 -0.38,-4.271 0,-0.792 0.79,-1.433 0.1,-2.078 -0.44,-0.394 -2.71,-2.193 -3.28,-1.623 -0.91,0.903 -2.71,1.127 -3.22,2.396 -0.52,1.309 -0.37,2.075 -1.3,3.197 -0.86,1.024 -1.05,2.491 -1.39,3.733 -0.5,1.832 -1.83,3.698 -1.4,5.679"
+                    id="path2762"
+                    d="m 2153.33,506.502 c 0,-0.753 0.9,-0.923 1.37,-1.224 0.1,0.788 -0.68,1.256 -1.37,1.224"
+                />
+                <path
+                    id="path2760"
+                    d="m 2155.78,505.782 c 0,0.375 0.19,0.615 0.58,0.72 -0.1,-0.326 -0.29,-0.566 -0.58,-0.72"
                 />
             </g>
+        </g>
+    ),
+    TW: (
+        <g id="TW" className="landxx coastxx cn tw">
+            <path
+                id="path2738"
+                d="m 2183.73,486.335 c -0.26,0.216 -0.54,0.384 -0.86,0.504 0.45,0.267 0.93,0.339 1.44,0.217 -0.17,-0.26 -0.36,-0.5 -0.58,-0.721"
+            />
+            <path
+                id="path2746"
+                d="m 2197.91,494.903 c 0.19,0.717 0.58,1.315 0.34,2.076 -0.19,0.624 -0.39,1.169 0.15,1.7 1,0.976 1.33,2.582 1.97,3.848 0.74,1.471 2.34,1.896 3.29,3.167 0.3,0.408 0.94,3.044 1.69,2.651 0.98,-0.507 0.4,-2.174 0.29,-2.985 -0.18,-1.308 0.19,-2.287 0.93,-3.354 1.77,-2.551 2.09,-7.293 1.89,-10.309 -0.1,-0.624 -0.46,-1.561 -0.25,-2.175 0.2,-0.617 0.53,-0.972 0.6,-1.652 0.16,-1.583 -0.38,-2.74 -0.38,-4.271 0,-0.792 0.79,-1.433 0.1,-2.078 -0.44,-0.394 -2.71,-2.193 -3.28,-1.623 -0.91,0.903 -2.71,1.127 -3.22,2.396 -0.52,1.309 -0.37,2.075 -1.3,3.197 -0.86,1.024 -1.05,2.491 -1.39,3.733 -0.5,1.832 -1.83,3.698 -1.4,5.679"
+            />
         </g>
     ),
     FR: (
@@ -7926,13 +7914,11 @@ const countries: Record<string, JSX.Element> = {
                     d="m 1367.17,332.118 c 0.41,-0.415 0.49,-1.257 1.04,-1.534 1.1,-0.55 2.35,-0.692 3.39,-1.385 0.93,-0.619 0.27,-2.364 1.54,-2.266 0.15,2.196 1.2,5.361 0.68,7.488 -0.55,2.244 -1.65,4.389 -2.62,6.479 -0.38,-0.593 -3.91,-1.882 -2.02,-2.664 -0.51,-0.119 -0.99,-0.311 -1.44,-0.575 0.49,-0.312 0.84,-0.833 0.79,-1.44 -1.01,0.237 -1.15,-0.887 -0.57,-1.439 -0.86,-0.216 -1.4,-1.342 -0.22,-1.584 -0.25,-0.332 -0.44,-0.691 -0.57,-1.08"
                 />
             </g>
-            , GF:{' '}
             <path
                 id="GF"
                 className="landxx eu fr gf"
                 d="m 883.326,678.438 c 1.288,-0.06 2.316,-2.268 2.755,-3.237 0.818,-1.809 0.01,-3.822 1.246,-5.47 1.463,-1.953 0.119,-3.393 -1.127,-4.948 -1.292,-1.613 -1.24,-4.493 -1.364,-6.461 -0.144,-2.293 0.19,-3.596 1.863,-5.193 0.623,-0.595 1.399,-1.252 1.599,-2.131 0.259,-1.139 0.553,-2.562 2.168,-1.952 1.048,0.396 1.767,1.244 2.881,1.549 1.203,0.331 2.664,0.312 3.682,1.126 1.194,0.957 2.781,4.602 4.656,4.469 -0.315,0.462 -0.531,0.966 -0.649,1.513 0.532,-2.396 4.637,1.715 2.3,3.312 1.132,-0.417 0.474,-1.475 1.038,-2.229 0.856,-1.146 1.521,1.525 1.587,2.094 0.312,2.698 -1.758,5.554 -3.161,7.702 -1.612,2.468 -2.733,4.557 -3.784,7.338 -0.39,1.032 -0.893,1.905 -1.76,2.607 -0.36,0.292 -1.005,0.964 -1.479,1.089 -0.781,0.207 -1.396,-0.418 -2.231,-0.02 0.344,-0.981 -0.271,-0.985 -1.008,-0.757 -1.03,0.319 -1.91,-0.1 -2.889,-0.431 -0.494,-0.167 -2.415,1.225 -2.722,1.59 -0.57,0.677 -3.224,-1.159 -3.601,-1.556"
             />
-            , GP:{' '}
             <g id="GP">
                 <g id="gp-" className="landxx coastxx eu fr gp">
                     <path
@@ -7949,7 +7935,6 @@ const countries: Record<string, JSX.Element> = {
                     />
                 </g>
             </g>
-            , MQ:{' '}
             <g id="MQ">
                 <path
                     id="mq-"
@@ -7957,7 +7942,6 @@ const countries: Record<string, JSX.Element> = {
                     d="m 840.336,573.966 c -0.583,-0.893 -1.3,-0.133 -1.584,-0.979 -0.275,-0.819 -0.646,-1.706 -0.657,-2.583 -0.01,-1.149 1.181,-0.144 1.494,0.25 0.61,0.767 1.462,2.361 0.747,3.312"
                 />
             </g>
-            , RE:{' '}
             <g id="RE">
                 <path
                     id="re-"
@@ -7965,7 +7949,6 @@ const countries: Record<string, JSX.Element> = {
                     d="m 1719.46,880.259 c -0.11,-1.988 -3.99,-0.81 -3.55,1.09 0.67,2.866 6.03,3.098 3.55,-1.09"
                 />
             </g>
-            , YT:{' '}
             <g id="YT">
                 <path
                     id="yt-"
@@ -8013,7 +7996,6 @@ const countries: Record<string, JSX.Element> = {
                     d="m 1342.7171,243.77656 c -1.05,2.914 -2.3071,5.36444 -4.5671,7.58144 -0.87,0.858 1.31,1.551 1.82,1.713 1.21,0.385 2.72,-0.589 3.12,0.303 -1.56,-0.3 -3.22,1.166 -4.73,0.504 1.35,0.861 -0.22,0.225 -0.81,0.604 0.56,0.394 1.62,0.198 1.71,1.109 -1.11,0.348 -1.75,-0.749 -2.52,-1.31 -0.95,0 -2.14,-0.308 -2.72,0.705 0.73,0.963 2.09,0.766 3.13,0.706 0.85,-0.05 3.59,1.406 3.42,-0.302 0.53,0.397 1.29,0.605 1.72,-0.101 0.35,0.863 1.65,0.584 2.11,0 0.55,2.027 3.5,2.006 5.24,2.721 -1.18,1.369 -2.33,3.389 0.71,3.427 1.31,0.02 -0.22,-2.04 0,-2.419 0.69,-1.172 2.09,-2.405 1.61,-3.931 -0.24,-0.778 -0.77,-1.727 -1.61,-2.016 -0.1,-1.767 1.81,0.07 1.31,-1.31 0.59,0.299 4.01,0.649 4.23,-0.302 0.11,-0.428 -0.62,-0.973 0,-1.311 0.28,-0.09 0.47,-0.242 0.71,-0.403 2.57,-2.564 -1.92,-2.542 -1.21,-3.729 0.53,-0.888 2.34,0.134 2.42,-0.706 0.11,-1.123 0.75,-1.952 1.01,-3.024 0.4,-1.649 -2.33,-3.63 -3.93,-3.426 -2.52,0.32 -6.5693,0.83846 -7.3248,4.39598 -0.3797,1.70495 1.4948,2.74002 1.7748,2.86102 0.84,0.367 0.48,0.925 0,1.31 -0.47,0.377 -0.93,0.839 -1.41,1.209 -0.71,0.555 -1.85,-0.535 -2.62,-0.504 0.24,-0.513 3.1618,-1.21317 1.9935,-3.2003 -2.01,-1.8365 -4.2864,-2.00914 -4.5864,-1.15514 z"
                 />
             </g>
-            , BQ:{' '}
             <g id="BQ">
                 <path
                     id="bq-"
@@ -9066,120 +9048,13 @@ const countries: Record<string, JSX.Element> = {
             />
         </g>
     ),
-}
-
-const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
-const BORDER_HSL: [number, number, number] = [228, 0, 85]
-const SATURATION_FLOOR = 0.25
-
-export function Hedgehogger(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const localLogic = hedgehoggerLogic(insightProps)
-    const { tooltipOpacity, countryCodeToSeries, maxAggregatedValue, currentTooltip, tooltipCoordinates } =
-        useValues(localLogic)
-    const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
-    const { loadPeople } = useActions(personsModalLogic)
-
-    const tooltipElement = useRef<HTMLElement | null>(null)
-    const svgRef = useRef<SVGSVGElement>(null)
-
-    useEffect(() => {
-        tooltipElement.current = ensureTooltipElement()
-        tooltipElement.current.style.opacity = tooltipOpacity.toString()
-        tooltipElement.current.style.left = tooltipCoordinates
-            ? `${window.pageXOffset + tooltipCoordinates[0] + 8}px`
-            : 'revert'
-        tooltipElement.current.style.top = tooltipCoordinates
-            ? `${window.pageYOffset + tooltipCoordinates[1] + 8}px`
-            : 'revert'
-    }, [tooltipOpacity, currentTooltip, tooltipCoordinates])
-
-    return (
-        <>
-            <div className="Hedgehogger">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    version="1.1"
-                    viewBox="0 0 2754 1200"
-                    width="100%"
-                    height="100%"
-                    id="svg"
-                    ref={svgRef}
-                >
-                    {Object.entries(countries).map(([countryCode, countryElement]) => {
-                        const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
-                        const aggregatedValue = countrySeries?.aggregated_value || 0
-                        const fill =
-                            countryCode in countryCodeToSeries
-                                ? interpolateHsl(
-                                      BORDER_HSL,
-                                      PRIMARY_HSL,
-                                      SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
-                                  )
-                                : undefined
-
-                        return React.cloneElement(countryElement, {
-                            key: countryCode,
-                            style: { color: fill },
-                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
-                            onMouseLeave: () => hideTooltip(),
-                            onMouseMove: (e: MouseEvent) => {
-                                updateTooltipCoordinates(e.clientX, e.clientY)
-                            },
-                            onClick: () => {
-                                if (countrySeries) {
-                                    loadPeople({
-                                        action: countrySeries.action,
-                                        label: countryCodeToName[countrySeries.breakdown_value as string],
-                                        date_from: countrySeries.filter?.date_from as string,
-                                        date_to: countrySeries.filter?.date_to as string,
-                                        filters: countrySeries.filter || {},
-                                        breakdown_value: countrySeries.breakdown_value,
-                                        saveOriginal: true,
-                                        pointValue: countrySeries.aggregated_value,
-                                    })
-                                }
-                            },
-                        })
-                    })}
-                </svg>
-            </div>
-            {tooltipElement.current &&
-                ReactDOM.render(
-                    <Provider store={getContext().store}>
-                        {currentTooltip && (
-                            <InsightTooltip
-                                date={'2021-04-08'}
-                                seriesData={[
-                                    {
-                                        dataIndex: 1,
-                                        datasetIndex: 1,
-                                        id: 1,
-                                        filter: {},
-                                        breakdown_value: currentTooltip[0],
-                                        count: currentTooltip[1]?.aggregated_value || 0,
-                                    },
-                                ]}
-                                renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
-                                    typeof datum.breakdown_value === 'string' && (
-                                        <div className="flex-center">
-                                            <span style={{ fontSize: '1.25rem' }} className="mr-025">
-                                                {countryCodeToFlag(datum.breakdown_value)}
-                                            </span>
-                                            <span style={{ whiteSpace: 'nowrap' }}>
-                                                {countryCodeToName[datum.breakdown_value]}
-                                            </span>
-                                        </div>
-                                    )
-                                }
-                                showHeader={false}
-                                hideColorCol
-                                hideInspectActorsSection={!currentTooltip[1]}
-                            />
-                        )}
-                    </Provider>,
-                    tooltipElement.current
-                )}
-        </>
-    )
+    XK: (
+        <g id="XK">
+            <path
+                id="xk-"
+                className="limitxx landxx rs xk"
+                d="m 1446.36,328.948 c 0.39,-0.288 1.2,-0.809 1.61,-0.628 0.1,-0.687 0.17,0.1 0.44,-0.361 0.44,-0.743 0.98,-0.639 1.46,-0.848 1,-0.429 0.97,-0.884 0.5,-1.977 0.47,-0.06 1.07,-0.392 1.46,-0.664 0.3,1.962 5.13,1.273 4.79,3.224 -0.17,0.986 1.74,1.337 1.95,2.147 0.31,1.186 -1.92,2.399 -1.04,3.357 -0.8,0.366 -2.02,0.417 -1.72,1.379 -1.2,-0.149 -1,-0.82 -2.75,-0.113 -1.4,0.564 -1.31,2.199 -2.03,2.417 -0.48,-0.132 0.2,-2.393 -0.79,-3.162 -0.24,-0.864 -1.1,-0.557 -1.96,-1.212 -0.57,-0.914 -0.16,-1.38 -1.21,-1.713 -0.22,-0.493 -1.18,-1.451 -0.71,-1.846"
+            />
+        </g>
+    ),
 }

@@ -10,3 +10,4 @@ SHELL_PLUS_POST_IMPORTS = [
 ]
 
 SHELL_PLUS_POST_IMPORTS.append(("posthog.client", ("sync_execute",)))
+SHELL_PLUS_POST_IMPORTS.append(("infi.clickhouse_orm.utils", ("import_submodules",)))

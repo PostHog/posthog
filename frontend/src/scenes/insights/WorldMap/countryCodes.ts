@@ -267,4 +267,5 @@ export const countryCodeToName = {
     GU: 'Guam',
     SG: 'Singapore',
     TK: 'Tokelau',
+    XK: 'Kosovo',
 }

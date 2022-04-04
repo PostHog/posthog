@@ -1,12 +1,11 @@
 import { Col, Row, Skeleton, Card, SkeletonProps } from 'antd'
-import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import React from 'react'
-import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { LemonButton } from 'lib/components/LemonButton'
 
 function SkeletonCardOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
     return (
@@ -89,9 +88,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                         <p>This dashboard sure would look better with some graphs!</p>
                         <div className="mt text-center">
                             <Link to={urls.insightNew(undefined, dashboard?.id)}>
-                                <HotkeyButton data-attr="dashboard-add-graph-header" icon={<PlusOutlined />} hotkey="n">
-                                    Add Insight
-                                </HotkeyButton>
+                                <LemonButton data-attr="dashboard-add-graph-header">Add insight</LemonButton>
                             </Link>
                         </div>
                     </Card>

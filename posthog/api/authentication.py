@@ -33,8 +33,6 @@ def logout(request):
         return redirect("/admin/")
 
     response = auth_views.logout_then_login(request)
-    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
-
     return response
 
 

@@ -73,7 +73,8 @@ export function BreakdownFilter({
                           setFilters({
                               breakdown: undefined,
                               breakdown_type: undefined,
-                              display: filters.display !== ChartDisplayType.Hedgehogger ? filters.display : undefined,
+                              // Make sure we are no longer in map view after removing the Country Code breakdown
+                              display: filters.display !== ChartDisplayType.WorldMap ? filters.display : undefined,
                           })
                       }
                   }

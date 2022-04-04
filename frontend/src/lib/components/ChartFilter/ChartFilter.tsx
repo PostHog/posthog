@@ -16,6 +16,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -31,11 +32,13 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
-    const hedgehoggerDisabled: boolean =
-        pieDisabled ||
+    const worldMapDisabled: boolean =
+        filters.insight === InsightType.RETENTION ||
+        filters.insight === InsightType.STICKINESS ||
         (!!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
-            filters.breakdown !== '$geoip_country_name')
+            filters.breakdown !== '$geoip_country_name') ||
+        toLocalFilters(filters).length > 1
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
     const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
@@ -121,9 +124,9 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   ...(featureFlags[FEATURE_FLAGS.HEDGEHOGGER]
                       ? [
                             {
-                                value: ChartDisplayType.Hedgehogger,
+                                value: ChartDisplayType.WorldMap,
                                 label: <Label icon={<GlobalOutlined />}>Map</Label>,
-                                disabled: hedgehoggerDisabled,
+                                disabled: worldMapDisabled,
                             },
                         ]
                       : []),

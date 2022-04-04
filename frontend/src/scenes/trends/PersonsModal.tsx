@@ -21,7 +21,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/Hedgehogger/countryCodes'
+import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/WorldMap/countryCodes'
+
 export interface PersonsModalProps {
     visible: boolean
     view: InsightType
@@ -82,7 +83,7 @@ export function PersonsModal({
                     {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
                     <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
-            ) : filters.display === ChartDisplayType.Hedgehogger ? (
+            ) : filters.display === ChartDisplayType.WorldMap ? (
                 <>
                     {capitalizeFirstLetter(actorLabel)}
                     {peopleParams?.breakdown_value

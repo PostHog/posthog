@@ -434,8 +434,8 @@ export interface SessionRecordingMeta {
 export interface SessionPlayerData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
-    session_recording: SessionRecordingMeta
-    bufferedTo: PlayerPosition
+    metadata: SessionRecordingMeta
+    bufferedTo: PlayerPosition | null
     next?: string
 }
 
@@ -668,7 +668,7 @@ export interface SessionRecordingType {
 
 export interface SessionRecordingEvents {
     next?: string
-    events: EventType[]
+    events: RecordingEventType[]
 }
 
 export interface BillingType {
@@ -876,7 +876,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    Hedgehogger = 'Hedgehogger',
+    WorldMap = 'WorldMap',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
