@@ -1241,8 +1241,10 @@ export const createProcessEventTests = (
         expect(event.session_id).toEqual('abcf-efg')
         expect(event.distinct_id).toEqual('some-id')
 
-        const expectedFolderDate = now.toFormat('YYYY-mm-dd')
+        const expectedFolderDate = now.toFormat('yyyy-mm-dd')
         expect(event.snapshot_data).toEqual({
+            chunk_id: 'chunk_id',
+            chunk_index: 'chunk_index',
             object_storage_path: `session_recordings/${expectedFolderDate}/${event.session_id}/chunk_id/chunk_index`,
             timestamp: 123,
         })
