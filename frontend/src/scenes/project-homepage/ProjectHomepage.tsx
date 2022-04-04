@@ -43,9 +43,9 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             <ProfilePicture name={asDisplay(recording.person)} />
             <div className="recording-person-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
                 <p className="recording-person-text">{asDisplay(recording.person)}</p>
-                <p className="text-muted recording-start-time">{dayjs(recording.start_time).fromNow()}</p>
+                <p className="recording-start-time">{dayjs(recording.start_time).fromNow()}</p>
             </div>
-            <span className="text-muted recording-duration">{humanFriendlyDuration(recording.recording_duration)}</span>
+            <span className="recording-duration">{humanFriendlyDuration(recording.recording_duration)}</span>
             <PlayCircleOutlined size={24} />
         </LemonButton>
     )

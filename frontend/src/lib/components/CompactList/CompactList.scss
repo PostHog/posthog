@@ -14,13 +14,15 @@
         align-items: center;
         justify-content: space-between;
     }
+
     .spacer-container {
         padding: 0 $default_spacing;
     }
+
     .scrollable-list {
         flex: 1;
         overflow-y: auto;
         overflow-x: auto;
-        padding: 0 $default_spacing $default_spacing $default_spacing;
+        padding: 0 $default_spacing/2 $default_spacing $default_spacing/2;
     }
 }
