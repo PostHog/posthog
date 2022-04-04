@@ -17,7 +17,7 @@ import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { WorldMap } from 'scenes/insights/WorldMap/WorldMap'
+import { WorldMap } from 'scenes/insights/WorldMap'
 
 interface Props {
     view: InsightType

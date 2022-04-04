@@ -22,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/WorldMap/countryCodes'
+
 export interface PersonsModalProps {
     visible: boolean
     view: InsightType

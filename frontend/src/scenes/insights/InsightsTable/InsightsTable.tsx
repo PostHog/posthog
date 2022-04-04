@@ -24,7 +24,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport, IconEdit } from 'lib/components/icons'
-import { countryCodeToName } from '../WorldMap/countryCodes'
+import { countryCodeToName } from '../WorldMap'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */

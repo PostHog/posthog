@@ -72,6 +72,9 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
                 ref={svgRef}
             >
                 {Object.entries(countryVectors).map(([countryCode, countryElement]) => {
+                    if (countryCode.length !== 2) {
+                        return null // Avoid this issue: https://github.com/storybookjs/storybook/issues/9832
+                    }
                     const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
                     const aggregatedValue = countrySeries?.aggregated_value || 0
                     const fill =
@@ -82,7 +85,6 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
                                   SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
                               )
                             : undefined
-
                     return React.cloneElement(countryElement, {
                         key: countryCode,
                         style: { color: fill },

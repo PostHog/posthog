@@ -49,7 +49,7 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { WorldMap } from 'scenes/insights/WorldMap/WorldMap'
+import { WorldMap } from 'scenes/insights/WorldMap'
 import { AlertMessage } from '../InfoMessage/AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
