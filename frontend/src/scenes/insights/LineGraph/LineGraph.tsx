@@ -608,12 +608,10 @@ export function LineGraph_({
                             label: function (context) {
                                 const label: string = context.label
                                 const currentValue = context.raw as number
-                                //@ts-expect-error
+                                // @ts-expect-error - _metasets is not officially exposed
                                 const total: number = context.chart._metasets[context.datasetIndex].total
-
                                 const percentageLabel: number = parseFloat(((currentValue / total) * 100).toFixed(1))
-
-                                return label + ': ' + currentValue + ' (' + percentageLabel + '%)'
+                                return `${label}: ${currentValue} (${percentageLabel}%)`
                             },
                         },
                     },
