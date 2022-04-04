@@ -95,7 +95,7 @@ FROM (
         {breakdown_filter}
     )
     GROUP BY person_id, breakdown_value
-)
+) AS pdi
 GROUP BY day_start, breakdown_value
 """
 
