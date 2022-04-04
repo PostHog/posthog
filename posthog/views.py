@@ -11,15 +11,14 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
-from social_django.views import auth
 
 from posthog.email import is_email_available
 from posthog.models import Organization, User
 from posthog.utils import (
-    get_available_sso_providers,
     get_available_timezones_with_offsets,
     get_can_create_org,
     get_celery_heartbeat,
+    get_instance_available_sso_providers,
     get_instance_realm,
     is_celery_alive,
     is_plugin_server_alive,
@@ -52,17 +51,6 @@ def login_required(view):
         return base_handler(request, *args, **kwargs)
 
     return handler
-
-
-def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    sso_providers = get_available_sso_providers()
-
-    if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
-
-    if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
-    return auth(request, backend)
 
 
 def health(request):
@@ -111,7 +99,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "cloud": settings.MULTI_TENANCY,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
-        "available_social_auth_providers": get_available_sso_providers(),
+        "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(),
         "email_service_available": is_email_available(with_absolute_urls=True),
     }

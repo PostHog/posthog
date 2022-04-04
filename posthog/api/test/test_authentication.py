@@ -30,7 +30,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
         # Note no Enterprise license can be found
@@ -44,7 +44,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
 
 
 class TestLoginAPI(APIBaseTest):

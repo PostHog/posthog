@@ -184,6 +184,9 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
 
+    const { activeTab } = useValues(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
+
     return (
         <div className="feature_flags">
             <PageHeader
@@ -204,11 +207,11 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
             {showActivityLog ? (
-                <Tabs defaultActiveKey="overview" destroyInactiveTabPane>
+                <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
                     <Tabs.TabPane tab="Overview" key="overview">
                         <OverViewTab />
                     </Tabs.TabPane>
-                    <Tabs.TabPane tab="Activity" key="activity">
+                    <Tabs.TabPane tab="History" key="history">
                         <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
                     </Tabs.TabPane>
                 </Tabs>

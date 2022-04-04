@@ -4,7 +4,7 @@ import pytest
 from dateutil import parser
 from django.db.utils import IntegrityError
 
-from posthog.models import FeatureFlag, User
+from posthog.models import FeatureFlag, Person, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
@@ -173,6 +173,38 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
         ]
         assert actual == expected
 
+    def test_can_exclude_changed_fields_in_feature_flags(self):
+        """field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+            "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
+            "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+        }
+        """
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(
+                id="before", created_at="before", created_by="before", is_simple_flag=True
+            ),
+            current=self._a_feature_flag_with(id="after", created_at="after", created_by="after", is_simple_flag=False),
+        )
+        self.assertEqual(actual, [])
+
+    def test_can_exclude_changed_fields_in_persons(self):
+        """field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+            "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
+            "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+        }
+        """
+        actual = changes_between(
+            model_type="Person",
+            previous=self._a_person_with(
+                id="before", uuid="before", distinct_ids="before", created_at="before", is_identified=True
+            ),
+            current=self._a_person_with(
+                id="after", uuid="after", distinct_ids="after", created_at="after", is_identified=False
+            ),
+        )
+        self.assertEqual([change.field for change in actual], ["team", "is_user"])
+
     @staticmethod
     def _a_feature_flag_with(**kwargs) -> FeatureFlag:
         return FeatureFlag(
@@ -184,4 +216,19 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
             name=kwargs.get("name", "a"),
             filters=kwargs.get("filters", None),
             created_at=parser.parse("12th April 2003"),
+        )
+
+    @staticmethod
+    def _a_person_with(**kwargs) -> Person:
+        return Person(
+            id=kwargs.get("id", 2),
+            created_at=kwargs.get("created_at", parser.parse("12th April 2003")),
+            properties_last_updated_at=kwargs.get("properties_last_updated_at", parser.parse("12th April 2003")),
+            properties_last_operation=kwargs.get("properties_last_operation", {}),
+            team=kwargs.get("team", Team()),
+            properties=kwargs.get("properties", {}),
+            is_user=kwargs.get("is_user", User()),
+            is_identified=kwargs.get("is_identified", True),
+            uuid=kwargs.get("uuid", UUIDT()),
+            version=kwargs.get("version", 1),
         )

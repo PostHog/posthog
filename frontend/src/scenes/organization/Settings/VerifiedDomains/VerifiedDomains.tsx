@@ -1,11 +1,18 @@
 import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber, IconLock } from 'lib/components/icons'
+import {
+    IconCheckmark,
+    IconDelete,
+    IconExclamation,
+    IconWarningAmber,
+    IconLock,
+    IconOffline,
+} from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
-import { AvailableFeature, OrganizationDomainType } from '~/types'
+import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -13,14 +20,16 @@ import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
 import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/components/Link'
 import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+
+const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
 export function VerifiedDomains(): JSX.Element {
-    const { verifiedDomainsLoading, updatingDomainLoading, isFeatureAvailable } = useValues(verifiedDomainsLogic)
+    const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
     const { setAddModalShown } = useActions(verifiedDomainsLogic)
 
     return (
@@ -36,21 +45,15 @@ export function VerifiedDomains(): JSX.Element {
                         for accounts under your domains.
                     </p>
                 </div>
-                {isFeatureAvailable && (
-                    <div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => setAddModalShown(true)}
-                            disabled={verifiedDomainsLoading || updatingDomainLoading}
-                        >
-                            Add domain
-                        </LemonButton>
-                    </div>
-                )}
+                <LemonButton
+                    type="primary"
+                    onClick={() => setAddModalShown(true)}
+                    disabled={verifiedDomainsLoading || updatingDomainLoading}
+                >
+                    Add domain
+                </LemonButton>
             </div>
-            <PayGateMini feature={AvailableFeature.SSO_ENFORCEMENT} overrideShouldShowGate={isFeatureAvailable}>
-                <VerifiedDomainsTable />
-            </PayGateMini>
+            <VerifiedDomainsTable />
         </>
     )
 }
@@ -62,8 +65,10 @@ function VerifiedDomainsTable(): JSX.Element {
         currentOrganization,
         updatingDomainLoading,
         isSSOEnforcementAvailable,
+        isSAMLAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
+    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId } =
+        useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
@@ -88,7 +93,6 @@ function VerifiedDomainsTable(): JSX.Element {
                           </>
                       ),
                       render: function Verified(_, { is_verified, verified_at }) {
-                          const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
                           return is_verified ? (
                               <div className="flex-center text-success">
                                   <IconCheckmark style={iconStyle} /> Verified
@@ -136,47 +140,81 @@ function VerifiedDomainsTable(): JSX.Element {
                 )
             },
         },
-        // TODO: This attribute is not connected yet, hide to avoid confusion
-        ...(preflight?.cloud
-            ? ([
-                  {
-                      key: 'sso_enforcement',
-                      title: (
-                          <>
-                              Enforce SSO{' '}
-                              <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                                  <InfoCircleOutlined />
-                              </Tooltip>
-                          </>
-                      ),
-                      render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }, index) {
-                          if (!isSSOEnforcementAvailable) {
-                              return index === 0 ? (
-                                  <Link
-                                      to={UPGRADE_LINK(preflight?.cloud).url}
-                                      target={UPGRADE_LINK(preflight?.cloud).target}
-                                      className="flex-center"
-                                  >
-                                      <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable
-                                      SSO enforcement
-                                  </Link>
-                              ) : (
-                                  <></>
-                              )
-                          }
-                          return is_verified ? (
-                              <SSOSelect
-                                  value={sso_enforcement}
-                                  loading={updatingDomainLoading}
-                                  onChange={(val) => updateDomain({ id, sso_enforcement: val })}
-                              />
-                          ) : (
-                              <i className="text-muted-alt">Verify domain to enable</i>
-                          )
-                      },
-                  },
-              ] as LemonTableColumns<OrganizationDomainType>)
-            : []),
+        {
+            key: 'sso_enforcement',
+            title: (
+                <>
+                    Enforce SSO{' '}
+                    <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
+                        <InfoCircleOutlined />
+                    </Tooltip>
+                </>
+            ),
+            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
+                if (!isSSOEnforcementAvailable) {
+                    return index === 0 ? (
+                        <Link
+                            to={UPGRADE_LINK(preflight?.cloud).url}
+                            target={UPGRADE_LINK(preflight?.cloud).target}
+                            className="flex-center"
+                        >
+                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
+                            enforcement
+                        </Link>
+                    ) : (
+                        <></>
+                    )
+                }
+                return is_verified ? (
+                    <SSOSelect
+                        value={sso_enforcement}
+                        loading={updatingDomainLoading}
+                        onChange={(val) => updateDomain({ id, sso_enforcement: val })}
+                        samlAvailable={has_saml}
+                    />
+                ) : (
+                    <i className="text-muted-alt">Verify domain to enable</i>
+                )
+            },
+        },
+        {
+            key: 'saml',
+            title: 'SAML',
+            render: function SAML(_, { is_verified, saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }, index) {
+                if (!isSAMLAvailable) {
+                    return index === 0 ? (
+                        <Link
+                            to={UPGRADE_LINK(preflight?.cloud).url}
+                            target={UPGRADE_LINK(preflight?.cloud).target}
+                            className="flex-center"
+                        >
+                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
+                        </Link>
+                    ) : (
+                        <></>
+                    )
+                }
+                return is_verified ? (
+                    <>
+                        {has_saml ? (
+                            <div className="flex-center text-success">
+                                <IconCheckmark style={iconStyle} /> SAML enabled
+                            </div>
+                        ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
+                            <div className="flex-center text-warning">
+                                <IconWarningAmber style={iconStyle} /> SAML partially configured
+                            </div>
+                        ) : (
+                            <div className="flex-center">
+                                <IconOffline style={iconStyle} /> SAML not set up
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <i className="text-muted-alt">Verify domain to enable</i>
+                )
+            },
+        },
         {
             key: 'actions',
             width: 32,
@@ -186,6 +224,15 @@ function VerifiedDomainsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => setConfigureSAMLModalId(id)}
+                                    fullWidth
+                                    disabled={!isSAMLAvailable}
+                                    title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
+                                >
+                                    Configure SAML
+                                </LemonButton>
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
@@ -234,6 +281,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 emptyState="You haven't registered any authentication domains yet."
             />
             <AddDomainModal />
+            <ConfigureSAMLModal />
             <VerifyDomainModal />
         </div>
     )
