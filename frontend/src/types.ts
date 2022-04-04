@@ -8,7 +8,7 @@ import {
     FunnelLayout,
     COHORT_DYNAMIC,
     COHORT_STATIC,
-    BinCountAuto,
+    BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -599,7 +599,7 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-export type BinCountValue = number | typeof BinCountAuto
+export type BinCountValue = number | typeof BIN_COUNT_AUTO
 
 // https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
 export enum StepOrderValue {
