@@ -23,7 +23,7 @@ describe('projectHomepageLogic', () => {
         logic.mount()
     })
 
-    describe('loadRecordings', async () => {
+    describe('loadRecordings', () => {
         it('is called on mount and sets recordings', async () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadRecordings', 'loadRecordingsSuccess'])
