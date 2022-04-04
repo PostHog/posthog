@@ -695,7 +695,7 @@ const DATE_FORMAT = 'D MMM YYYY'
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },
     Live: {
-        values: ['-30M'],
+        values: ['-5M'],
     },
     Today: {
         values: ['dStart'],
