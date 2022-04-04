@@ -12,7 +12,8 @@ To test feature flags you can intercept the call to the `decide` endpoint
   cy.intercept(/.*\/decide\/.*/, (req) =>
       req.reply(
           decideResponse({
-                '6619-query-events-by-date': true,
+                // add feature flags here, for e.g.
+                // 'feature-flag-key': true,
           })
       )
   )

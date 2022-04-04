@@ -2,7 +2,7 @@ import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
-import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import {
@@ -25,7 +25,7 @@ export interface ActionFilterProps {
     filters: Optional<FilterType, 'type'>
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
-    hideMathSelector?: boolean
+    mathAvailability?: MathAvailability
     hidePropertySelector?: boolean
     /** Text copy for the action button to add more events/actions (graph series) */
     buttonCopy: string
@@ -97,7 +97,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             filters,
             typeKey,
             addFilterDefaultOptions = {},
-            hideMathSelector,
+            mathAvailability = MathAvailability.All,
             hidePropertySelector = false,
             buttonCopy = '',
             disabled = false,
@@ -163,7 +163,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             logic: logic as any,
             showSeriesIndicator,
             seriesIndicatorType,
-            hideMathSelector,
+            mathAvailability,
             hidePropertySelector,
             customRowPrefix,
             customRowSuffix,

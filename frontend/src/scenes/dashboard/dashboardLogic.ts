@@ -119,7 +119,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         return dashboard
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.status === 404) {
                             return []
                         }
@@ -607,7 +607,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.short_id)
-                } catch (e) {
+                } catch (e: any) {
                     if (isBreakpoint(e)) {
                         breakpointTriggered = true
                     } else {

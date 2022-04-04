@@ -76,7 +76,7 @@
              AND timestamp <= '2012-01-15 23:59:59' )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -138,7 +138,7 @@
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
@@ -200,7 +200,7 @@
              AND timestamp <= '2012-01-15 23:59:59' )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -272,7 +272,7 @@
            GROUP BY person_id)
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
@@ -547,7 +547,7 @@
              AND (NOT has([''], "$group_0")) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1

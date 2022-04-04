@@ -49,8 +49,8 @@ class Test0003FillPersonDistinctId2(BaseTest):
 
         self.create_distinct_id(team_id=3, distinct_id="d", person_id=str(p6), sign=1)
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         rows = sync_execute(
