@@ -37,7 +37,7 @@ The migration strategy:
         b. temporarily stopping ingestion to the table by dropping the kafka table
         c. using `ALTER TABLE ATTACH/DROP PARTITIONS` to move data to the new table.
         d. rename tables
-    3. Once all tables are updated, we create needed distributed tables and re-enable ingestion
+    3. Once all tables are updated, we create the required distributed tables and re-enable ingestion
 
 We use ATTACH/DROP tables to do the table migration instead of a normal INSERT. This method allows
 moving data without increasing disk usage between identical schemas.
