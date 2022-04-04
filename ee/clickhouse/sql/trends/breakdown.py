@@ -102,7 +102,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
-    SELECT d.timestamp, COUNT(DISTINCT pdi.person_id) counts, breakdown_value FROM (
+    SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
         SELECT toStartOfDay(timestamp) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (

@@ -36,7 +36,7 @@ def process_math(
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
             join_condition = EVENT_JOIN_PERSON_SQL
-            aggregate_operation = "count(DISTINCT person_id)"
+            aggregate_operation = "count(DISTINCT pdi.person_id)"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
