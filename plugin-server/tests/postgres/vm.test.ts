@@ -1125,7 +1125,7 @@ describe('vm tests', () => {
 
             // adds exportEventsWithRetry job and onEvent function
             expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
-            expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
+            expect(Object.keys(vm.tasks.schedule)).toEqual([])
             expect(
                 Object.keys(vm.methods)
                     .filter((m) => !!vm.methods[m as keyof typeof vm.methods])
