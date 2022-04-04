@@ -51,6 +51,7 @@ def get_breakdown_prop_values(
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         allow_denormalized_props=True,
+        person_id_joined_alias="pdi.person_id",
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team_id, table_name="e")
