@@ -42,9 +42,6 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             <h3 className="l3" style={{ marginBottom: 8 }}>
                                 {plan.name}
                             </h3>
-                            {/* <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
-                                More plan details <IconOpenInNew />
-                            </Link> */}
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
                             <div style={{ marginTop: 8, marginBottom: 8, alignItems: 'center', display: 'flex' }}>
                                 Set monthly billing limit to{' '}
@@ -58,7 +55,6 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                                     value={billing?.billing_limit || 0}
                                     min={0}
                                     step={10}
-                                    // max={100}
                                     addonAfter="$"
                                 />{' '}
                                 (in US dollars)

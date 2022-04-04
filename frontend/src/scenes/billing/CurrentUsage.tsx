@@ -14,7 +14,6 @@ export function CurrentUsage(): JSX.Element | null {
     if (!billing) {
         return null
     }
-    console.log(billing)
 
     const columns: LemonTableColumns<BillingTierType> = [
         {

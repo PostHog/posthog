@@ -33,9 +33,6 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     return response as BillingType
                 },
                 setBillingLimit: async (billing: BillingType, breakpoint) => {
-                    // TODO: only allow setting billing limit to be higher than current usage
-                    // TODO: we should show a confirmation pop-up
-                    // TODO: suggest setting the limit just after having entered the cc
                     await breakpoint(1000)
                     return (await api.update('api/billing/', billing)) as BillingType
                 },
@@ -100,27 +97,16 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
             ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
-                // why didn't percentage usage work???
-                // let percentageCalculated = 0
-                // if (eventAllocation && billing?.current_usage) {
-                //     percentageCalculated = Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
-                // }
-                // console.log(percentageCalculated)
-                // console.log(eventAllocation)
-                // console.log(billing?.current_usage)
-
                 // Priority 1: In-progress incomplete billing setup
                 if (billing?.should_setup_billing && billing?.subscription_url) {
                     return BillingAlertType.SetupBilling
                 }
 
+                // Priority 2: Event allowance exceeded or near limit
                 if (billing?.billing_limit_exceeded) {
                     return BillingAlertType.UsageLimitExceeded
                 }
 
-                // console.log(percentageCalculated >= ALLOCATION_THRESHOLD_ALERT)
-                // console.log(scene)
-                // Priority 2: Event allowance near limit
                 if (
                     // scene !== Scene.Billing &&
                     billing?.current_usage &&

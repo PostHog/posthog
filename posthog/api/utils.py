@@ -173,7 +173,6 @@ class EventIngestionContext:
 
     team_id: int
     anonymize_ips: bool
-    ingestion_disabled: bool
 
 
 def get_event_ingestion_context(
@@ -247,19 +246,6 @@ def get_event_ingestion_context(
             ),
         )
 
-    if ingestion_context.ingestion_disabled:
-        # TODO: should we stop tracking our internal metrics/usage of Posthog???
-        error_response = cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "Ingestion disabled for this team",
-                type="payment_required_error",
-                code="payment_required",
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            ),
-        )
-
     return ingestion_context, db_error, error_response
 
 
@@ -269,17 +255,12 @@ def get_event_ingestion_context_for_token(token: str) -> Optional[EventIngestion
     required to ingest events.
     """
     try:
-        team_id, anonymize_ips, ingestion_disabled = Team.objects.values_list(
-            "id", "anonymize_ips", "ingestion_disabled"
-        ).get(api_token=token)
+        team_id, anonymize_ips = Team.objects.values_list("id", "anonymize_ips").get(api_token=token)
         # NOTE: Not sure why, but I needed to do this cast otherwise I got
         # `Optional[bool]` instead of `bool` from mypy, even though
         # anonymize_ips is non-null in the model
         anonymize_ips = cast(bool, anonymize_ips)
-        ingestion_disabled = cast(bool, ingestion_disabled)
-        return EventIngestionContext(
-            team_id=team_id, anonymize_ips=anonymize_ips, ingestion_disabled=ingestion_disabled
-        )
+        return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
 
