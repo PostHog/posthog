@@ -84,7 +84,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
-        OBJECT_STORAGE_ENABLED: true,
+        OBJECT_STORAGE_ENABLED: false,
         OBJECT_STORAGE_HOST: 'localhost',
         OBJECT_STORAGE_PORT: 19000,
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
