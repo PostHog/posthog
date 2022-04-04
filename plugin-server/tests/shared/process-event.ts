@@ -1219,7 +1219,10 @@ export const createProcessEventTests = (
             '',
             {
                 event: '$snapshot',
-                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+                properties: {
+                    $session_id: 'abcf-efg',
+                    $snapshot_data: { timestamp: 123, chunk_id: 'chunk_id', chunk_index: 'chunk_index' },
+                },
             } as any as PluginEvent,
             team.id,
             now,
@@ -1237,7 +1240,12 @@ export const createProcessEventTests = (
         const [event] = sessionRecordingEvents
         expect(event.session_id).toEqual('abcf-efg')
         expect(event.distinct_id).toEqual('some-id')
-        expect(event.snapshot_data).toEqual({ timestamp: 123 })
+
+        const expectedFolderDate = now.toFormat('YYYY-mm-dd')
+        expect(event.snapshot_data).toEqual({
+            object_storage_path: `session_recordings/${expectedFolderDate}/${event.session_id}/chunk_id/chunk_index`,
+            timestamp: 123,
+        })
     })
 
     test('$snapshot event creates new person if needed', async () => {
