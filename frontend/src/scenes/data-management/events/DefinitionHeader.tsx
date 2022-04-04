@@ -172,9 +172,7 @@ function RawDefinitionHeader({
                         )}
                     </div>
                     <div className="definition-column-name-content-description">
-                        {definition.description || (
-                            <i>There is no description for this {getSingularType(group.type)}</i>
-                        )}
+                        {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
                     </div>
                 </div>
             )}

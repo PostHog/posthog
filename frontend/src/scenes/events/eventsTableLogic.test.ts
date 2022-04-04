@@ -70,29 +70,6 @@ describe('eventsTableLogic', () => {
         initKeaTests()
     })
 
-    describe('polling is disabled', () => {
-        beforeEach(() => {
-            router.actions.push(urls.person('1'))
-            logic = eventsTableLogic({
-                key: 'test-key',
-                sceneUrl: urls.person('1'),
-                disableActions: true,
-            })
-            logic.mount()
-        })
-
-        it('can disable polling for events', async () => {
-            ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
-
-            await expectLogic(logic, () => {
-                logic.actions.setPollingActive(true) // even with polling active
-                logic.actions.pollEvents()
-            })
-
-            expect(api.get).not.toHaveBeenCalled()
-        })
-    })
-
     describe('when loaded on events page', () => {
         beforeEach(() => {
             router.actions.push(urls.events())

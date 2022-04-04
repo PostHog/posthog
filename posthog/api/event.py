@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.db.models.query import Prefetch
 from django.utils.timezone import now
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -78,7 +80,18 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         order_by_param = request.GET.get("orderBy")
         return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
 
-    @extend_schema(parameters=[PropertiesSerializer(required=False)],)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event",
+                OpenApiTypes.STR,
+                description="Filter list by event. For example `user sign up` or `$pageview`.",
+            ),
+            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            PropertiesSerializer(required=False),
+        ],
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -175,7 +188,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
-        res = ClickhouseEventSerializer(query_result[0], many=False).data
+
+        query_context = {}
+        if request.query_params.get("include_person", False):
+            query_context["people"] = self._get_people(query_result, self.team)
+
+        res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
     @action(methods=["GET"], detail=False)

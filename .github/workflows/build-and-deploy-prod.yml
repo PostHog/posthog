@@ -1,5 +1,8 @@
 name: Build & Deploy Production Containers
 
+#
+# Comment the `on:` section below if you want to stop deploys
+#
 on:
     push:
         branches:
