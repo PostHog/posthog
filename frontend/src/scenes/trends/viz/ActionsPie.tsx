@@ -15,14 +15,13 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType, hiddenLegendKeys } = useValues(logic)
+    const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = results.length > 0 ? results[0].days : []
-
-        const colorList = getChartColors('white', results.length)
+        const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
+        const days = _data.length > 0 ? _data[0].days : []
+        const rawColorList = getChartColors('white', _data.length)
+        const colorList = _data.map(({ id }) => rawColorList[id])
 
         setData([
             {
@@ -45,10 +44,10 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results, hiddenLegendKeys])
+    }, [indexedResults, hiddenLegendKeys])
 
     return data ? (
         data[0] && data[0].labels ? (
