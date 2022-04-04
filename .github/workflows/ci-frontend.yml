@@ -39,7 +39,7 @@ jobs:
                   ./bin/check-typescript-strict
 
     jest-setup:
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
         outputs:
             test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
@@ -61,8 +61,8 @@ jobs:
         needs: [jest-setup]
 
         strategy:
+            fail-fast: false
             matrix:
-                fail-fast: false
                 chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
 
         steps:
