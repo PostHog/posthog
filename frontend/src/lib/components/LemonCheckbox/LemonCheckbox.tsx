@@ -14,6 +14,9 @@ export interface LemonCheckboxProps {
     color?: string
 }
 
+/** Counter used for collision-less automatic checkbox IDs. */
+let checkboxCounter = 0
+
 export function LemonCheckbox({
     checked,
     defaultChecked,
@@ -27,7 +30,7 @@ export function LemonCheckbox({
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
 
-    const id = useMemo(() => rawId || `lemon-checkbox-${Math.floor(Math.random() * 1000000)}`, [rawId])
+    const id = useMemo(() => rawId || `lemon-checkbox-${checkboxCounter++}`, [rawId])
     const [localChecked, setLocalChecked] = useState(indeterminate || (checked ?? defaultChecked ?? false))
     const [wasIndeterminateLast, setWasIndeterminateLast] = useState(false)
 
