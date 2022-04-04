@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { projectHomepageLogic } from './projectHomepageLogic'
+import _dashboardJson from '../dashboard/__mocks__/dashboard1.json'
 import { router } from 'kea-router'
 import { useMocks } from '~/mocks/jest'
+import { DashboardType } from '~/types'
+
+const dashboardJson = _dashboardJson as any as DashboardType
 
 describe('projectHomepageLogic', () => {
     let logic: ReturnType<typeof projectHomepageLogic.build>
@@ -10,6 +14,7 @@ describe('projectHomepageLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
+                '/api/projects/:projectId/dashboards/1/': dashboardJson,
                 '/api/projects/:team/session_recordings': () => [
                     200,
                     {
