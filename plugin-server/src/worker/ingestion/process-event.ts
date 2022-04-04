@@ -79,7 +79,7 @@ export class EventsProcessor {
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
-    clickhouseExternalSchemasEnabledTeams: Set<number>
+    clickhouseExternalSchemasDisabledTeams: Set<number>
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -90,7 +90,7 @@ export class EventsProcessor {
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
-        this.clickhouseExternalSchemasEnabledTeams = new Set(
+        this.clickhouseExternalSchemasDisabledTeams = new Set(
             pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
         )
     }
@@ -222,7 +222,7 @@ export class EventsProcessor {
         if (this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS) {
             return false
         }
-        return !this.clickhouseExternalSchemasEnabledTeams.has(teamId)
+        return !this.clickhouseExternalSchemasDisabledTeams.has(teamId)
     }
 
     private async updatePersonProperties(
