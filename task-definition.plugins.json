@@ -91,10 +91,6 @@
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "1"
-                },
-                {
-                    "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS",
-                    "value": "7964"
                 }
             ],
             "secrets": [
