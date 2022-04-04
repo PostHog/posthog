@@ -7,14 +7,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement, SessionRecordingType } from '~/types'
 import { Row, Skeleton, Typography } from 'antd'
-import { PlayCircleOutlined } from '@ant-design/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { IconCottage } from 'lib/components/icons'
+import { IconCottage, IconPlayCircle } from 'lib/components/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +45,9 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 <p className="recording-start-time">{dayjs(recording.start_time).fromNow()}</p>
             </div>
             <span className="recording-duration">{humanFriendlyDuration(recording.recording_duration)}</span>
-            <PlayCircleOutlined size={24} />
+            <IconPlayCircle
+                style={{ fontSize: '1.25rem', color: recording.viewed ? 'rgba(0, 0, 0, 0.5)' : undefined }}
+            />
         </LemonButton>
     )
 }
