@@ -340,19 +340,24 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                         // If possible, place the event 1s before the actual event
                         const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
                         let eventPlayerPosition = null
+                        let isOutOfBandEvent = false
                         for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
                             if (
                                 !event.properties.$window_id &&
                                 !values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId['']
                             ) {
-                                // Handle the case where the event has no window_id and the recording has window_ids
-                                // This is the case where the event came from outside the recording (e.g. a server side event)
-                                // But it happens to overlap in time with the recording
+                                // Handle the case where the event is 'out of band' for the recording (it has no window_id and
+                                // the recording has window_ids). This is the case where the event came from
+                                // outside the recording (e.g. a server side event) But it happens to overlap in time with the recording
                                 eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
                                     eventEpochTimeToAttempt,
                                     values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
                                     values.sessionPlayerData?.metadata?.segments
                                 )
+                                if (eventPlayerPosition) {
+                                    isOutOfBandEvent = true
+                                    break
+                                }
                             } else {
                                 // Handle the normal events that fit within the recording
                                 eventPlayerPosition = getPlayerPositionFromEpochTime(
@@ -375,6 +380,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
+                                    isOutOfBandEvent: isOutOfBandEvent,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs
