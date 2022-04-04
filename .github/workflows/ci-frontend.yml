@@ -63,7 +63,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
+                chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
 
         steps:
             - uses: actions/checkout@v1
@@ -88,4 +88,4 @@ jobs:
             - name: Test with Jest
               run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test:sequential
               env:
-                  CHUNKS: ${{ needs.setup.outputs['test-chunks'] }}
+                  CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
