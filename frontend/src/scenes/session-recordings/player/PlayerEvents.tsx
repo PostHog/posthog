@@ -146,8 +146,8 @@ export function PlayerEvents(): JSX.Element {
                                                 <b>Out of band event</b>
                                                 <p>
                                                     This event originated from a different client library than this
-                                                    recording. As a result, it's timing might not line up exactly with
-                                                    the recording.
+                                                    recording. As a result, it's timing and placement might not be
+                                                    precise.
                                                 </p>
                                             </>
                                         }
