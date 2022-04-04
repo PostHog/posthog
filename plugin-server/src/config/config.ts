@@ -2,7 +2,7 @@ import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
 import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
-import { KAFKA_EVENTS, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -85,7 +85,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS,
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
     }
 }
 
