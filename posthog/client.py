@@ -1,7 +1,10 @@
 import asyncio
 import hashlib
 import json
+import time
 import types
+import uuid
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -10,12 +13,14 @@ from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
 from posthog import redis
+from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
@@ -160,6 +165,150 @@ def sync_execute(query, args=None, settings=None, with_column_types=False):
             if _request_information is not None and _request_information.get("save", False):
                 save_query(prepared_sql, execution_time)
     return result
+
+
+REDIS_STATUS_TTL = 600  # 10 minutes
+
+@dataclass_json
+@dataclass
+class QueryStatus:
+    team_id: int
+    num_rows: float = 0
+    total_rows: float = 0
+    status: str = "submitted"
+    complete: bool = False
+    error: bool = False
+    error_message: str = ""
+    results: Any = None
+
+
+def generate_redis_results_key(query_uuid):
+    REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_with_progress"
+    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_uuid}"
+    return key
+
+
+def execute_with_progress(
+    team_id, query_uuid, query, args=None, settings=None, with_column_types=False, update_freq=0.2
+):
+    """
+    Kick off query with progress reporting
+    Iterate over the progress status
+    Save status to redis
+    Once complete save results to redis
+    """
+
+    key = generate_redis_results_key(query_uuid)
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database="posthog",
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"max_result_rows": "10000"},
+    )
+    redis_client = redis.get_client()
+
+    start_time = perf_counter()
+
+    prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
+
+    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+
+    try:
+        progress = ch_client.execute_with_progress(
+            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+        )
+        for num_rows, total_rows in progress:
+            query_status = QueryStatus(
+                team_id=team_id,
+                num_rows=num_rows,
+                total_rows=total_rows,
+                status="executing",
+                complete=False,
+                error=False,
+                error_message="",
+                results=None,
+            )
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+            time.sleep(update_freq)
+        else:
+            rv = progress.get_result()
+            query_status = QueryStatus(
+                team_id=team_id,
+                num_rows=0,
+                total_rows=0,
+                status="complete",
+                complete=True,
+                error=False,
+                error_message="",
+                results=rv,
+            )
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+
+    except Exception as err:
+        err = wrap_query_error(err)
+        tags["failed"] = True
+        tags["reason"] = type(err).__name__
+        incr("clickhouse_sync_execution_failure", tags=tags)
+        query_status = QueryStatus(
+            team_id=team_id,
+            num_rows=0,
+            total_rows=0,
+            status="errored",
+            complete=False,
+            error=True,
+            error_message=str(err),
+            results=None,
+        )
+        redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+
+        raise err
+    finally:
+        execution_time = perf_counter() - start_time
+
+        QUERY_TIMEOUT_THREAD.cancel(timeout_task)
+        timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))
+        if _request_information is not None and _request_information.get("save", False):
+            save_query(prepared_sql, execution_time)
+
+
+def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
+    query_uuid = uuid.uuid4()
+    key = generate_redis_results_key(query_uuid)
+
+    # Immediately set status so we don't have race with celery
+    redis_client = redis.get_client()
+    query_status = QueryStatus(team_id=team_id, status="submitted")
+    redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+
+    enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
+    return query_uuid
+
+
+def get_status_or_results(team_id, query_uuid):
+    """
+    Returns QueryStatus data class
+    QueryStatus data class contains either:
+    Current status of running query
+    Results of completed query
+    Error payload of failed query
+    """
+    redis_client = redis.get_client()
+    key = generate_redis_results_key(query_uuid)
+    try:
+        str_results = redis_client.get(key).decode("utf-8")
+        query_status = QueryStatus.from_json(str_results)
+        if query_status.team_id != team_id:
+            raise Exception("Requesting team is not executing team")
+    except Exception as e:
+        query_status = QueryStatus(team_id, error=True, error_message=str(e))
+    return query_status
 
 
 def substitute_params(query, params):
