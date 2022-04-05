@@ -366,12 +366,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         insight.refresh_from_db()
-        self.assertEqual(insight.dashboard_id, 1)
+        self.assertEqual(insight.dashboard_id, dashboard.pk)
         self.assertEqual(insight.dashboards.count(), 1)
         self.assertEqual(insight.dashboards.first(), dashboard)
 
@@ -384,18 +384,18 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         insight.refresh_from_db()
-        self.assertEqual(insight.dashboard_id, 1)
+        self.assertEqual(insight.dashboard_id, dashboard.pk)
         self.assertEqual(insight.dashboards.count(), 1)
         self.assertEqual(insight.dashboards.first(), dashboard)
 
