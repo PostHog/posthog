@@ -40,7 +40,7 @@ export const worldMapLogic = kea<worldMapLogicType>({
     selectors: {
         countryCodeToSeries: [
             (s) => [s.insight],
-            (insight) =>
+            (insight): Record<string, TrendResult> =>
                 Object.fromEntries(
                     Array.isArray(insight.result)
                         ? insight.result.map((series: TrendResult) => [series.breakdown_value, series])
