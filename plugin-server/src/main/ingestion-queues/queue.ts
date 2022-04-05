@@ -2,11 +2,13 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { PluginServerMode } from '../../types'
+import { IngestionWorkerMethods, PluginServerMode } from '../../types'
 import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
+import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
 import { CeleryQueue } from './celery-queue'
+import { ingestEvent } from './ingest-event'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
@@ -111,6 +113,39 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
             }
         }
     )
+
+    // if kafka is enabled, we'll process events from there
+    if (!server.KAFKA_ENABLED) {
+        celeryQueue.register(
+            'posthog.tasks.process_event.process_event_with_plugins',
+            async (
+                distinct_id: string,
+                ip: string | null,
+                site_url: string,
+                data: Record<string, unknown>,
+                team_id: number,
+                now: string,
+                sent_at?: string
+            ) => {
+                const event = sanitizeEvent({
+                    distinct_id,
+                    ip,
+                    site_url,
+                    team_id,
+                    now,
+                    sent_at,
+                    uuid: new UUIDT().toString(),
+                    ...data,
+                } as PluginEvent)
+                try {
+                    const checkAndPause = () => pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
+                    await ingestEvent(server, workerMethods as IngestionWorkerMethods, event, checkAndPause)
+                } catch (e) {
+                    Sentry.captureException(e)
+                }
+            }
+        )
+    }
 
     // run in the background
     void celeryQueue.start()
