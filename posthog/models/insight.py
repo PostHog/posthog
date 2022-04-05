@@ -123,3 +123,18 @@ def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+
+
+class InsightViewed(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
+        ]
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    last_viewed_at: models.DateTimeField = models.DateTimeField()
