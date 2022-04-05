@@ -45,34 +45,35 @@ describe('http server', () => {
             await pluginsServer.stop()
         })
     })
-})
 
-describe('runner server', () => {
-    test('_ready', async () => {
-        const testCode = `
-        async function processEvent (event) {
-            return event
-        }
-    `
+    describe('runner server', () => {
+        test('_ready', async () => {
+            const testCode = `
+            async function processEvent (event) {
+                return event
+            }
+        `
 
-        await resetTestDatabase(testCode)
-        const pluginsServer = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                STALENESS_RESTART_SECONDS: 5,
-                LOG_LEVEL: LogLevel.Debug,
-            },
-            makePiscina,
-            PluginServerMode.Runner
-        )
+            await resetTestDatabase(testCode)
+            const pluginsServer = await startPluginsServer(
+                {
+                    WORKER_CONCURRENCY: 2,
+                    STALENESS_RESTART_SECONDS: 5,
+                    LOG_LEVEL: LogLevel.Debug,
+                    DISABLE_HTTP_SERVER: false,
+                },
+                makePiscina,
+                PluginServerMode.Runner
+            )
 
-        const port = HTTP_SERVER_PORTS[PluginServerMode.Runner]
+            const port = HTTP_SERVER_PORTS[PluginServerMode.Runner]
 
-        http.get(`http://localhost:${port}/_ready`, (res) => {
-            const { statusCode } = res
-            expect(statusCode).toEqual(200)
+            http.get(`http://localhost:${port}/_ready`, (res) => {
+                const { statusCode } = res
+                expect(statusCode).toEqual(200)
+            })
+
+            await pluginsServer.stop()
         })
-
-        await pluginsServer.stop()
     })
 })
