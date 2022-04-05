@@ -155,6 +155,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             dashboard_item = Insight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
+            self._link_to_dashboard(dashboard_item, validated_data["dashboard"])
         else:
             raise serializers.ValidationError("Dashboard not found")
 
@@ -170,16 +171,21 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data["dashboard"]:
-            with transaction.atomic():
-                try:
-                    DashboardInsight.objects.create(insight=instance, dashboard=validated_data["dashboard"])
-                except IntegrityError as ex:
-                    # it's ok to try to add more than once, and ignore duplicates
-                    is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
-                    if not is_a_duplicate_relation:
-                        raise ex
+            self._link_to_dashboard(instance, validated_data["dashboard"])
 
         return super().update(instance, validated_data)
+
+    @staticmethod
+    def _link_to_dashboard(insight: Insight, dashboard: Dashboard) -> None:
+        with transaction.atomic():
+            try:
+                DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
+            except IntegrityError as ex:
+                # it's ok to try to add more than once, and ignore duplicates
+                # adding transaction atomic block stops this error affecting the rest of the API call
+                is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
+                if not is_a_duplicate_relation:
+                    raise ex
 
     def get_result(self, insight: Insight):
         if not insight.filters:

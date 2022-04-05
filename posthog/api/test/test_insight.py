@@ -308,6 +308,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
+    def test_create_insight_with_dashboard_adds_to_dashboards(self):
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboard": 1,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["description"], None)
+        self.assertEqual(response.json()["tags"], [])
+
+        objects = Insight.objects.all()
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects[0].dashboard, dashboard)
+        self.assertEqual(objects[0].dashboards.count(), 1)
+        self.assertEqual(objects[0].dashboards.first(), dashboard)
+
     def test_update_insight(self):
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
         response = self.client.patch(
@@ -351,10 +376,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(insight.dashboards.first(), dashboard)
 
     def test_update_insight_with_dashboard_id_can_be_repeated_safely(self):
-        """
-        The deprecated method of adding an insight to **a single** dashboard was to patch with a dashboard id
-        This should also be saved to the many-to-many dashboards relation
-        """
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
         insight: Insight = Insight.objects.create(
