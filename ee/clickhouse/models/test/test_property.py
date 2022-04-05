@@ -637,6 +637,21 @@ def test_parse_prop_clauses_defaults(snapshot):
     )
 
 
+# Regression test for: https://github.com/PostHog/posthog/pull/9283
+@pytest.mark.django_db
+def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
+    filter = Filter(
+        data={"properties": [{"key": "text", "type": "element", "value": "Insights1", "operator": "exact"},]}
+    )
+
+    assert (
+        parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, prepend="PREPEND"
+        )
+        == snapshot
+    )
+
+
 @pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(

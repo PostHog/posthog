@@ -20,23 +20,30 @@ from .utils import get_project_id
 
 
 def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
+    origin = parse_domain(request.headers.get("Origin"))
+    referer = parse_domain(request.headers.get("Referer"))
+    return hostname_in_app_urls(team, origin) or hostname_in_app_urls(team, referer)
+
+
+def hostname_in_app_urls(team: Team, hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+
     permitted_domains = ["127.0.0.1", "localhost"]
 
     for url in team.app_urls:
-        hostname = parse_domain(url)
-        if hostname:
-            permitted_domains.append(hostname)
+        host = parse_domain(url)
+        if host:
+            permitted_domains.append(host)
 
-    origin = parse_domain(request.headers.get("Origin"))
-    referer = parse_domain(request.headers.get("Referer"))
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
-            pattern = "^{}$".format(permitted_domain.replace(".", "\\.").replace("*", "(.*)"))
-            if (origin and re.search(pattern, origin)) or (referer and re.search(pattern, referer)):
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
+            if re.search(pattern, hostname):
                 return True
-        else:
-            if permitted_domain == origin or permitted_domain == referer:
-                return True
+        elif permitted_domain == hostname:
+            return True
+
     return False
 
 
@@ -73,11 +80,6 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
-
-    if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME) and request.user.is_authenticated:
-        response["isAuthenticated"] = True
-        if settings.JS_URL and request.user.toolbar_mode == User.TOOLBAR:
-            response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
 
     if request.user.is_authenticated:
         r, update_user_token = decide_editor_params(request)

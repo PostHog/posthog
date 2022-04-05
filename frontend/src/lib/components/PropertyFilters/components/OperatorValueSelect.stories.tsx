@@ -25,7 +25,6 @@ const props = (type?: PropertyType | undefined): OperatorValueSelectProps => ({
     type: '',
     propkey: 'the_property',
     onChange: () => {},
-    allowQueryingEventsByDateTime: true,
     propertyDefinitions: [makePropertyDefinition('the_property', type)],
     defaultOpen: true,
 })

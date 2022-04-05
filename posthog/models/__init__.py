@@ -15,7 +15,7 @@ from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
-from .insight import Insight
+from .insight import Insight, InsightViewed
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -39,6 +39,7 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "Insight",
+    "InsightViewed",
     "Element",
     "ElementGroup",
     "Entity",

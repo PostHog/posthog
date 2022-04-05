@@ -88,7 +88,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
+                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

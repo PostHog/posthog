@@ -17,8 +17,13 @@ HOOK_EVENTS: Dict[str, str] = {
 HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
 HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
-# SAML
-SAML_CONFIGURED = False
+# SSO
+AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
+    "ee.api.authentication.MultitenantSAMLAuth",
+    "social_core.backends.google.GoogleOAuth2",
+]
+
+# SAML base attributes
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
     "wantAttributeStatement": False,  # AttributeStatement is optional in the specification
@@ -31,36 +36,13 @@ SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {"givenName": "PostHog Support", "emailAddr
 SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
-# Set settings only if SAML is enabled
-if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML_X509_CERT"):
-    SAML_CONFIGURED = True
-    AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
-        "social_core.backends.saml.SAMLAuth",
-    ]
-    SOCIAL_AUTH_SAML_ENABLED_IDPS = {
-        "posthog_custom": {
-            "entity_id": get_from_env("SAML_ENTITY_ID", optional=True),
-            "url": get_from_env("SAML_ACS_URL", optional=True),
-            "x509cert": get_from_env("SAML_X509_CERT", optional=True),
-            "attr_user_permanent_id": get_from_env("SAML_ATTR_PERMANENT_ID", "name_id"),
-            "attr_first_name": get_from_env("SAML_ATTR_FIRST_NAME", "first_name"),
-            "attr_last_name": get_from_env("SAML_ATTR_LAST_NAME", "last_name"),
-            "attr_email": get_from_env("SAML_ATTR_EMAIL", "email"),
-        },
-    }
-
-
-# SSO
+# Google SSO
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
-
-AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
-    "social_core.backends.google.GoogleOAuth2",
-]
 
 # ClickHouse and Kafka
 KAFKA_ENABLED = not TEST

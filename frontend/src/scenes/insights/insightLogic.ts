@@ -142,7 +142,6 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
-        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -446,12 +445,6 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
-        sourceDashboardId: [
-            null as number | null,
-            {
-                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
-            },
-        ],
     }),
     selectors: {
         /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
@@ -562,6 +555,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
+            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isViewedOnDashboard) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
@@ -581,6 +575,10 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     changedKeysObj
                 )
+
+                // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+
                 actions.setNotFirstLoad()
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 

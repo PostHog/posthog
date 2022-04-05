@@ -75,7 +75,7 @@ export function Group(): JSX.Element {
                             properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
                         }}
                         sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
-                        hideTableConfig
+                        showCustomizeColumns={false}
                     />
                 </TabPane>
 

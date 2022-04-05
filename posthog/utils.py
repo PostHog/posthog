@@ -13,7 +13,6 @@ import sys
 import time
 import uuid
 from enum import Enum
-from itertools import count
 from typing import (
     Any,
     Dict,
@@ -34,7 +33,6 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -320,28 +318,6 @@ def friendly_time(seconds: float):
     ).strip()
 
 
-def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]:
-    append: Dict[str, Any] = {}
-    append["data"] = []
-    append["labels"] = []
-    append["days"] = []
-
-    days_format = "%Y-%m-%d"
-
-    if interval == "hour":
-        days_format += " %H:%M:%S"
-
-    for item in dates_filled:
-        date = item[0]
-        value = item[1]
-        append["days"].append(date.strftime(days_format))
-        append["labels"].append(format_label_date(date, interval))
-        append["data"].append(value)
-    if math == "sum":
-        append["count"] = sum(append["data"])
-    return append
-
-
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
@@ -431,6 +407,8 @@ def load_data_from_request(request):
         scope.set_context("data", data)
         scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
         scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -589,17 +567,6 @@ def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
 
 
-def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
-    raw, params = qs.query.sql_with_params()
-    arg_count = 0
-    counter = count(arg_count)
-    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
-    named_params = {}
-    for idx, param in enumerate(params):
-        named_params.update({f"{prepend}_arg_{idx}": param})
-    return new_string, named_params
-
-
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
@@ -648,16 +615,16 @@ def get_can_create_org() -> bool:
     return False
 
 
-def get_available_sso_providers() -> Dict[str, bool]:
+def get_instance_available_sso_providers() -> Dict[str, bool]:
     """
-    Returns a dictionary containing final determination whether certain SSO providers are available.
+    Returns a dictionary containing final determination to which SSO providers are available.
+    SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
     Validates configuration settings and license validity (if applicable).
     """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
-        "saml": False,
     }
 
     # Get license information
@@ -677,12 +644,6 @@ def get_available_sso_providers() -> Dict[str, bool]:
             output["google-oauth2"] = True
         else:
             print_warning(["You have Google login set up, but not the required license!"])
-
-    if getattr(settings, "SAML_CONFIGURED", None):
-        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
-            output["saml"] = True
-        else:
-            print_warning(["You have SAML set up, but not the required license!"])
 
     return output
 
