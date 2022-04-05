@@ -205,6 +205,7 @@ describe('funnelLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
+                '/api/projects/:team/insights/:id/viewed': [201],
                 '/api/projects/:team/insights/funnel/': {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',
