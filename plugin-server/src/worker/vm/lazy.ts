@@ -148,6 +148,11 @@ export class LazyPluginVM {
                     status.info('🔌', `Loaded ${logInfo}`)
                     resolve(vm)
                 } catch (error) {
+                    console.log('#####', error.message)
+                    console.log('#####', error.message)
+                    console.log('#####', error.message)
+                    console.log('#####', error.message)
+
                     status.warn('⚠️', error.message)
                     if (!(error instanceof SetupPluginError)) {
                         await this.processVmSetupError(error)
