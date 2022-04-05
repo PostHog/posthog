@@ -1,16 +1,16 @@
 import { kea } from 'kea'
-import { AnyPropertyFilter, EventType, FilterType, PropertyFilter, PropertyOperator } from '~/types'
-import api from 'lib/api'
+import { Breadcrumb, EventType, MatchedRecording } from '~/types'
 
 import { getChartColors } from 'lib/colors'
 
 import { webPerformanceLogicType } from './webPerformanceLogicType'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import api from 'lib/api'
 
-const eventApiProps: Partial<FilterType> = {
-    properties: [{ key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' }],
+export enum WebPerformancePage {
+    TABLE = 'table',
+    WATERFALL_CHART = 'waterfall_chart',
 }
 
 export interface EventPerformanceMeasure {
@@ -34,6 +34,9 @@ export interface EventPerformanceData {
 }
 
 function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any>[] {
+    if (!entries || !entries.length) {
+        return []
+    }
     try {
         const keys = entries[0]
         return entries[1].map((entry) => {
@@ -282,81 +285,121 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-interface WebPerformanceLogicProps {
-    sceneUrl: string
-}
-
-export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformanceLogicProps>>({
+export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformancePage>>({
     path: ['scenes', 'performance'],
-    props: {} as WebPerformanceLogicProps,
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
             eventToDisplay,
         }),
-        setProperties: (
-            properties: AnyPropertyFilter[] | AnyPropertyFilter
-        ): {
-            properties: AnyPropertyFilter[]
-        } => {
-            // there seem to be multiple representations of "empty" properties
-            // the page does not work with some of those representations
-            // this action normalises them
-            if (Array.isArray(properties)) {
-                if (properties.length === 0) {
-                    return { properties: [{}] }
-                } else {
-                    return { properties }
-                }
-            } else {
-                return { properties: [properties] }
-            }
-        },
+        clearEventToDisplay: true,
+        setCurrentPage: (page: WebPerformancePage) => ({ page }),
+        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        closeRecordingModal: () => true,
     },
     reducers: {
-        properties: [
-            [] as PropertyFilter[],
+        openedSessionRecordingId: [
+            null as null | string,
             {
-                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
+                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
+                closeRecordingModal: () => null,
             },
         ],
         eventToDisplay: [
             null as EventPerformanceData | null,
-            { setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay) },
+            {
+                setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay),
+                clearEventToDisplay: () => null,
+            },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
+        currentPage: [WebPerformancePage.TABLE, { setCurrentPage: (_, { page }) => page }],
     },
-    loaders: ({ values }) => ({
-        pageViewEvents: {
-            loadEvents: async () => {
-                const flattenedPropertyGroup = convertPropertyGroupToProperties(eventApiProps.properties)
-                const combinedProperties = [...(flattenedPropertyGroup || []), ...values.properties]
-                const loadResult = await api.events.list({ properties: combinedProperties }, 10)
-                return loadResult?.results || []
+    loaders: {
+        event: {
+            loadEvent: async (id: string | number): Promise<EventType> => {
+                return api.events.get(id, true)
             },
         },
+    },
+    listeners: ({ actions }) => ({
+        loadEventSuccess: ({ event }) => {
+            actions.setEventToDisplay(event)
+        },
+    }),
+    selectors: () => ({
+        sessionRecording: [
+            (s) => [s.currentEvent],
+            (currentEvent: EventType | null) =>
+                currentEvent?.properties['$session_id']
+                    ? ([{ session_id: currentEvent.properties['$session_id'], events: [] }] as MatchedRecording[])
+                    : [],
+        ],
+        breadcrumbs: [
+            (s) => [s.eventToDisplay, s.currentPage],
+            (eventToDisplay, currentPage): Breadcrumb[] => {
+                const baseCrumb = [
+                    {
+                        name: 'WebPerformance',
+                        path: urls.webPerformance(),
+                    },
+                ]
+                if (!!eventToDisplay && currentPage === WebPerformancePage.WATERFALL_CHART) {
+                    baseCrumb.push({
+                        name: 'Waterfall Chart',
+                        path: urls.webPerformanceWaterfall(eventToDisplay.id.toString()),
+                    })
+                }
+                return baseCrumb
+            },
+        ],
     }),
     actionToUrl: ({ values }) => ({
-        setProperties: () => {
+        setEventToDisplay: () => {
+            if (values.currentPage === WebPerformancePage.TABLE && !!values.currentEvent) {
+                //then we're navigating to the chart
+                return [
+                    urls.webPerformanceWaterfall(values.currentEvent.id.toString()),
+                    {
+                        ...router.values.searchParams,
+                    },
+                    router.values.hashParams,
+                ]
+            }
+
             return [
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    properties: values.properties.length === 0 ? undefined : values.properties,
                 },
                 router.values.hashParams,
                 { replace: true },
             ]
         },
-    }),
-    urlToAction: ({ actions, values, props }) => ({
-        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
+        openRecordingModal: ({ sessionRecordingId }) => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams },
+                { ...router.values.hashParams, sessionRecordingId },
+            ]
+        },
+        closeRecordingModal: () => {
+            delete router.values.hashParams.sessionRecordingId
+            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
-    listeners: ({ actions }) => ({
-        setProperties: () => actions.loadEvents(),
-    }),
-    events: ({ actions }) => ({
-        afterMount: [actions.loadEvents],
+    urlToAction: ({ values, actions }) => ({
+        [urls.webPerformance()]: () => {
+            if (values.currentPage !== WebPerformancePage.TABLE) {
+                actions.setCurrentPage(WebPerformancePage.TABLE)
+            }
+        },
+        [urls.webPerformanceWaterfall(':id')]: ({ id }) => {
+            if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
+                actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
+            }
+            if (values.currentEvent === null && !!id) {
+                actions.loadEvent(id)
+            }
+        },
     }),
 })

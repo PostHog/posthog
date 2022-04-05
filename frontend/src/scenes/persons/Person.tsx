@@ -21,6 +21,10 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Loading } from 'lib/utils'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -84,6 +88,8 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     )
     const { groupsEnabled } = useValues(groupsAccessLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     if (!person) {
         return personLoading ? (
             <Loading />
@@ -133,6 +139,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                 onChange={(tab) => {
                     navigateToTab(tab as PersonsTabType)
                 }}
+                destroyInactiveTabPane={!!featureFlags[FEATURE_FLAGS.PERSON_ACTIVITY_LOG]}
             >
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}
@@ -151,7 +158,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                     <EventsTable
                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                         fixedFilters={{ person_id: person.id }}
-                        hidePersonColumn
+                        showPersonColumn={false}
                         sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id), false)}
                     />
                 </TabPane>
@@ -184,6 +191,24 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         key={PersonsTabType.RELATED}
                     >
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
+                    </TabPane>
+                )}
+                {!!featureFlags[FEATURE_FLAGS.PERSON_ACTIVITY_LOG] && (
+                    <TabPane tab="History" key="history">
+                        <ActivityLog
+                            scope="Person"
+                            id={person.id}
+                            describer={personActivityDescriber}
+                            caption={
+                                <div>
+                                    <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
+                                    <span>
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </span>
+                                </div>
+                            }
+                        />
                     </TabPane>
                 )}
             </Tabs>

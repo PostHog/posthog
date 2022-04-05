@@ -349,16 +349,10 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
 }
 
-export function chooseOperatorMap(
-    propertyType: PropertyType | undefined,
-    allowQueryingEventsByDateTime: boolean
-): Record<string, string> {
+export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
-            choice = genericOperatorMap
-        }
     }
     return choice
 }
@@ -1213,10 +1207,6 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
-}
-
-export function setPageTitle(title: string): void {
-    document.title = title ? `${title} • PostHog` : 'PostHog'
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {

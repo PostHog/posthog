@@ -1,10 +1,10 @@
 import './TaxonomicFilter.scss'
 import React, { useEffect, useMemo, useRef } from 'react'
-import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/components/LemonInput'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
@@ -31,7 +31,7 @@ export function TaxonomicFilter({
         [taxonomicFilterLogicKeyInput]
     )
 
-    const searchInputRef = useRef<Input | null>(null)
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
@@ -70,16 +70,29 @@ export function TaxonomicFilter({
                 style={style}
             >
                 <div style={{ position: 'relative' }}>
-                    <Input
-                        style={{ flexGrow: 1 }}
+                    <LemonInput
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
-                        prefix={
-                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
-                        }
                         value={searchQuery}
-                        ref={(ref) => (searchInputRef.current = ref)}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className={searchQuery && 'LemonInput--with-input'}
+                        icon={<IconMagnifier />}
+                        sideIcon={
+                            <Tooltip
+                                title={
+                                    <>
+                                        You can easily navigate between tabs with your keyboard.{' '}
+                                        <div>
+                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                        </div>
+                                        <div>
+                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                        </div>
+                                    </>
+                                }
+                            >
+                                <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
+                            </Tooltip>
+                        }
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowUp') {
                                 e.preventDefault()
@@ -115,23 +128,8 @@ export function TaxonomicFilter({
                                 onClose?.()
                             }
                         }}
-                        suffix={
-                            <Tooltip
-                                title={
-                                    <>
-                                        You can easily navigate between tabs with your keyboard.{' '}
-                                        <div>
-                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
-                                        </div>
-                                        <div>
-                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
-                                        </div>
-                                    </>
-                                }
-                            >
-                                <IconKeyboard style={{ fontSize: '1.2em' }} className="text-muted-alt cursor-pointer" />
-                            </Tooltip>
-                        }
+                        ref={searchInputRef}
+                        onChange={(newValue) => setSearchQuery(newValue)}
                     />
                 </div>
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />

@@ -44,7 +44,6 @@ export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     key: string
     sceneUrl: string
-    disableActions?: boolean
     fetchMonths?: number
 }
 
@@ -343,11 +342,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 isNext: !!nextParams,
             })
 
-            if (!props.disableActions) {
-                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-                actions.setPollTimeout(timeout)
-            }
+            // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+            const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+            actions.setPollTimeout(timeout)
         },
         pollEvents: async (_, breakpoint) => {
             function setNextPoll(): void {
@@ -363,11 +360,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             // Do not poll if the scene is in the background
             if (props.sceneUrl !== router.values.location.pathname) {
-                return
-            }
-
-            // Do not poll if polling is disabled
-            if (props.disableActions) {
                 return
             }
 

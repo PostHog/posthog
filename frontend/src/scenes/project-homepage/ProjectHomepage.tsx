@@ -6,15 +6,16 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
-import { Button, Row, Skeleton, Typography } from 'antd'
+import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -25,23 +26,25 @@ export function ProjectHomepage(): JSX.Element {
 
     const headerButtons = (
         <div style={{ display: 'flex' }}>
-            <Button
+            <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
                 }}
                 className="mr-05"
+                type="secondary"
             >
                 Invite members
-            </Button>
-            <Button
+            </LemonButton>
+            <LemonButton
                 data-attr="project-home-new-insight"
                 onClick={() => {
                     router.actions.push(urls.insightNew())
                 }}
+                type="secondary"
             >
                 New insight
-            </Button>
+            </LemonButton>
         </div>
     )
 
@@ -56,16 +59,20 @@ export function ProjectHomepage(): JSX.Element {
                                 {!dashboard && <Skeleton active paragraph={false} />}
                                 {dashboard?.name && (
                                     <>
-                                        <HomeIcon className="mr-05" style={{ width: 18, height: 18 }} />
+                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <Typography.Title className="dashboard-name" level={4}>
                                             {dashboard?.name}
                                         </Typography.Title>
                                     </>
                                 )}
                             </div>
-                            <Button data-attr="project-home-new-insight" onClick={showPrimaryDashboardModal}>
+                            <LemonButton
+                                type="secondary"
+                                data-attr="project-home-new-insight"
+                                onClick={showPrimaryDashboardModal}
+                            >
                                 Change dashboard
-                            </Button>
+                            </LemonButton>
                         </Row>
                         <LemonSpacer large />
                     </div>
@@ -76,13 +83,13 @@ export function ProjectHomepage(): JSX.Element {
                 </div>
             ) : (
                 <div className="empty-state-container">
-                    <HomeIcon className="mb" />
+                    <IconCottage className="mb-05 text-warning" style={{ fontSize: '2rem' }} />
                     <h1>There isn’t a default dashboard set for this project</h1>
                     <p className="mb">
                         Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
                         here.
                     </p>
-                    <Button
+                    <LemonButton
                         type="primary"
                         data-attr="project-home-new-insight"
                         onClick={() => {
@@ -90,7 +97,7 @@ export function ProjectHomepage(): JSX.Element {
                         }}
                     >
                         Select a default dashboard
-                    </Button>
+                    </LemonButton>
                 </div>
             )}
             <PrimaryDashboardModal />
