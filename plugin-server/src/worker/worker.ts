@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import { env } from 'process'
 
 import { initApp } from '../init'
 import { Hub, PluginsServerConfig } from '../types'
@@ -6,6 +7,7 @@ import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
+import { PluginServerMode } from './../types'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 
@@ -16,7 +18,8 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
 
     status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
-    const [hub, closeHub] = await createHub(config, threadId)
+    const pluginServerMode = env.SERVER_MODE === 'runner' ? PluginServerMode.Runner : PluginServerMode.Ingestion
+    const [hub, closeHub] = await createHub(config, threadId, pluginServerMode)
     await setupPlugins(hub)
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {

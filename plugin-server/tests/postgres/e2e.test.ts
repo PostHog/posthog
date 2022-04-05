@@ -3,7 +3,7 @@ import * as IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../../src/config/constants'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { AlertLevel, LogLevel, Service } from '../../src/types'
+import { AlertLevel, LogLevel, PluginServerMode, Service } from '../../src/types'
 import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createRedis, delay, UUIDT } from '../../src/utils/utils'

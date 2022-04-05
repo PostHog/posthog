@@ -35,7 +35,8 @@ const { version } = require('../../../package.json')
 
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
-    threadId: number | null = null
+    threadId: number | null = null,
+    pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
 ): Promise<[Hub, () => Promise<void>]> {
     status.info('ℹ️', `Connecting to all services:`)
 
@@ -49,8 +50,6 @@ export async function createHub(
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
     let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
-
-    const pluginServerMode = env.SERVER_MODE === 'runner' ? PluginServerMode.Runner : PluginServerMode.Ingestion
 
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
