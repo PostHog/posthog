@@ -32,7 +32,7 @@ function createEvent(index = 0): PluginEvent {
     }
 }
 
-describe('schedule', () => {
+describe.skip('schedule', () => {
     test('runScheduleDebounced', async () => {
         const workerThreads = 1
         const testCode = `
