@@ -39,6 +39,7 @@ jobs:
                   ./bin/check-typescript-strict
 
     jest-setup:
+        # Split the tests into multiple chunks
         runs-on: ubuntu-latest
         outputs:
             test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
@@ -48,6 +49,9 @@ jobs:
             - run: yarn install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
+              # Looks at the output of 'yarn test --listTests --json'
+              # Take the 3rd line of the output (the first two are yarn non-sense)
+              # Split the test into 2 parts. To increase the number split change the denominator in `length / 2`
               run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 2 | ceil)]')"
             - id: set-test-chunk-ids
               name: Set Chunk IDs
@@ -57,10 +61,11 @@ jobs:
 
     jest:
         runs-on: ubuntu-20.04
-        name: Jest test (chunk ${{ matrix.chunk }})
+        name: Jest test (${{ matrix.chunk }})
         needs: [jest-setup]
 
         strategy:
+            # If one test fails, still run the others
             fail-fast: false
             matrix:
                 chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
