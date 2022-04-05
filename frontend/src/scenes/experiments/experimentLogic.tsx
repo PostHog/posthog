@@ -414,7 +414,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New Experiment',
+                    name: experimentData?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],

@@ -1,4 +1,4 @@
-import { Button, Modal } from 'antd'
+import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import {
     IconCheckmark,
@@ -14,7 +14,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
 import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
@@ -45,17 +45,13 @@ export function VerifiedDomains(): JSX.Element {
                         for accounts under your domains.
                     </p>
                 </div>
-
-                <div>
-                    <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => setAddModalShown(true)}
-                        disabled={verifiedDomainsLoading || updatingDomainLoading}
-                    >
-                        Add domain
-                    </Button>
-                </div>
+                <LemonButton
+                    type="primary"
+                    onClick={() => setAddModalShown(true)}
+                    disabled={verifiedDomainsLoading || updatingDomainLoading}
+                >
+                    Add domain
+                </LemonButton>
             </div>
             <VerifiedDomainsTable />
         </>

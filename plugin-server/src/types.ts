@@ -113,6 +113,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     KAFKA_RUNNER_TOPIC: string
     SERVER_MODE: 'ingestion' | 'runner'
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
 }
 
 export interface Hub extends PluginsServerConfig {
