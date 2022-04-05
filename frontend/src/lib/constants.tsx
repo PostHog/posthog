@@ -147,7 +147,7 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BinCountAuto = 'auto'
+export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
 export const COHORT_STATIC = 'static'
