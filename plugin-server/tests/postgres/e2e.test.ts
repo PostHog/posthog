@@ -108,45 +108,41 @@ describe('e2e', () => {
     })
 
     describe('e2e postgres ingestion', () => {
-        test('event captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
+        describe('ingestion server', () => {
+            test('event captured, processed, ingested', async () => {
+                expect((await hub.db.fetchEvents()).length).toBe(0)
 
-            const uuid = new UUIDT().toString()
+                const uuid = new UUIDT().toString()
 
-            await posthog.capture('custom event', { name: 'haha', uuid })
+                await posthog.capture('custom event', { name: 'haha', uuid })
 
-            await delayUntilEventIngested(() => hub.db.fetchEvents())
+                await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-            const events = await hub.db.fetchEvents()
-            await delay(1000)
+                const events = await hub.db.fetchEvents()
+                await delay(1000)
 
-            expect(events.length).toBe(1)
+                expect(events.length).toBe(1)
 
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+                // processEvent ran and modified
+                expect(events[0].properties.processed).toEqual('hell yes')
+                expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+            })
 
-            // onEvent ran
-            expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event']])
-        })
+            test('snapshot captured, processed, ingested', async () => {
+                expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
 
-        test('snapshot captured, processed, ingested', async () => {
-            expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
+                await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
-            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
+                await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
-            await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+                const events = await hub.db.fetchSessionRecordingEvents()
+                await delay(1000)
 
-            const events = await hub.db.fetchSessionRecordingEvents()
-            await delay(1000)
+                expect(events.length).toBe(1)
 
-            expect(events.length).toBe(1)
-
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
-
-            // onSnapshot ran
-            expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])
+                // processEvent did not modify
+                expect(events[0].snapshot_data).toEqual('yes way')
+            })
         })
 
         test('console logging is persistent', async () => {
@@ -212,7 +208,8 @@ describe('e2e', () => {
         })
     })
 
-    describe('handleAlert', () => {
+    // run in runner
+    describe.skip('handleAlert', () => {
         const awaitHandleAlertLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'handleAlert'))
