@@ -2,7 +2,7 @@ import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
 import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -87,6 +87,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         KAFKA_RUNNER_TOPIC: 'plugin-server-runner-events',
         SERVER_MODE: 'ingestion',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
     }
 }
 
@@ -155,6 +157,9 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.',
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY:
             '(advanced) how many kafka partitions the plugin server should consume from concurrently',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
+            '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
     }
 }
 
