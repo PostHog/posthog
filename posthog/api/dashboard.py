@@ -229,6 +229,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)
             .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
+            .prefetch_related("insights")
         )
         return queryset
 

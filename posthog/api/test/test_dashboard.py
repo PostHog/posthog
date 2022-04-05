@@ -1,7 +1,9 @@
 import json
+from typing import List
 
 from dateutil import parser
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection, connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -158,6 +160,57 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
+    def test_adding_insights_is_not_nplus1_for_gets(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        filter = Filter(data=filter_dict)
+
+        query_counts: List[int] = []
+
+        query_counts.append(self._get_dashboard_counting_queries(dashboard))
+
+        # add insights to the dashboard and count how manh queries to read the dashboard afterwards
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter_dict, team=self.team,
+        )
+        query_counts.append(self._get_dashboard_counting_queries(dashboard))
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        query_counts.append(self._get_dashboard_counting_queries(dashboard))
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        query_counts.append(self._get_dashboard_counting_queries(dashboard))
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        query_counts.append(self._get_dashboard_counting_queries(dashboard))
+
+        # query count is the expected value
+        self.assertEqual(query_counts[0], 10)
+        # adding more insights doesn't change the query count
+        self.assertTrue(all(x == query_counts[0] for x in query_counts))
+
+    def _get_dashboard_counting_queries(self, dashboard: Dashboard) -> int:
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        with CaptureQueriesContext(db_connection) as capture_query_context:
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            query_count = len(capture_query_context.captured_queries)
+            if isinstance(query_count, int):
+                return query_count
+            else:
+                self.fail(f"'{query_count}' should have been an int")
+
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
@@ -166,12 +219,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
         filter = Filter(data=filter_dict)
 
-        item = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        Insight.objects.create(
-            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
-        )
+        # create two insights on the dashboard
+        first_insight = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        second_insight = Insight.objects.create(dashboard=dashboard, filters=filter.to_dict(), team=self.team,)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
-        self.assertEqual(response["items"][0]["result"], None)
+        self.assertEqual([i["id"] for i in response["items"]], [first_insight.id, second_insight.id])
 
         # cache results
         response = self.client.get(
@@ -179,11 +231,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
-        item = Insight.objects.get(pk=item.pk)
-        self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
+        first_insight = Insight.objects.get(pk=first_insight.pk)
+        self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertEqual(first_insight.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(16):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
             # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
