@@ -66,6 +66,10 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
+    KAFKA_SECURITY_PROTOCOL: string | null
+    KAFKA_SASL_MECHANISM: 'plain' | 'scram-sha-256' | 'scram-sha-512' | null
+    KAFKA_SASL_USER: string | null
+    KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
