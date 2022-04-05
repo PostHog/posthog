@@ -302,6 +302,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
 
+        # creating the insight added it to the dashboard insights collection
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.insights.count(), 1)
+        first = dashboard.insights.first()
+        if first is None:  # to satisfy mypy
+            self.fail("this must be an insight by now")
+        self.assertEqual(first.name, "some_item")
+
         item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
 
@@ -312,47 +320,43 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
 
-    def test_dashboard_insights(self):
-        """
-        The DashboardInsight relation which will replace the items relation has the same behavior
-
-        See: test_dashboard_items
-        """
-        dashboard: Dashboard = Dashboard.objects.create(
-            name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"}
-        )
-        insight: Insight = Insight.objects.create(
-            short_id="insight_one", filters={"hello": "test"}, team=self.team, created_by=self.user
-        )
-        DashboardInsight.objects.create(dashboard=dashboard, insight=insight)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
-        self.assertEqual(len(response["items"]), 1)
-        self.assertEqual(response["items"][0]["short_id"], "insight_one")
-
-        item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
-        self.assertEqual(item_response["results"][0]["short_id"], "insight_one")
-
-        # delete
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{item_response['results'][0]['id']}/", {"deleted": "true"}
-        )
-        items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
-        self.assertEqual(len(items_response["results"]), 0)
-
     def test_dashboard_items_deduplicates_between_items_and_insights(self):
+        """
+        If an insight is linked to a dashboard by the deprecated relation
+        _and_ the new one
+        the dashboard's items API property doesn't add it twice
+
+        so, if the insights attached to the dashboard are set up as:
+
+        old_relation = ["both", "old"]
+        new_relation = ["both", "new"]
+
+        the items property on the API will union and de-deuplicate across them, holding:
+
+        ["both", "old", "new"]
+        """
         dashboard: Dashboard = Dashboard.objects.create(
             name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"}
         )
-        insight: Insight = Insight.objects.create(
-            short_id="insight_one", filters={"hello": "test"}, team=self.team, created_by=self.user
+        insight_on_both_relations: Insight = Insight.objects.create(
+            short_id="both", filters={"hello": "test"}, team=self.team, created_by=self.user
         )
-        DashboardInsight.objects.create(dashboard=dashboard, insight=insight)
-        dashboard.items.add(insight)
+        DashboardInsight.objects.create(dashboard=dashboard, insight=insight_on_both_relations)
+        dashboard.items.add(insight_on_both_relations)
+
+        insight_on_old_relation = Insight.objects.create(
+            short_id="old", filters={"hello": "test"}, team=self.team, created_by=self.user
+        )
+        dashboard.items.add(insight_on_old_relation)
+
+        insight_on_new_relation = Insight.objects.create(
+            short_id="new", filters={"hello": "test"}, team=self.team, created_by=self.user
+        )
+        DashboardInsight.objects.create(dashboard=dashboard, insight=insight_on_new_relation)
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
-        self.assertEqual(len(response["items"]), 1)
-        self.assertEqual(response["items"][0]["short_id"], "insight_one")
+        self.assertEqual(len(response["items"]), 3)
+        self.assertEqual(sorted([i["short_id"] for i in response["items"]]), sorted(["both", "new", "old"]))
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)

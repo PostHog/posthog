@@ -170,7 +170,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        if validated_data["dashboard"]:
+        if validated_data.get("dashboard", None):
             self._link_to_dashboard(instance, validated_data["dashboard"])
 
         return super().update(instance, validated_data)
