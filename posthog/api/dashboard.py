@@ -172,7 +172,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 item.save()
 
         # deduplicate between items and insights relations, until items relation is guaranteed empty
-        dashboard_insights: Dict[str, Insight] = {insight.short_id: insight for insight in dashboard.insights.all()}
+        dashboard_insights: Dict[str, Insight] = {
+            insight.short_id: insight for insight in dashboard.insights.filter(deleted=False).order_by("order").all()
+        }
 
         for item in items:
             if item.short_id not in dashboard_insights:
@@ -229,7 +231,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)
             .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
-            .prefetch_related("insights")
+            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")))
         )
         return queryset
 

@@ -194,7 +194,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query_counts.append(self._get_dashboard_counting_queries(dashboard))
 
         # query count is the expected value
-        self.assertEqual(query_counts[0], 10)
+        self.assertEqual(query_counts[0], 11)
         # adding more insights _does_ change the query count
         # with or without these changes each additional insight adds about 4 queries
         self.assertFalse(all(x == query_counts[0] for x in query_counts))
@@ -236,7 +236,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(first_insight.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(17):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
             # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
@@ -372,6 +372,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_does_not_show_soft_deleted_insights(self):
+        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        insight_id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
+        self.assertEqual(len(response["items"]), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {
+                "filters": {"hello": "test", "date_from": "-7d"},
+                "dashboard": dashboard.pk,
+                "name": "some_item",
+                "deleted": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
+        self.assertEqual(len(response["items"]), 0)
 
     def test_dashboard_items_deduplicates_between_items_and_insights(self):
         """
