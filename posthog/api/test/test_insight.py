@@ -328,6 +328,56 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
 
+    def test_update_insight_with_dashboard_id(self):
+        """
+        The deprecated method of adding an insight to **a single** dashboard was to patch with a dashboard id
+        This should also be saved to the many-to-many dashboards relation
+        """
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        insight.refresh_from_db()
+        self.assertEqual(insight.dashboard_id, 1)
+        self.assertEqual(insight.dashboards.count(), 1)
+        self.assertEqual(insight.dashboards.first(), dashboard)
+
+    def test_update_insight_with_dashboard_id_can_be_repeated_safely(self):
+        """
+        The deprecated method of adding an insight to **a single** dashboard was to patch with a dashboard id
+        This should also be saved to the many-to-many dashboards relation
+        """
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": 1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        insight.refresh_from_db()
+        self.assertEqual(insight.dashboard_id, 1)
+        self.assertEqual(insight.dashboards.count(), 1)
+        self.assertEqual(insight.dashboards.first(), dashboard)
+
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
         insight = Insight.objects.create(

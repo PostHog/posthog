@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, Type
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -47,7 +48,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Filter, Insight, Team
-from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard import Dashboard, DashboardInsight
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -167,6 +168,17 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+
+        if validated_data["dashboard"]:
+            with transaction.atomic():
+                try:
+                    DashboardInsight.objects.create(insight=instance, dashboard=validated_data["dashboard"])
+                except IntegrityError as ex:
+                    # it's ok to try to add more than once, and ignore duplicates
+                    is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
+                    if not is_a_duplicate_relation:
+                        raise ex
+
         return super().update(instance, validated_data)
 
     def get_result(self, insight: Insight):
