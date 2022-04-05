@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="insights",
             field=models.ManyToManyField(
-                related_name="insights", through="posthog.DashboardInsight", to="posthog.Insight"
+                related_name="dashboards", through="posthog.DashboardInsight", to="posthog.Insight"
             ),
         ),
     ]
