@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -117,7 +117,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
