@@ -272,7 +272,9 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        httpServer = createHttpServer(hub, serverConfig, pluginServerMode)
+        if (!serverConfig.DISABLE_HTTP_SERVER) {
+            httpServer = createHttpServer(hub, serverConfig, pluginServerMode)
+        }
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')

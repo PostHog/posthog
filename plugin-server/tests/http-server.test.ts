@@ -30,6 +30,7 @@ describe('http server', () => {
                     WORKER_CONCURRENCY: 2,
                     STALENESS_RESTART_SECONDS: 5,
                     LOG_LEVEL: LogLevel.Debug,
+                    DISABLE_HTTP_SERVER: false,
                 },
                 makePiscina,
                 PluginServerMode.Ingestion

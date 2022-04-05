@@ -89,6 +89,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SERVER_MODE: 'ingestion',
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
+        DISABLE_HTTP_SERVER: isTestEnv,
     }
 }
 
