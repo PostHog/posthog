@@ -130,12 +130,6 @@ export function getPlayerPositionFromEpochTime(
     windowId: string,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 ): PlayerPosition | null {
-    if (!windowId && !startAndEndTimesByWindowId['']) {
-        // If there is no windowId on the event, but the recording has window Ids,
-        // Then, this is a backend event, and we should try to place it in the first overlapping
-        // segment.
-    }
-
     if (startAndEndTimesByWindowId && windowId in startAndEndTimesByWindowId) {
         const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
         const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
