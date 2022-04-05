@@ -8,6 +8,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
+from posthog.models.dashboard import DashboardInsight
 from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
@@ -182,10 +183,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(14):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
             # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
+            # PostHog DashboardInsight
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -309,6 +311,48 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_insights(self):
+        """
+        The DashboardInsight relation which will replace the items relation has the same behavior
+
+        See: test_dashboard_items
+        """
+        dashboard: Dashboard = Dashboard.objects.create(
+            name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"}
+        )
+        insight: Insight = Insight.objects.create(
+            short_id="insight_one", filters={"hello": "test"}, team=self.team, created_by=self.user
+        )
+        DashboardInsight.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
+        self.assertEqual(len(response["items"]), 1)
+        self.assertEqual(response["items"][0]["short_id"], "insight_one")
+
+        item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
+        self.assertEqual(item_response["results"][0]["short_id"], "insight_one")
+
+        # delete
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{item_response['results'][0]['id']}/", {"deleted": "true"}
+        )
+        items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
+        self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_items_deduplicates_between_items_and_insights(self):
+        dashboard: Dashboard = Dashboard.objects.create(
+            name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"}
+        )
+        insight: Insight = Insight.objects.create(
+            short_id="insight_one", filters={"hello": "test"}, team=self.team, created_by=self.user
+        )
+        DashboardInsight.objects.create(dashboard=dashboard, insight=insight)
+        dashboard.items.add(insight)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
+        self.assertEqual(len(response["items"]), 1)
+        self.assertEqual(response["items"][0]["short_id"], "insight_one")
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)

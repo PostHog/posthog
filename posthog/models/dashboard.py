@@ -41,6 +41,8 @@ class Dashboard(models.Model):
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
 
+    insights = models.ManyToManyField("posthog.Insight", related_name="insights", through="DashboardInsight")
+
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
         ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
@@ -104,3 +106,13 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
+
+
+class DashboardInsight(models.Model):
+    """
+    An explicit join model for adding insights to dashboards allows for future extension of the relationship
+    E.g. allowing the same insight to have different filters on different dashboards
+    """
+
+    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
+    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
