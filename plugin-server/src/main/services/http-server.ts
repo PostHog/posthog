@@ -8,7 +8,7 @@ import { Hub, PluginsServerConfig } from './../../types'
 
 export const HTTP_SERVER_PORTS = {
     [PluginServerMode.Ingestion]: 6738,
-    [PluginServerMode.Runner]: 8000,
+    [PluginServerMode.Runner]: 6739,
 }
 
 export function createHttpServer(

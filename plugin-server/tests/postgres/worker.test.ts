@@ -197,11 +197,11 @@ describe('worker', () => {
             expect(pluginsServer.piscina.completed).toBe(baseCompleted)
             expect(pluginsServer.queue.isPaused()).toBe(false)
 
-            await delay(5000)
+            await delay(10000)
 
             expect(pluginsServer.piscina.queueSize).toBe(0)
-            // tasksSentSoFar * (processEvent + onEvent + ingestEvent)
-            expect(pluginsServer.piscina.completed).toBe(baseCompleted + tasksSentSoFar * 3)
+            // tasksSentSoFar * (processEvent + ingestEvent)
+            expect(pluginsServer.piscina.completed).toBe(baseCompleted + tasksSentSoFar * 2)
             expect(pluginsServer.queue.isPaused()).toBe(false)
 
             // 2 tasks * 2 threads = 4 active
@@ -229,8 +229,8 @@ describe('worker', () => {
             expect(pluginsServer.queue.isPaused()).toBe(false)
             expect(pluginsServer.piscina.queueSize).toBe(0)
 
-            // tasksSentSoFar x (processEvent + onEvent + ingestEvent)
-            expect(pluginsServer.piscina.completed).toEqual(baseCompleted + tasksSentSoFar * 3)
+            // tasksSentSoFar x (processEvent + ingestEvent)
+            expect(pluginsServer.piscina.completed).toEqual(baseCompleted + tasksSentSoFar * 2)
 
             const duration = pluginsServer.piscina.duration - startTime
             const expectedTimeMs = (50 / 4) * 1000
