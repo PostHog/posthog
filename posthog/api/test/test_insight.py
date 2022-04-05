@@ -320,7 +320,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
-                "dashboard": 1,
+                "dashboard": dashboard.pk,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
