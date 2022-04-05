@@ -1,15 +1,6 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import {
-    EntityTypes,
-    FilterType,
-    Entity,
-    EntityType,
-    ActionFilter,
-    EntityFilter,
-    AnyPropertyFilter,
-    ChartDisplayType,
-} from '~/types'
+import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
@@ -231,10 +222,6 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                     ...props.addFilterDefaultOptions,
                 },
             ])
-            // When adding a 2nd or later series, switch away from map view, as it only works for one series at a time
-            if (props.filters.display === ChartDisplayType.WorldMap && newLength > 1) {
-                props?.setFilters({ display: undefined })
-            }
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Default)
         },
         duplicateFilter: async ({ filter }) => {

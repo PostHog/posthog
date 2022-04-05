@@ -17,6 +17,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { Tooltip } from '../Tooltip'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -49,11 +50,21 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             ? ChartDisplayType.FunnelViz
             : ChartDisplayType.ActionsLineGraph
 
-    function Label({ icon, children = null }: { icon: React.ReactNode; children: React.ReactNode }): JSX.Element {
+    function Label({
+        icon,
+        tooltip,
+        children = null,
+    }: {
+        icon: React.ReactNode
+        tooltip?: string
+        children: React.ReactNode
+    }): JSX.Element {
         return (
-            <>
-                {icon} {children}
-            </>
+            <Tooltip title={tooltip} placement="left">
+                <div style={{ width: '100%' }}>
+                    {icon} {children}
+                </div>
+            </Tooltip>
         )
     }
 
@@ -125,7 +136,14 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       ? [
                             {
                                 value: ChartDisplayType.WorldMap,
-                                label: <Label icon={<GlobalOutlined />}>Map</Label>,
+                                label: (
+                                    <Label
+                                        icon={<GlobalOutlined />}
+                                        tooltip="Visualize data by country. Only works with one series at a time."
+                                    >
+                                        Map
+                                    </Label>
+                                ),
                                 disabled: worldMapDisabled,
                             },
                         ]
