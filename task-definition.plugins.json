@@ -95,7 +95,7 @@
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
                     "value": "True"
-                },
+                }
             ],
             "secrets": [
                 {
