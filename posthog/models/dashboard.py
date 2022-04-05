@@ -114,5 +114,11 @@ class DashboardInsight(models.Model):
     E.g. allowing the same insight to have different filters on different dashboards
     """
 
+    class Meta:
+        unique_together = (
+            "dashboard",
+            "insight",
+        )
+
     dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
