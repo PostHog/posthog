@@ -1,6 +1,7 @@
 import json
-from typing import Any, Dict, Type
+from typing import Any, Dict, List, Type, Union
 
+import structlog
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
@@ -59,6 +60,8 @@ from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
+logger = structlog.get_logger(__name__)
+
 
 class InsightBasicSerializer(serializers.ModelSerializer):
     """
@@ -73,6 +76,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "name",
             "filters",
             "dashboard",
+            "dashboards",
             "color",
             "description",
             "last_refresh",
@@ -110,6 +114,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dashboards",
             "layouts",
             "color",
             "last_refresh",
@@ -155,9 +160,11 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             dashboard_item = Insight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
-            self._link_to_dashboard(dashboard_item, validated_data["dashboard"])
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+        dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
+        self._link_to_dashboard(dashboard_item, dashboards)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard_item)
@@ -170,22 +177,44 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        if validated_data.get("dashboard", None):
-            self._link_to_dashboard(instance, validated_data["dashboard"])
+        # many-to-many fields with a through-model are read-only
+        # so don't end up on validated_data
+        dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
+        self._link_to_dashboard(instance, dashboards)
 
         return super().update(instance, validated_data)
 
-    @staticmethod
-    def _link_to_dashboard(insight: Insight, dashboard: Dashboard) -> None:
+    def _link_to_dashboard(self, insight: Insight, dashboards: List[Union[Dashboard, int]]) -> None:
         with transaction.atomic():
+
+            to_add: List[Dashboard] = []
             try:
-                DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
-            except IntegrityError as ex:
-                # it's ok to try to add more than once, and ignore duplicates
-                # adding transaction atomic block stops this error affecting the rest of the API call
-                is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
-                if not is_a_duplicate_relation:
-                    raise ex
+                for dashboard in [d for d in dashboards if d]:
+                    if isinstance(dashboard, int):
+                        to_add.append(Dashboard.objects.filter(team=insight.team).get(pk=dashboard))
+                    else:
+                        to_add.append(dashboard)
+            except Dashboard.DoesNotExist as ex:
+                logger.info(
+                    "tried_to_add_insight_to_unknown_dashboard",
+                    insight=insight.short_id,
+                    dashboard=dashboard,
+                    exception=ex,
+                )
+                raise serializers.ValidationError({"dashboards": "Please provide a valid dashboard."})
+
+            # we are going to replace all links with the new set so...
+            DashboardInsight.objects.filter(insight=insight).delete()
+
+            for dashboard in to_add:
+                try:
+                    DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
+                except IntegrityError as ex:
+                    # it's ok to try to add more than once, and ignore duplicates
+                    # adding transaction atomic block stops this error affecting the rest of the API call
+                    is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
+                    if not is_a_duplicate_relation:
+                        raise ex
 
     def get_result(self, insight: Insight):
         if not insight.filters:
@@ -241,7 +270,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().prefetch_related("dashboards")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)

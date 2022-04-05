@@ -1,10 +1,13 @@
 import json
 from datetime import datetime, timedelta
+from typing import List
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytz
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -258,6 +261,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "name",
                 "filters",
                 "dashboard",
+                "dashboards",
                 "color",
                 "description",
                 "last_refresh",
@@ -268,6 +272,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     def test_insights_does_not_nplus1(self):
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        query_counts: List[int] = []
+
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
             OrganizationMembership.objects.create(user=user, organization=self.organization)
@@ -280,11 +288,21 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 created_by=user,
             )
 
-        # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users + organization + tag
-        with self.assertNumQueries(12):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 20)
+            with CaptureQueriesContext(db_connection) as capture_query_context:
+                response = self.client.get(f"/api/projects/{self.team.id}/insights")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), i + 1)
+
+            query_count_for_create_and_read = len(capture_query_context.captured_queries)
+            if isinstance(query_count_for_create_and_read, int):
+                query_counts.append(query_count_for_create_and_read)
+            else:
+                self.fail(f"'{query_count_for_create_and_read}' should have been an int at iteration {i}")
+
+        # query count is the expected value
+        self.assertEqual(query_counts[0], 13)
+        # adding more insights doesn't change the query count
+        self.assertTrue(all(x == query_counts[0] for x in query_counts))
 
     def test_create_insight_items(self):
         # Make sure the endpoint works with and without the trailing slash
@@ -326,12 +344,64 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["description"], None)
         self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
 
-        objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
-        self.assertEqual(objects[0].dashboard, dashboard)
-        self.assertEqual(objects[0].dashboards.count(), 1)
-        self.assertEqual(objects[0].dashboards.first(), dashboard)
+    def test_create_insight_with_dashboards_relation_adds_to_dashboards(self):
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard.pk],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["description"], None)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
+
+    def test_cannot_create_insight_with_dashboard_relation_from_another_team(self):
+        another_team = Team.objects.create(organization=self.organization)
+        dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboard": dashboard_other_team.pk,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):
+        dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
+        another_team = Team.objects.create(organization=self.organization)
+        dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_update_insight(self):
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
@@ -369,11 +439,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        insight.refresh_from_db()
-        self.assertEqual(insight.dashboard_id, dashboard.pk)
-        self.assertEqual(insight.dashboards.count(), 1)
-        self.assertEqual(insight.dashboards.first(), dashboard)
+        self.assertEqual(response.json()["dashboard"], dashboard.pk)
+        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
 
     def test_update_insight_with_dashboard_id_can_be_repeated_safely(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
@@ -393,11 +460,100 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["dashboard"], dashboard.pk)
+        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
 
-        insight.refresh_from_db()
-        self.assertEqual(insight.dashboard_id, dashboard.pk)
-        self.assertEqual(insight.dashboards.count(), 1)
-        self.assertEqual(insight.dashboards.first(), dashboard)
+    def test_update_insight_with_more_than_one_dashboard_by_updating_old_relation(self):
+        dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_one.pk},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_two.pk},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["dashboard"], dashboard_two.pk)
+        self.assertEqual(response.json()["dashboards"], [dashboard_two.pk])
+
+    def test_update_insight_with_more_than_one_dashboard_by_updating_new_relation(self):
+        dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {
+                "name": "insight new name",
+                "description": "Internal system metrics.",
+                "dashboards": [dashboard_one.pk, dashboard_two.pk],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # we don't update "legacy" property when client is using new property
+        self.assertEqual(response.json()["dashboard"], None)
+        self.assertEqual(response.json()["dashboards"], [dashboard_one.pk, dashboard_two.pk])
+
+    def test_update_insight_to_remove_dashboards(self):
+        dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {
+                "name": "insight new name",
+                "description": "Internal system metrics.",
+                "dashboards": [dashboard_one.pk, dashboard_two.pk],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # we don't update "legacy" property when client is using new property
+        self.assertEqual(response.json()["dashboard"], None)
+        self.assertEqual(response.json()["dashboards"], [dashboard_one.pk, dashboard_two.pk])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboards": [dashboard_two.pk],},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # we don't update "legacy" property when client is using new property
+        self.assertEqual(response.json()["dashboard"], None)
+        self.assertEqual(response.json()["dashboards"], [dashboard_two.pk])
+
+    def test_cannot_update_insight_with_dashboard_from_another_team(self):
+        dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
+        another_team = Team.objects.create(organization=self.organization)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=another_team)
+
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="special insight", created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {
+                "name": "insight new name",
+                "description": "Internal system metrics.",
+                "dashboards": [dashboard_one.pk, dashboard_two.pk],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
