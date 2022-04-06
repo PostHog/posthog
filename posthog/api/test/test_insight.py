@@ -101,13 +101,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response_2.json(),
-                response_2.json()
-                | {
-                    "created_at": "2021-08-23T12:00:00Z",
-                    "created_by": self_user_basic_serialized,
-                    "updated_at": "2021-09-20T12:00:00Z",
-                    "last_modified_at": "2021-08-23T12:00:00Z",
-                    "last_modified_by": self_user_basic_serialized,
+                {
+                    **response_2.json(),
+                    **{
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-09-20T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
                 },
             )
 
@@ -120,13 +122,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response_3.json(),
-                response_3.json()
-                | {
-                    "created_at": "2021-08-23T12:00:00Z",
-                    "created_by": self_user_basic_serialized,
-                    "updated_at": "2021-10-21T12:00:00Z",
-                    "last_modified_at": "2021-10-21T12:00:00Z",
-                    "last_modified_by": self_user_basic_serialized,
+                {
+                    **response_3.json(),
+                    **{
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-10-21T12:00:00Z",
+                        "last_modified_at": "2021-10-21T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
                 },
             )
         with freeze_time("2021-12-23T12:00:00Z"):
@@ -134,13 +138,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_4.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response_4.json(),
-                response_4.json()
-                | {
-                    "created_at": "2021-08-23T12:00:00Z",
-                    "created_by": self_user_basic_serialized,
-                    "updated_at": "2021-12-23T12:00:00Z",
-                    "last_modified_at": "2021-12-23T12:00:00Z",
-                    "last_modified_by": self_user_basic_serialized,
+                {
+                    **response_4.json(),
+                    **{
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-12-23T12:00:00Z",
+                        "last_modified_at": "2021-12-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
                 },
             )
 
@@ -153,13 +159,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_5.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response_5.json(),
-                response_5.json()
-                | {
-                    "created_at": "2021-08-23T12:00:00Z",
-                    "created_by": self_user_basic_serialized,
-                    "updated_at": "2022-01-01T12:00:00Z",
-                    "last_modified_at": "2022-01-01T12:00:00Z",
-                    "last_modified_by": alt_user_basic_serialized,
+                {
+                    **response_5.json(),
+                    **{
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2022-01-01T12:00:00Z",
+                        "last_modified_at": "2022-01-01T12:00:00Z",
+                        "last_modified_by": alt_user_basic_serialized,
+                    },
                 },
             )
 
