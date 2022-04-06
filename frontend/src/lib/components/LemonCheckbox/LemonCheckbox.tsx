@@ -12,6 +12,7 @@ export interface LemonCheckboxProps {
     id?: string
     className?: string
     style?: React.CSSProperties
+    /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     rowProps?: LemonRowProps<'div'>
 }
