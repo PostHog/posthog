@@ -759,7 +759,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/funnel/",
             {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
         )
-        # self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 500)
+        # the exception is thrown after the block that calls capture exception
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
     @freeze_time("2022-03-22T00:00:00.000Z")
