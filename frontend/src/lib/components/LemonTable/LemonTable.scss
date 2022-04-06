@@ -134,6 +134,9 @@
                     padding-left: 0 !important;
                     padding-right: 0 !important;
                 }
+                &.LemonTable__ribbon {
+                    padding: 0 !important;
+                }
                 &:last-child {
                     padding-right: 1rem;
                 }
