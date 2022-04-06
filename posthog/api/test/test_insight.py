@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -275,18 +275,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         db_connection = connections[DEFAULT_DB_ALIAS]
 
         query_counts: List[int] = []
+        queries = []
 
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
             OrganizationMembership.objects.create(user=user, organization=self.organization)
             dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
-            Insight.objects.create(
-                filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
-                team=self.team,
-                short_id=f"insight{i}",
-                dashboard=dashboard,
-                created_by=user,
+
+            self._create_insight(
+                data={
+                    "short_id": f"insight{i}",
+                    "dashboards": [dashboard.pk],
+                    "filters": {"events": [{"id": "$pageview"}]},
+                }
             )
+
+            self.assertEqual(Insight.objects.count(), i + 1)
 
             with CaptureQueriesContext(db_connection) as capture_query_context:
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
@@ -294,31 +298,30 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 self.assertEqual(len(response.json()["results"]), i + 1)
 
             query_count_for_create_and_read = len(capture_query_context.captured_queries)
-            if isinstance(query_count_for_create_and_read, int):
-                query_counts.append(query_count_for_create_and_read)
-            else:
-                self.fail(f"'{query_count_for_create_and_read}' should have been an int at iteration {i}")
+            queries.append(capture_query_context.captured_queries)
+            query_counts.append(query_count_for_create_and_read)
 
-        # query count is the expected value
-        self.assertEqual(query_counts[0], 13)
         # adding more insights doesn't change the query count
-        self.assertTrue(all(x == query_counts[0] for x in query_counts))
+        expected_query_counts = [9] * 20
+        self.assertEqual(
+            query_counts,
+            expected_query_counts,
+            f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
+        )
 
     def test_create_insight_items(self):
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        _, create_response = self._create_insight(
             data={
                 "filters": {
                     "events": [{"id": "$pageview"}],
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
-            },
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["description"], None)
-        self.assertEqual(response.json()["tags"], [])
+
+        self.assertEqual(create_response["description"], None)
+        self.assertEqual(create_response["tags"], [])
 
         objects = Insight.objects.all()
         self.assertEqual(len(objects), 1)
@@ -329,9 +332,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_create_insight_with_dashboard_adds_to_dashboards(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        _, response_json = self._create_insight(
             data={
                 "filters": {
                     "events": [{"id": "$pageview"}],
@@ -341,15 +342,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "dashboard": dashboard.pk,
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["description"], None)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
+
+        self.assertEqual(response_json["description"], None)
+        self.assertEqual(response_json["tags"], [])
+        self.assertEqual(response_json["dashboards"], [dashboard.pk])
 
     def test_create_insight_with_dashboards_relation_adds_to_dashboards(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
-        response = self._create_insight(
+        _, response_json = self._create_insight(
             {
                 "filters": {
                     "events": [{"id": "$pageview"}],
@@ -359,17 +360,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "dashboards": [dashboard.pk],
             }
         )
-        self.assertEqual(response["description"], None)
-        self.assertEqual(response["tags"], [])
-        self.assertEqual(response["dashboards"], [dashboard.pk])
+        self.assertEqual(response_json["description"], None)
+        self.assertEqual(response_json["tags"], [])
+        self.assertEqual(response_json["dashboards"], [dashboard.pk])
 
     def test_cannot_create_insight_with_dashboard_relation_from_another_team(self):
         another_team = Team.objects.create(organization=self.organization)
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
 
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        self._create_insight(
             data={
                 "filters": {
                     "events": [{"id": "$pageview"}],
@@ -378,17 +377,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
                 "dashboard": dashboard_other_team.pk,
             },
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
         another_team = Team.objects.create(organization=self.organization)
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
 
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        self._create_insight(
             data={
                 "filters": {
                     "events": [{"id": "$pageview"}],
@@ -397,8 +394,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
                 "dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],
             },
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_an_insight_on_no_dashboard_has_no_restrictions(self):
         pass
@@ -413,9 +410,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         pass
 
     def test_update_insight(self):
-        insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
+        insight_id, _ = self._create_insight(data={"name": "special insight"})
+
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -429,7 +427,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
-        insight.refresh_from_db()
+        insight = Insight.objects.get(pk=insight_id)
         self.assertEqual(insight.name, "insight new name")
 
     def test_update_insight_with_dashboard_id(self):
@@ -439,12 +437,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         """
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, _ = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -454,18 +450,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_update_insight_with_dashboard_id_can_be_repeated_safely(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, _ = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -476,18 +470,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
         dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, _ = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_one.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_two.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -498,12 +490,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
         dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, create_response = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {
                 "name": "insight new name",
                 "description": "Internal system metrics.",
@@ -519,12 +509,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
         dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, create_response = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {
                 "name": "insight new name",
                 "description": "Internal system metrics.",
@@ -537,7 +525,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.json()["dashboards"], [dashboard_one.pk, dashboard_two.pk])
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "insight new name", "description": "Internal system metrics.", "dashboards": [dashboard_two.pk],},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -550,12 +538,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         another_team = Team.objects.create(organization=self.organization)
         dashboard_two: Dashboard = Dashboard.objects.create(team=another_team)
 
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="special insight", created_by=self.user,
-        )
+        insight_id, _ = self._create_insight(data={"name": "special insight"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
             {
                 "name": "insight new name",
                 "description": "Internal system metrics.",
@@ -566,18 +552,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
-        insight = Insight.objects.create(
-            team=self.team,
-            name="insight with custom filters",
-            created_by=self.user,
-            filters={"events": [{"id": "$pageview"}]},
+        insight_id, create_response = self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}]}, "name": "insight with custom filters"}
         )
 
         for custom_name, expected_name in zip(
             ["Custom filter", 100, "", "  ", None], ["Custom filter", "100", None, None, None]
         ):
             response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight.id}",
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
             )
 
@@ -585,15 +568,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
             response_data = response.json()
             self.assertEqual(response_data["filters"]["events"][0]["custom_name"], expected_name)
-            insight.refresh_from_db()
+
+            insight = Insight.objects.get(pk=insight_id)
             self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
 
     def test_save_new_funnel(self):
 
         dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
+        self._create_insight(
             data={
                 "filters": {
                     "insight": "FUNNELS",
@@ -625,10 +608,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "layout": "horizontal",
                 },
                 "name": "My Funnel One",
-                "dashboard": dashboard.pk,
-            },
+                "dashboards": [dashboard.pk],
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         objects = Insight.objects.all()
         self.assertEqual(len(objects), 1)
@@ -646,12 +628,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights", data={"filters": {"events": [{"id": "$pageview"}]}}
-            ).json()
-            self.assertEqual(response["last_refresh"], None)
+            insight_id, response_json = self._create_insight(data={"filters": {"events": [{"id": "$pageview"}]}})
+            self.assertEqual(response_json["last_refresh"], None)
 
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
@@ -659,14 +639,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["last_refresh"], None)
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
@@ -826,6 +806,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _create_person(team=self.team, distinct_ids=["1"])
         _create_event(team=self.team, event="user signed up", distinct_id="1")
         _create_event(team=self.team, event="user did things", distinct_id="1")
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
             {
@@ -1000,11 +981,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @freeze_time("2022-03-22T00:00:00.000Z")
     def test_create_insight_viewed(self):
-        insight_response = self._create_insight(
+        insight_id, insight_response = self._create_insight(
             data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_id}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -1015,17 +996,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(created_insight_viewed.last_viewed_at, datetime(2022, 3, 22, 0, 0, tzinfo=pytz.UTC))
 
     def test_update_insight_viewed(self):
-        insight_response = self._create_insight(
+        insight_id, _ = self._create_insight(
             data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
 
         with freeze_time("2022-03-22T00:00:00.000Z"):
 
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_id}/viewed")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time("2022-03-23T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_id}/viewed")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(InsightViewed.objects.count(), 1)
 
@@ -1035,11 +1016,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_cant_create_insight_viewed_for_another_team(self):
         other_team = Team.objects.create(organization=self.organization, name="other team")
 
-        insight_response = self._create_insight(
+        insight_id, _ = self._create_insight(
             data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
 
-        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight_response['id']}/viewed")
+        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight_id}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
@@ -1047,19 +1028,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_cant_create_insight_viewed_for_insight_in_another_team(self):
         other_team = Team.objects.create(organization=self.organization, name="other team")
 
-        insight_response = self._create_insight(
+        insight_id, _ = self._create_insight(
             data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=other_team.id
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_id}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
-    def _create_insight(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Dict[str, Any]:
+    def _create_insight(
+        self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
+    ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        return response.json()
+        self.assertEqual(response.status_code, expected_status)
+        response_json = response.json()
+        return response_json.get("id", None), response_json

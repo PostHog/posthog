@@ -251,9 +251,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
 
 class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Insight.objects.all().prefetch_related(
-        "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
-    )
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
@@ -270,7 +268,15 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().prefetch_related("dashboards")
+        queryset = super().get_queryset()
+        queryset = queryset.prefetch_related("dashboards")
+        queryset = queryset.prefetch_related("dashboards__created_by")
+        queryset = queryset.select_related("created_by")
+        queryset = queryset.select_related("last_modified_by")
+        queryset = queryset.select_related("team")
+        queryset = queryset.select_related("dashboard__team")
+        queryset = queryset.select_related("dashboard__team__organization")
+
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)
