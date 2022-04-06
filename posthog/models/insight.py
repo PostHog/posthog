@@ -87,8 +87,6 @@ class Insight(models.Model):
         )
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        if dashboard is None:
-            dashboard = self.dashboard
         if dashboard:
             return {**self.filters, **dashboard.filters}
         else:
