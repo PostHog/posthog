@@ -35,7 +35,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FunnelLayout } from 'lib/constants'
+import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
@@ -846,7 +846,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         numericBinCount: [
             () => [selectors.filters, selectors.timeConversionResults],
             (filters, timeConversionResults): number => {
-                if (filters.bin_count === BinCountAuto) {
+                if (filters.bin_count === BIN_COUNT_AUTO) {
                     return timeConversionResults?.bins?.length ?? 0
                 }
                 return filters.bin_count ?? 0
@@ -1271,7 +1271,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             })
         },
         setBinCount: async ({ binCount }) => {
-            actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
+            actions.setFilters({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
