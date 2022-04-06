@@ -5,6 +5,8 @@ from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.models.filters.utils import get_filter
+from posthog.utils import generate_cache_key
 
 
 class Dashboard(models.Model):
@@ -122,3 +124,13 @@ class DashboardInsight(models.Model):
 
     dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.insight.filters and self.insight.filters != {}:
+            merged_filters = get_filter(
+                data=self.insight.dashboard_filters(dashboard=self.dashboard), team=self.insight.team
+            )
+            cache_key = generate_cache_key("{}_{}".format(merged_filters.toJSON(), self.insight.team_id))
+            self.filters_hash = cache_key
+        super(DashboardInsight, self).save(*args, **kwargs)

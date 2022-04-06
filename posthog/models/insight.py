@@ -111,11 +111,12 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_VIEW
 
 
-@receiver(pre_save, sender=Dashboard)
+@receiver(post_save, sender=Dashboard)
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.items.all():
-        dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
-        item.save()
+        dashboard_insight = DashboardInsight.objects.filter(insight=item, dashboard=instance).first()
+        if dashboard_insight:
+            dashboard_insight.save()
 
 
 @receiver(pre_save, sender=Insight)

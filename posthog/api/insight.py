@@ -219,12 +219,84 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
                         raise ex
 
     def get_result(self, insight: Insight):
+        """
+        All insights are cached on calculation and results are returned from the cache.
+        The cache key is the insight's filters and team_id combined.
+        So, for the same team. Two identical insights are not calculated twice.
+
+        If an insight is on a dashboard its filters are the combination of the dashboard's filters and its filters.
+
+        So the same insight that is on 7 dashboards, which all have different filters, will be cached seven times.
+        But, if only some of those dashboards have filters set then it will be cached fewer than 7 times
+
+        When a dashboard is loading/refreshing an insight, it passes itself on the context for the request.
+
+        Historically, insights were only stored on zero or one dashboard and so could store a single hash on the model.
+        Now it has a set of hashes.
+
+        Each time an insight is added to or removed from a dashboard its set of filter hashes may change.
+        If a dashboard's filters are changed then the set of filter hashes for each of its insights will change
+
+        If you are loading a dashboard
+           it loads each insight passing itself as context,
+           it is necessary to use that context to generate the cache key
+           it doesn't matter to the query if the insight is linked to or cached with any other dashboard
+
+        If you are loading an insight by itself
+            it is not on a dashboard (in this view), the generated cache key will be for the insight in isolation
+            it doesn't matter to the query if the insight is linked to or cached with any dashboard
+
+        If you are refreshing an insight on a dashboard
+            the dashboard makes individual calls to refresh the insights
+            it sends its dashboard id as a query parameter so the dashboard
+            it is necessary to use that context to generate the cache key
+           it doesn't matter to the query if the insight is linked to or cached with any other dashboard
+
+        if you are saving an insight
+            its filters might have changed, its dashboard links might have changed
+            the easiest solution is to replace all stored cache key(s) on the insight
+
+        if you are saving a dashboard
+            its filters might have changed
+            update stored cache key for each linked insight
+            (only necessary for this pairing, insight might be linked to other dashboards, they've not changed)
+
+        if you are regenerating the cache
+            the cache of insights is updated on a configurable timer (90 seconds currently)
+            any insight on a shared dashboard or a recently changed dashboard is refreshed
+            the dashboard is available for generating the cache key used to lookup whether there is a cached insight
+        """
         if not insight.filters:
             return None
-        if should_refresh(self.context["request"]):
-            return update_dashboard_item_cache(insight, None)
 
-        result = get_safe_cache(insight.filters_hash)
+        """
+        Whether the insight is being loaded in the context of a dashboard, and _which_dashboard
+        TODO update API docs for new "dashboard_id" param on refreshing an insight
+        """
+        dashboard = self.context.get("dashboard", None)
+        dashboard_id_from_params = self.context["request"].query_params.get("dashboard_id", None)
+        if not dashboard and dashboard_id_from_params:
+            try:
+                dashboard_id = int(dashboard_id_from_params) if dashboard_id_from_params.isdigit() else None
+                dashboard = Dashboard.objects.get(pk=dashboard_id)
+            except Dashboard.DoesNotExist as ex:
+                logger.error(
+                    "loading_insight_could_not_find_dashboard",
+                    exception=ex,
+                    dashboard_id=dashboard_id_from_params,
+                    insight_short_id=insight.short_id,
+                )
+                dashboard = None
+
+        if should_refresh(self.context["request"]):
+            return update_dashboard_item_cache(insight, dashboard)
+
+        if dashboard:
+            cache_key = DashboardInsight.objects.filter(insight=insight, dashboard=dashboard).first().filters_hash
+        else:
+            cache_key = insight.filters_hash
+
+        result = get_safe_cache(cache_key)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
