@@ -69,8 +69,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         self.verify_table_engines_correct(
@@ -91,11 +91,11 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
+        setup_async_migrations(ignore_posthog_version=True)
         migration = get_async_migration_definition(MIGRATION_NAME)
 
-        self.assertEqual(len(migration.operations), 53)
-        migration.operations[30].sql = "THIS WILL FAIL!"  # type: ignore
+        self.assertEqual(len(migration.operations), 57)
+        migration.operations[31].sql = "THIS WILL FAIL!"  # type: ignore
 
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertFalse(migration_successful)

@@ -28,4 +28,13 @@
             }
         }
     }
+
+    .password-wrapper {
+        overflow: hidden;
+        transition: max-height 0.8s ease-in-out;
+        max-height: 1000px;
+        &.hidden {
+            max-height: 0;
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, isUserLoggedIn, setPageTitle } from 'lib/utils'
+import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { dashboardsModelType } from './dashboardsModelType'
@@ -84,9 +84,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
-                    if (updatedAttribute === 'name') {
-                        setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
-                    }
                 }
                 return response
             },

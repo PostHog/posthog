@@ -202,6 +202,13 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/actions': urls.actions(),
     '/organization/members': urls.organizationSettings(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
+    '/action/:id': ({ id }) => urls.action(id),
+    '/action': urls.createAction(),
+    '/events/actions': urls.actions(),
+    '/events/stats': urls.eventDefinitions(),
+    '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/events/properties': urls.eventPropertyDefinitions(),
+    '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
 }
 
 export const routes: Record<string, Scene> = {
@@ -220,6 +227,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
+    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,

@@ -2,11 +2,12 @@ import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, Insig
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { BinCountAuto, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import { BIN_COUNT_AUTO, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -118,7 +119,7 @@ export function cleanFilters(
             ...(filters.funnel_step_breakdown !== undefined
                 ? { funnel_step_breakdown: filters.funnel_step_breakdown }
                 : {}),
-            ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
+            ...(filters.bin_count && filters.bin_count !== BIN_COUNT_AUTO ? { bin_count: filters.bin_count } : {}),
             ...(filters.funnel_window_interval_unit
                 ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
                 : {}),
@@ -211,6 +212,18 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
             cleanSearchParams['compare'] = false
+        }
+
+        if (cleanSearchParams.interval && cleanSearchParams.smoothing_intervals) {
+            if (
+                !smoothingOptions[cleanSearchParams.interval].find(
+                    (option) => option.value === cleanSearchParams.smoothing_intervals
+                )
+            ) {
+                if (cleanSearchParams.smoothing_intervals !== 1) {
+                    cleanSearchParams.smoothing_intervals = 1
+                }
+            }
         }
 
         if (cleanSearchParams.insight === InsightType.LIFECYCLE) {

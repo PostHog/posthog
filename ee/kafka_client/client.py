@@ -1,10 +1,7 @@
-import io
 import json
 from typing import Any, Callable, Dict, Optional
 
 import kafka.errors
-from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
-from google.protobuf.json_format import MessageToJson
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 from structlog import get_logger
@@ -129,26 +126,6 @@ class ClickhouseProducer:
             self.producer = KafkaProducer()
         else:
             self.send_to_kafka = False
-
-    @staticmethod
-    def proto_length_serializer(data: Any) -> bytes:
-        f = io.BytesIO()
-        f.write(_VarintBytes(data.ByteSize()))
-        f.write(data.SerializeToString())
-        f.seek(0)
-        return f.read()
-
-    def produce_proto(self, sql: str, topic: str, data: Any, sync: bool = True):
-        if self.send_to_kafka:
-            self.producer.produce(topic=topic, data=data, value_serializer=self.proto_length_serializer)
-        else:
-            dict_data = json.loads(
-                MessageToJson(data, including_default_value_fields=True, preserving_proto_field_name=True)
-            )
-            if sync:
-                sync_execute(sql, dict_data)
-            else:
-                async_execute(sql, dict_data)
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.send_to_kafka:

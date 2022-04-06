@@ -1,11 +1,9 @@
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
-from django.urls.base import reverse
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -23,10 +21,12 @@ from posthog.api import (
     signup,
     user,
 )
+from posthog.api.decide import hostname_in_app_urls
 from posthog.demo import demo
+from posthog.models import User
 
-from .utils import get_sso_enforced_provider, render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
+from .utils import render_template
+from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -52,28 +52,34 @@ def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
-def login_view(request):
-    """
-    Checks if SSO is enforced and prevents using password authentication if it's the case.
-    """
-    enforced_sso = get_sso_enforced_provider()
-    if enforced_sso:
-        if enforced_sso == "saml":
-            return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
-        else:
-            return redirect(reverse("social:begin", kwargs={"backend": enforced_sso}))
-
-    return home(request)
-
-
-def authorize_and_redirect(request):
+def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
-    url = request.GET["redirect"]
+    if not request.META.get("HTTP_REFERER"):
+        return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
+
+    current_team = cast(User, request.user).team
+    referer_url = urlparse(request.META["HTTP_REFERER"])
+    redirect_url = urlparse(request.GET["redirect"])
+
+    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
+
+    if referer_url.hostname != redirect_url.hostname:
+        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
+
+    if referer_url.scheme != redirect_url.scheme:
+        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=400)
+
+    if referer_url.port != redirect_url.port:
+        return HttpResponse(
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
+        )
+
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": urlparse(url).hostname, "redirect_url": url,},
+        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
     )
 
 
@@ -126,10 +132,9 @@ urlpatterns = [
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path(
-        "login/<str:backend>/", sso_login, name="social_begin"
+        "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
-    path("login", login_view),
 ]
 
 if settings.TEST:
@@ -153,6 +158,7 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "login",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

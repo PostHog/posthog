@@ -1,15 +1,16 @@
-import { Alert, Button, Col, Input, Row } from 'antd'
+import { Alert, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined } from '@ant-design/icons'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
 import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 import { IconOpenInNew } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -152,9 +153,9 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
 
                     <div className="mt">
                         {areInvitesCreatable && (
-                            <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
+                            <LemonButton type="primary" onClick={appendInviteRow}>
                                 Add another team member
-                            </Button>
+                            </LemonButton>
                         )}
                     </div>
                 </div>
