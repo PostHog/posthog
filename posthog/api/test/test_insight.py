@@ -640,6 +640,30 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.json()["dashboard"], None)
         self.assertEqual(response.json()["dashboards"], [dashboard_two.pk])
 
+    def test_update_insight_to_remove_dashboards_with_legacy_relation(self):
+        dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight_id, create_response = self._create_insight(data={"name": "special insight"})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_one.pk,},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # we don't update "legacy" property when client is using new property
+        self.assertEqual(response.json()["dashboard"], dashboard_one.pk)
+        self.assertEqual(response.json()["dashboards"], [dashboard_one.pk])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "insight new name", "description": "Internal system metrics.", "dashboards": [dashboard_two.pk],},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # we don't update "legacy" property when client is using new property
+        self.assertEqual(response.json()["dashboard"], None)
+        self.assertEqual(response.json()["dashboards"], [dashboard_two.pk])
+
     def test_cannot_update_insight_with_dashboard_from_another_team(self):
         dashboard_one: Dashboard = Dashboard.objects.create(team=self.team)
         another_team = Team.objects.create(organization=self.organization)

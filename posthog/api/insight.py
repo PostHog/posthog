@@ -203,7 +203,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
                 )
                 raise serializers.ValidationError({"dashboards": "Please provide a valid dashboard."})
 
-            # we are going to replace all links with the new set so...
+            # we are going to replace all links with the new set so clear what is there...
+            # TODO this won't work when the join table stores more than just the link
+            insight.dashboard = None
             DashboardInsight.objects.filter(insight=insight).delete()
 
             for dashboard in to_add:

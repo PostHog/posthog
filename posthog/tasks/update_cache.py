@@ -25,6 +25,7 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
+from posthog.models.dashboard import DashboardInsight
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
@@ -108,33 +109,37 @@ def get_cache_type(filter: FilterType) -> CacheType:
 def update_cached_items() -> None:
 
     tasks = []
-    items = (
-        Insight.objects.filter(
+
+    # we only cache insights that are on a shared or recently accessed dashboard
+    dashboard_insights = (
+        DashboardInsight.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
         .exclude(dashboard__deleted=True)
-        .exclude(refreshing=True)
-        .exclude(deleted=True)
-        .exclude(refresh_attempt__gt=2)
-        .exclude(filters={})
-        .order_by(F("last_refresh").asc(nulls_first=True))
+        .exclude(insight__refreshing=True)
+        .exclude(insight__deleted=True)
+        .exclude(insight__refresh_attempt__gt=2)
+        .exclude(insight__filters={})
+        .order_by(F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for item in items[0:PARALLEL_INSIGHT_CACHE]:
+    for dashboard_insight in dashboard_insights[0:PARALLEL_INSIGHT_CACHE]:
         try:
-            cache_key, cache_type, payload = dashboard_item_update_task_params(item)
-            if item.filters_hash != cache_key:
-                item.save()  # force update if the saved key is different from the cache key
+            cache_key, cache_type, payload = dashboard_item_update_task_params(
+                dashboard_insight.insight, dashboard_insight.dashboard
+            )
+            if dashboard_insight.insight.filters_hash != cache_key:
+                dashboard_insight.insight.save()  # force update if the saved key is different from the cache key
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
-            item.refresh_attempt = (item.refresh_attempt or 0) + 1
-            item.save()
+            dashboard_insight.insight.refresh_attempt = (dashboard_insight.insight.refresh_attempt or 0) + 1
+            dashboard_insight.insight.save()
             capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))
-    taskset = group(tasks)
-    taskset.apply_async()
-    statsd.gauge("update_cache_queue_depth", items.count())
+    task_set = group(tasks)
+    task_set.apply_async()
+    statsd.gauge("update_cache_queue_depth", dashboard_insights.count())
 
 
 def dashboard_item_update_task_params(

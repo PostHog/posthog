@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight
+from posthog.models.dashboard import DashboardInsight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_earliest_timestamp
@@ -22,30 +23,32 @@ class TestUpdateCache(APIBaseTest):
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
-        # Any dashboard accessed in the last 7 days
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-        filter = Filter(data=filter_dict)
-        shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        # Any dashboard accessed in the last 7 day
+        # These need to work across the "legacy" `dashboard` foreign key from an insight to a single dashboard
+        # and the new `insights` many to many relation from dashboards to insights
+        filter = Filter(
+            data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+        )
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
+
+        shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+        dashboard_do_not_cache = Dashboard.objects.create(
+            team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
+        )
 
         item = Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
         funnel_item = Insight.objects.create(
             dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
         )
-
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
             dashboard=dashboard_to_cache,
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(),
             team=self.team,
         )
+        new_relation_item_to_cache = Insight.objects.create(filters=filter.to_dict(), team=self.team,)
+        DashboardInsight.objects.create(dashboard=shared_dashboard, insight=new_relation_item_to_cache)
 
-        dashboard_do_not_cache = Dashboard.objects.create(
-            team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
-        )
         item_do_not_cache = Insight.objects.create(
             dashboard=dashboard_do_not_cache,
             filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(),
@@ -61,7 +64,9 @@ class TestUpdateCache(APIBaseTest):
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])
 
+        self.assertIsNotNone(Insight.objects.get(pk=new_relation_item_to_cache.pk).last_refresh)
         self.assertIsNotNone(Insight.objects.get(pk=item.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=funnel_item.pk).last_refresh)
         self.assertIsNotNone(Insight.objects.get(pk=item_to_cache.pk).last_refresh)
         self.assertIsNotNone(Insight.objects.get(pk=item_do_not_cache.pk).last_refresh)
         self.assertEqual(get_safe_cache(item_key)["result"][0]["count"], 0)
@@ -324,9 +329,15 @@ class TestUpdateCache(APIBaseTest):
 
         filter = {"events": [{"id": "$pageview"}]}
 
-        item1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
-        item2 = Insight.objects.create(dashboard=dashboard2, filters=filter, team=self.team)
-        item3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+        # 3 dashboards and 3 insights linked, and available to be cached
+        # dashboard 1 -> insight 1 and insight 2
+        # dashboard 2 -> insight 2
+        # dashboard 3 -> insight 3
+        Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        item2 = Insight.objects.create(filters=filter, team=self.team)
+        DashboardInsight.objects.create(insight=item2, dashboard=dashboard1)
+        DashboardInsight.objects.create(insight=item2, dashboard=dashboard2)
+        Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
 
         update_cached_items()
 
