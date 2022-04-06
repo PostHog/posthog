@@ -151,24 +151,25 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
+        created_by = validated_data.pop("created_by", request.user)
+
         if not validated_data.get("dashboard", None):
-            dashboard_item = Insight.objects.create(
-                team=team, created_by=request.user, last_modified_by=request.user, **validated_data
+            insight = Insight.objects.create(
+                team=team, created_by=created_by, last_modified_by=request.user, **validated_data
             )
         elif validated_data["dashboard"].team == team:
-            created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = Insight.objects.create(
+            insight = Insight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
         else:
             raise serializers.ValidationError("Dashboard not found")
 
         dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
-        self._link_to_dashboard(dashboard_item, dashboards)
+        self._link_to_dashboard(insight, dashboards)
 
         # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard_item)
-        return dashboard_item
+        self._attempt_set_tags(tags, insight)
+        return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration

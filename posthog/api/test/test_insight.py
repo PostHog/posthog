@@ -16,16 +16,7 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    Filter,
-    Insight,
-    InsightViewed,
-    Person,
-    Team,
-    User,
-)
+from posthog.models import Cohort, Dashboard, Insight, InsightViewed, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -52,14 +43,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user)
+        self._create_insight(data={"filters": filter_dict, "created_by": self.user.id})
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        self._create_insight(
+            data={"filters": filter_dict,}  # API adds created by as the user from the request
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
-        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(len(response["results"]), 2)
 
     def test_created_updated_and_last_modified(self):
         alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
@@ -81,20 +74,18 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # Newly created insight should have created_at being the current time, and same last_modified_at
         # Fields created_by and last_modified_by should be set to the current user
         with freeze_time("2021-08-23T12:00:00Z"):
-            response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
-            self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
-            self.assertDictContainsSubset(
-                {
+            insight_id, create_response = self._create_insight(data={})
+            self.assertEqual(
+                create_response,
+                create_response
+                | {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-08-23T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
                 },
-                response_1.json(),
             )
-
-        insight_id = response_1.json()["id"]
 
         # Updating fields that don't change the substance of the insight should affect updated_at
         # BUT NOT last_modified_at or last_modified_by
@@ -103,15 +94,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"color": "blue", "favorited": True}
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
-                {
+            self.assertEqual(
+                response_2.json(),
+                response_2.json()
+                | {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-09-20T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
                 },
-                response_2.json(),
             )
 
         # Updating fields that DO change the substance of the insight should affect updated_at
@@ -121,28 +113,30 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters": {"events": []}}
             )
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
-                {
+            self.assertEqual(
+                response_3.json(),
+                response_3.json()
+                | {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-10-21T12:00:00Z",
                     "last_modified_at": "2021-10-21T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
                 },
-                response_3.json(),
             )
         with freeze_time("2021-12-23T12:00:00Z"):
             response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
             self.assertEqual(response_4.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
-                {
+            self.assertEqual(
+                response_4.json(),
+                response_4.json()
+                | {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-12-23T12:00:00Z",
                     "last_modified_at": "2021-12-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
                 },
-                response_4.json(),
             )
 
         # Field last_modified_by is updated when another user makes a material change
@@ -152,15 +146,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"description": "Lorem ipsum."}
             )
             self.assertEqual(response_5.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
-                {
+            self.assertEqual(
+                response_5.json(),
+                response_5.json()
+                | {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2022-01-01T12:00:00Z",
                     "last_modified_at": "2022-01-01T12:00:00Z",
                     "last_modified_by": alt_user_basic_serialized,
                 },
-                response_5.json(),
             )
 
     def test_get_saved_insight_items(self):
@@ -169,17 +164,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
-        )
+        self._create_insight(data={"filters": filter_dict, "saved": True, "created_by": self.user.id})
 
         # create without saved
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
-        )
+        self._create_insight(data={"filters": filter_dict, "created_by": self.user.id})
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        self._create_insight(
+            data={"filters": filter_dict,}
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"saved": "true", "user": "true"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -193,17 +186,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), favorited=True, team=self.team, created_by=self.user,
-        )
+        self._create_insight(data={"filters": filter_dict, "favorited": True, "created_by": self.user.id})
 
         # create without favorited
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
-        )
+        self._create_insight(data={"filters": filter_dict, "created_by": self.user.id})
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        self._create_insight(data={"filters": filter_dict})
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true&user=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -212,42 +201,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
     def test_get_insight_by_short_id(self):
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "name": "12345678-current-team",}
         )
 
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
         new_team = Team.objects.create(organization=self.organization)
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
+        self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "name": "12345678-other-team"}, team_id=new_team.id,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=12345678")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?created_by={self.user.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
-        self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+        self.assertEqual(response.json()["results"][0]["name"], "12345678-current-team")
 
     def test_basic_results(self):
         """
         The `skip_results` query parameter can be passed so that only a list of objects is returned, without
         the actual query data. This can speed things up if it's not needed.
         """
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
 
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
-        )
-        Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
-        )
+        self._create_insight(data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"})
+
+        self._create_insight(data={"filters": {"events": [{"id": "$pageview"}],}, "saved": True})
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -271,7 +249,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
-    def test_insights_does_not_nplus1(self):
+    def test_listing_insights_does_not_nplus1(self):
         db_connection = connections[DEFAULT_DB_ALIAS]
 
         query_counts: List[int] = []
@@ -1045,5 +1023,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
         self.assertEqual(response.status_code, expected_status)
+
         response_json = response.json()
         return response_json.get("id", None), response_json
