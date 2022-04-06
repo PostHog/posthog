@@ -1166,15 +1166,6 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-export function interpolateHsl(from: [number, number, number], to: [number, number, number], pct: number): string {
-    const [fromH, fromS, fromL] = from
-    const [toH, toS, toL] = to
-    const h = fromH + (toH - fromH) * pct
-    const s = fromS + (toS - fromS) * pct
-    const l = fromL + (toL - fromL) * pct
-    return `hsl(${h}, ${s}%, ${l}%)`
-}
-
 export function toString(input?: any | null): string {
     return input?.toString() || ''
 }
