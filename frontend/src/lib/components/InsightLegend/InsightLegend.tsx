@@ -54,6 +54,7 @@ export function InsightLegend(): JSX.Element {
                                     color={colorList[item.id]}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
+                                    rowProps={{ fullWidth: true }}
                                     label={
                                         <InsightLabel
                                             key={item.id}
