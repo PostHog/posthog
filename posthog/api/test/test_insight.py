@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import List
+from typing import Any, Dict, List, Optional
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -349,22 +349,19 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_create_insight_with_dashboards_relation_adds_to_dashboards(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
 
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
+        response = self._create_insight(
+            {
                 "filters": {
                     "events": [{"id": "$pageview"}],
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
                 "dashboards": [dashboard.pk],
-            },
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["description"], None)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(response.json()["dashboards"], [dashboard.pk])
+        self.assertEqual(response["description"], None)
+        self.assertEqual(response["tags"], [])
+        self.assertEqual(response["dashboards"], [dashboard.pk])
 
     def test_cannot_create_insight_with_dashboard_relation_from_another_team(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -402,6 +399,18 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_an_insight_on_no_dashboard_has_no_restrictions(self):
+        pass
+
+    def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self):
+        pass
+
+    def test_an_insight_on_restricted_dashboard_has_restrictions(self):
+        pass
+
+    def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_restrictions(self):
+        pass
 
     def test_update_insight(self):
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
@@ -991,38 +1000,32 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @freeze_time("2022-03-22T00:00:00.000Z")
     def test_create_insight_viewed(self):
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        insight_response = self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         created_insight_viewed = InsightViewed.objects.all()[0]
-        self.assertEqual(created_insight_viewed.insight, insight)
+        self.assertEqual(created_insight_viewed.insight.short_id, insight_response["short_id"])
         self.assertEqual(created_insight_viewed.team, self.team)
         self.assertEqual(created_insight_viewed.user, self.user)
         self.assertEqual(created_insight_viewed.last_viewed_at, datetime(2022, 3, 22, 0, 0, tzinfo=pytz.UTC))
 
     def test_update_insight_viewed(self):
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        insight_response = self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
+
         with freeze_time("2022-03-22T00:00:00.000Z"):
 
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time("2022-03-23T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(InsightViewed.objects.count(), 1)
 
@@ -1031,28 +1034,32 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def test_cant_create_insight_viewed_for_another_team(self):
         other_team = Team.objects.create(organization=self.organization, name="other team")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+
+        insight_response = self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=self.team.id
         )
 
-        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight_response['id']}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_cant_create_insight_viewed_for_insight_in_another_team(self):
         other_team = Team.objects.create(organization=self.organization, name="other team")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(), team=other_team, short_id="12345678",
+
+        insight_response = self._create_insight(
+            data={"filters": {"events": [{"id": "$pageview"}],}, "short_id": "12345678"}, team_id=other_team.id
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight_response['id']}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def _create_insight(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Dict[str, Any]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()
