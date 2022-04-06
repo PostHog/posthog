@@ -77,13 +77,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             insight_id, create_response = self._create_insight(data={})
             self.assertEqual(
                 create_response,
-                create_response
-                | {
-                    "created_at": "2021-08-23T12:00:00Z",
-                    "created_by": self_user_basic_serialized,
-                    "updated_at": "2021-08-23T12:00:00Z",
-                    "last_modified_at": "2021-08-23T12:00:00Z",
-                    "last_modified_by": self_user_basic_serialized,
+                {
+                    # uses splats not the union operator
+                    # because mypy ¯\_(ツ)_/¯
+                    **create_response,
+                    **{
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-08-23T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
                 },
             )
 
