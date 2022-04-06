@@ -15,6 +15,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import Cohort, Dashboard, Insight, InsightViewed, Person, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -284,7 +285,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             query_counts.append(query_count_for_create_and_read)
 
         # adding more insights doesn't change the query count
-        expected_query_counts = [9] * 20
+        expected_query_counts = [11] * 20
         self.assertEqual(
             query_counts,
             expected_query_counts,
@@ -380,16 +381,132 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     def test_an_insight_on_no_dashboard_has_no_restrictions(self):
-        pass
+        _, response_data = self._create_insight(data={"name": "not on a dashboard"})
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self):
-        pass
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+        _, response_data = self._create_insight(
+            data={"name": "on an unrestricted dashboard", "dashboards": [dashboard.pk]}
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
-    def test_an_insight_on_restricted_dashboard_has_restrictions(self):
-        pass
+    def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(self):
+        dashboard: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        _, response_data = self._create_insight(
+            data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_VIEW)
 
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_restrictions(self):
-        pass
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        _, response_data = self._create_insight(
+            data={
+                "name": "on a restricted and unrestricted dashboard",
+                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
+            }
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_VIEW)
+
+    def test_an_insight_on_both_restricted_and_unrestricted_dashboard_does_not_restrict_admin(self):
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+        admin = User.objects.create_and_join(
+            organization=self.organization, email="y@x.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.client.force_login(admin)
+        _, response_data = self._create_insight(
+            data={
+                "name": "on a restricted and unrestricted dashboard",
+                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
+            }
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+
+    def test_an_insight_on_both_restricted_and_unrestricted_dashboard_does_not_restrict_with_explicit_privilege(self):
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard_restricted, user=self.user, level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+
+        _, response_data = self._create_insight(
+            data={
+                "name": "on a restricted and unrestricted dashboard",
+                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
+            }
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+
+    def test_cannot_update_an_insight_if_on_both_restricted_and_unrestricted_dashboard(self):
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+        insight_id, response_data = self._create_insight(
+            data={
+                "name": "on a restricted and unrestricted dashboard",
+                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "changing when restricted"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cannot_update_an_insight_if_on_restricted_dashboard_using_legacy_relation(self):
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+
+        insight_id, response_data = self._create_insight(
+            data={"name": "on a restricted and unrestricted dashboard", "dashboard": dashboard_restricted.pk,}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "changing when restricted", "dashboard": dashboard_restricted.pk},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_insight(self):
         insight_id, _ = self._create_insight(data={"name": "special insight"})

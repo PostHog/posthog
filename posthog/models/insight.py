@@ -96,18 +96,21 @@ class Insight(models.Model):
 
     @property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        return (
-            self.dashboard.effective_restriction_level
-            if self.dashboard is not None
-            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        restrictions = [d.effective_restriction_level for d in self.dashboards.all()]
+        restriction_set_to_only_collaborators = next(
+            (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
         )
+        if restriction_set_to_only_collaborators:
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        else:
+            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        return (
-            self.dashboard.get_effective_privilege_level(user_id)
-            if self.dashboard is not None
-            else Dashboard.PrivilegeLevel.CAN_EDIT
-        )
+        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
+        if all(edit_permissions):
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+        else:
+            return Dashboard.PrivilegeLevel.CAN_VIEW
 
 
 @receiver(pre_save, sender=Dashboard)

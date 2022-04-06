@@ -270,9 +270,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        queryset = queryset.prefetch_related("dashboards", "dashboards__created_by")
+        queryset = queryset.prefetch_related(
+            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+        )
         queryset = queryset.select_related(
-            "created_by", "last_modified_by", "team", "dashboard__team", "dashboard__team__organization"
+            "created_by", "last_modified_by", "team", "dashboard__team", "dashboard__team__organization",
         )
 
         if self.action == "list":
