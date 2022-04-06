@@ -248,8 +248,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[1])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[0])
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[1])
         self.assertEntityResponseEqual(event_response, action_response)
 
     @test_with_materialized_columns(["$some_property"])
@@ -272,13 +272,13 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         self.assertEqual(response[0]["label"], "sign up - none")
-        self.assertEqual(response[1]["label"], "sign up - value")
-        self.assertEqual(response[2]["label"], "sign up - other_value")
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[2]["label"], "sign up - value")
         self.assertEqual(response[3]["label"], "no events - none")
 
         self.assertEqual(sum(response[0]["data"]), 2)
-        self.assertEqual(sum(response[1]["data"]), 2)
-        self.assertEqual(sum(response[2]["data"]), 1)
+        self.assertEqual(sum(response[1]["data"]), 1)
+        self.assertEqual(sum(response[2]["data"]), 2)
         self.assertEqual(sum(response[3]["data"]), 1)
 
     @test_with_materialized_columns(person_properties=["email"])
@@ -506,14 +506,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 Filter(data={"breakdown": "$some_property", "events": [{"id": "sign up", "math": "dau"}]}), self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "sign up - value")
-        self.assertEqual(event_response[2]["label"], "sign up - other_value")
+        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[2]["label"], "sign up - value")
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
+        self.assertEqual(event_response[1]["data"][5], 1)
 
         self.assertEqual(sum(event_response[2]["data"]), 1)
-        self.assertEqual(event_response[2]["data"][5], 1)
+        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
+
         self.assertEntityResponseEqual(action_response, event_response)
 
     @test_with_materialized_columns(["$os", "$some_property"])

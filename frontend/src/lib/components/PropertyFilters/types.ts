@@ -37,4 +37,5 @@ export interface PropertyFilterInternalProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
     propertyGroupType?: FilterLogicalOperator | null
+    orFiltering?: boolean
 }

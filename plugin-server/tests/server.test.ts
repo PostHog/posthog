@@ -12,60 +12,62 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.setTimeout(60000) // 60 sec timeout
 
-test('startPluginsServer', async () => {
-    const testCode = `
+describe('server', () => {
+    test('startPluginsServer', async () => {
+        const testCode = `
         async function processEvent (event) {
             return event
         }
     `
-    await resetTestDatabase(testCode)
-    const pluginsServer = await startPluginsServer(
-        {
-            WORKER_CONCURRENCY: 2,
-            LOG_LEVEL: LogLevel.Debug,
-        },
-        makePiscina
-    )
-
-    await pluginsServer.stop()
-})
-
-describe('plugin server staleness check', () => {
-    test('test if the server terminates', async () => {
-        const testCode = `
-            async function processEvent (event) {
-                return event
-            }
-        `
         await resetTestDatabase(testCode)
-
         const pluginsServer = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
-                STALENESS_RESTART_SECONDS: 5,
                 LOG_LEVEL: LogLevel.Debug,
             },
             makePiscina
         )
 
-        await delay(10000)
-
-        expect(killProcess).toHaveBeenCalled()
-
-        expect(Sentry.captureMessage).toHaveBeenCalledWith(
-            `Plugin Server has not ingested events for over 5 seconds! Rebooting.`,
-            {
-                extra: {
-                    instanceId: expect.any(String),
-                    lastActivity: expect.any(String),
-                    lastActivityType: 'serverStart',
-                    piscina: expect.any(String),
-                    isServerStale: true,
-                    timeSinceLastActivity: expect.any(Number),
-                },
-            }
-        )
-
         await pluginsServer.stop()
+    })
+
+    describe('plugin server staleness check', () => {
+        test('test if the server terminates', async () => {
+            const testCode = `
+            async function processEvent (event) {
+                return event
+            }
+        `
+            await resetTestDatabase(testCode)
+
+            const pluginsServer = await startPluginsServer(
+                {
+                    WORKER_CONCURRENCY: 2,
+                    STALENESS_RESTART_SECONDS: 5,
+                    LOG_LEVEL: LogLevel.Debug,
+                },
+                makePiscina
+            )
+
+            await delay(10000)
+
+            expect(killProcess).toHaveBeenCalled()
+
+            expect(Sentry.captureMessage).toHaveBeenCalledWith(
+                `Plugin Server has not ingested events for over 5 seconds! Rebooting.`,
+                {
+                    extra: {
+                        instanceId: expect.any(String),
+                        lastActivity: expect.any(String),
+                        lastActivityType: 'serverStart',
+                        piscina: expect.any(String),
+                        isServerStale: true,
+                        timeSinceLastActivity: expect.any(Number),
+                    },
+                }
+            )
+
+            await pluginsServer.stop()
+        })
     })
 })

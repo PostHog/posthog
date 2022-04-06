@@ -28,8 +28,8 @@ class Insight(models.Model):
     dashboard: models.ForeignKey = models.ForeignKey(
         "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
     )
-    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
@@ -56,6 +56,8 @@ class Insight(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
+    # TODO: dive dashboards have never been shipped, but they still may be in the future
+    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     # DEPRECATED: use `display` property of the Filter object instead
@@ -118,3 +120,18 @@ def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+
+
+class InsightViewed(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
+        ]
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    last_viewed_at: models.DateTimeField = models.DateTimeField()

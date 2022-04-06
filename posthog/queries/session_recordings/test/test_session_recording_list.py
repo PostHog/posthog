@@ -61,7 +61,7 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=10))
             self.create_snapshot("user", "2", self.base_time + relativedelta(seconds=20))
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
             self.assertEqual(len(session_recordings), 2)
@@ -83,7 +83,7 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user", "2", self.base_time)
 
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
 
             self.assertEqual(len(session_recordings), 1)
@@ -96,7 +96,7 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user", "1", self.base_time)
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -116,7 +116,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -125,7 +125,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -152,7 +152,7 @@ def factory_session_recordings_list_test(
                     ]
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -173,7 +173,7 @@ def factory_session_recordings_list_test(
                     ]
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -194,7 +194,7 @@ def factory_session_recordings_list_test(
                     ]
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -208,7 +208,7 @@ def factory_session_recordings_list_test(
                     ]
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -228,7 +228,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event",}]},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -237,7 +237,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event",}]},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -259,7 +259,7 @@ def factory_session_recordings_list_test(
                     ]
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -273,7 +273,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -294,7 +294,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -303,7 +303,7 @@ def factory_session_recordings_list_test(
                 team=self.team,
                 data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'},
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -315,14 +315,14 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3) + relativedelta(seconds=30))
 
             filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
             filter = SessionRecordingsFilter(
                 team=self.team, data={"date_from": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -336,12 +336,12 @@ def factory_session_recordings_list_test(
             filter = SessionRecordingsFilter(
                 team=self.team, data={"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
             filter = SessionRecordingsFilter(team=self.team, data={"date_to": (self.base_time).strftime("%Y-%m-%d")})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -360,7 +360,7 @@ def factory_session_recordings_list_test(
                     "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -374,7 +374,7 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user3", "3", self.base_time + relativedelta(seconds=20))
 
             filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid),})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)
             self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -406,7 +406,7 @@ def factory_session_recordings_list_test(
                     "actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event",}],
                 },
             )
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -419,7 +419,7 @@ def factory_session_recordings_list_test(
             self.create_snapshot("user", "3", self.base_time + relativedelta(seconds=20))
 
             filter = SessionRecordingsFilter(team=self.team, data={"limit": 2,})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)
             self.assertEqual(session_recordings[0]["session_id"], "3")
@@ -427,7 +427,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(more_recordings_available, True)
 
             filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 0})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)
             self.assertEqual(session_recordings[0]["session_id"], "3")
@@ -435,7 +435,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(more_recordings_available, True)
 
             filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 1})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)
             self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -443,7 +443,7 @@ def factory_session_recordings_list_test(
             self.assertEqual(more_recordings_available, False)
 
             filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 2})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -454,7 +454,7 @@ def factory_session_recordings_list_test(
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             self.create_snapshot("user", "1", self.base_time, has_full_snapshot=False)
             filter = SessionRecordingsFilter(team=self.team, data={"no-filter": True})
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
@@ -472,7 +472,7 @@ def factory_session_recordings_list_test(
                 data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
             )
 
-            session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 

@@ -239,7 +239,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
                 request,
@@ -257,7 +257,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,
@@ -274,7 +274,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
                 request,
@@ -543,7 +543,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     },
                     team=self.team,
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,

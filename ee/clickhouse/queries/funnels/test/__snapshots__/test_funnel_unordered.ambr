@@ -3,8 +3,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -30,8 +29,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -57,8 +55,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -138,8 +135,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -149,13 +145,6 @@
                            e."$group_0" as "$group_0",
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -203,8 +192,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -214,13 +202,6 @@
                            e."$group_0" as "$group_0",
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -268,8 +249,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -279,13 +259,6 @@
                            e."$group_0" as "$group_0",
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -314,8 +287,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -340,8 +312,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -366,8 +337,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -439,8 +409,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -502,8 +471,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -565,8 +533,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -613,8 +580,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -639,8 +605,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -665,8 +630,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -738,8 +702,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -801,8 +764,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -864,8 +826,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -912,8 +873,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -938,8 +898,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -964,8 +923,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1037,8 +995,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1100,8 +1057,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1163,8 +1119,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1211,8 +1166,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1291,8 +1245,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1354,8 +1307,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1417,8 +1369,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1461,8 +1412,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1487,8 +1437,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1513,8 +1462,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1586,8 +1534,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1649,8 +1596,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'sign up', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1712,8 +1658,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'play movie', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -1760,8 +1705,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1786,8 +1730,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN

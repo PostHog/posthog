@@ -1,11 +1,8 @@
-import json
 import urllib.parse
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
-from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.volume import (
     ACTIVE_USER_SQL,
@@ -17,21 +14,24 @@ from ee.clickhouse.sql.trends.volume import (
 from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.team import Team
+from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsTotalVolume:
-    def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
+    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity)
+        aggregate_operation, join_condition, math_params = process_math(entity, team)
 
         trend_event_query = TrendsEventQuery(
             filter=filter,
             entity=entity,
-            team_id=team_id,
+            team=team,
             should_join_distinct_ids=True
-            if join_condition != "" or entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]
+            if join_condition != ""
+            or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
         )
         event_query, event_query_params = trend_event_query.get_query()
@@ -41,13 +41,13 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team_id}
+        params: Dict = {"team_id": team.id}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
-            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team_id))
+            return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
@@ -56,6 +56,7 @@ class ClickhouseTrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
@@ -66,8 +67,28 @@ class ClickhouseTrendsTotalVolume:
 
             null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
             params["interval"] = filter.interval
-            final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-            return final_query, params, self._parse_total_volume_result(filter, entity, team_id)
+
+            # If we have a smoothing interval > 1 then add in the sql to
+            # handling rolling average. Else just do a sum. This is possibly an
+            # nessacary optimization.
+            if filter.smoothing_intervals > 1:
+                smoothing_operation = f"""
+                    AVG(SUM(total))
+                    OVER (
+                        ORDER BY day_start
+                        ROWS BETWEEN {filter.smoothing_intervals - 1} PRECEDING
+                        AND CURRENT ROW
+                    )"""
+            else:
+                smoothing_operation = "SUM(total)"
+
+            final_query = AGGREGATE_SQL.format(
+                null_sql=null_sql,
+                content_sql=content_sql,
+                smoothing_operation=smoothing_operation,
+                aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
+            )
+            return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
 
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:

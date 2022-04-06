@@ -4,6 +4,7 @@
 .bridge-page.login {
     .helper-links {
         text-align: center;
+        padding-top: $default_spacing;
         .lhs {
             float: left;
         }
@@ -25,6 +26,15 @@
                 width: 100%;
                 padding-top: 4px;
             }
+        }
+    }
+
+    .password-wrapper {
+        overflow: hidden;
+        transition: max-height 0.8s ease-in-out;
+        max-height: 1000px;
+        &.hidden {
+            max-height: 0;
         }
     }
 }

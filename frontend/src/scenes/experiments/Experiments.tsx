@@ -2,7 +2,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
@@ -11,7 +10,6 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
-import { LinkButton } from 'lib/components/LinkButton'
 import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
@@ -20,7 +18,6 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { IconOpenInNew } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -97,7 +94,7 @@ export function Experiments(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
-                                    onClick={() => deleteExperiment(experiment.id)}
+                                    onClick={() => deleteExperiment(experiment.id as number)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
                                 >
@@ -116,7 +113,7 @@ export function Experiments(): JSX.Element {
             <PageHeader
                 title={
                     <div className="flex-center">
-                        Experimentation
+                        Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
                         </LemonTag>
@@ -124,27 +121,16 @@ export function Experiments(): JSX.Element {
                 }
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                        <LinkButton
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
-                            icon={<PlusOutlined />}
-                        >
-                            New Experiment
-                        </LinkButton>
+                        <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                            New experiment
+                        </LemonButton>
                     ) : undefined
                 }
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div
-                        style={{
-                            borderBottom: '1px solid var(--border)',
-                            paddingBottom: '0.5rem',
-                            marginBottom: '1rem',
-                        }}
-                    >
-                        If you're confused, check out our
+                    <div className="mb">
+                        Check out our
                         <a
                             data-attr="experiment-help"
                             href="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
@@ -153,17 +139,17 @@ export function Experiments(): JSX.Element {
                         >
                             {' '}
                             Experimentation user guide
-                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                        </a>
+                        </a>{' '}
+                        to learn more.
                     </div>
                     <Tabs
                         activeKey={tab}
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => setExperimentsFilters({ tab: t as ExperimentsTabs })}
                     >
-                        <Tabs.TabPane tab="All Experiments" key={ExperimentsTabs.All} />
-                        <Tabs.TabPane tab="Your Experiments" key={ExperimentsTabs.Yours} />
-                        <Tabs.TabPane tab="Archived Experiments" key={ExperimentsTabs.Archived} />
+                        <Tabs.TabPane tab="All experiments" key={ExperimentsTabs.All} />
+                        <Tabs.TabPane tab="Your experiments" key={ExperimentsTabs.Yours} />
+                        <Tabs.TabPane tab="Archived experiments" key={ExperimentsTabs.Archived} />
                     </Tabs>
                     <LemonTable
                         dataSource={experiments}
@@ -172,7 +158,7 @@ export function Experiments(): JSX.Element {
                         loading={experimentsLoading}
                         defaultSorting={{ columnKey: 'id', order: 1 }}
                         pagination={{ pageSize: 100 }}
-                        nouns={['Experiment', 'Experiments']}
+                        nouns={['experiment', 'experiments']}
                         data-attr="experiment-table"
                     />
                 </>

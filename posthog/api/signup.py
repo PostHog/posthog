@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Union, cast
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -11,7 +10,6 @@ from django.shortcuts import redirect, render
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
 from sentry_sdk import capture_exception
-from social_core.backends.base import BaseAuth
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
@@ -20,6 +18,7 @@ from posthog.demo import create_demo_team
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -296,7 +295,14 @@ def finish_social_signup(request):
     TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
     if not get_can_create_org():
-        return redirect("/login?error=no_new_organizations")
+        if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
+            request.session.get("email")
+        ):
+            # There's a claimed and verified domain for the user's email address domain, but JTI provisioning is not enabled. To avoid confusion
+            # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
+            return redirect("/login?error_code=jit_not_enabled")
+        else:
+            return redirect("/login?error_code=no_new_organizations")
 
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
@@ -342,40 +348,22 @@ def process_social_invite_signup(
     return user
 
 
-def process_social_domain_whitelist_signup(email: str, full_name: str) -> Optional[User]:
-    domain_organization: Optional[Organization] = None
+def process_social_domain_jit_provisioning_signup(email: str, full_name: str) -> Optional[User]:
     user: Optional[User] = None
 
-    # TODO: This feature is currently available only in self-hosted
-    if not settings.MULTI_TENANCY:
-        # Check if the user is on a whitelisted domain
-        domain = email.split("@")[-1]
-        # TODO: Handle multiple organizations with the same whitelisted domain
-        domain_organization = Organization.objects.filter(domain_whitelist__contains=[domain]).first()
-
-    if domain_organization:
-        user = User.objects.create_and_join(
-            organization=domain_organization, email=email, password=None, first_name=full_name
-        )
+    # Check if the user is on a whitelisted domain
+    domain = email.split("@")[-1]
+    try:
+        domain_instance = OrganizationDomain.objects.get(domain=domain)
+    except OrganizationDomain.DoesNotExist:
+        return user
+    else:
+        if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
+            user = User.objects.create_and_join(
+                organization=domain_instance.organization, email=email, password=None, first_name=full_name
+            )
 
     return user
-
-
-def process_social_saml_signup(backend: BaseAuth, email: str, full_name: str) -> Optional[User]:
-    """
-    With SAML we have automatic provisioning because the IdP should already handle the logic of which users to allow to
-    login.
-    """
-
-    if backend.name != "saml":
-        return None
-
-    return User.objects.create_and_join(
-        organization=Organization.objects.filter(for_internal_metrics=False).order_by("created_at").first(),  # type: ignore
-        email=email,
-        password=None,
-        first_name=full_name,
-    )
 
 
 @partial
@@ -383,52 +371,46 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     if user:
         return {"is_new": False}
     backend_processor = "social_create_user"
-    user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = (
-        details["fullname"]
-        or f"{details['first_name'] or ''} {details['last_name'] or ''}".strip()
-        or details["username"]
+    email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
+    full_name = (
+        details.get("fullname")
+        or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()
+        or details.get("username")
     )
-    strategy.session_set("user_name", user_name)
+    strategy.session_set("user_name", full_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
     invite_id = strategy.session_get("invite_id")
 
-    if not user_email or not user_name:
-        missing_attr = "email" if not user_email else "name"
+    if not email or not full_name:
+        missing_attr = "email" if not email else "name"
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."}, code="required"
         )
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, user_email, user_name)
+        user = process_social_invite_signup(strategy, invite_id, email, full_name)
 
     else:
-        # Domain whitelist?
-        user = process_social_domain_whitelist_signup(user_email, user_name)
+        # JIT Provisioning?
+        user = process_social_domain_jit_provisioning_signup(email, full_name)
         if user:
-            backend_processor = "domain_whitelist"
-
-        # SAML
-        if not user:
-            # Domain whitelist?
-            user = process_social_saml_signup(backend, user_email, user_name)
-            if user:
-                backend_processor = "saml"
+            backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
 
         if not user:
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)
             if not organization_name or email_opt_in is None:
+                strategy.session_set("email", email)
                 return redirect(finish_social_signup)
 
             serializer = SignupSerializer(
                 data={
                     "organization_name": organization_name,
                     "email_opt_in": email_opt_in,
-                    "first_name": user_name,
-                    "email": user_email,
+                    "first_name": full_name,
+                    "email": email,
                     "password": None,
                 },
                 context={"request": request},

@@ -1,22 +1,5 @@
 @import '~/vars';
 
-.feature-flag {
-    .enabled-switch {
-        margin-right: $default_spacing !important;
-
-        .ant-form-item-control-input-content {
-            flex-direction: row;
-            align-items: center;
-            display: flex;
-        }
-
-        .ant-form-item-label {
-            padding: 0;
-            padding-right: 4px;
-        }
-    }
-}
-
 .variant-form-list {
     .ant-form-item {
         min-height: 32px;

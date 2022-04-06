@@ -6,15 +6,10 @@ import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { PostHog } from 'posthog-js'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
-// input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
     path: ['toolbar', 'toolbarLogic'],
     props: {} as ToolbarProps,
-    connect: () => [
-        featureFlagsLogic, // makes an API call that invalidates the token on error
-    ],
 
     actions: () => ({
         authenticate: true,
@@ -72,7 +67,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
     }),
 
     events: ({ props, actions, values }) => ({
-        async afterMount() {
+        afterMount() {
             if (props.instrument) {
                 const distinctId = props.distinctId
                 if (distinctId) {

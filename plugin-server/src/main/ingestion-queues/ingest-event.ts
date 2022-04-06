@@ -75,7 +75,9 @@ export async function ingestEvent(
         }
     } else {
         // processEvent might not return an event. This is expected and plugins, e.g. downsample plugin uses it.
-        server.statsd?.increment('kafka_queue.dropped_event')
+        server.statsd?.increment('kafka_queue.dropped_event', {
+            teamID: String(event.team_id),
+        })
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
@@ -108,6 +110,7 @@ async function runInstrumentedFunction({
         Sentry.captureException(error)
         throw error
     } finally {
+        server.statsd?.increment(`${statsKey}_total`)
         server.statsd?.timing(statsKey, timer)
         clearTimeout(timeout)
     }

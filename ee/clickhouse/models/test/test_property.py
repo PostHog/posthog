@@ -1,4 +1,3 @@
-import inspect
 from datetime import datetime
 from typing import List, Literal, Union, cast
 from uuid import UUID, uuid4
@@ -7,7 +6,6 @@ import pytest
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
@@ -17,17 +15,18 @@ from ee.clickhouse.models.property import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
-from posthog.test.base import BaseTest, test_with_materialized_columns
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.property_optimizer import PropertyOptimizer
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> UUID:
@@ -460,7 +459,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         joins = ""
         if join_person_tables:
-            person_query = ClickhousePersonQuery(filter, self.team.pk)
+            person_query = PersonQuery(filter, self.team.pk)
             person_subquery, person_join_params = person_query.get_query()
             joins = f"""
                 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON events.distinct_id = pdi.distinct_id
@@ -582,12 +581,16 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def test_get_property_string_expr(self):
         string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
-        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(properties, 'some_non_mat_prop'))", False))
+        self.assertEqual(
+            string_expr, ("replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
+        )
 
         string_expr = get_property_string_expr(
             "events", "some_non_mat_prop", "'some_non_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(e.properties, 'some_non_mat_prop'))", False))
+        self.assertEqual(
+            string_expr, ("replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
+        )
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
@@ -634,6 +637,21 @@ def test_parse_prop_clauses_defaults(snapshot):
     )
 
 
+# Regression test for: https://github.com/PostHog/posthog/pull/9283
+@pytest.mark.django_db
+def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
+    filter = Filter(
+        data={"properties": [{"key": "text", "type": "element", "value": "Insights1", "operator": "exact"},]}
+    )
+
+    assert (
+        parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, prepend="PREPEND"
+        )
+        == snapshot
+    )
+
+
 @pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
@@ -651,13 +669,18 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
 
 
 TEST_BREAKDOWN_PROCESSING = [
-    ("$browser", "events", "prop", "trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')) AS prop"),
-    (["$browser"], "events", "value", "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser'))) AS value",),
+    ("$browser", "events", "prop", "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop"),
+    (
+        ["$browser"],
+        "events",
+        "value",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+    ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
-        "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')),trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser_version'))) AS prop",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
     ),
 ]
 

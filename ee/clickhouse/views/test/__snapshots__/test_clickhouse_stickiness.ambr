@@ -133,8 +133,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
@@ -167,8 +166,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -201,8 +199,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
@@ -235,8 +232,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100

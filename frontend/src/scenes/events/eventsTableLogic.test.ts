@@ -1,20 +1,20 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import * as utils from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
+import { useMocks } from '~/mocks/jest'
 
-const errorToastSpy = jest.spyOn(utils, 'errorToast')
-const successToastSpy = jest.spyOn(utils, 'successToast')
+const errorToastSpy = jest.spyOn(lemonToast, 'error')
+const successToastSpy = jest.spyOn(lemonToast, 'success')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-jest.mock('lib/api')
 jest.mock('lib/dayjs', () => {
     const dayjs = jest.requireActual('lib/dayjs')
     return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
@@ -60,37 +60,14 @@ const getUrlParameters = (url: string): Record<string, any> => {
 describe('eventsTableLogic', () => {
     let logic: ReturnType<typeof eventsTableLogic.build>
 
-    mockAPI(async () => {
-        // delay the API response so the default value test can complete before it
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        return { results: [], count: 0 }
-    })
-
     beforeEach(() => {
+        jest.spyOn(api, 'get')
+        useMocks({
+            get: {
+                '/api/projects/:team/events/': { results: [], count: 0 },
+            },
+        })
         initKeaTests()
-    })
-
-    describe('polling is disabled', () => {
-        beforeEach(() => {
-            router.actions.push(urls.person('1'))
-            logic = eventsTableLogic({
-                key: 'test-key',
-                sceneUrl: urls.person('1'),
-                disableActions: true,
-            })
-            logic.mount()
-        })
-
-        it('can disable polling for events', async () => {
-            ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
-
-            await expectLogic(logic, () => {
-                logic.actions.setPollingActive(true) // even with polling active
-                logic.actions.pollEvents()
-            })
-
-            expect(api.get).not.toHaveBeenCalled()
-        })
     })
 
     describe('when loaded on events page', () => {
@@ -245,9 +222,15 @@ describe('eventsTableLogic', () => {
              */
             describe('API calls are limited to a time window by the after param to improve ClickHouse performance', () => {
                 it('fetch events sets after to 5 days ago when there are no events', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
                     }).toDispatchActions(['fetchEventsSuccess'])
@@ -283,9 +266,15 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('fetch events doesnt set after to a year ago when five days ago returns some events', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
 
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
@@ -301,10 +290,15 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('fetch events sets after to five days ago when there are already events', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
-
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({
                             events: [firstEvent, secondEvent],
@@ -324,9 +318,15 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('triggers fetch events on set properties', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
 
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([])
@@ -342,9 +342,15 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('triggers fetch events on set event filter', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
 
                     const eventName = randomString()
                     await expectLogic(logic, () => {
@@ -420,9 +426,15 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
-                    ;(api.get as jest.Mock).mockReturnValue(
-                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
-                    )
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/events/': {
+                                results: [firstEvent, secondEvent],
+                                hasNext: false,
+                                isNext: false,
+                            },
+                        },
+                    })
 
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({

@@ -30,8 +30,10 @@ import {
     chooseOperatorMap,
     booleanOperatorMap,
     roundToDecimal,
+    convertPropertyGroupToProperties,
+    convertPropertiesToPropertyGroup,
 } from './utils'
-import { ActionFilter, ElementType, PropertyOperator, PropertyType } from '~/types'
+import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -535,20 +537,62 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
 
     describe('choosing an operator for taxonomic filters', () => {
         const testCases = [
-            { propertyType: PropertyType.DateTime, allowDateTime: false, expected: genericOperatorMap },
-            { propertyType: PropertyType.DateTime, allowDateTime: true, expected: dateTimeOperatorMap },
-            { propertyType: PropertyType.String, allowDateTime: true, expected: stringOperatorMap },
-            { propertyType: PropertyType.String, allowDateTime: false, expected: stringOperatorMap },
-            { propertyType: PropertyType.Numeric, allowDateTime: true, expected: numericOperatorMap },
-            { propertyType: PropertyType.Numeric, allowDateTime: false, expected: numericOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: true, expected: booleanOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: false, expected: booleanOperatorMap },
-            { propertyType: undefined, allowDateTime: true, expected: genericOperatorMap },
+            { propertyType: PropertyType.DateTime, expected: dateTimeOperatorMap },
+            { propertyType: PropertyType.String, expected: stringOperatorMap },
+            { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
+            { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
-            it(`with datetime flag set to ${testcase.allowDateTime}, it correctly maps ${testcase.propertyType}`, () => {
-                expect(chooseOperatorMap(testcase.propertyType, testcase.allowDateTime)).toEqual(testcase.expected)
+            it(`correctly maps ${testcase.propertyType} to operator options`, () => {
+                expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
             })
+        })
+    })
+})
+
+describe('convertPropertyGroupToProperties()', () => {
+    it('converts a single layer property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }, { key: '$current_url' }] },
+                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
+            { key: '$browser' },
+            { key: '$current_url' },
+            { key: '$lib' },
+        ])
+    })
+
+    it('converts a deeply nested property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
+    })
+})
+
+describe('convertPropertiesToPropertyGroup', () => {
+    it('converts properties to one AND operator property group', () => {
+        const properties = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
+                },
+            ],
         })
     })
 })

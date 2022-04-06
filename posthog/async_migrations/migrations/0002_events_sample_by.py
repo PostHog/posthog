@@ -1,11 +1,16 @@
 from functools import cached_property
+from typing import List
 
 from constance import config
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import (
     ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
@@ -41,7 +46,7 @@ Migration Summary
 
 def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
     lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
-    op = AsyncMigrationOperation.simple_op(
+    op = AsyncMigrationOperationSQL(
         database=AnalyticsDBMS.CLICKHOUSE,
         sql=f"""
         INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -64,7 +69,7 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0001_events_sample_by"
 
-    posthog_min_version = "1.30.0"
+    posthog_min_version = "1.33.0"
     posthog_max_version = "1.33.9"
 
     service_version_requirements = [
@@ -77,8 +82,8 @@ class Migration(AsyncMigrationDefinition):
             # Note: This _should_ be impossible but hard to ensure.
             raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
 
-        create_table_op = [
-            AsyncMigrationOperation.simple_op(
+        create_table_op: List[AsyncMigrationOperation] = [
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                 CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}' AS {EVENTS_TABLE_NAME}
@@ -102,7 +107,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
                 rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
@@ -127,7 +132,7 @@ class Migration(AsyncMigrationDefinition):
                 pass
 
         post_insert_ops = [
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                     RENAME TABLE
@@ -142,7 +147,7 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
                 """,
             ),
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
@@ -161,9 +166,17 @@ class Migration(AsyncMigrationDefinition):
         if settings.MULTI_TENANCY:
             return False
 
-        res = sync_execute(f"SHOW CREATE TABLE {EVENTS_TABLE_NAME}")
+        table_engine = sync_execute(
+            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "name": EVENTS_TABLE},
+        )[0][0]
+
+        if "Distributed" in table_engine:
+            return False
+
         return (
-            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))" not in res[0][0]
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            not in table_engine
         )
 
     def precheck(self):

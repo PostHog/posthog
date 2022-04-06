@@ -13,10 +13,8 @@ from typing import (
 )
 
 from clickhouse_driver.util.escape import escape_param
-from django.utils import timezone
 from rest_framework import exceptions
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
     format_cohort_subquery,
@@ -24,17 +22,10 @@ from ee.clickhouse.models.cohort import (
     format_precalculated_cohort_query,
     format_static_cohort_query,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode, is_json
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.models.util import is_json
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import (
-    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
-    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
-    SELECT_PERSON_PROP_VALUES_SQL,
-    SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
-)
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
@@ -46,8 +37,9 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
-from posthog.models.team import Team
-from posthog.utils import is_valid_regex, relative_date_parse
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.utils import is_valid_regex
 
 # Property Groups Example:
 # {type: 'AND', groups: [
@@ -173,7 +165,7 @@ def parse_prop_clauses(
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
-            # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
+            # :TODO: Clean this up by using PersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
             is_direct_query = person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
@@ -202,7 +194,7 @@ def parse_prop_clauses(
                 )
                 params.update(filter_params)
         elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
-            # this setting is used to generate the ClickhousePersonQuery SQL.
+            # this setting is used to generate the PersonQuery SQL.
             # When using direct mode, there should only be person properties in the entire
             # property group
             filter_query, filter_params = prop_filter_json_extract(
@@ -217,7 +209,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -430,18 +422,16 @@ def prop_filter_json_extract(
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) > %(v{prepend}_{idx})s",
             params,
         )
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) < %(v{prepend}_{idx})s",
             params,
         )
     else:
@@ -538,36 +528,13 @@ def get_property_string_expr(
     if allow_denormalized_props and property_name in materialized_columns:
         return f'{table_string}"{materialized_columns[property_name]}"', True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
+    return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
     if not isinstance(value, List):
         value = [value]
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
-
-
-def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
-
-    if value:
-        return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-        {"team_id": team.pk, "key": key},
-    )
-
-
-def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    if value:
-        return sync_execute(
-            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:

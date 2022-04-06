@@ -1,5 +1,3 @@
-from posthog.constants import AnalyticsDBMS
-from posthog.settings.data_stores import PRIMARY_DB
 from posthog.settings.utils import get_from_env, str_to_bool
 
 # shell_plus settings
@@ -11,5 +9,5 @@ SHELL_PLUS_POST_IMPORTS = [
     ("posthog.models.property", ("Property",)),
 ]
 
-if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
-    SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
+SHELL_PLUS_POST_IMPORTS.append(("posthog.client", ("sync_execute",)))
+SHELL_PLUS_POST_IMPORTS.append(("infi.clickhouse_orm.utils", ("import_submodules",)))

@@ -1,6 +1,7 @@
 import json
 from typing import Dict, List, Optional, Tuple, Union
 
+from constance.test import override_config
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
@@ -2342,5 +2343,81 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     "2020-01-04",
                 ],
             )
+
+        def test_trends_aggregate_by_distinct_id(self):
+            # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
+
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["third"])
+
+            with freeze_time("2019-12-24 03:45:34"):
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )  # aggregated by distinctID, so this should be ignored
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="anonymous_id",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="third",
+                )
+
+            with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{self.team.pk},4"):
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}],}), self.team,
+                    )
+
+                self.assertEqual(daily_response[0]["data"][0], 3)
+
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
+                            }
+                        ),
+                        self.team,
+                    )
+                self.assertEqual(daily_response[0]["data"][0], 2)
+
+                # breakdown person props
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "breakdown_type": "person",
+                                "breakdown": "$some_prop",
+                            }
+                        ),
+                        self.team,
+                    )
+                self.assertEqual(daily_response[0]["data"][0], 1)
+                self.assertEqual(daily_response[0]["label"], "sign up - none")
+                self.assertEqual(daily_response[1]["data"][0], 2)
+                self.assertEqual(daily_response[1]["label"], "sign up - some_val")
+
+                # MAU
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    monthly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "monthly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    weekly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "weekly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
     return TestTrends

@@ -1,0 +1,1195 @@
+{
+    "count": 25,
+    "next": "http://localhost:8000/api/insight/?limit=15&offset=15&order=-created_at&saved=true",
+    "previous": null,
+    "results": [
+        {
+            "id": 2104,
+            "short_id": "tNtwsK9t",
+            "name": "ZZXXZXZXZXZXZX version 322",
+            "filters": {
+                "insight": "PATHS",
+                "interval": "day",
+                "date_from": "-7d",
+                "path_type": "$pageview",
+                "properties": [
+                    {
+                        "key": "$active_feature_flags",
+                        "type": "event",
+                        "value": "4267-event-property-taxonomy",
+                        "operator": "icontains"
+                    },
+                    {
+                        "key": "$browser",
+                        "type": "event",
+                        "value": ["Chrome"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "$os",
+                        "type": "person",
+                        "value": ["Mac OS X"],
+                        "operator": "exact"
+                    }
+                ]
+            },
+            "filters_hash": "cache_de98ec8e7ca9ddc5e3db1f944de70a27",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 12,
+                    "y": 5
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 15,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 30
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 30
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:19:34.862643Z",
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-08-25T12:18:56.978024Z",
+            "description": null,
+            "updated_at": "2021-08-25T12:18:56.978168Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 2100,
+            "short_id": "Gdl4xuyH",
+            "name": "eh?? why this?",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageleave",
+                        "math": null,
+                        "name": "$pageleave",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "filters_hash": "cache_d3673326974855e61df49aaf1c3f34a3",
+            "order": null,
+            "deleted": false,
+            "dashboard": 6,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 7
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 5
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:21:58.258322Z",
+            "refreshing": false,
+            "result": null,
+            "created_at": "2021-08-25T11:56:43.995654Z",
+            "description": null,
+            "updated_at": "2021-08-25T12:05:36.455104Z",
+            "tags": [],
+            "favorited": true,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1924,
+            "short_id": "6uHVBx-T",
+            "name": "tts",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "layout": "horizontal",
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "-7d",
+                "funnel_viz_type": "time_to_convert"
+            },
+            "filters_hash": "cache_c14158ac0ed04a36e3b465a555ab933b",
+            "order": null,
+            "deleted": false,
+            "dashboard": 6,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 7,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            "color": "white",
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-07-22T08:33:12.481526Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:57:01.360910Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1789,
+            "short_id": "ebskWBaB",
+            "name": "Historical",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "layout": "horizontal",
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "-7d",
+                "funnel_viz_type": "trends"
+            },
+            "filters_hash": "cache_f9b543e577c1710a99d8f87f2d8aae31",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 18,
+                    "y": 15
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 30,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 60
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 60
+                }
+            },
+            "color": null,
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-07-21T11:29:29.931023Z",
+            "description": null,
+            "updated_at": "2021-08-25T12:05:39.437132Z",
+            "tags": [],
+            "favorited": true,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1787,
+            "short_id": "PT2aDyNq",
+            "name": "tts",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "layout": "horizontal",
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "-7d",
+                "funnel_viz_type": "time_to_convert"
+            },
+            "filters_hash": "cache_c14158ac0ed04a36e3b465a555ab933b",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 18,
+                    "y": 10
+                },
+                "sm": {
+                    "h": 6,
+                    "w": 6,
+                    "x": 6,
+                    "y": 25,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 55
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 55
+                }
+            },
+            "color": null,
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-07-21T10:37:16.855414Z",
+            "description": null,
+            "updated_at": "2021-08-25T12:05:21.518521Z",
+            "tags": [],
+            "favorited": true,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1786,
+            "short_id": "Nb11FqKk",
+            "name": "ewraweraweraew",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "layout": "horizontal",
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "-7d",
+                "funnel_viz_type": "steps"
+            },
+            "filters_hash": "cache_4f71d8c362a60246485002ec83fde1bb",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 12,
+                    "y": 10
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 25,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 50
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 50
+                }
+            },
+            "color": null,
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-07-21T10:36:17.199631Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:57:01.347370Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1785,
+            "short_id": "27wKDi7d",
+            "name": "wearew",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "-7d",
+                "funnel_viz_type": "steps"
+            },
+            "filters_hash": "cache_c1f9c909dcdf1b4653de2d846710385d",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 10
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 20,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 45
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 45
+                }
+            },
+            "color": "green",
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-07-21T10:34:53.398889Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:57:01.377472Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1470,
+            "short_id": "DAlYtM8q",
+            "name": "eeeee",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 1,
+                                "operator": null
+                            }
+                        ],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "date_from": "-7d",
+                "funnel_window_days": 14
+            },
+            "filters_hash": "cache_6c5ab311f5326a26e314cd565cf24c67",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 10
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 20,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 40
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 40
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T11:50:23.847304Z",
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-06-24T14:20:00.193702Z",
+            "description": null,
+            "updated_at": "2021-08-20T07:42:39.281069Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1335,
+            "short_id": "qfbc44iE",
+            "name": "vvvvvv",
+            "filters": {
+                "period": "Day",
+                "display": "ActionsTable",
+                "insight": "RETENTION",
+                "date_from": "-7d",
+                "properties": [
+                    {
+                        "key": "$active_feature_flags",
+                        "type": "event",
+                        "value": "4267-event-property-taxonomy",
+                        "operator": "icontains"
+                    },
+                    {
+                        "key": "$browser",
+                        "type": "event",
+                        "value": ["Chrome"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "$os",
+                        "type": "person",
+                        "value": ["Mac OS X"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "id",
+                        "type": "cohort",
+                        "value": 1,
+                        "operator": null
+                    }
+                ],
+                "target_entity": {
+                    "id": "$pageview",
+                    "math": null,
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": null,
+                    "properties": [],
+                    "math_property": null
+                },
+                "retention_type": "retention_first_time",
+                "total_intervals": 11,
+                "returning_entity": {
+                    "id": "$pageview",
+                    "math": null,
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": null,
+                    "properties": [],
+                    "math_property": null
+                }
+            },
+            "filters_hash": "cache_2184795ba67b2c7593321f5da24f3868",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 18,
+                    "y": 5
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 15,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 35
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 35
+                }
+            },
+            "color": null,
+            "last_refresh": null,
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-06-22T13:41:26.365349Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:57:00.672456Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1322,
+            "short_id": "5I0t_hnt",
+            "name": "ZZXXZXZXZXZXZX version 322",
+            "filters": {
+                "insight": "PATHS",
+                "interval": "day",
+                "date_from": "-7d",
+                "path_type": "$pageview",
+                "properties": [
+                    {
+                        "key": "$active_feature_flags",
+                        "type": "event",
+                        "value": "4267-event-property-taxonomy",
+                        "operator": "icontains"
+                    },
+                    {
+                        "key": "$browser",
+                        "type": "event",
+                        "value": ["Chrome"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "$os",
+                        "type": "person",
+                        "value": ["Mac OS X"],
+                        "operator": "exact"
+                    }
+                ]
+            },
+            "filters_hash": "cache_de98ec8e7ca9ddc5e3db1f944de70a27",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 12,
+                    "y": 5
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 15,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 30
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 30
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:19:34.862643Z",
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-06-22T13:30:03.257582Z",
+            "description": null,
+            "updated_at": "2021-08-25T12:18:16.184898Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1296,
+            "short_id": "nLY7C_M0",
+            "name": "zzzzz",
+            "filters": {
+                "insight": "PATHS",
+                "interval": "day",
+                "date_from": "-7d",
+                "path_type": "$pageview"
+            },
+            "filters_hash": "cache_198197ef9e80c2e5e5a61c05ce6d4da0",
+            "order": null,
+            "deleted": false,
+            "dashboard": 1,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 5
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 10,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 25
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 25
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:09:45.964611Z",
+            "refreshing": true,
+            "result": null,
+            "created_at": "2021-06-22T13:11:40.530116Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:57:01.493553Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1228,
+            "short_id": "Jet2vQnr",
+            "name": "qqwqw",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "$active_feature_flags",
+                                "type": "event",
+                                "value": "4267-event-property-taxonomy",
+                                "operator": "icontains"
+                            },
+                            {
+                                "key": "$browser",
+                                "type": "event",
+                                "value": ["Chrome"],
+                                "operator": "exact"
+                            },
+                            {
+                                "key": "$browser_version",
+                                "type": "event",
+                                "value": ["91"],
+                                "operator": "exact"
+                            }
+                        ],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "funnel_window_days": 14
+            },
+            "filters_hash": "cache_56af71cc7a3664c49953840d9fbf658a",
+            "order": null,
+            "deleted": false,
+            "dashboard": 2,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 5
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 10
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 20,
+                    "moved": false,
+                    "static": false
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 20
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T11:50:23.787474Z",
+            "refreshing": false,
+            "result": null,
+            "created_at": "2021-06-22T09:06:31.009936Z",
+            "description": null,
+            "updated_at": "2021-08-20T07:42:39.281069Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1224,
+            "short_id": "IP-npNwn",
+            "name": "FFFF",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "total",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "$active_feature_flags",
+                                "type": "event",
+                                "value": "4267-event-property-taxonomy",
+                                "operator": "icontains"
+                            },
+                            {
+                                "key": "$continent_code",
+                                "type": "event",
+                                "value": ["ww"],
+                                "operator": "is_not"
+                            }
+                        ],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "funnel_window_days": 14
+            },
+            "filters_hash": "cache_70c89e9e7742dbbaef74e60d535253eb",
+            "order": null,
+            "deleted": false,
+            "dashboard": 2,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 18,
+                    "y": 0
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 5
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 15,
+                    "moved": false,
+                    "static": false
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 15
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T11:50:23.476428Z",
+            "refreshing": false,
+            "result": null,
+            "created_at": "2021-06-22T09:05:24.645097Z",
+            "description": null,
+            "updated_at": "2021-08-20T07:42:39.281069Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1215,
+            "short_id": "XL1uQXKf",
+            "name": "22222",
+            "filters": {
+                "insight": "PATHS",
+                "interval": "day",
+                "path_type": "$pageview"
+            },
+            "filters_hash": "cache_307c7e3a84f97defbcc2e1b357d14990",
+            "order": null,
+            "deleted": false,
+            "dashboard": 2,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 12,
+                    "y": 0
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 5
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 10,
+                    "moved": false,
+                    "static": false
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 10
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:19:34.795337Z",
+            "refreshing": false,
+            "result": null,
+            "created_at": "2021-06-21T13:37:32.478604Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:56:54.806467Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        },
+        {
+            "id": 1212,
+            "short_id": "OGg0VSJ8",
+            "name": "111111",
+            "filters": {
+                "insight": "PATHS",
+                "interval": "day",
+                "path_type": "$pageview"
+            },
+            "filters_hash": "cache_307c7e3a84f97defbcc2e1b357d14990",
+            "order": null,
+            "deleted": false,
+            "dashboard": 2,
+            "layouts": {
+                "lg": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                },
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 5,
+                    "moved": false,
+                    "static": false
+                },
+                "xxs": {
+                    "h": 5,
+                    "w": 2,
+                    "x": 0,
+                    "y": 5
+                }
+            },
+            "color": null,
+            "last_refresh": "2021-08-25T12:19:34.795337Z",
+            "refreshing": false,
+            "result": null,
+            "created_at": "2021-06-21T13:36:06.063191Z",
+            "description": null,
+            "updated_at": "2021-08-25T11:56:51.399042Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "created_by": {
+                "id": 1,
+                "uuid": "0178a66a-4d64-0000-175b-c3e4e7628683",
+                "distinct_id": "dP00MTQGAK5QTuPWdzha5Qa4MFOO9MZ9MkDuZX8PTRM",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            }
+        }
+    ]
+}

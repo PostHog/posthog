@@ -375,6 +375,50 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                 )
             })
 
+            const boolTestCases = [
+                true,
+                false,
+                'true',
+                'false',
+                'True',
+                'False',
+                'TRUE',
+                'FALSE',
+                ' true ',
+                ' false',
+                'true ',
+            ]
+            boolTestCases.forEach((testcase) => {
+                it(`identifies ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).toEqual('Boolean')
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [expect.any(String), 'some_bool', false, teamId, 'Boolean'],
+                        },
+                        postgresQuery
+                    )
+                })
+            })
+
+            // i.e. not using truthiness to detect whether something is boolean
+            const notBoolTestCases = [0, 1, '0', '1', 'yes', 'no', null, undefined, '', [], ' ']
+            notBoolTestCases.forEach((testcase) => {
+                it(`does not identify ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).not.toEqual('Boolean')
+                })
+            })
+
             it('identifies a numeric type', async () => {
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_number: randomInteger(),

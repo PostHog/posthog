@@ -8,7 +8,7 @@ GROUPS_TABLE = "groups"
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     group_type_index UInt8,
     group_key VARCHAR,

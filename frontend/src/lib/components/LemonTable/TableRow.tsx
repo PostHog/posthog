@@ -2,12 +2,14 @@ import React, { HTMLProps, useState } from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { ExpandableConfig, LemonTableColumns, TableCellRepresentation } from './types'
+import clsx from 'clsx'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
     recordIndex: number
     rowKeyDetermined: string | number
     rowClassNameDetermined: string | undefined
+    rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
     columns: LemonTableColumns<T>
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
@@ -18,26 +20,42 @@ function TableRowRaw<T extends Record<string, any>>({
     recordIndex,
     rowKeyDetermined,
     rowClassNameDetermined,
+    rowStatusDetermined,
     columns,
     onRow,
     expandable,
 }: TableRowProps<T>): JSX.Element {
-    const [isRowExpanded, setIsRowExpanded] = useState(false)
+    const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
+    const isRowExpanded =
+        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record)
 
     return (
         <>
-            <tr data-row-key={rowKeyDetermined} {...onRow?.(record)} className={rowClassNameDetermined}>
+            <tr
+                data-row-key={rowKeyDetermined}
+                {...onRow?.(record)}
+                className={clsx(
+                    rowClassNameDetermined,
+                    rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`
+                )}
+            >
                 {!!expandable && rowExpandable >= 0 && (
                     <td>
                         {!!rowExpandable && (
                             <LemonButton
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => {
-                                    setIsRowExpanded((state) => !state)
-                                    !isRowExpanded && expandable.onRowExpand?.(record)
+                                    setIsRowExpanded(!isRowExpanded)
+                                    if (isRowExpanded) {
+                                        expandable?.onRowCollapse?.(record)
+                                    } else {
+                                        expandable?.onRowExpand?.(record)
+                                    }
                                 }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}

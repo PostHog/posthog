@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4
@@ -8,26 +8,22 @@ from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
+from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
     FUNNEL_PATH_BETWEEN_STEPS,
     INSIGHT_FUNNELS,
-    PAGEVIEW_EVENT,
-    SCREEN_EVENT,
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.queries.test.test_paths import MockEvent, paths_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -56,7 +52,7 @@ def _create_all_events(all_events: List[Dict]):
 
     sync_execute(
         f"""
-    INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )
@@ -2090,7 +2086,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:
-            path_query = PathEventQuery(filter, self.team.id)
+            path_query = PathEventQuery(filter, self.team)
             return (path_query._should_query_url(), path_query._should_query_screen())
 
         filter = PathFilter()

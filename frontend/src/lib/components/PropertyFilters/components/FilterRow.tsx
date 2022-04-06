@@ -6,12 +6,12 @@ import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CloseButton } from 'lib/components/CloseButton'
 
@@ -30,6 +30,7 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     orFiltering?: boolean
+    useLemonButton?: boolean // To be removed once lemon is completely released
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -46,6 +47,7 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     orFiltering,
+    useLemonButton = false,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -126,6 +128,17 @@ export const FilterRow = React.memo(function FilterRow({
                                         >
                                             {`${item['alias']}::${item['regex']}`}
                                         </FilterButton>
+                                    ) : useLemonButton ? (
+                                        <LemonButton
+                                            ref={setRef}
+                                            onClick={() => setOpen(!open)}
+                                            className="new-prop-filter"
+                                            data-attr={'new-prop-filter-' + pageKey}
+                                            type="secondary"
+                                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                                        >
+                                            {label}
+                                        </LemonButton>
                                     ) : (
                                         <Button
                                             ref={setRef}
@@ -136,10 +149,10 @@ export const FilterRow = React.memo(function FilterRow({
                                                 color: 'var(--primary)',
                                                 border: 'none',
                                                 boxShadow: 'none',
+                                                paddingLeft: 0,
                                                 background: 'none',
-                                                padding: '0 12px',
                                             }}
-                                            icon={<PlusOutlined />}
+                                            icon={<PlusCircleOutlined />}
                                             type="default"
                                         >
                                             {label}

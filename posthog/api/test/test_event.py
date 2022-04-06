@@ -13,10 +13,10 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -178,6 +178,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
+    @test_with_materialized_columns(["random_prop"])
+    @snapshot_clickhouse_queries
     def test_event_property_values(self):
 
         with freeze_time("2020-01-10"):
@@ -310,7 +312,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from ee.clickhouse.client import sync_execute
+            from posthog.client import sync_execute
 
             self.assertEqual(
                 sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[0][
@@ -364,7 +366,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from ee.clickhouse.client import sync_execute
+            from posthog.client import sync_execute
 
             self.assertEqual(
                 sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[0][
@@ -484,11 +486,22 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_event_by_id(self):
+        _create_person(
+            properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True,
+        )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["event"], "event")
+        response_json = response.json()
+        self.assertEqual(response_json["event"], "event")
+        self.assertIsNone(response_json["person"])
+
+        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true",)
+        self.assertEqual(with_person_response.status_code, status.HTTP_200_OK)
+        with_person_response_json = with_person_response.json()
+        self.assertEqual(with_person_response_json["event"], "event")
+        self.assertIsNotNone(with_person_response_json["person"])
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/123456",)
         # EE will inform the user the ID passed is not a valid UUID

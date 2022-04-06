@@ -1,17 +1,15 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
+from posthog.models.action.util import format_action_filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyGroup
+from posthog.queries.util import get_trunc_func_ch
 
 
-class StickinessEventsQuery(ClickhouseEventQuery):
+class StickinessEventsQuery(EnterpriseEventQuery):
     _entity: Entity
     _filter: StickinessFilter
 
@@ -61,7 +59,7 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
     def aggregation_target(self):
         return get_aggregation_target_field(
-            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS
+            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:

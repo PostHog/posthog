@@ -15,13 +15,17 @@ export interface TaxonomicFilterProps {
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
+    height?: number
+    width?: number
+    popoverEnabled?: boolean
+    selectFirstItem?: boolean
 }
-
-export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
 }
+
+export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterGroup {
     name: string

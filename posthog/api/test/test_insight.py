@@ -4,6 +4,7 @@ from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
 
+import pytz
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -12,10 +13,19 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import Cohort, Dashboard, Filter, Insight, Person, Team, User
+from posthog.models import (
+    Cohort,
+    Dashboard,
+    Filter,
+    Insight,
+    InsightViewed,
+    Person,
+    Team,
+    User,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 def _create_person(**kwargs):
@@ -664,6 +674,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
+    def test_insight_trends_csv(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview'}])}&export_name=Pageview count&export_insight_id=test123",
+            )
+
+        lines = response.content.splitlines()
+
+        self.assertEqual(lines[0], b"http://localhost:8000/insights/test123/", lines[0])
+        self.assertEqual(
+            lines[1],
+            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
+            lines[0],
+        )
+        self.assertEqual(lines[2], b"$pageview,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(len(lines), 3, response.content)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -729,3 +761,71 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         # self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+    @freeze_time("2022-03-22T00:00:00.000Z")
+    def test_create_insight_viewed(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        created_insight_viewed = InsightViewed.objects.all()[0]
+        self.assertEqual(created_insight_viewed.insight, insight)
+        self.assertEqual(created_insight_viewed.team, self.team)
+        self.assertEqual(created_insight_viewed.user, self.user)
+        self.assertEqual(created_insight_viewed.last_viewed_at, datetime(2022, 3, 22, 0, 0, tzinfo=pytz.UTC))
+
+    def test_update_insight_viewed(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+        with freeze_time("2022-03-22T00:00:00.000Z"):
+
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        with freeze_time("2022-03-23T00:00:00.000Z"):
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(InsightViewed.objects.count(), 1)
+
+            updated_insight_viewed = InsightViewed.objects.all()[0]
+            self.assertEqual(updated_insight_viewed.last_viewed_at, datetime(2022, 3, 23, 0, 0, tzinfo=pytz.UTC))
+
+    def test_cant_create_insight_viewed_for_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+
+        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight.id}/viewed")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_cant_create_insight_viewed_for_insight_in_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=other_team, short_id="12345678",
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(InsightViewed.objects.count(), 0)

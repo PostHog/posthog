@@ -1,7 +1,7 @@
 import { Select, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function TimezoneConfig(): JSX.Element {

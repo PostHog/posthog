@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework import authentication, exceptions, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -11,11 +11,20 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
 from posthog.models import FeatureFlag
+from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import format_query_params_absolute_url
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -138,7 +147,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -196,6 +205,98 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 }
             )
         return Response(flags)
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
+
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
+        )
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
+        return Response(
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=serializer.instance.id,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name=serializer.instance.key),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = FeatureFlag.objects.get(pk=instance_id)
+        except FeatureFlag.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("FeatureFlag", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=instance_id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(changes=changes, name=serializer.instance.key),
+        )
+
+    @log_deletion_metadata_to_posthog
+    def destroy(self, request, *args, **kwargs):
+        instance: FeatureFlag = self.get_object()
+        instance_id = instance.id
+
+        instance.delete()
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            item_id=instance_id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(name=instance.key),
+        )
+
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):

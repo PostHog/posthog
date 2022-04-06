@@ -13,6 +13,7 @@ import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
@@ -29,8 +30,6 @@ interface HeaderProps {
     headerTitle: React.ReactNode
     editHeaderTitle: React.ReactNode
     icon: React.ReactNode
-    hideEdit?: boolean
-    hideView?: boolean
     onEdit?: () => void
     onView?: () => void
 }
@@ -40,22 +39,25 @@ function Header({
     headerTitle,
     editHeaderTitle,
     icon,
-    hideEdit = false,
-    hideView = false,
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, viewFullDetailUrl, hasTaxonomyFeatures } = useValues(definitionPopupLogic)
+    const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+        useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
+    const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
+        useActions(eventUsageLogic)
     const onEdit = (): void => {
         if (hasTaxonomyFeatures) {
             setPopupState(DefinitionPopupState.Edit)
             _onEdit?.()
+            reportDataManagementDefinitionClickEdit(type)
         }
     }
     const onView = (): void => {
         setPopupState(DefinitionPopupState.View)
         _onView?.()
+        reportDataManagementDefinitionClickView(type)
     }
 
     return (
@@ -67,6 +69,7 @@ function Header({
                 {state === DefinitionPopupState.View && (
                     <div className="definition-popup-header-row-buttons click-outside-block">
                         {!hideEdit &&
+                            isViewable &&
                             (hasTaxonomyFeatures ? (
                                 <a onClick={onEdit}>Edit</a>
                             ) : (
@@ -76,8 +79,12 @@ function Header({
                                     </a>
                                 </Tooltip>
                             ))}
-                        {!hideView && (
-                            <Link target="_blank" to={viewFullDetailUrl} onClick={onView}>
+                        {!hideView && isViewable && (
+                            <Link
+                                target={openDetailInNewTab ? '_blank' : undefined}
+                                to={viewFullDetailUrl}
+                                onClick={onView}
+                            >
                                 View
                             </Link>
                         )}
@@ -97,7 +104,7 @@ function Description({ description }: { description: React.ReactNode }): JSX.Ele
 
 function DescriptionEmpty(): JSX.Element {
     const { singularType } = useValues(definitionPopupLogic)
-    return <div className="definition-popup-description empty">There is no description for this {singularType}</div>
+    return <div className="definition-popup-description empty">Add a description for this {singularType}</div>
 }
 
 function Example({ value }: { value: string }): JSX.Element {
@@ -138,27 +145,37 @@ function TimeMeta({
     if (updatedAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(updatedAt))).asSeconds()
         return (
-            <div className="definition-popup-timemeta">
-                Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+            <span className="definition-popup-timemeta">
+                <span className="definition-popup-timemeta-time">
+                    Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                </span>
                 {updatedBy && (
-                    <>
-                        <span className="definition-popup-timemeta-spacer">by</span>{' '}
-                        <Owner user={updatedBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
-                    </>
+                    <span className="definition-popup-timemeta-user">
+                        <span className="definition-popup-timemeta-spacer">by</span>
+                        <Owner
+                            user={updatedBy}
+                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
+                        />
+                    </span>
                 )}
-            </div>
+            </span>
         )
     }
     if (createdAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(createdAt))).asSeconds()
         return (
             <div className="definition-popup-timemeta">
-                Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                <span className="definition-popup-timemeta-time">
+                    Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                </span>
                 {updatedBy && (
-                    <>
+                    <span className="definition-popup-timemeta-user">
                         <span className="definition-popup-timemeta-spacer">by</span>{' '}
-                        <Owner user={createdBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
-                    </>
+                        <Owner
+                            user={createdBy}
+                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
+                        />
+                    </span>
                 )}
             </div>
         )

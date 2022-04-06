@@ -1,6 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.db.models import Q

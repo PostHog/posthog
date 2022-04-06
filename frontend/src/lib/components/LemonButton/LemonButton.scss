@@ -1,6 +1,6 @@
 .LemonButton {
+    font-weight: 500;
     color: var(--primary);
-    font-weight: 600;
     cursor: pointer;
     &:not(:disabled):hover,
     &.LemonButton--active {
@@ -10,7 +10,7 @@
         background: var(--primary-bg-active);
     }
     &:disabled {
-        opacity: 0.6;
+        opacity: var(--opacity-disabled);
         cursor: not-allowed;
     }
     .LemonRow__icon {
@@ -54,6 +54,13 @@
     }
 }
 
+.LemonButton--primary-alt {
+    color: var(--primary-alt);
+    .LemonRow__icon {
+        color: var(--primary-alt);
+    }
+}
+
 .LemonButton--stealth {
     color: var(--text-default);
     font-weight: 400;
@@ -62,18 +69,16 @@
     }
 }
 
+// Order matters - translucent should be before highlighted, but after all the other types
+.LemonButton--translucent {
+    background: transparent;
+}
+
 .LemonButton--highlighted {
     background: var(--primary-bg-hover);
     color: var(--text-default);
     .LemonRow__icon {
         color: var(--primary);
-    }
-}
-
-.LemonButton--primary-alt {
-    color: var(--primary-alt);
-    .LemonRow__icon {
-        color: var(--primary-alt);
     }
 }
 
@@ -88,10 +93,11 @@
 
 .LemonButtonWithSideAction {
     position: relative;
-    .side-button {
-        position: absolute;
-        top: 1.25rem;
-        right: 1.25rem;
-        transform: translate(50%, -50%);
-    }
+}
+
+.LemonButtonWithSideAction--side-button {
+    position: absolute;
+    top: 50%;
+    right: 1.25rem;
+    transform: translate(50%, -50%);
 }

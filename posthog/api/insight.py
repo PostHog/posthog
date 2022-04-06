@@ -3,13 +3,17 @@ from typing import Any, Dict, Type
 
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
+from django.http import HttpResponse
+from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
@@ -18,7 +22,6 @@ from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.documentation import extend_schema
 from posthog.api.insight_serializers import (
     FunnelSerializer,
@@ -48,9 +51,12 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import InsightViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.util import get_earliest_timestamp
+from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import get_safe_cache, relative_date_parse, str_to_bool
+from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -97,12 +103,12 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "id",
             "short_id",
             "name",
+            "derived_name",
             "filters",
             "filters_hash",
             "order",
             "deleted",
             "dashboard",
-            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -139,7 +145,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
-        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
+        if not validated_data.get("dashboard", None):
             dashboard_item = Insight.objects.create(
                 team=team, created_by=request.user, last_modified_by=request.user, **validated_data
             )
@@ -166,7 +172,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
-        if self.context["request"].GET.get("refresh"):
+        if should_refresh(self.context["request"]):
             return update_dashboard_item_cache(insight, None)
 
         result = get_safe_cache(insight.filters_hash)
@@ -176,7 +182,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return result.get("result")
 
     def get_last_refresh(self, insight: Insight):
-        if self.context["request"].GET.get("refresh"):
+        if should_refresh(self.context["request"]):
             return now()
 
         result = self.get_result(insight)
@@ -203,6 +209,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     )
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
@@ -249,7 +256,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
-                queryset = queryset.filter(name__icontains=request.GET["search"])
+                queryset = queryset.filter(
+                    Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
+                )
         return queryset
 
     @action(methods=["patch"], detail=False)
@@ -287,7 +296,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         responses=TrendResultsSerializer,
     )
     @action(methods=["GET", "POST"], detail=False)
-    def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         try:
             serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
@@ -301,6 +310,28 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
             else None
         )
+        if self.request.accepted_renderer.format == "csv":
+            csvexport = []
+            for item in result["result"]:
+                line = {"series": item["label"]}
+                for index, data in enumerate(item["data"]):
+                    line[item["labels"][index]] = data
+                csvexport.append(line)
+            renderer = csvrenderers.CSVRenderer()
+            renderer.header = csvexport[0].keys()
+            export = renderer.render(csvexport)
+            if request.GET.get("export_insight_id"):
+                export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
+
+            response = HttpResponse(export)
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
+            )
+            return response
         return Response({**result, "next": next})
 
     @cached_function
@@ -425,6 +456,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+    # ******************************************
+    # /projects/:id/insights/:short_id/viewed
+    # Creates or updates an InsightViewed object for the user/insight combo
+    # ******************************************
+    @action(methods=["POST"], detail=True)
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class LegacyInsightViewSet(InsightViewSet):

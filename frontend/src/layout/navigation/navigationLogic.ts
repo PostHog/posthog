@@ -1,10 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -34,7 +33,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideCreateProjectModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
     },
     reducers: {
         // Non-mobile base
@@ -80,12 +78,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             {
                 toggleProjectSwitcher: (state) => !state,
                 hideProjectSwitcher: () => false,
-            },
-        ],
-        hotkeyNavigationEngaged: [
-            false,
-            {
-                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
             },
         ],
     },
@@ -212,15 +204,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
-        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
-            if (hotkeyNavigationEngaged) {
-                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
-                await breakpoint(3000)
-                actions.setHotkeyNavigationEngaged(false)
-            }
-        },
-    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadLatestVersion()

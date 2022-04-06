@@ -1,9 +1,6 @@
-import uuid
-from unittest.mock import ANY, patch
-
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.test.base import APIBaseTest
 
 
@@ -12,16 +9,12 @@ class TestOrganizationAPI(APIBaseTest):
     # Retrieving organization
 
     def test_get_current_organization(self):
-        self.organization.domain_whitelist = ["hogflix.posthog.com"]
-        self.organization.save()
-
         response = self.client.get("/api/organizations/@current")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
         self.assertEqual(response_data["available_features"], [])
-        self.assertEqual(response_data["domain_whitelist"], ["hogflix.posthog.com"])
 
         # DEPRECATED attributes
         self.assertNotIn("personalization", response_data)
@@ -98,16 +91,6 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(self.organization.name, "QWERTY")
         self.assertEqual(self.organization.is_member_join_email_enabled, False)
 
-    def test_update_domain_whitelist_if_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        response = self.client.patch(
-            f"/api/organizations/{self.organization.id}", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.domain_whitelist, ["posthog.com", "movies.posthog.com"])
-
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -119,16 +102,6 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response_email.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
-
-    def test_cannot_update_domain_whitelist_if_not_owner_or_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        response = self.client.patch(
-            f"/api/organizations/@current", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.domain_whitelist, [])
 
 
 def create_organization(name: str) -> Organization:

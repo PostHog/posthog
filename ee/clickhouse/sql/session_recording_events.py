@@ -9,7 +9,7 @@ SESSION_RECORDING_EVENTS_DATA_TABLE = (
 )
 
 SESSION_RECORDING_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     uuid UUID,
     timestamp DateTime64(6, 'UTC'),
@@ -25,12 +25,16 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+    , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
+"""
+
+SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
+    , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
     ALTER TABLE session_recording_events
-    ON CLUSTER {cluster}
+    ON CLUSTER '{cluster}'
     COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
 """.format(
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -64,7 +68,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -96,7 +100,7 @@ WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_T
     table_name="writable_session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
 )
 
@@ -105,8 +109,8 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
     table_name="session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
-    materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
+    extra_fields=KAFKA_COLUMNS,
+    materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
 )
 
 
@@ -119,11 +123,11 @@ SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(
 
 
 TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
-    f"TRUNCATE TABLE IF EXISTS {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+    f"TRUNCATE TABLE IF EXISTS {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
-    f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+    f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 
 UPDATE_RECORDINGS_TABLE_TTL_SQL = lambda: (

@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
     ActorType,
@@ -8,26 +8,34 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    FeatureFlagType,
     FilterType,
     PluginLogEntry,
     PropertyDefinition,
     TeamType,
     UserType,
-} from '../types'
+} from '~/types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
-import {
-    EVENT_DEFINITIONS_PER_PAGE,
-    PROPERTY_DEFINITIONS_PER_EVENT,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+
+export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+}
+
+export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+    total_count: number
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -122,6 +130,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
+    public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.events(teamId).addPathComponent(id)
+    }
+
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
@@ -156,6 +168,39 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
+    }
+
+    public person(id: number): ApiRequest {
+        return this.persons().addPathComponent(id)
+    }
+
+    public personActivity(id: number | undefined): ApiRequest {
+        if (typeof id === 'number') {
+            return this.person(id).addPathComponent('activity')
+        }
+        return this.persons().addPathComponent('activity')
+    }
+
+    public featureFlags(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feature_flags')
+    }
+
+    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.featureFlag(id, teamId).addPathComponent('activity')
+        }
+        return this.featureFlags(teamId).addPathComponent('activity')
     }
 
     // Request finalization
@@ -253,7 +298,40 @@ const api = {
         },
     },
 
+    activity: {
+        list(
+            activityLogProps: ActivityLogProps,
+            page: number = 1,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse> {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+                [ActivityScope.FEATURE_FLAG]: (props) => {
+                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                },
+                [ActivityScope.PERSON]: (props) => {
+                    return new ApiRequest().personActivity(props.id)
+                },
+            }
+
+            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
+            return requestForScope[activityLogProps.scope](activityLogProps)
+                .withQueryString(toParams(pagingParameters))
+                .get()
+        },
+    },
+
     events: {
+        async get(
+            id: EventType['id'],
+            includePerson: boolean = false,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<EventType> {
+            let apiRequest = new ApiRequest().event(id, teamId)
+            if (includePerson) {
+                apiRequest = apiRequest.withQueryString(toParams({ include_person: true }))
+            }
+            return await apiRequest.get()
+        },
         async list(
             filters: Partial<FilterType>,
             limit: number = 10,
@@ -273,44 +351,88 @@ const api = {
     },
 
     eventDefinitions: {
-        async list(
-            limit: number = EVENT_DEFINITIONS_PER_PAGE,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<EventDefinition>> {
-            const params: Record<string, any> = { limit, offset }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).get()
+        async list({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<EventDefinition>> {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .get()
         },
-        determineListEndpoint(
-            limit: number = EVENT_DEFINITIONS_PER_PAGE,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): string {
-            const params: Record<string, any> = { limit, offset }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        determineListEndpoint({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .assembleFullUrl()
         },
     },
 
     propertyDefinitions: {
-        async list(
-            event_names?: string[],
-            excluded_properties?: string[],
-            is_event_property?: boolean,
-            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PropertyDefinition>> {
-            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
+        async list({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
         },
-        determineListEndpoint(
-            event_names?: string[],
-            excluded_properties?: string[],
-            is_event_property?: boolean,
-            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): string {
-            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        determineListEndpoint({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .assembleFullUrl()
         },
     },
 
@@ -360,6 +482,12 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 

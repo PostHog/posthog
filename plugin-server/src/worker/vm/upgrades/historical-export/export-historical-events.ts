@@ -18,7 +18,7 @@ import {
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
-const EVENTS_PER_RUN = 100
+const EVENTS_PER_RUN = 500
 
 const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor'
 const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
@@ -196,20 +196,6 @@ export function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
-        if (payload.retriesPerformedSoFar === 0) {
-            const incrementTimestampCursor = events.length === 0
-
-            await meta.jobs
-                .exportHistoricalEvents({
-                    timestampCursor,
-                    incrementTimestampCursor,
-                    retriesPerformedSoFar: 0,
-                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-                    batchId: payload.batchId,
-                })
-                .runNow()
-        }
-
         let exportEventsError: Error | unknown | null = null
 
         if (!fetchEventsError) {
@@ -240,6 +226,18 @@ export function addHistoricalEventsExportCapability(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 })
                 .runIn(nextRetrySeconds, 'seconds')
+        } else if (!exportEventsError) {
+            const incrementTimestampCursor = events.length === 0
+
+            await meta.jobs
+                .exportHistoricalEvents({
+                    timestampCursor,
+                    incrementTimestampCursor,
+                    retriesPerformedSoFar: 0,
+                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+                    batchId: payload.batchId,
+                })
+                .runIn(1, 'seconds')
         }
 
         createLog(

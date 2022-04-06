@@ -3,7 +3,6 @@ import React, { useState } from 'react'
 import { ChartDisplayType, FunnelVizType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { KeaStory } from 'lib/storybook/kea-story'
 import { uuid } from 'lib/utils'
 
 const EXAMPLE_TRENDS: InsightModel = {
@@ -89,7 +88,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-07',
                         date_to: '2021-12-07',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-07&date_to=2021-12-07&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-07&date_to=2021-12-07&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -99,7 +98,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-08',
                         date_to: '2021-12-08',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-08&date_to=2021-12-08&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-08&date_to=2021-12-08&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -109,7 +108,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-09',
                         date_to: '2021-12-09',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-09&date_to=2021-12-09&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-09&date_to=2021-12-09&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -119,7 +118,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-10',
                         date_to: '2021-12-10',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-10&date_to=2021-12-10&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-10&date_to=2021-12-10&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -129,7 +128,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-11',
                         date_to: '2021-12-11',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-11&date_to=2021-12-11&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-11&date_to=2021-12-11&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -139,7 +138,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-12',
                         date_to: '2021-12-12',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-12&date_to=2021-12-12&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-12&date_to=2021-12-12&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -149,7 +148,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-13',
                         date_to: '2021-12-13',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-13&date_to=2021-12-13&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-13&date_to=2021-12-13&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -159,7 +158,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-14',
                         date_to: '2021-12-14',
                     },
-                    url: 'api/projects/1/actions/people/?date_from=2021-12-14&date_to=2021-12-14&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/actions/people/?date_from=2021-12-14&date_to=2021-12-14&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
             ],
             filter: {
@@ -297,8 +296,8 @@ const EXAMPLE_FUNNEL: InsightModel = {
 }
 
 export default {
-    title: 'PostHog/Components',
-    parameters: { options: { showPanel: true } },
+    title: 'Components/Insight Card',
+    component: InsightCardComponent,
     argTypes: {
         insightName: {
             control: { type: 'text' },
@@ -328,59 +327,65 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <KeaStory>
-            <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                {!wasItemRemoved && (
-                    <InsightCardComponent
-                        insight={{
-                            ...EXAMPLE_TRENDS,
-                            name: args.insightName,
-                            description: args.insightDescription,
-                            color: insightColor,
-                        }}
-                        loading={args.loading}
-                        apiErrored={args.apiErrored}
-                        highlighted={args.highlighted}
-                        timedOut={args.timedOut}
-                        showResizeHandles={args.resizable}
-                        updateColor={setInsightColor}
-                        removeFromDashboard={() => setWasItemRemoved(true)}
-                        rename={() => {}}
-                        duplicate={() => {}}
-                    />
-                )}
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={{
                         ...EXAMPLE_TRENDS,
-                        name: 'Wow, this name is really super duper ginormously off the charts long! How do we even manage to fit it in an insight card without it breaking?!',
-                        description:
-                            'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
-                        tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
+                        name: args.insightName,
+                        description: args.insightDescription,
+                        color: insightColor,
                     }}
+                    loading={args.loading}
+                    apiErrored={args.apiErrored}
+                    highlighted={args.highlighted}
+                    timedOut={args.timedOut}
+                    showResizeHandles={args.resizable}
+                    updateColor={setInsightColor}
+                    removeFromDashboard={() => setWasItemRemoved(true)}
                     rename={() => {}}
                     duplicate={() => {}}
                 />
-                <InsightCardComponent
-                    insight={{ ...EXAMPLE_TRENDS, name: '', description: '', last_modified_by: null }}
-                    rename={() => {}}
-                    duplicate={() => {}}
-                />
-                <InsightCardComponent
-                    insight={{
-                        ...EXAMPLE_FUNNEL,
-                        short_id: 'funnel_empty' as InsightShortId,
-                        filters: { ...EXAMPLE_FUNNEL.filters, events: EXAMPLE_FUNNEL.filters.events?.slice(0, 1) },
-                        name: 'What a pitiful funnel',
-                    }}
-                    rename={() => {}}
-                    duplicate={() => {}}
-                />
-                <InsightCardComponent
-                    insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' }}
-                    rename={() => {}}
-                    duplicate={() => {}}
-                />
-            </div>
-        </KeaStory>
+            )}
+            <InsightCardComponent
+                insight={{
+                    ...EXAMPLE_TRENDS,
+                    name: 'Wow, this name is really super duper ginormously off the charts long! How do we even manage to fit it in an insight card without it breaking?!',
+                    description:
+                        'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
+                    tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
+                }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+            <InsightCardComponent
+                insight={{ ...EXAMPLE_TRENDS, name: '', description: '', last_modified_by: null }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+            <InsightCardComponent
+                insight={{
+                    ...EXAMPLE_FUNNEL,
+                    short_id: 'funnel_empty' as InsightShortId,
+                    filters: { ...EXAMPLE_FUNNEL.filters, events: EXAMPLE_FUNNEL.filters.events?.slice(0, 1) },
+                    name: 'What a pitiful funnel',
+                }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+            <InsightCardComponent
+                insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+            <InsightCardComponent
+                insight={{
+                    ...EXAMPLE_TRENDS,
+                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+        </div>
     )
 }

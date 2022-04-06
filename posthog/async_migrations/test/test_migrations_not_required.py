@@ -1,8 +1,6 @@
-import pytest
-
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
+from posthog.client import sync_execute
 from posthog.test.base import BaseTest
 
 
@@ -16,8 +14,5 @@ class TestAsyncMigrationsNotRequired(BaseTest):
         sync_execute(COMMENT_DISTINCT_ID_COLUMN_SQL())
 
     def test_async_migrations_not_required_on_fresh_instances(self):
-
         for name, migration in ALL_ASYNC_MIGRATIONS.items():
-            expected_is_required = name == "0004_replicated_schema"
-
-            self.assertEqual(migration.is_required(), expected_is_required)
+            self.assertFalse(migration.is_required())

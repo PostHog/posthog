@@ -1,5 +1,4 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
-
 from typing import Literal
 
 from django.conf import settings
@@ -22,6 +21,8 @@ GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
 
+# The kafka_engine automatically adds these columns to the kafka tables. We use
+# this string to add them to the other tables as well.
 KAFKA_COLUMNS = """
 , _timestamp DateTime
 , _offset UInt64
@@ -52,3 +53,7 @@ def kafka_engine(
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
     return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+
+
+def trim_quotes_expr(expr: str) -> str:
+    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

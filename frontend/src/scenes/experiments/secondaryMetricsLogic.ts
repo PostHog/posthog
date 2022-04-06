@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { api } from 'lib/api.mock'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import {
     ChartDisplayType,
@@ -141,7 +141,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             }
 
             const newInsight = {
-                name: '',
                 description: '',
                 tags: [],
                 filters: newInsightFilters,

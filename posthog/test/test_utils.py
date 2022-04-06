@@ -18,6 +18,7 @@ from posthog.utils import (
     load_data_from_request,
     mask_email_address,
     relative_date_parse,
+    should_refresh,
 )
 
 
@@ -131,14 +132,14 @@ class TestDefaultEventName(BaseTest):
 
 class TestLoadDataFromRequest(TestCase):
     @patch("posthog.utils.configure_scope")
-    def test_pushes_request_origin_into_sentry_scope(self, patched_scope):
+    def test_pushes_debug_information_into_sentry_scope(self, patched_scope):
         origin = "potato.io"
         referer = "https://" + origin
 
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         rf = RequestFactory()
-        post_request = rf.post("/s/", "content", "text/plain")
+        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
         post_request.META["REMOTE_HOST"] = origin
         post_request.META["HTTP_REFERER"] = referer
 
@@ -146,10 +147,12 @@ class TestLoadDataFromRequest(TestCase):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
-        mock_set_tag.assert_has_calls([call("origin", origin), call("referer", referer)])
+        mock_set_tag.assert_has_calls(
+            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+        )
 
     @patch("posthog.utils.configure_scope")
-    def test_pushes_request_origin_into_sentry_scope_even_when_not_available(self, patched_scope):
+    def test_still_tags_sentry_scope_even_when_debug_signal_is_not_available(self, patched_scope):
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         rf = RequestFactory()
@@ -159,7 +162,9 @@ class TestLoadDataFromRequest(TestCase):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
-        mock_set_tag.assert_has_calls([call("origin", "unknown"), call("referer", "unknown")])
+        mock_set_tag.assert_has_calls(
+            [call("origin", "unknown"), call("referer", "unknown"), call("library.version", "unknown")]
+        )
 
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
         """
@@ -187,3 +192,35 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
+
+
+class TestShouldRefresh(TestCase):
+    def test_should_refresh_with_refresh_true(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "true"
+        self.assertTrue(should_refresh(Request(request)))
+
+    def test_should_refresh_with_refresh_empty(self):
+        request = HttpRequest()
+        request.GET["refresh"] = ""
+        self.assertTrue(should_refresh(Request(request)))
+
+    def test_should_not_refresh_with_refresh_false(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "false"
+        self.assertFalse(should_refresh(Request(request)))
+
+    def test_should_not_refresh_with_refresh_gibberish(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "2132klkl"
+        self.assertFalse(should_refresh(Request(request)))
+
+    def test_should_refresh_with_data_true(self):
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": True}  # type: ignore
+        self.assertTrue(should_refresh((drf_request)))
+
+    def test_should_not_refresh_with_data_false(self):
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": False}  # type: ignore
+        self.assertFalse(should_refresh(drf_request))

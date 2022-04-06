@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { QuerySummary } from '~/types'
+import { DashboardPlacement, QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
 import { Link } from 'lib/components/Link'
@@ -31,7 +31,11 @@ export function InternalMetricsTab(): JSX.Element {
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
                 {dashboard ? (
                     <Collapse.Panel header="Dashboards" key="0">
-                        <Dashboard id={dashboard.id.toString()} shareToken={dashboard.share_token} internal />
+                        <Dashboard
+                            id={dashboard.id.toString()}
+                            shareToken={dashboard.share_token}
+                            placement={DashboardPlacement.InternalMetrics}
+                        />
                     </Collapse.Panel>
                 ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">

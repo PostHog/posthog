@@ -13,8 +13,9 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, Organization, Team, User, organization
+from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
@@ -288,7 +289,8 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "gitlab"})
@@ -312,7 +314,8 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "gitlab"})
@@ -322,17 +325,18 @@ class TestSignupAPI(APIBaseTest):
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(
-            response, "/login?error=no_new_organizations"
+            response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
     def test_api_social_login_to_create_organization(self, mock_request):
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY="github_123", SOCIAL_AUTH_GITHUB_SECRET="github_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        url = reverse("social:complete", kwargs={"backend": "github"})
+        url += f"?code=2&state={response.client.session['github_state']}"
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
@@ -340,36 +344,47 @@ class TestSignupAPI(APIBaseTest):
         self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.skip_on_multitenancy
-    @pytest.mark.ee
-    def test_api_social_login_cannot_create_second_organization(self, mock_request):
+    def test_api_social_login_cannot_create_second_organization(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"gitlab": True}
         Organization.objects.create(name="Test org")
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("/login?error_code", response.headers["Location"])
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        url = reverse("social:complete", kwargs={"backend": "gitlab"})
+        url += f"?code=2&state={response.client.session['gitlab_state']}"
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(
-            response, "/login?error=no_new_organizations"
+            response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @pytest.mark.skip_on_multitenancy
-    @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain(self, mock_request):
-        new_org = Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
+    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request):
+        # Make sure Google Auth is valid for this test instance
+        mock_sso_providers.return_value = {"google-oauth2": True}
+
+        new_org = Organization.objects.create(name="Hogflix Movies")
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=new_org,
+        )
         new_project = Team.objects.create(organization=new_org, name="My First Project")
         user_count = User.objects.count()
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": "jane@hogflix.posthog.com",
+        }
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -387,9 +402,98 @@ class TestSignupAPI(APIBaseTest):
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_to_existing_org_with_whitelisted_domains_is_disabled_in_cloud(self, mock_request):
-        Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
+    def test_social_signup_with_whitelisted_domain_on_self_hosted(self, mock_sso_providers, mock_request):
+        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_social_signup_with_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
+        with self.settings(MULTI_TENANCY=True):
+            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_cannot_social_signup_with_whitelisted_but_jit_provisioning_disabled(
+        self, mock_sso_providers, mock_request
+    ):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        new_org = Organization.objects.create(name="Test org")
+        OrganizationDomain.objects.create(
+            domain="posthog.net", verified_at=timezone.now(), jit_provisioning_enabled=False, organization=new_org,
+        )  # note `jit_provisioning_enabled=False`
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "alice@posthog.net"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error_code=jit_not_enabled"
+        )  # show the user an error; operation not permitted
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_cannot_social_signup_with_whitelisted_but_unverified_domain(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        new_org = Organization.objects.create(name="Test org")
+        OrganizationDomain.objects.create(
+            domain="posthog.net", verified_at=None, jit_provisioning_enabled=True, organization=new_org,
+        )  # note `verified_at=None`
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "alice@posthog.net"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error_code=no_new_organizations"
+        )  # show the user an error; operation not permitted
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_api_cannot_use_whitelist_for_different_domain(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        new_org = Organization.objects.create(name="Test org")
+        OrganizationDomain.objects.create(
+            domain="good.com", verified_at=timezone.now(), jit_provisioning_enabled=True, organization=new_org,
+        )
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": "alice@evil.com",
+        }  # note evil.com
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error_code=no_new_organizations"
+        )  # show the user an error; operation not permitted
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        Organization.objects.create(name="Hogflix Movies")
         user_count = User.objects.count()
         org_count = Organization.objects.count()
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -407,25 +511,6 @@ class TestSignupAPI(APIBaseTest):
 
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
-
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @pytest.mark.skip_on_multitenancy
-    @pytest.mark.ee
-    def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
-        Organization.objects.create(name="Test org", domain_whitelist=["good.com"])
-
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": "alice@evil.com"}
-
-        response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response, "/login?error=no_new_organizations"
-        )  # show the user an error; operation not permitted
 
 
 class TestInviteSignup(APIBaseTest):

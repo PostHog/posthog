@@ -11,7 +11,6 @@ import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipU
 
 export function FunnelLineGraph({
     inSharedMode,
-    color = 'white',
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -23,11 +22,10 @@ export function FunnelLineGraph({
         <LineGraph
             data-attr="trend-line-graph-funnel"
             type={GraphType.Line}
-            color={color}
             datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={incompletenessOffsetFromEnd < 0}
-            insightId={insight.id}
+            insightNumericId={insight.id}
             inSharedMode={!!inSharedMode}
             showPersonsModal={showPersonsModal}
             tooltip={{

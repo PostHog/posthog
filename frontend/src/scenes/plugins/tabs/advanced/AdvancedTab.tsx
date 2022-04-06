@@ -7,7 +7,7 @@ import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function AdvancedTab(): JSX.Element {
     const { preflight } = useValues(preflightLogic)

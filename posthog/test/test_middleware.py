@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework import status
 
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -89,64 +89,10 @@ class TestAccessMiddleware(APIBaseTest):
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 
-class TestToolbarCookieMiddleware(APIBaseTest):
-    CONFIG_AUTO_LOGIN = False
-
-    def test_logged_out_client(self):
-        response = self.client.get("/")
-        self.assertEqual(0, len(response.cookies))
-
-    def test_logged_in_client(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar", TOOLBAR_COOKIE_SECURE=False):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            toolbar_cookie = response.cookies[settings.TOOLBAR_COOKIE_NAME]
-
-            self.assertEqual(toolbar_cookie.key, settings.TOOLBAR_COOKIE_NAME)
-            self.assertEqual(toolbar_cookie.value, "yes")
-            self.assertEqual(toolbar_cookie["path"], "/")
-            self.assertEqual(toolbar_cookie["samesite"], "None")
-            self.assertEqual(toolbar_cookie["httponly"], True)
-            self.assertEqual(toolbar_cookie["domain"], "")
-            self.assertEqual(toolbar_cookie["comment"], "")
-            self.assertEqual(toolbar_cookie["secure"], "")
-            self.assertEqual(toolbar_cookie["max-age"], 31536000)
-
-    def test_logged_in_client_secure(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar", TOOLBAR_COOKIE_SECURE=True):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            toolbar_cookie = response.cookies[settings.TOOLBAR_COOKIE_NAME]
-
-            self.assertEqual(toolbar_cookie.key, "phtoolbar")
-            self.assertEqual(toolbar_cookie.value, "yes")
-            self.assertEqual(toolbar_cookie["path"], "/")
-            self.assertEqual(toolbar_cookie["samesite"], "None")
-            self.assertEqual(toolbar_cookie["httponly"], True)
-            self.assertEqual(toolbar_cookie["domain"], "")
-            self.assertEqual(toolbar_cookie["comment"], "")
-            self.assertEqual(toolbar_cookie["secure"], True)
-            self.assertEqual(toolbar_cookie["max-age"], 31536000)
-
-    def test_logout(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar"):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].key, "phtoolbar")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].value, "yes")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME]["max-age"], 31536000)
-
-            response = self.client.get("/logout")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].key, "phtoolbar")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].value, "")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME]["max-age"], 0)
-
-
 class TestAutoProjectMiddleware(APIBaseTest):
-    BASE_APP_NUM_QUERIES = 45  # How may queries are made in the base app
+    # How many queries are made in the base app
+    # On Cloud there's an additional multi_tenancy_organizationbilling query
+    BASE_APP_NUM_QUERIES = 45 if not settings.MULTI_TENANCY else 46
 
     second_team: Team
 

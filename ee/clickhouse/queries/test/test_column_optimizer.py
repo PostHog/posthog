@@ -1,7 +1,5 @@
-import pytest
-
 from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
@@ -27,7 +25,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
     def test_properties_used_in_filter(self):
-        properties_used_in_filter = lambda filter: ColumnOptimizer(filter, self.team.id).properties_used_in_filter
+        properties_used_in_filter = lambda filter: EnterpriseColumnOptimizer(
+            filter, self.team.id
+        ).properties_used_in_filter
 
         self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(
@@ -151,19 +151,19 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
         self.assertEqual(
-            ColumnOptimizer(filter, self.team.id).properties_used_in_filter,
+            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
             {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
         )
 
         filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
         self.assertEqual(
-            ColumnOptimizer(filter, self.team.id).properties_used_in_filter,
+            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
             {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
         )
 
     def test_materialized_columns_checks(self):
-        optimizer = lambda: ColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
-        optimizer_groups = lambda: ColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
+        optimizer = lambda: EnterpriseColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
+        optimizer_groups = lambda: EnterpriseColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
 
         self.assertEqual(optimizer().event_columns_to_query, {"properties"})
         self.assertEqual(optimizer().person_columns_to_query, {"properties"})
@@ -179,7 +179,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(optimizer_groups().person_columns_to_query, {"pmat_person_prop"})
 
     def test_should_query_element_chain_column(self):
-        should_query_elements_chain_column = lambda filter: ColumnOptimizer(
+        should_query_elements_chain_column = lambda filter: EnterpriseColumnOptimizer(
             filter, self.team.id
         ).should_query_elements_chain_column
 
@@ -200,7 +200,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
         self.assertEqual(
-            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False,
+            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False,
         )
 
         ActionStep.objects.create(
@@ -208,16 +208,16 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
-            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
+            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
         )
 
         filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
         self.assertEqual(
-            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
+            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
         )
 
     def test_group_types_to_query(self):
-        group_types_to_query = lambda filter: ColumnOptimizer(filter, self.team.id).group_types_to_query
+        group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query
 
         self.assertEqual(group_types_to_query(BASE_FILTER), set())
         self.assertEqual(group_types_to_query(FILTER_WITH_PROPERTIES), {2})

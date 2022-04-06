@@ -14,6 +14,7 @@ describe('Insights', () => {
         // apply filter
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=expand-list-event_properties]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
@@ -31,6 +32,8 @@ describe('Insights', () => {
 
         // Save and continue editing
         cy.get('[data-attr="insight-save-dropdown"]').click()
+        cy.get('[data-attr="add-action-event-button"]').click()
+        cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="insight-save-and-continue"]').click()
         cy.get('[data-attr="add-action-event-button"]').should('exist')
 
@@ -40,14 +43,14 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-as-new-insight"]').click()
 
         cy.get('.ant-modal .ant-btn-primary').click()
-        cy.get('[data-attr="insight-name"').contains('(copy)').should('exist')
+        cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
         // Check we're in edit mode
         cy.get('[data-attr="insight-save-button"]').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('eq', '/i/i_dont_exist')
+        cy.location('pathname').should('eq', '/insights/i_dont_exist')
         cy.get('.ant-skeleton-title').should('exist')
     })
 
@@ -61,7 +64,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('body').type('l') // Tab is cut off on narrow screens; plus we test hotkeys too
+        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
         cy.get('h4').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph

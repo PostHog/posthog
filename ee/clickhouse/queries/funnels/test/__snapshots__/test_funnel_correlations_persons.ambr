@@ -491,8 +491,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['bar'], trim(BOTH '"'
-                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -629,8 +628,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['bar'], trim(BOTH '"'
-                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -767,8 +765,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['bar'], trim(BOTH '"'
-                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id

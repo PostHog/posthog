@@ -8,7 +8,7 @@ import {
     FunnelLayout,
     COHORT_DYNAMIC,
     COHORT_STATIC,
-    BinCountAuto,
+    BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogLevel } from 'rrweb'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -31,6 +32,7 @@ export enum AvailableFeature {
     PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
+    SSO_ENFORCEMENT = 'sso_enforcement',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
@@ -52,6 +54,13 @@ export enum Realm {
     Demo = 'demo',
     SelfHostedPostgres = 'hosted',
     SelfHostedClickHouse = 'hosted-clickhouse',
+}
+
+export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -85,7 +94,7 @@ export interface UserType extends UserBaseType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
-    realm: Realm
+    realm?: Realm
     posthog_version?: string
 }
 
@@ -122,9 +131,22 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    domain_whitelist: string[]
     is_member_join_email_enabled: boolean
     metadata?: OrganizationMetadata
+}
+
+export interface OrganizationDomainType {
+    id: string
+    domain: string
+    is_verified: boolean
+    verified_at: string // Datetime
+    verification_challenge: string
+    jit_provisioning_enabled: boolean
+    sso_enforcement: SSOProviders | ''
+    has_saml: boolean
+    saml_entity_id: string
+    saml_acs_url: string
+    saml_x509_cert: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -202,6 +224,8 @@ export interface TeamBasicType {
 }
 
 export interface TeamType extends TeamBasicType {
+    created_at: string
+    updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
     slack_incoming_webhook: string
@@ -209,8 +233,8 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
-
     has_group_types: boolean
+    primary_dashboard: number // Dashboard shown on the project homepage
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -373,6 +397,20 @@ export interface PlayerPosition {
     windowId: string
 }
 
+export interface RRWebRecordingConsoleLogPayload {
+    level: LogLevel
+    payload: string[]
+    trace: string[]
+}
+
+export interface RecordingConsoleLog {
+    playerPosition: PlayerPosition | null
+    parsedPayload: string
+    parsedTraceURL?: string
+    parsedTraceString?: string
+    level: LogLevel
+}
+
 export interface RecordingSegment {
     startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
     endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
@@ -396,8 +434,8 @@ export interface SessionRecordingMeta {
 export interface SessionPlayerData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
-    session_recording: SessionRecordingMeta
-    bufferedTo: PlayerPosition
+    metadata: SessionRecordingMeta
+    bufferedTo: PlayerPosition | null
     next?: string
 }
 
@@ -561,7 +599,7 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-export type BinCountValue = number | typeof BinCountAuto
+export type BinCountValue = number | typeof BIN_COUNT_AUTO
 
 // https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
 export enum StepOrderValue {
@@ -576,6 +614,7 @@ export enum PersonsTabType {
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
+    HISTORY = 'history',
 }
 
 export enum LayoutView {
@@ -629,7 +668,7 @@ export interface SessionRecordingType {
 
 export interface SessionRecordingEvents {
     next?: string
-    events: EventType[]
+    events: RecordingEventType[]
 }
 
 export interface BillingType {
@@ -671,11 +710,12 @@ export interface InsightModel {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
+    derived_name?: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
-    order: number
+    order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -686,7 +726,6 @@ export interface InsightModel {
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
-    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags?: string[]
@@ -841,6 +880,7 @@ export enum ChartDisplayType {
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type SmoothingType = number
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -882,9 +922,14 @@ export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
     interval?: IntervalType
+
+    // Specifies that we want to smooth the aggregation over the specified
+    // number of intervals, e.g. for a day interval, we may want to smooth over
+    // 7 days to remove weekly variation. Smoothing is performed as a moving average.
+    smoothing_intervals?: number
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     event?: string // specify one event
     actions?: Record<string, any>[]
@@ -1149,26 +1194,17 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: InsightShortId
-    color?: string
-    filters: Partial<FilterType>
+    inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult[]
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | null
-    /** enable url handling for this insight */
-    syncWithUrl?: boolean
-    /** cached results, avoid making a request */
-    cachedResults?: any
-    /** cached filters, avoid making a request */
-    filters?: Partial<FilterType> | null
-    /** enable this to make unsaved queries */
-    doNotPersist?: boolean
+    dashboardItemId?: InsightShortId | 'new' | null
+    /** cached insight */
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
 }
@@ -1196,7 +1232,7 @@ export interface MultivariateFlagOptions {
     variants: MultivariateFlagVariant[]
 }
 
-interface FeatureFlagFilters {
+export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
@@ -1235,13 +1271,6 @@ export interface PrevalidatedInvite {
     organization_name: string
 }
 
-interface AuthBackends {
-    'google-oauth2'?: boolean
-    gitlab?: boolean
-    github?: boolean
-    saml?: boolean
-}
-
 interface InstancePreferencesInterface {
     debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
     disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
@@ -1263,7 +1292,6 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -1282,16 +1310,18 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
+export enum DashboardPlacement {
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
+    ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    Dashboard = 'dashboard', // When on the standard dashboard page
+}
+
 export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
-    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
-
-// Reserved hotkeys globally available
-export type GlobalHotKeys = 'g'
 
 // Hotkeys for local (component) actions
 export type HotKeys =
@@ -1328,7 +1358,7 @@ export interface LicenseType {
     key: string
     plan: LicensePlan
     valid_until: string
-    max_users: string | null
+    max_users: number | null
     created_at: string
 }
 
@@ -1375,6 +1405,7 @@ export interface PropertyDefinition {
 }
 
 export interface PersonProperty {
+    id: number
     name: string
     count: number
 }
@@ -1396,7 +1427,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string
@@ -1449,7 +1480,7 @@ export enum FilterLogicalOperator {
     Or = 'OR',
 }
 export interface PropertyGroupFilter {
-    type?: FilterLogicalOperator
+    type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
 }
 
@@ -1497,7 +1528,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     /** Whether the user was autoswitched to the current item's team. */
-    switched_team: boolean
+    switched_team: TeamType['id'] | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1642,8 +1673,9 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number
+    value: boolean | string | number | null
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
+    is_secret: boolean
 }

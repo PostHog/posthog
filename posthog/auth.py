@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 from django.apps import apps
-from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from rest_framework import authentication

@@ -1,3 +1,4 @@
+# flake8: noqa
 from .base import ClickhouseFunnelBase
 from .funnel import ClickhouseFunnel
 from .funnel_persons import ClickhouseFunnelActors

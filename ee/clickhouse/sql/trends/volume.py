@@ -8,11 +8,11 @@ SELECT {aggregate_operation} as data FROM ({event_query}) events
 
 ACTIVE_USER_SQL = """
 SELECT counts as total, timestamp as day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT person_id) counts FROM (
+    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
         SELECT toStartOfDay(timestamp) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(timestamp) as timestamp, person_id FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, person_id
+        SELECT toStartOfDay(timestamp) as timestamp, {aggregator} FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, {aggregator}
     ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
@@ -20,8 +20,16 @@ SELECT counts as total, timestamp as day_start FROM (
 """
 
 AGGREGATE_SQL = """
-SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
-    SELECT SUM(total) AS count, day_start from ({null_sql} UNION ALL {content_sql}) group by day_start order by day_start
+SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
+    SELECT {smoothing_operation} AS count, day_start
+    from (
+        {null_sql}
+        UNION ALL
+        {content_sql}
+    )
+    group by day_start
+    order by day_start
+    SETTINGS allow_experimental_window_functions = 1
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """

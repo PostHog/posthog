@@ -51,7 +51,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
             </DefinitionPopup.Grid>
             <DefinitionPopup.Section>
                 <Link
-                    to="https://posthog.com/docs/user-guides"
+                    to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
                     style={{ fontWeight: 600, marginTop: 8 }}
@@ -271,6 +271,7 @@ function DefinitionEdit(): JSX.Element {
         singularType,
         hasTaxonomyFeatures,
         isViewable,
+        hideView,
         type,
         dirty,
         viewFullDetailUrl,
@@ -295,7 +296,7 @@ function DefinitionEdit(): JSX.Element {
                             id="description"
                             className="definition-popup-edit-form-value"
                             autoFocus
-                            placeholder={`There is no description for this ${singularType}.`}
+                            placeholder={`Add a description for this ${singularType}.`}
                             value={localDefinition.description || ''}
                             onChange={(e) => {
                                 setLocalDefinition({ description: e.target.value })
@@ -340,7 +341,7 @@ function DefinitionEdit(): JSX.Element {
                 )}
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
-                    {isViewable && type !== TaxonomicFilterGroupType.Events ? (
+                    {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <Link target="_blank" to={viewFullDetailUrl}>
                             <Button
                                 className="definition-popup-edit-form-buttons-secondary"
@@ -405,8 +406,7 @@ export function ControlledDefinitionPopupContents({
         return <></>
     }
 
-    const { state, singularType, isElement, isViewable, definition, onMouseLeave, hideView, hideEdit } =
-        useValues(definitionPopupLogic)
+    const { state, singularType, isElement, definition, onMouseLeave } = useValues(definitionPopupLogic)
     const { setDefinition } = useActions(definitionPopupLogic)
     const icon = group.getIcon?.(definition || item)
 
@@ -465,13 +465,12 @@ export function ControlledDefinitionPopupContents({
                                 type={isElement ? 'element' : undefined}
                                 disablePopover
                                 disableIcon={!!icon}
+                                ellipsis={false}
                             />
                         }
                         headerTitle={group.getPopupHeader?.(item)}
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
-                        hideEdit={hideEdit || !isViewable}
-                        hideView={hideView || !isViewable}
                     />
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
@@ -489,6 +488,7 @@ interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps 
     onSave?: () => void
     hideView?: boolean
     hideEdit?: boolean
+    openDetailInNewTab?: boolean
 }
 
 export function DefinitionPopupContents({
@@ -502,6 +502,7 @@ export function DefinitionPopupContents({
     onSave,
     hideView = false,
     hideEdit = false,
+    openDetailInNewTab = true,
 }: DefinitionPopupContentsProps): JSX.Element {
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
@@ -537,6 +538,7 @@ export function DefinitionPopupContents({
                             onCancel,
                             hideView,
                             hideEdit,
+                            openDetailInNewTab,
                         }}
                     >
                         <ControlledDefinitionPopupContents

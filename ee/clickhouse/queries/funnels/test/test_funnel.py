@@ -1,16 +1,12 @@
 from datetime import datetime
-from typing import List, cast
 from unittest.case import skip
 from uuid import uuid4
 
-from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -26,7 +22,6 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
 from posthog.test.base import test_with_materialized_columns

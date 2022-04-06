@@ -1,9 +1,9 @@
 import json
-from typing import Any, Dict, Iterator, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PROPERTIES, PROPERTY_GROUPS, PropertyOperatorType
+from posthog.constants import PROPERTIES, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.property import Property, PropertyGroup
@@ -101,11 +101,14 @@ class PropertyMixin(BaseParamMixin):
             return cast(List[Property], [])
         has_property_groups = False
         has_simple_properties = False
+
         for prop in prop_list:
             if "type" in prop and "values" in prop:
                 has_property_groups = True
-            else:
+            elif "key" in prop:
                 has_simple_properties = True
+            else:
+                has_property_groups = True
 
         if has_simple_properties and has_property_groups:
             raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")

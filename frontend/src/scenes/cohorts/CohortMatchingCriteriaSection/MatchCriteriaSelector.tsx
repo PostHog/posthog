@@ -159,6 +159,7 @@ function EntityCriteriaRow({
             <Row gutter={8}>
                 <Col flex="auto">
                     <TaxonomicPopup
+                        type="secondary"
                         groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         groupType={group.action_id ? TaxonomicFilterGroupType.Actions : TaxonomicFilterGroupType.Events}
                         value={group.action_id || group.event_id}

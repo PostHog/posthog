@@ -8,9 +8,6 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -18,6 +15,7 @@ from ee.clickhouse.sql.cohort import (
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -27,8 +25,11 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
+from posthog.client import sync_execute
 from posthog.models import Action, Cohort, Filter, Team
+from posthog.models.action.util import format_action_filter
 from posthog.models.property import Property
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -377,6 +378,17 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
         return []
 
 
-def get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
+
+
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    return [row[0] for row in res]
+
+
+def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
+    static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+    return [*cohort_ids, *static_cohort_ids]

@@ -44,6 +44,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-active: #{$border_active};
     --radius: #{$radius};
     --shadow-elevation: #{$shadow_elevation};
+    --opacity-disabled: #{$opacity_disabled};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
@@ -77,6 +78,15 @@ NOTE: $medium is a SCSS var; not a keyword
     --z-graph-tooltip: #{$z_graph_tooltip};
     // Taxonomy
     --taxonomy-icon-muted: #{$taxonomy_icon_muted};
+    // Toasts
+    --toastify-color-info: var(--primary);
+    --toastify-color-success: var(--success);
+    --toastify-color-warning: var(--warning);
+    --toastify-color-error: var(--danger);
+    --toastify-toast-background: var(--bg-light);
+    --toastify-toast-width: 26rem;
+    --toastify-toast-min-height: 3.5rem;
+    --toastify-toast-max-height: 16rem;
 }
 
 // Text styles
@@ -88,7 +98,7 @@ body strong {
 }
 
 .text-default {
-    color: $text_default;
+    color: var(--text-default);
     font-size: 14px;
     line-height: 20px;
     font-weight: 400;
@@ -118,6 +128,9 @@ body strong {
     margin: 1.25rem 0 0.25rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
+    }
+    .ant-form-item {
+        margin-bottom: 0 !important;
     }
 }
 
@@ -443,76 +456,56 @@ input::-ms-clear {
 
 // Toasts
 
-.Toastify__toast-container {
-    opacity: 1;
-    transform: none;
-    margin-top: $top_nav_height;
+.Toastify__toast {
+    align-items: center;
+    opacity: 1 !important;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--radius);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
+    font-size: 1rem;
+    cursor: unset;
 }
 
-.Toastify__toast {
-    padding: 16px;
-    border-radius: $radius;
-    font-family: inherit;
-    background-color: $bg_light;
-    border: 1px solid $border;
+.Toastify__toast-container {
+    padding: 0;
+}
+
+.Toastify__toast-body {
     @extend .text-default;
-
-    h1 {
-        font-size: 1.14rem;
-        font-weight: bold;
+    font-weight: 500;
+    padding: 0;
+    b,
+    strong {
+        font-weight: 700;
     }
+    button {
+        margin: 0 0.75rem;
+    }
+}
 
-    .action-bar {
-        @extend .text-small;
-        color: $text_muted;
-        margin-top: $default_spacing / 2;
-        display: flex;
-        align-items: center;
-        a {
-            color: $text_muted;
-        }
-        .help-button {
-            flex-grow: 1;
-            text-align: right;
-        }
-        .ant-btn-link {
-            padding: 0;
-        }
+.Toastify__toast-icon {
+    color: var(--muted-alt);
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.75rem;
+    font-size: 1.5rem;
+    .Toastify__toast--success & {
+        color: var(--toastify-color-success);
+    }
+    .Toastify__toast--warning & {
+        color: var(--toastify-color-warning);
+    }
+    .Toastify__toast--error & {
+        color: var(--toastify-color-error);
     }
 }
 
 .Toastify__progress-bar {
-    background: $success;
-}
-
-.Toastify__toast--success {
-    h1 {
-        color: $success;
-    }
-}
-
-.Toastify__toast--info {
-    h1 {
-        color: $primary_alt;
-    }
-    &.accent-border {
-        border-color: $primary_alt;
-    }
-    .Toastify__progress-bar {
-        background: $primary_alt;
-    }
-}
-
-.Toastify__toast--error {
-    h1 {
-        color: $danger;
-    }
-    .Toastify__progress-bar {
-        background: $danger;
-    }
-    .error-details {
-        font-style: italic;
-    }
+    height: var(--radius);
 }
 
 // Table styles
@@ -578,6 +571,16 @@ input::-ms-clear {
 
 .ant-btn-sm {
     font-size: 12px !important;
+}
+
+.ant-btn-primary.btn-danger {
+    background-color: $danger !important;
+    border-color: $danger !important;
+    &:disabled {
+        background-color: lighten($danger, 20%) !important;
+        color: lighten(#fff, 20%) !important;
+        border-color: lighten($danger, 20%) !important;
+    }
 }
 
 .ant-btn-md {

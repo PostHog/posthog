@@ -1,8 +1,9 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'
+import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
-import { determineNodeEnv, NodeEnv, pluginDigest } from '../../../utils/utils'
+import { pluginDigest } from '../../../utils/utils'
 
 function consoleFormat(...args: unknown[]): string {
     return args

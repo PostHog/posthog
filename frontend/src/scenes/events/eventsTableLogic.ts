@@ -1,14 +1,14 @@
 import { kea } from 'kea'
-import { errorToast, successToast, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -44,7 +44,6 @@ export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     key: string
     sceneUrl: string
-    disableActions?: boolean
     fetchMonths?: number
 }
 
@@ -78,7 +77,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             pollingActive,
         }),
         setProperties: (
-            properties: AnyPropertyFilter[] | AnyPropertyFilter
+            properties: AnyPropertyFilter[] | AnyPropertyFilter | PropertyGroupFilter
         ): {
             properties: AnyPropertyFilter[]
         } => {
@@ -124,7 +123,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
+                setProperties: (_, { properties }) => convertPropertyGroupToProperties(properties) as PropertyFilter[],
             },
         ],
         eventFilter: [
@@ -277,7 +276,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
-            successToast('The export is starting', 'It should finish soon.')
+            lemonToast.success('The export is starting. It should finish soon')
             window.location.href = values.exportUrl
         },
         setProperties: () => actions.fetchEvents(),
@@ -343,11 +342,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 isNext: !!nextParams,
             })
 
-            if (!props.disableActions) {
-                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-                actions.setPollTimeout(timeout)
-            }
+            // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+            const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+            actions.setPollTimeout(timeout)
         },
         pollEvents: async (_, breakpoint) => {
             function setNextPoll(): void {
@@ -363,11 +360,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             // Do not poll if the scene is in the background
             if (props.sceneUrl !== router.values.location.pathname) {
-                return
-            }
-
-            // Do not poll if polling is disabled
-            if (props.disableActions) {
                 return
             }
 
@@ -413,12 +405,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
         },
         fetchOrPollFailure: ({ error }: { error: ApiError }) => {
-            errorToast(
-                undefined,
-                'There was a problem fetching your events. Please refresh this page to try again.',
-                error.statusText,
-                error.status
-            )
+            lemonToast.error(`There was a problem fetching your events: ${error.statusText}`)
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
             if (automaticLoadEnabled) {

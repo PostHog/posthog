@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { objectTagsLogicType } from './objectTagsLogicType'
-import { errorToast } from 'lib/utils'
+import { lemonToast } from '../lemonToast'
 
 export interface ObjectTagsLogicProps {
     id: number
@@ -65,7 +65,7 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
         },
         handleAdd: async () => {
             if (values.tags?.includes(values.cleanedNewTag)) {
-                errorToast("Oops! Can't add that tag", 'That tag already exists.', 'Validation error')
+                lemonToast.error(`Tag "${values.cleanedNewTag}" already is in the list`)
                 return
             }
             const newTags = [...(values.tags || []), values.cleanedNewTag]

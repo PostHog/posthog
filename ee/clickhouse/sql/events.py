@@ -1,18 +1,18 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
 TRUNCATE_EVENTS_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
-DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     uuid UUID,
     event VARCHAR,
@@ -27,15 +27,24 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-EVENTS_TABLE_MATERIALIZED_COLUMNS = """
-    , $group_0 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
+EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
+    , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+"""
 
+EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
+    , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
@@ -69,7 +78,7 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW events_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -89,6 +98,35 @@ FROM {database}.kafka_events
     database=settings.CLICKHOUSE_DATABASE,
 )
 
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    extra_fields="",
+    materialized_columns="",
+)
+
+EVENTS_TABLE_JSON_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+_timestamp,
+_offset
+FROM {database}.kafka_events_json
+""".format(
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+)
+
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_events based on a sharding key.
@@ -96,7 +134,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
 )
 
@@ -105,8 +143,8 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
-    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    extra_fields=KAFKA_COLUMNS,
+    materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
 )
 
 INSERT_EVENT_SQL = (
@@ -144,7 +182,7 @@ FROM events WHERE team_id = %(team_id)s
 
 SELECT_PROP_VALUES_SQL = """
 SELECT
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+    DISTINCT {property_field}
 FROM
     events
 WHERE
@@ -157,12 +195,12 @@ LIMIT 10
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+    DISTINCT {property_field}
 FROM
     events
 WHERE
     team_id = %(team_id)s AND
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+    {property_field} ILIKE %(value)s
     {parsed_date_from}
     {parsed_date_to}
 LIMIT 10
@@ -214,10 +252,6 @@ SELECT
     elements_chain,
     created_at
 FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
-"""
-
-GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

@@ -62,6 +62,8 @@ const indexJs = `
     export async function handleAlert(alert) {
         testConsole.log('handleAlert', alert)
     }
+
+    export async function runEveryMinute() {}
 `
 
 // TODO: merge these tests with clickhouse/e2e.test.ts
@@ -246,7 +248,8 @@ describe('e2e', () => {
         })
     })
 
-    describe('e2e export historical events', () => {
+    // historical exports are currently disabled
+    describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))

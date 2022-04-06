@@ -2,6 +2,7 @@ from typing import List, Optional, Tuple
 
 from semantic_version.base import SimpleSpec
 
+from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.setup import (
     POSTHOG_VERSION,
     get_async_migration_definition,
@@ -15,12 +16,7 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
-from posthog.models.async_migration import (
-    AsyncMigration,
-    AsyncMigrationError,
-    MigrationStatus,
-    get_all_running_async_migrations,
-)
+from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -30,7 +26,9 @@ Important to prevent us taking up too many celery workers and also to enable run
 MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
 
 
-def start_async_migration(migration_name: str, ignore_posthog_version=False) -> bool:
+def start_async_migration(
+    migration_name: str, ignore_posthog_version=False, migration_definition: Optional[AsyncMigrationDefinition] = None
+) -> bool:
     """
     Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
 
@@ -59,7 +57,8 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
     ):
         return False
 
-    migration_definition = get_async_migration_definition(migration_name)
+    if migration_definition is None:
+        migration_definition = get_async_migration_definition(migration_name)
 
     if not migration_definition.is_required():
         complete_migration(migration_instance, email=False)

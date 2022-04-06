@@ -2,18 +2,17 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
-from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import PropertyGroup
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
-class TrendsEventQuery(ClickhouseEventQuery):
+class TrendsEventQuery(EnterpriseEventQuery):
     _entity: Entity
     _filter: Filter
 
@@ -39,6 +38,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 ]
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
@@ -84,7 +84,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._entity.math == "dau":
+        if self._entity.math == "dau" and not self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = True
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
@@ -122,7 +122,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     @cached_property
     def _person_query(self):
-        return ClickhousePersonQuery(
+        return PersonQuery(
             self._filter,
             self._team_id,
             self._column_optimizer,

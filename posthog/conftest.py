@@ -1,19 +1,13 @@
 import pytest
+from django.conf import settings
 from infi.clickhouse_orm import Database
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
-)
+from posthog.client import sync_execute
 from posthog.test.base import TestMixin
 
 
@@ -22,7 +16,7 @@ def create_clickhouse_tables(num_tables: int):
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL
     from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
-    from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
     from ee.clickhouse.sql.groups import GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -31,7 +25,11 @@ def create_clickhouse_tables(num_tables: int):
         PERSONS_TABLE_SQL,
     )
     from ee.clickhouse.sql.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.session_recording_events import (
+        DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
+        SESSION_RECORDING_EVENTS_TABLE_SQL,
+        WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
@@ -48,6 +46,16 @@ def create_clickhouse_tables(num_tables: int):
         DEAD_LETTER_QUEUE_TABLE_MV_SQL,
         GROUPS_TABLE_SQL(),
     ]
+
+    if settings.CLICKHOUSE_REPLICATION:
+        TABLES_TO_CREATE_DROP.extend(
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                WRITABLE_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            ]
+        )
 
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
@@ -94,11 +102,12 @@ def reset_clickhouse_tables():
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
-        CLICKHOUSE_DATABASE,
-        db_url=CLICKHOUSE_HTTP_URL,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        verify_ssl_cert=CLICKHOUSE_VERIFY,
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
     )
 
     if not django_db_keepdb:
@@ -109,7 +118,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
     database.create_database()  # Create database if it doesn't exist
     table_count = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
+        "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": settings.CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)
 

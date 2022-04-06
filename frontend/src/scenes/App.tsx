@@ -2,7 +2,7 @@ import React from 'react'
 import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-import { preflightLogic } from './PreflightCheck/logic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
@@ -14,6 +14,10 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose } from 'lib/components/icons'
+import { usePageTitle } from '~/layout/navigation/Breadcrumbs/usePageTitle'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -102,6 +106,10 @@ function Models(): null {
     return null
 }
 
+function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
+    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
+}
+
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
@@ -111,12 +119,25 @@ function AppScene(): JSX.Element | null {
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
         (() => (showingDelayedSpinner ? <SceneLoading /> : null))
 
-    const toastContainer = <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
+    const toastContainer = (
+        <ToastContainer
+            autoClose={6000}
+            transition={Slide}
+            closeOnClick={false}
+            draggable={false}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+        />
+    )
+
+    usePageTitle()
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
+                <ErrorBoundary key={activeScene}>
+                    <SceneComponent {...params} />
+                </ErrorBoundary>
                 {toastContainer}
             </Layout>
         ) : null
@@ -125,7 +146,9 @@ function AppScene(): JSX.Element | null {
     return (
         <>
             <Navigation>
-                <SceneComponent user={user} {...params} />
+                <ErrorBoundary key={activeScene}>
+                    <SceneComponent user={user} {...params} />
+                </ErrorBoundary>
             </Navigation>
             {toastContainer}
             <UpgradeModal />

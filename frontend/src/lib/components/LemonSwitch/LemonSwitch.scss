@@ -11,7 +11,7 @@
     cursor: pointer;
     &:disabled {
         cursor: not-allowed;
-        opacity: 0.6;
+        opacity: var(--opacity-disabled);
     }
 }
 
@@ -81,22 +81,8 @@
     }
 }
 
-.LemonSwitch__wrapper {
-    display: flex;
-    align-items: center;
-    &--primary {
-        font-weight: 600;
-        flex-grow: 1;
-        height: 3rem;
-        padding: 0 1rem;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        .LemonSwitch__label {
-            flex-grow: 1;
-        }
-    }
-}
-
 .LemonSwitch__label {
     margin-right: 0.5rem;
+    flex-grow: 1;
+    font-weight: 500;
 }

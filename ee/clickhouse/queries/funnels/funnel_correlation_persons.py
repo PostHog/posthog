@@ -8,7 +8,6 @@ from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, SerializedGro
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType
 from posthog.models import Person
 from posthog.models.entity import Entity
@@ -16,6 +15,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
+from posthog.queries.person_query import PersonQuery
 
 
 class FunnelCorrelationActors(ActorBaseQuery):
@@ -75,7 +75,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         prop_filters = self._filter.correlation_person_entity.property_groups
 
         # TRICKY: We use "events" as an alias here while the eventquery uses "e" by default
-        event_query = FunnelEventQuery(self._filter, self._team.pk)
+        event_query = FunnelEventQuery(self._filter, self._team)
         event_query.EVENT_TABLE_ALIAS = "events"
 
         prop_query, prop_params = event_query._get_prop_groups(prop_filters)
@@ -189,7 +189,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
                 self._filter, self._team.pk, join_key="funnel_actors.actor_id"
             ).get_join_query()
         else:
-            person_query, actor_join_subquery_params = ClickhousePersonQuery(
+            person_query, actor_join_subquery_params = PersonQuery(
                 self._filter,
                 self._team.pk,
                 entity=Entity(

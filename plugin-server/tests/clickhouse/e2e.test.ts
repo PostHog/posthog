@@ -19,7 +19,7 @@ import { delayUntilEventIngested } from '../shared/process-event'
 const { console: testConsole } = writeToFile
 
 jest.mock('../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_ENABLED: true,
@@ -64,6 +64,8 @@ export async function exportEvents(events) {
         }
     }
 }
+
+export async function runEveryMinute() {}
 `
 
 // TODO: merge these tests with postgres/e2e.test.ts
@@ -157,7 +159,8 @@ describe('e2e', () => {
         })
     })
 
-    describe('e2e export historical events', () => {
+    // historical exports are currently disabled
+    describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
@@ -200,7 +203,7 @@ describe('e2e', () => {
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
