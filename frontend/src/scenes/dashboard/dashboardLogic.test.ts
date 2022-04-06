@@ -9,6 +9,7 @@ import { InsightModel, DashboardType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
+import posthog from 'posthog-js'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -255,10 +256,23 @@ describe('dashboardLogic', () => {
                 })
         })
 
-        it('should refresh all dashboards if lastRefreshed is older than 3 hours', async () => {
+        it('should refresh all dashboards if lastRefreshed is older than 3 hours and the feature flag is set', async () => {
+            // Bit of a hack to set the 'auto-refresh-dashboards' feature flag
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                persisted_feature_flags: ['auto-refresh-dashboards'],
+            } as unknown as AppContext
+            posthog.reloadFeatureFlags()
+
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
+        })
+
+        it('should not refresh all dashboards if lastRefreshed is older than 3 hours but the feature flag is not set', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
 
         it('should not refresh if lastRefreshed is less than 3 hours', async () => {

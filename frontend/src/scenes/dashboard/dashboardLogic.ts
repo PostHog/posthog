@@ -10,6 +10,7 @@ import {
     PATHS_VIZ,
     DashboardPrivilegeLevel,
     OrganizationMembershipLevel,
+    FEATURE_FLAGS,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -675,7 +676,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
+            if (
+                values.lastRefreshed &&
+                values.lastRefreshed.isBefore(now().subtract(3, 'hours')) &&
+                values.featureFlags[FEATURE_FLAGS.AUTO_REFRESH_DASHBOARDS]
+            ) {
                 actions.refreshAllDashboardItems()
             } else {
                 const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
