@@ -17,9 +17,17 @@ class ChangeSerializer(serializers.Serializer):
     after = serializers.JSONField(read_only=True)
 
 
+class MergeSerializer(serializers.Serializer):
+    type = serializers.CharField(read_only=True)
+    # mypy being weird about this specific field
+    source = serializers.JSONField(read_only=True)  # type: ignore
+    target = serializers.JSONField(read_only=True)
+
+
 class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
+    merge = MergeSerializer(required=False)
     name = serializers.CharField(read_only=True)
 
 
@@ -31,5 +39,5 @@ class ActivityLogSerializer(serializers.Serializer):
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
-    detail = DetailSerializer()
+    detail = DetailSerializer(required=False)
     created_at = serializers.DateTimeField(read_only=True)

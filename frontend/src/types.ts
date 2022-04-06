@@ -8,7 +8,7 @@ import {
     FunnelLayout,
     COHORT_DYNAMIC,
     COHORT_STATIC,
-    BinCountAuto,
+    BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -61,7 +61,6 @@ export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
-    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -144,6 +143,10 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProviders | ''
+    has_saml: boolean
+    saml_entity_id: string
+    saml_acs_url: string
+    saml_x509_cert: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -431,8 +434,8 @@ export interface SessionRecordingMeta {
 export interface SessionPlayerData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
-    session_recording: SessionRecordingMeta
-    bufferedTo: PlayerPosition
+    metadata: SessionRecordingMeta
+    bufferedTo: PlayerPosition | null
     next?: string
 }
 
@@ -596,7 +599,7 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-export type BinCountValue = number | typeof BinCountAuto
+export type BinCountValue = number | typeof BIN_COUNT_AUTO
 
 // https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
 export enum StepOrderValue {
@@ -611,6 +614,7 @@ export enum PersonsTabType {
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
+    HISTORY = 'history',
 }
 
 export enum LayoutView {
@@ -664,7 +668,7 @@ export interface SessionRecordingType {
 
 export interface SessionRecordingEvents {
     next?: string
-    events: EventType[]
+    events: RecordingEventType[]
 }
 
 export interface BillingType {
@@ -1318,9 +1322,6 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
-
-// Reserved hotkeys globally available
-export type GlobalHotKeys = 'g'
 
 // Hotkeys for local (component) actions
 export type HotKeys =
