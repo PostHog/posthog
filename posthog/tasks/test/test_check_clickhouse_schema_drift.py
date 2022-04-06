@@ -1,7 +1,7 @@
 from posthog.tasks.check_clickhouse_schema_drift import get_clickhouse_schema_drift
 
 
-def test_get_clickhouse_schema_drift():
+def test_get_clickhouse_schema_drift() -> None:
     # No drift
     clickhouse_nodes = [("node1",), ("node2",), ("node3",)]
     clickhouse_schema = [

@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Tuple
 
 import structlog
 from clickhouse_driver.errors import Error as ClickhouseError
@@ -10,7 +10,7 @@ from posthog.client import sync_execute
 logger = structlog.get_logger(__name__)
 
 
-def get_clickhouse_schema() -> List[tuple]:
+def get_clickhouse_schema() -> List[Tuple[str, str, str]]:
     """
     Get the ClickHouse schema of all tables that
     are not materialized views (aka: .inner_id.%)
@@ -33,7 +33,7 @@ def get_clickhouse_schema() -> List[tuple]:
     )
 
 
-def get_clickhouse_nodes() -> List[tuple]:
+def get_clickhouse_nodes() -> List[Tuple[str]]:
     """
     Get the ClickHouse nodes part of the cluster
     """
@@ -52,8 +52,10 @@ def get_clickhouse_nodes() -> List[tuple]:
     )
 
 
-def get_clickhouse_schema_drift(clickhouse_nodes: List[tuple], clickhouse_schema: List[tuple]) -> List:
-    diff = []
+def get_clickhouse_schema_drift(
+    clickhouse_nodes: List[Tuple[str]], clickhouse_schema: List[Tuple[str, str, str]]
+) -> List:
+    diff = []  # type: List[str]
     if len(clickhouse_nodes) <= 1:
         # There can't be drift if we have less than 2 nodes
         return diff
@@ -66,7 +68,7 @@ def get_clickhouse_schema_drift(clickhouse_nodes: List[tuple], clickhouse_schema
     #     "schema2-different": ["host2"],
     #     "schema2-different-bis": ["host3"]},
     # }
-    tables = {}
+    tables = {}  # type: Dict
     for item in clickhouse_schema:
         table_name = item[0]
         schema = item[1]
