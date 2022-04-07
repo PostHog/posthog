@@ -184,11 +184,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(13):
-            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
-            # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
-            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
-            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
