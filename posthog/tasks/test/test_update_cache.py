@@ -333,28 +333,65 @@ class TestUpdateCache(APIBaseTest):
         # dashboard 1 -> insight 1 and insight 2
         # dashboard 2 -> insight 2
         # dashboard 3 -> insight 3
-        Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
-        item2 = Insight.objects.create(filters=filter, team=self.team)
-        DashboardInsight.objects.create(insight=item2, dashboard=dashboard1)
-        DashboardInsight.objects.create(insight=item2, dashboard=dashboard2)
-        Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+        insight1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        insight2 = Insight.objects.create(filters=filter, team=self.team)
+        DashboardInsight.objects.create(insight=insight2, dashboard=dashboard1)
+        DashboardInsight.objects.create(insight=insight2, dashboard=dashboard2)
+        insight3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
 
         update_cached_items()
 
         insights = Insight.objects.all().order_by("id")
 
-        self.assertEqual(len(get_safe_cache(insights[0].filters_hash)["result"][0]["data"]), 15)
-        self.assertEqual(len(get_safe_cache(insights[1].filters_hash)["result"][0]["data"]), 31)
-        self.assertEqual(len(get_safe_cache(insights[2].filters_hash)["result"][0]["data"]), 8)
-        self.assertEqual(insights[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
-        self.assertEqual(insights[1].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
-        self.assertEqual(insights[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        # insight one has different cache key with and without dashboard link
+        self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(
+            len(
+                get_safe_cache(DashboardInsight.objects.get(insight=insight1, dashboard=dashboard1).filters_hash)[
+                    "result"
+                ][0]["data"]
+            ),
+            15,
+        )
 
-        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # insight two has different cache key by itself and for two different dashboards
+        self.assertEqual(len(get_safe_cache(insight2.filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(
+            len(
+                get_safe_cache(DashboardInsight.objects.get(insight=insight2, dashboard=dashboard1).filters_hash)[
+                    "result"
+                ][0]["data"]
+            ),
+            15,
+        )
+        self.assertEqual(
+            len(
+                get_safe_cache(DashboardInsight.objects.get(insight=insight2, dashboard=dashboard2).filters_hash)[
+                    "result"
+                ][0]["data"]
+            ),
+            31,
+        )
 
-        # TODO: assert each items cache has the right number of days and the right filters hash
+        # insight three has different cache key with and without dashboard link
+        self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(
+            len(
+                get_safe_cache(DashboardInsight.objects.get(insight=insight3, dashboard=dashboard3).filters_hash)[
+                    "result"
+                ][0]["data"]
+            ),
+            8,  # no additional filter from dashboard
+        )
+
+        insight1.refresh_from_db()
+        self.assertEqual(insight1.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+        insight2.refresh_from_db()
+        self.assertEqual(insight2.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+        insight3.refresh_from_db()
+        self.assertEqual(insight3.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_insights_old_filter(self) -> None:
