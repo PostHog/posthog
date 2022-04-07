@@ -252,7 +252,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # getting a dashboard was originally n plus 1,
         # with number of queries growing as the number of insights on the dashboard grew
         # now a stable 8 queries no matter how many insights are on the dashboard
-        self.assertEqual(query_counts, [8, 8, 8, 8, 8], f"received: {query_counts} for queries: \n\n {queries}")
+        self.assertTrue(
+            all(x == query_counts[0] for x in query_counts), f"received: {query_counts} for queries: \n\n {queries}"
+        )
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
