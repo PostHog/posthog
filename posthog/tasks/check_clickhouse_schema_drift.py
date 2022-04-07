@@ -69,7 +69,7 @@ def get_clickhouse_schema_drift(
     #     "schema2-different-bis": ["host3"]},
     # }
     tables = {}  # type: Dict
-    for item in clickhouse_schema:
+    for table_name, schema, node_name in clickhouse_schema:
         table_name = item[0]
         schema = item[1]
         node_name = item[2]
