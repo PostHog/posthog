@@ -32,8 +32,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     dataSource: T[]
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
     rowKey?: keyof T | ((record: T) => string | number)
-    /** Class name to append to each row */
+    /** Class to append to each row. */
     rowClassName?: string | ((record: T) => string)
+    /** Color to mark each row with. */
+    rowRibbonColor?: string | ((record: T) => string | null)
     /** Status of each row. Defaults no status. */
     rowStatus?:
         | 'success'
@@ -81,6 +83,7 @@ export function LemonTable<T extends Record<string, any>>({
     dataSource = [],
     rowKey,
     rowClassName,
+    rowRibbonColor,
     rowStatus,
     onRow,
     size,
@@ -211,7 +214,8 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {expandable && <col style={{ width: 0 }} />}
+                            {!!rowRibbonColor && <col style={{ width: 4 }} /> /* Ribbon column */}
+                            {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
                                 <col key={index} style={{ width: column.width }} />
                             ))}
@@ -219,7 +223,8 @@ export function LemonTable<T extends Record<string, any>>({
                         {showHeader && (
                             <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 <tr>
-                                    {expandable && <th />}
+                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
+                                    {!!expandable && <th /> /* Expand/collapse column */}
                                     {columns.map((column, columnIndex) => (
                                         <th
                                             key={determineColumnKey(column) || columnIndex}
@@ -293,6 +298,8 @@ export function LemonTable<T extends Record<string, any>>({
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                    const rowRibbonColorDetermined =
+                                        typeof rowRibbonColor === 'function' ? rowRibbonColor(record) : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
@@ -302,6 +309,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             recordIndex={paginationState.currentStartIndex + rowIndex}
                                             rowKeyDetermined={rowKeyDetermined}
                                             rowClassNameDetermined={rowClassNameDetermined}
+                                            rowRibbonColorDetermined={rowRibbonColorDetermined}
                                             rowStatusDetermined={rowStatusDetermined}
                                             columns={columns}
                                             onRow={onRow}

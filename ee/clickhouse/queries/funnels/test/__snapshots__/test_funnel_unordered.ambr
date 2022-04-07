@@ -20,7 +20,7 @@
        AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -46,7 +46,7 @@
        AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -72,7 +72,7 @@
        AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -303,7 +303,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -328,7 +328,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -353,7 +353,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -596,7 +596,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -621,7 +621,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -646,7 +646,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -889,7 +889,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -914,7 +914,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -939,7 +939,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1182,7 +1182,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1428,7 +1428,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1453,7 +1453,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1478,7 +1478,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1721,7 +1721,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1746,7 +1746,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---

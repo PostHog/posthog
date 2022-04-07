@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -250,7 +250,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
-                    return pluralize(result?.count || 0, 'person', undefined, false)
+                    return 'persons'
                 }
             },
         ],
