@@ -230,7 +230,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 error_message="",
                 results=None,
             )
-            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
             time.sleep(update_freq)
         else:
             rv = progress.get_result()
@@ -244,7 +244,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 error_message="",
                 results=rv,
             )
-            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
     except Exception as err:
         err = wrap_query_error(err)
@@ -261,7 +261,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
             error_message=str(err),
             results=None,
         )
-        redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+        redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
         raise err
     finally:
@@ -290,7 +290,7 @@ def enqueue_execute_with_progress(
     # Immediately set status so we don't have race with celery
     redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, status="submitted")
-    redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
+    redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
     if bypass_celery:
         # Call directly ( for testing )
@@ -312,8 +312,12 @@ def get_status_or_results(team_id, query_id):
     redis_client = redis.get_client()
     key = generate_redis_results_key(query_id)
     try:
-        str_results = redis_client.get(key).decode("utf-8")
-        query_status = QueryStatus.from_json(str_results)
+        byte_results = redis_client.get(key)
+        if byte_results:
+            str_results = byte_results.decode("utf-8")
+        else:
+            return QueryStatus(team_id, error=True, error_message="Query is unknown to backend")
+        query_status = QueryStatus.from_json(str_results)  # type: ignore
         if query_status.team_id != team_id:
             raise Exception("Requesting team is not executing team")
     except Exception as e:
