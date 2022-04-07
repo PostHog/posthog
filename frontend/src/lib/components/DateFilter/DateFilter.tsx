@@ -5,6 +5,7 @@ import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 import { dayjs } from 'lib/dayjs'
 import { dateMappingOption } from '~/types'
+import { Tooltip } from '../Tooltip'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -159,7 +160,12 @@ export function DateFilter({
 
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
-                            {key}
+                            <Tooltip
+                                title={key === 'Live' ? 'Defined by the actor being live in the last 5 minutes.' : null}
+                                placement="right"
+                            >
+                                {key}
+                            </Tooltip>
                         </Select.Option>
                     )
                 }),
