@@ -46,6 +46,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             exists = self.redis_client.exists(_key_hash(query, args=args))
             self.assertFalse(exists)
 
+    def test_async_query_client(self):
+        query = "SELECT 1+1"
+        team_id = 2
+        query_id = client.enqueue_execute_with_progress(team_id, query)
+        result = client.get_status_or_results(team_id, query_id)
+        self.assertEqual(result.results, [[2]])
+
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.

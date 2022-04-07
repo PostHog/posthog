@@ -189,7 +189,7 @@ def generate_redis_results_key(query_uuid):
 
 
 def execute_with_progress(
-    team_id, query_uuid, query, args=None, settings=None, with_column_types=False, update_freq=0.2
+    team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2
 ):
     """
     Kick off query with progress reporting
@@ -198,7 +198,7 @@ def execute_with_progress(
     Once complete save results to redis
     """
 
-    key = generate_redis_results_key(query_uuid)
+    key = generate_redis_results_key(query_id)
     ch_client = SyncClient(
         host=CLICKHOUSE_HOST,
         database="posthog",
@@ -279,16 +279,16 @@ def execute_with_progress(
 
 
 def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
-    query_uuid = uuid.uuid4()
-    key = generate_redis_results_key(query_uuid)
+    query_id = _query_hash(query, args)
+    key = generate_redis_results_key(query_id)
 
     # Immediately set status so we don't have race with celery
     redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, status="submitted")
     redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
 
-    enqueue_clickhouse_execute_with_progress.delay(team_id, query_uuid, query, args, settings, with_column_types)
-    return query_uuid
+    enqueue_clickhouse_execute_with_progress.delay(team_id, query_id, query, args, settings, with_column_types)
+    return query_id
 
 
 def get_status_or_results(team_id, query_uuid):
@@ -390,8 +390,22 @@ def _serialize(result: Any) -> bytes:
     return json.dumps(result).encode("utf-8")
 
 
+def _query_hash(query: str, args: Any) -> str:
+    """
+    Takes a query and returns a hex encoded hash of the query and args
+    """
+    if args:
+        key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).hexdigest()
+    else:
+        key = hashlib.md5(query.encode("utf-8")).hexdigest()
+    return key
+
+
 def _key_hash(query: str, args: Any) -> bytes:
-    key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
+    if args:
+        key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
+    else:
+        key = hashlib.md5(query.encode("utf-8")).digest()
     return key
 
 
