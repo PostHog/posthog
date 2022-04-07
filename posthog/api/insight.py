@@ -271,9 +271,10 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         """
         dashboard = self.context.get("dashboard", None)
         dashboard_id_from_params = self.context["request"].query_params.get("dashboard_id", None)
-        if not dashboard and dashboard_id_from_params:
+        if not dashboard and dashboard_id_from_params is not None:
             try:
                 dashboard = Dashboard.objects.get(pk=dashboard_id_from_params)
+                self.context.update({"dashboard": dashboard})
             except Dashboard.DoesNotExist as ex:
                 logger.error(
                     "loading_insight_could_not_find_dashboard",

@@ -17,10 +17,18 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.api.insight import InsightSerializer
 from posthog.models import Cohort, Dashboard, Insight, InsightViewed, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+
+
+class FakeRequest:
+    def __init__(self, query_params: Dict[str, Any], user: User) -> None:
+        self.query_params = query_params
+        self.data: Dict[str, Any] = {}
+        self.user = user
 
 
 def _create_person(**kwargs):
@@ -1166,6 +1174,36 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_to_representation_without_dashboard(self):
+        insight: Insight = Insight.objects.create(team=self.team, filters={"insight": "TRENDS"})
+
+        data = InsightSerializer(insight, many=False, context={"request": FakeRequest({}, self.user)}).data
+        self.assertEqual(
+            {"insight": "TRENDS"}, data["filters"],
+        )
+
+    def test_to_representation_with_dashboard_on_context(self):
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team, filters={"dateFrom": "-7d"})
+        insight: Insight = Insight.objects.create(team=self.team, filters={"insight": "TRENDS"})
+
+        data = InsightSerializer(
+            insight, many=False, context={"request": FakeRequest({}, self.user), "dashboard": dashboard}
+        ).data
+        self.assertEqual(
+            {"dateFrom": "-7d", "insight": "TRENDS"}, data["filters"],
+        )
+
+    def test_to_representation_with_dashboard_in_query_params(self):
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team, filters={"dateFrom": "-7d"})
+        insight: Insight = Insight.objects.create(team=self.team, filters={"insight": "TRENDS"})
+
+        data = InsightSerializer(
+            insight, many=False, context={"request": FakeRequest({"dashboard_id": dashboard.id}, self.user)}
+        ).data
+        self.assertEqual(
+            {"dateFrom": "-7d", "insight": "TRENDS"}, data["filters"],
+        )
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
