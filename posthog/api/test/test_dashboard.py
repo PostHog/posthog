@@ -196,7 +196,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             queries.append(qs)
 
         self._create_insight({"filters": filter_dict, "dashboards": [dashboard_two_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        count, qs = self._get_dashboard_counting_queries(dashboard_two_id)
         query_counts.append(count)
         queries.append(qs)
 
@@ -205,7 +205,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # 2 extra each time after that
         # adding a different dashboard to the same insight adds no more queries than adding the original
         self.assertEqual(
-            query_counts, [11, 21, 23, 25, 27, 29, 29], f"received: {query_counts} for queries: \n\n {queries}"
+            query_counts, [11, 21, 23, 25, 27, 29, 21], f"received: {query_counts} for queries: \n\n {queries}"
         )
 
     def test_return_cached_results(self):

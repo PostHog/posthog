@@ -165,15 +165,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         # deduplicate between items and insights relations, until items relation is guaranteed empty
         dashboard_insights: Dict[str, Insight] = {insight.short_id: insight for insight in dashboard.insights.filter()}
 
+        for item in dashboard.items.filter():
+            if item.short_id not in dashboard_insights:
+                dashboard_insights[item.short_id] = item
+
         #  Make sure all items have an insight set
         # This should have only happened historically
-        for item in dashboard.items.filter():
+        for item in dashboard_insights.values():
             if not item.filters.get("insight"):
                 item.filters["insight"] = INSIGHT_TRENDS
                 item.save()
-
-            if item.short_id not in dashboard_insights:
-                dashboard_insights[item.short_id] = item
 
         return InsightSerializer(dashboard_insights.values(), many=True, context=self.context).data
 
