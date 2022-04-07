@@ -1,6 +1,5 @@
 import { useValues, getContext, useActions } from 'kea'
 import { Provider } from 'react-redux'
-import { interpolateHsl } from 'lib/utils'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,8 +15,6 @@ import { countryVectors } from './countryVectors'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
 const SATURATION_FLOOR = 0.25
-/** --border in HSL for saturation mixing */
-const BORDER_HSL: [number, number, number] = [228, 0, 85]
 /** --primary in HSL for saturation mixing */
 const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
@@ -128,14 +125,11 @@ const WorldMapSVG = React.memo(
                         }
                         const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
                         const aggregatedValue = countrySeries?.aggregated_value || 0
-                        const fill =
-                            countryCode in countryCodeToSeries
-                                ? interpolateHsl(
-                                      BORDER_HSL,
-                                      PRIMARY_HSL,
-                                      SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
-                                  )
-                                : undefined
+                        const saturation =
+                            SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
+                        const fill = aggregatedValue
+                            ? `hsl(${PRIMARY_HSL[0]} ${PRIMARY_HSL[1]}% ${100 - (100 - PRIMARY_HSL[2]) * saturation}%)`
+                            : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,
                             style: { color: fill },

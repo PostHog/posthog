@@ -9,6 +9,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     recordIndex: number
     rowKeyDetermined: string | number
     rowClassNameDetermined: string | undefined
+    rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
     columns: LemonTableColumns<T>
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
@@ -20,6 +21,7 @@ function TableRowRaw<T extends Record<string, any>>({
     recordIndex,
     rowKeyDetermined,
     rowClassNameDetermined,
+    rowRibbonColorDetermined,
     rowStatusDetermined,
     columns,
     onRow,
@@ -44,6 +46,12 @@ function TableRowRaw<T extends Record<string, any>>({
                     rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`
                 )}
             >
+                {rowRibbonColorDetermined !== undefined && (
+                    <td
+                        className="LemonTable__ribbon"
+                        style={{ backgroundColor: rowRibbonColorDetermined || 'transparent' }}
+                    />
+                )}
                 {!!expandable && rowExpandable >= 0 && (
                     <td>
                         {!!rowExpandable && (

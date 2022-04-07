@@ -3,7 +3,7 @@ import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { PHCheckbox } from 'lib/components/PHCheckbox'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
@@ -124,7 +124,7 @@ export function InsightsTable({
         columns.push({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
-                    <PHCheckbox
+                    <LemonCheckbox
                         color={colorList[item.id]}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}

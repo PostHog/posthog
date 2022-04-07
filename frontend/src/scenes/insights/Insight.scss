@@ -183,9 +183,9 @@ $funnel_canvas_background: #fff;
             }
 
             .insights-graph-container-row-right {
-                width: 100%;
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;
+                width: fit-content;
                 padding: 0 $default_spacing $default_spacing 0;
                 display: flex;
                 align-items: center;
