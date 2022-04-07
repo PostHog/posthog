@@ -11,13 +11,14 @@ import {
     FunnelCorrelationResultsType,
     ActorType,
     GraphDataset,
+    ChartDisplayType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
@@ -64,7 +65,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     // casting here is not the best
     if (filters.insight === InsightType.STICKINESS) {
         params.stickiness_days = date_from as number
-    } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
+    } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
         params.date_to = date_from as string
     } else if (filters.insight === InsightType.LIFECYCLE) {
         params.date_from = filters.date_from

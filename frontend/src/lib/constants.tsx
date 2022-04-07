@@ -1,19 +1,8 @@
 import { urls } from 'scenes/urls'
 import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-// Sync these with the ChartDisplayType enum in types.ts
-// ... and remove once all files have migrated to TypeScript
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
-export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
-export const ACTIONS_TABLE = 'ActionsTable'
-export const ACTIONS_PIE_CHART = 'ActionsPie'
-export const ACTIONS_BAR_CHART = 'ActionsBar'
-export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
-export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_VIZ = 'FunnelViz'
-
-// Sync with backend TRENDS_DISPLAY_BY_VALUE
-export const TRENDS_DISPLAY_BY_VALUE = [
+// Sync with backend NON_TIME_SERIES_DISPLAY_TYPES
+export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsBarValue,
