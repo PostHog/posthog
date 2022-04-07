@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import fakeredis
+from clickhouse_driver.errors import ServerException
 from django.test import TestCase
 from freezegun import freeze_time
 
@@ -52,7 +53,30 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         team_id = 2
         query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
         result = client.get_status_or_results(team_id, query_id)
+        self.assertFalse(result.error)
+        self.assertTrue(result.complete)
         self.assertEqual(result.results, [[2]])
+
+    def test_async_query_client_errors(self):
+        query = "SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK"
+        team_id = 2
+        self.assertRaises(ServerException, client.enqueue_execute_with_progress, **{"team_id": team_id, "query": query, "bypass_celery": True})
+        try:
+            query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        except Exception:
+            pass
+
+        result = client.get_status_or_results(team_id, query_id)
+        self.assertTrue(result.error)
+
+    def test_async_query_client_does_not_leak(self):
+        query = "SELECT 1+1"
+        team_id = 2
+        wrong_team = 5
+        query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+        result = client.get_status_or_results(wrong_team, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_message, "Requesting team is not executing team")
 
     @patch("posthog.client.execute_with_progress")
     def test_async_query_client_is_lazy(self, execute_sync_mock):
