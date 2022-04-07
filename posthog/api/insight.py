@@ -2,7 +2,6 @@ import json
 from typing import Any, Dict, List, Optional, Type, Union
 
 import structlog
-from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -163,6 +162,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         else:
             raise serializers.ValidationError("Dashboard not found")
 
+        # many-to-many fields with a through-model are read-only
+        # so don't end up on validated_data
         dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
         self._link_to_dashboard(insight, dashboards)
 
@@ -185,38 +186,26 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return super().update(instance, validated_data)
 
     def _link_to_dashboard(self, insight: Insight, dashboards: List[Union[Dashboard, int]]) -> None:
-        with transaction.atomic():
+        dashboard_instances: List[Dashboard] = []
 
-            to_add: List[Dashboard] = []
-            try:
-                for dashboard in [d for d in dashboards if d]:
-                    if isinstance(dashboard, int):
-                        to_add.append(Dashboard.objects.filter(team=insight.team).get(pk=dashboard))
-                    else:
-                        to_add.append(dashboard)
-            except Dashboard.DoesNotExist as ex:
-                logger.info(
-                    "tried_to_add_insight_to_unknown_dashboard",
-                    insight=insight.short_id,
-                    dashboard=dashboard,
-                    exception=ex,
+        for dashboard in [d for d in dashboards if d]:
+            if isinstance(dashboard, int):
+                dashboard_instances.append(
+                    Dashboard.objects.filter(team=insight.team)
+                    .select_related("team__organization", "created_by")
+                    .get(pk=dashboard)
                 )
-                raise serializers.ValidationError({"dashboards": "Please provide a valid dashboard."})
+            else:
+                dashboard_instances.append(dashboard)
 
-            # we are going to replace all links with the new set so clear what is there...
-            # TODO this won't work when the join table stores more than just the link
-            insight.dashboard = None
-            DashboardInsight.objects.filter(insight=insight).delete()
-
-            for dashboard in to_add:
-                try:
-                    DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
-                except IntegrityError as ex:
-                    # it's ok to try to add more than once, and ignore duplicates
-                    # adding transaction atomic block stops this error affecting the rest of the API call
-                    is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
-                    if not is_a_duplicate_relation:
-                        raise ex
+        # remove legacy connection
+        insight.dashboard = None
+        # delete any connections not in the received set
+        insight.dashboardinsight_set.exclude(dashboard__in=dashboard_instances).delete()
+        # add any connections that don't already exist
+        for d in dashboard_instances:
+            if not insight.dashboardinsight_set.filter(dashboard=d).exists():
+                DashboardInsight.objects.create(insight=insight, dashboard=d)
 
     def get_result(self, insight: Insight):
         """
@@ -291,8 +280,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             return update_dashboard_item_cache(insight, dashboard)
 
         if dashboard:
-            dashboard_insight: Optional[DashboardInsight] = DashboardInsight.objects.filter(
-                insight=insight, dashboard=dashboard
+            dashboard_insight: Optional[DashboardInsight] = insight.dashboardinsight_set.filter(
+                dashboard=dashboard
             ).first()
             if dashboard_insight is None:
                 logger.warn(

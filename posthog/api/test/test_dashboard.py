@@ -174,6 +174,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -194,10 +195,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             query_counts.append(count)
             queries.append(qs)
 
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_two_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
         # query count is the expected value
-        # reduced from n plus 1, to 11 queries no matter how many insights by saving insights less often
-        # when saving dashboards
-        self.assertEqual(query_counts, [11] * 5, f"received: {query_counts} for queries: \n\n {queries}")
+        # the first time we add an insight to a dashboard there are 10 extra queries
+        # 2 extra each time after that
+        # adding a different dashboard to the same insight adds no more queries than adding the original
+        self.assertEqual(
+            query_counts, [11, 21, 23, 25, 27, 29, 29], f"received: {query_counts} for queries: \n\n {queries}"
+        )
 
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

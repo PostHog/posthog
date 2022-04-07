@@ -223,7 +223,12 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
         )
 
         insights_queryset = (
-            Insight.objects.select_related("created_by", "last_modified_by").filter(deleted=False).order_by("order")
+            Insight.objects.select_related("created_by", "last_modified_by")
+            .prefetch_related(
+                "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+            )
+            .filter(deleted=False)
+            .order_by("order")
         )
         queryset = (
             queryset.select_related("team__organization", "created_by")
