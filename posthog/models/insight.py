@@ -110,16 +110,12 @@ class Insight(models.Model):
 @receiver(post_save, sender=Dashboard)
 def dashboard_saved(sender, instance: Dashboard, created: bool, **kwargs):
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "last_accessed_at" in update_fields:
-        """
-        Don't update items if signalled that only last_accessed_at changed
-        """
+    if frozenset({"last_accessed_at"}) == update_fields:
+        # Don't update items if signalled that only last_accessed_at changed
         return
 
     for item in instance.items.all():
-        """
-        Update all items in case the dashboard filters changed and the cache key needs updating
-        """
+        # Update all items in case the dashboard filters changed and the cache key needs updating
         dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
         item.save()
 
