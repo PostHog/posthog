@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from ee.clickhouse.materialized_columns.columns import materialized_column_name
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
@@ -27,14 +28,17 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
+materialized_window_id_column_name = materialized_column_name("events", "$window_id")
+materialized_session_id_column_name = materialized_column_name("events", "$session_id")
+
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
     , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
     , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
     , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+    , {materialized_window_id_column_name} VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
+    , {materialized_session_id_column_name} VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
@@ -43,8 +47,8 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
     , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
     , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
     , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , {materialized_window_id_column_name} VARCHAR COMMENT 'column_materializer::$window_id'
+    , {materialized_session_id_column_name} VARCHAR COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
