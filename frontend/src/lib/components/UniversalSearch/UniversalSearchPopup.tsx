@@ -165,7 +165,7 @@ export function UniversalSearchPopup({
                         <Input
                             style={{ flexGrow: 1, cursor: 'pointer', opacity: visible ? '0' : '1' }}
                             data-attr="universal-search-field"
-                            placeholder={searchPlaceholder}
+                            placeholder={'Search ' + searchPlaceholder}
                             value={searchQuery}
                             prefix={<IconMagnifier className={clsx('magnifier-icon', 'magnifier-icon-active222')} />}
                         />
