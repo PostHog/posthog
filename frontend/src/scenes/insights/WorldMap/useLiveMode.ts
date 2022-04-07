@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { insightLogic } from '../insightLogic'
 
-const LIVE_MODE_INTERVAL_MS = 3000
+const LIVE_MODE_INTERVAL_MS = 15000
 
 /** Reload results periodically when the insight is in Live mode. Only works if insightLogic is bound. */
 export function useLiveMode(): void {
@@ -12,10 +12,8 @@ export function useLiveMode(): void {
     useEffect(() => {
         if (liveMode) {
             loadResults(true)
-            const timeout = setInterval(() => {
-                loadResults(true)
-            }, LIVE_MODE_INTERVAL_MS)
-            return () => clearInterval(timeout)
+            const interval = setInterval(() => loadResults(true), LIVE_MODE_INTERVAL_MS)
+            return () => clearInterval(interval)
         }
     }, [liveMode])
 }
