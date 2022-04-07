@@ -60,7 +60,11 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client_errors(self):
         query = "SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK"
         team_id = 2
-        self.assertRaises(ServerException, client.enqueue_execute_with_progress, **{"team_id": team_id, "query": query, "bypass_celery": True})
+        self.assertRaises(
+            ServerException,
+            client.enqueue_execute_with_progress,
+            **{"team_id": team_id, "query": query, "bypass_celery": True},
+        )
         try:
             query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
         except Exception:
