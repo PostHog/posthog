@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
-from django.db.models.signals import pre_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
@@ -107,9 +107,19 @@ class Insight(models.Model):
         )
 
 
-@receiver(pre_save, sender=Dashboard)
-def dashboard_saved(sender, instance: Dashboard, **kwargs):
+@receiver(post_save, sender=Dashboard)
+def dashboard_saved(sender, instance: Dashboard, created: bool, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "last_accessed_at" in update_fields:
+        """
+        Don't update items if signalled that only last_accessed_at changed
+        """
+        return
+
     for item in instance.items.all():
+        """
+        Update all items in case the dashboard filters changed and the cache key needs updating
+        """
         dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
         item.save()
 
