@@ -24,19 +24,22 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dayjs } from 'lib/dayjs'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
 function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const { openRecordingModal } = useActions(projectHomepageLogic)
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
+    const { openSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
     return (
         <LemonButton
             fullWidth
             className="recording-row"
             onClick={() => {
-                openRecordingModal(recording.id)
+                openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
             }}
         >
             <ProfilePicture name={asDisplay(recording.person)} />
@@ -51,8 +54,12 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 }
 
 export function ProjectHomepage(): JSX.Element {
-    const { dashboardLogic, recordings, recordingsLoading, sessionRecordingId } = useValues(projectHomepageLogic)
-    const { closeRecordingModal } = useActions(projectHomepageLogic)
+    const { dashboardLogic } = useValues(projectHomepageLogic)
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
+    const { sessionRecordingId, sessionRecordings, sessionRecordingsResponseLoading } = useValues(
+        sessionRecordingsTableLogicInstance
+    )
+    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { dashboard } = useValues(dashboardLogic)
@@ -85,16 +92,16 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="project-homepage">
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
+            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeSessionPlayer} />}
 
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
             {featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS] && (
                 <div className="top-list-container-horizontal">
                     <div className="top-list">
                         <CompactList
-                            title="New Recordings"
+                            title="Recent recordings"
                             viewAllURL={urls.sessionRecordings()}
-                            loading={recordingsLoading}
+                            loading={sessionRecordingsResponseLoading}
                             emptyMessage={
                                 currentTeam?.session_recording_opt_in
                                     ? {
@@ -111,7 +118,7 @@ export function ProjectHomepage(): JSX.Element {
                                           buttonTo: urls.projectSettings() + '#recordings',
                                       }
                             }
-                            items={recordings}
+                            items={sessionRecordings.slice(0, 5)}
                             renderRow={(recording: SessionRecordingType, index) => (
                                 <RecordingRow key={index} recording={recording} />
                             )}
