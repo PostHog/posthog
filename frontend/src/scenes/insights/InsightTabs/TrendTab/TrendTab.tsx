@@ -16,7 +16,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties, dateMapping } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
@@ -28,7 +28,7 @@ export interface TrendTabProps {
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
-    const { insightProps, allEventNames } = useValues(insightLogic)
+    const { insightProps, allEventNames, liveMode } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -75,8 +75,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             filters.insight === InsightType.LIFECYCLE
                                 ? MathAvailability.None
                                 : // Stickiness is user- or group-based, and so is World Map Live mode
-                                filters.insight === InsightType.STICKINESS ||
-                                  (filters.date_from && dateMapping['Live'].values.includes(filters.date_from))
+                                filters.insight === InsightType.STICKINESS || liveMode
                                 ? MathAvailability.ActorsOnly
                                 : MathAvailability.All
                         }

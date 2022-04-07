@@ -51,12 +51,13 @@ export function InsightContainer(
         insightProps,
         canEditInsight,
         insightLoading,
+        insight,
         activeView,
         loadedView,
         filters,
-        insight,
         showTimeoutMessage,
         showErrorMessage,
+        liveMode,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -64,16 +65,11 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const emptyState = (() => {
-        if (
-            activeView !== loadedView ||
-            (insightLoading &&
-                !showTimeoutMessage &&
-                !(insight.result && filters.display === ChartDisplayType.WorldMap))
-        ) {
+        if (activeView !== loadedView || (insightLoading && !insight.result && !showTimeoutMessage)) {
             return (
                 <>
-                    {filters.display !== ACTIONS_TABLE && filters.display !== ChartDisplayType.WorldMap && (
-                        /* Tables and world map don't need this padding, but graphs do for sizing */
+                    {filters.display !== ChartDisplayType.ActionsTable && (
+                        /* Tables don't need this padding, but graphs do for sizing */
                         <div className="trends-insights-container" />
                     )}
                     <Loading />
@@ -185,13 +181,19 @@ export function InsightContainer(
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
                       filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
-                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-left">
+                                {VIEW_MAP[activeView]}
+                                {insightLoading && !liveMode && <Loading />}
+                            </Col>
                             <Col className="insights-graph-container-row-right">
                                 <InsightLegend />
                             </Col>
                         </Row>
                     ) : (
-                        VIEW_MAP[activeView]
+                        <>
+                            {VIEW_MAP[activeView]}
+                            {insightLoading && !liveMode && <Loading />}
+                        </>
                     )}
                 </div>
             </Card>

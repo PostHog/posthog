@@ -161,7 +161,9 @@ export function DateFilter({
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
                             <Tooltip
-                                title={key === 'Live' ? 'Defined by the actor being live in the last 5 minutes.' : null}
+                                title={
+                                    key === 'Live' ? 'Defined by the actor being active in the last 5 minutes.' : null
+                                }
                                 placement="right"
                             >
                                 {key}

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { dateMapping, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -522,6 +522,12 @@ export const insightLogic = kea<insightLogicType>({
                         export_insight_id: short_id,
                     })}`
                 }
+            },
+        ],
+        liveMode: [
+            (s) => [s.filters],
+            (filters): boolean => {
+                return !!filters.date_from && dateMapping['Live'].values.includes(filters.date_from)
             },
         ],
     },
