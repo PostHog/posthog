@@ -59,42 +59,42 @@ describe('Insights', () => {
             }
         })
 
-        // Can move away from an unchanged new insight without confirm()
+        cy.log('Can move away from an unchanged new insight without confirm()')
         cy.get('[data-attr="menu-item-insight"]').click()
-        // Navigate away
+        cy.log('Navigate away')
         cy.get('[data-attr="menu-item-featureflags"]').click()
 
-        // Can navigate away from unchanged saved insight without confirm()
+        cy.log('Can navigate away from unchanged saved insight without confirm()')
         cy.get('[data-attr="menu-item-insight"]').click()
-        // Add series
+        cy.log('Add series')
         cy.get('[data-attr=add-action-event-button]').click()
-        // Save
+        cy.log('Save')
         cy.get('[data-attr="insight-save-button"]').click()
         cy.wait(200)
-        // Navigate away
+        cy.log('Navigate away')
         cy.get('[data-attr="menu-item-annotations"]').click()
-        // We should be on the Annotations page now
-        cy.get('h1.page-title').contains('Annotations').should('exist')
+        cy.log('We should be on the Annotations page now')
+        cy.url().should('include', '/annotations')
 
-        // Can keep editing changed new insight after navigating away with confirm() rejection (case 1)
+        cy.log('Can keep editing changed new insight after navigating away with confirm() rejection (case 1)')
         cy.get('[data-attr="menu-item-insight"]').click()
-        // Add series
+        cy.log('Add series')
         cy.get('[data-attr=add-action-event-button]').click()
-        // Navigate away
+        cy.log('Navigate away')
         cy.get('[data-attr="menu-item-featureflags"]').click()
-        // Save button should still be here because case 1 rejects confirm()
+        cy.log('Save button should still be here because case 1 rejects confirm()')
         cy.get('[data-attr="insight-save-button"]').should('exist')
 
-        // Can navigate away from changed new insight with confirm() acceptance (case 2)
+        cy.log('Can navigate away from changed new insight with confirm() acceptance (case 2)')
         cy.get('[data-attr="menu-item-insight"]').click()
-        // Add series
+        cy.log('Add series')
         cy.get('[data-attr=add-action-event-button]').click()
-        // Navigate away
+        cy.log('Navigate away')
         cy.get('[data-attr="menu-item-featureflags"]').click()
-        // Save button should be gone because case 2 rejects accepts()
+        cy.log('Save button should be gone because case 2 rejects accepts()')
         cy.get('[data-attr="insight-save-button"]').should('not.exist')
-        // We should be on the Feature Flags page now
-        cy.get('h1.page-title').contains('Feature Flags').should('exist')
+        cy.log('We should be on the Feature Flags page now')
+        cy.url().should('include', '/feature_flags')
     })
 
     it('Shows not found error with invalid short URL', () => {
