@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Type, Union
+from typing import Any, Dict, List, Optional, Type, Union
 
 import structlog
 from django.db import IntegrityError, transaction
@@ -277,8 +277,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         dashboard_id_from_params = self.context["request"].query_params.get("dashboard_id", None)
         if not dashboard and dashboard_id_from_params:
             try:
-                dashboard_id = int(dashboard_id_from_params) if dashboard_id_from_params.isdigit() else None
-                dashboard = Dashboard.objects.get(pk=dashboard_id)
+                dashboard = Dashboard.objects.get(pk=dashboard_id_from_params)
             except Dashboard.DoesNotExist as ex:
                 logger.error(
                     "loading_insight_could_not_find_dashboard",
@@ -292,7 +291,15 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             return update_dashboard_item_cache(insight, dashboard)
 
         if dashboard:
-            cache_key = DashboardInsight.objects.filter(insight=insight, dashboard=dashboard).first().filters_hash
+            dashboard_insight: Optional[DashboardInsight] = DashboardInsight.objects.filter(
+                insight=insight, dashboard=dashboard
+            ).first()
+            if dashboard_insight is None:
+                logger.warn(
+                    "unknown_dashboard_insight_link", insight_short_id=insight.short_id, dashboard_id=dashboard.id
+                )
+                return None
+            cache_key = dashboard_insight.filters_hash
         else:
             cache_key = insight.filters_hash
 

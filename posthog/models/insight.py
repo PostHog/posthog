@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import IntegrityError, models, transaction
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
@@ -110,21 +110,24 @@ class Insight(models.Model):
         else:
             return Dashboard.PrivilegeLevel.CAN_VIEW
 
+    def save(self, *args, **kwargs):
+        if self.filters and self.filters != {}:
+            filter = get_filter(data=self.dashboard_filters(dashboard=None), team=self.team)
+
+            self.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), self.team_id))
+        super(Insight, self).save(*args, **kwargs)
+
 
 @receiver(post_save, sender=Dashboard)
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
-    for item in instance.items.all():
-        dashboard_insight = DashboardInsight.objects.filter(insight=item, dashboard=instance).first()
-        if dashboard_insight:
+    update_fields = kwargs.get("update_fields")
+    if frozenset({"last_accessed_at"}) == update_fields:
+        # Don't update items if signalled that only last_accessed_at changed
+        return
+
+    for item in instance.items.filter():
+        for dashboard_insight in DashboardInsight.objects.filter(insight=item, dashboard=instance):
             dashboard_insight.save()
-
-
-@receiver(pre_save, sender=Insight)
-def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
-    if instance.filters and instance.filters != {}:
-        filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
-
-        instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
 
 
 @receiver(post_save, sender=Insight)

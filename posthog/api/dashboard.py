@@ -161,22 +161,17 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if self.context["view"].action == "list":
             return None
 
-        items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
+        # deduplicate between items and insights relations, until items relation is guaranteed empty
+        dashboard_insights: Dict[str, Insight] = {insight.short_id: insight for insight in dashboard.insights.filter()}
 
         #  Make sure all items have an insight set
         # This should have only happened historically
-        for item in items:
+        for item in dashboard.items.filter():
             if not item.filters.get("insight"):
                 item.filters["insight"] = INSIGHT_TRENDS
                 item.save()
 
-        # deduplicate between items and insights relations, until items relation is guaranteed empty
-        dashboard_insights: Dict[str, Insight] = {
-            insight.short_id: insight for insight in dashboard.insights.filter(deleted=False).order_by("order").all()
-        }
-
-        for item in items:
             if item.short_id not in dashboard_insights:
                 dashboard_insights[item.short_id] = item
 
@@ -227,11 +222,15 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
         )
 
+        insights_queryset = (
+            Insight.objects.select_related("created_by", "last_modified_by").filter(deleted=False).order_by("order")
+        )
         queryset = (
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)
-            .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
-            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")))
+            .prefetch_related(
+                Prefetch("items", queryset=insights_queryset), Prefetch("insights", queryset=insights_queryset),
+            )
         )
         return queryset
 
@@ -240,7 +239,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
-        dashboard.save()
+        dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
