@@ -26,16 +26,16 @@ def rename_column_on_events_table(old_column_name, new_column_name):
 
 def create_materialized_columns(database):
     properties = ["$session_id", "$window_id"]
-    for property in properties:
+    for property_name in properties:
         try:
-            materialize("events", property)
+            materialize("events", property_name)
         except ValueError:
             # property is already materialized. Now, ensure the column's name is correct.
             # This handles the case where the bad 0024_materialize_window_and_session_id
             # already ran
             materialized_columns = get_materialized_columns("events", use_cache=False)
-            current_materialized_column_name = materialized_columns.get(property, None)
-            expected_materialized_column_name = materialized_column_name("events", property)
+            current_materialized_column_name = materialized_columns.get(property_name, None)
+            expected_materialized_column_name = materialized_column_name("events", property_name)
             if (
                 current_materialized_column_name
                 and current_materialized_column_name != expected_materialized_column_name
