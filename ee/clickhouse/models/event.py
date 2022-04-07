@@ -7,12 +7,11 @@ from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.client import sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -26,7 +25,6 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
-    site_url: Optional[str] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
@@ -42,19 +40,18 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
-    pb_event = events_pb2.Event()
-    pb_event.uuid = str(event_uuid)
-    pb_event.event = event
-    pb_event.properties = json.dumps(properties)
-    pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-    pb_event.team_id = team.pk
-    pb_event.distinct_id = str(distinct_id)
-    pb_event.elements_chain = elements_chain
-    pb_event.created_at = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+    kafka_event = {
+        "uuid": str(event_uuid),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": str(distinct_id),
+        "elements_chain": elements_chain,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    }
 
-    p = ClickhouseProducer()
-
-    p.produce_proto(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS, data=pb_event)
+    ClickhouseProducer().produce(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS_JSON, data=kafka_event)
 
     return str(event_uuid)
 

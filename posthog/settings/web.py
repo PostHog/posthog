@@ -55,7 +55,6 @@ MIDDLEWARE = [
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
@@ -107,10 +106,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
-
-# This is set as a cross-domain cookie with a random value.
-# Its existence is used by the toolbar to see that we are logged in.
-TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 
 # Social Auth

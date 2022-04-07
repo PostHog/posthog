@@ -3,12 +3,13 @@ from uuid import uuid4
 from dateutil.relativedelta import relativedelta
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.action import Action, ActionStep
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Person
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
 from posthog.test.base import test_with_materialized_columns

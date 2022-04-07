@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { definitionPopupLogicType } from './definitionPopupLogicType'
+import type { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
@@ -111,7 +111,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             definition = await api.update(`api/projects/@current/cohorts/${_cohort.id}`, _cohort)
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
-                    } catch (error) {
+                    } catch (error: any) {
                         lemonToast.error(error.message)
                     }
                     breakpoint()

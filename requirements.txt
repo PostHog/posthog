@@ -129,7 +129,7 @@ importlib-metadata==1.6.0
     # via -r requirements.in
 importlib-resources==5.4.0
     # via jsonschema
-git+https://github.com/PostHog/infi.clickhouse_orm@68196ca74e6e3fc2ffc9444a0011e943f6724fbb
+git+https://github.com/PostHog/infi.clickhouse_orm@bbc5638f1d2ee19bef388a12b4d16fc138354220
     # via -r requirements.in
 inflection==0.5.1
     # via drf-spectacular

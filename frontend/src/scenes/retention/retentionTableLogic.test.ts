@@ -36,6 +36,7 @@ describe('retentionTableLogic', () => {
             },
             post: {
                 '/api/projects/:team/insights/': { results: [result] },
+                '/api/projects/:team/insights/:id/viewed': [201],
             },
         })
     })

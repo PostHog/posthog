@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -250,7 +250,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
-                    return pluralize(result?.count || 0, 'person', undefined, false)
+                    return 'persons'
                 }
             },
         ],
@@ -520,19 +520,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             }
         },
     }),
-    actionToUrl: ({ values }) => ({
-        loadPeople: () => {
-            return [
-                router.values.location.pathname,
-                router.values.searchParams,
-                { ...router.values.hashParams, personModal: values.peopleParams },
-            ]
-        },
-        hidePeople: () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { personModal: _discard, ...otherHashParams } = router.values.hashParams
-            return [router.values.location.pathname, router.values.searchParams, otherHashParams]
-        },
+    actionToUrl: () => ({
         openRecordingModal: ({ sessionRecordingId }) => {
             return [
                 router.values.location.pathname,
@@ -543,16 +531,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         closeRecordingModal: () => {
             delete router.values.hashParams.sessionRecordingId
             return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, {}, { personModal }) => {
-            if (personModal && !values.showingPeople) {
-                actions.loadPeople(personModal)
-            }
-            if (!personModal && values.showingPeople) {
-                actions.hidePeople()
-            }
         },
     }),
 })

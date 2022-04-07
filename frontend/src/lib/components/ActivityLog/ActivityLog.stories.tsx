@@ -35,6 +35,23 @@ export function WithData(): JSX.Element {
     return <ActivityLog scope={'FeatureFlag'} id={7} describer={flagActivityDescriber} />
 }
 
+export function WithCaption(): JSX.Element {
+    return (
+        <ActivityLog
+            scope={'FeatureFlag'}
+            id={7}
+            describer={flagActivityDescriber}
+            caption={
+                <>
+                    This is a list that <strong>needs</strong> some extra description or context. Which can have a very,
+                    very long caption. A <i>very</i> long caption that wraps over more than one line, not a very
+                    Hemingway choice, but important information has to be included. And it will be, in this prop.
+                </>
+            }
+        />
+    )
+}
+
 export function WithNoData(): JSX.Element {
     return <ActivityLog scope={'FeatureFlag'} id={6} describer={flagActivityDescriber} />
 }

@@ -11,6 +11,7 @@ export interface MathDefinition {
     shortName: string
     description: string | JSX.Element
     onProperty: boolean
+    actor: boolean
     type: 'property' | 'event'
 }
 
@@ -27,6 +28,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: false,
+        actor: false,
         type: EVENT_MATH_TYPE,
     },
     dau: {
@@ -43,6 +45,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: false,
+        actor: true,
         type: EVENT_MATH_TYPE,
     },
     weekly_active: {
@@ -57,6 +60,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: false,
+        actor: false,
         type: EVENT_MATH_TYPE,
     },
     monthly_active: {
@@ -71,6 +75,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: false,
+        actor: false,
         type: EVENT_MATH_TYPE,
     },
 }
@@ -88,6 +93,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     sum: {
@@ -102,6 +108,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     min: {
@@ -116,6 +123,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     max: {
@@ -130,6 +138,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     median: {
@@ -144,6 +153,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     p90: {
@@ -158,6 +168,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: 'property',
     },
     p95: {
@@ -172,6 +183,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
     p99: {
@@ -186,6 +198,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
             </>
         ),
         onProperty: true,
+        actor: false,
         type: PROPERTY_MATH_TYPE,
     },
 }
@@ -252,6 +265,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                                 </>
                             ),
                             onProperty: false,
+                            actor: true,
                             type: EVENT_MATH_TYPE,
                         } as MathDefinition,
                     ])
