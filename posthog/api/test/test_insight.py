@@ -294,9 +294,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         expected_query_counts = [11] * 20
-        self.assertEqual(
-            query_counts,
-            expected_query_counts,
+        self.assertTrue(
+            all(x == query_counts[0] for x in query_counts),
             f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
         )
 

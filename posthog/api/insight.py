@@ -11,6 +11,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -190,11 +191,17 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         for dashboard in [d for d in dashboards if d]:
             if isinstance(dashboard, int):
-                dashboard_instances.append(
-                    Dashboard.objects.filter(team=insight.team)
-                    .select_related("team__organization", "created_by")
-                    .get(pk=dashboard)
-                )
+                try:
+                    dashboard_instances.append(
+                        Dashboard.objects.filter(team=insight.team)
+                        .select_related("team__organization", "created_by")
+                        .get(pk=dashboard)
+                    )
+                except Dashboard.DoesNotExist as ex:
+                    logger.warn(
+                        "invalid_insight_dashboard_link", insight_short_id=insight.short_id, dashboard=dashboard
+                    )
+                    raise ValidationError
             else:
                 dashboard_instances.append(dashboard)
 
