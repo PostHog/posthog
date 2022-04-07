@@ -3,7 +3,6 @@ import hashlib
 import json
 import time
 import types
-import uuid
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -183,9 +182,9 @@ class QueryStatus:
     results: Any = None
 
 
-def generate_redis_results_key(query_uuid):
+def generate_redis_results_key(query_id):
     REDIS_KEY_PREFIX_ASYNC_RESULTS = "query_with_progress"
-    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_uuid}"
+    key = f"{REDIS_KEY_PREFIX_ASYNC_RESULTS}:{query_id}"
     return key
 
 
@@ -302,7 +301,7 @@ def enqueue_execute_with_progress(
     return query_id
 
 
-def get_status_or_results(team_id, query_uuid):
+def get_status_or_results(team_id, query_id):
     """
     Returns QueryStatus data class
     QueryStatus data class contains either:
@@ -311,7 +310,7 @@ def get_status_or_results(team_id, query_uuid):
     Error payload of failed query
     """
     redis_client = redis.get_client()
-    key = generate_redis_results_key(query_uuid)
+    key = generate_redis_results_key(query_id)
     try:
         str_results = redis_client.get(key).decode("utf-8")
         query_status = QueryStatus.from_json(str_results)
