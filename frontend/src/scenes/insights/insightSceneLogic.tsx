@@ -16,7 +16,7 @@ export function preventDiscardingInsightChanges(): boolean | null {
     let shouldPreventNavigatingAway: boolean | null = null
     let shouldCancelChanges: boolean = false
     const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-    if (mountedInsightSceneLogic?.values.insightChanged) {
+    if (mountedInsightSceneLogic?.values.syncedInsightChanged) {
         // Cancel changes automatically if not in edit mode
         shouldCancelChanges = mountedInsightSceneLogic?.values.insightMode !== ItemMode.Edit
         if (!shouldCancelChanges) {
@@ -47,7 +47,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             logic,
             unmount,
         }),
-        syncInsightChanged: (insightChanged: boolean) => ({ insightChanged }),
+        syncInsightChanged: (syncedInsightChanged: boolean) => ({ syncedInsightChanged }),
     },
     reducers: {
         insightId: [
@@ -64,10 +64,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
-        insightChanged: [
+        syncedInsightChanged: [
+            // Connecting `insightChanged` via `insightCache.logic.selectors` sometimes gives stale values,
+            // so instead saving the up-to-date value right in this logic with a `useEffect` in the `Insight` component
             false,
             {
-                syncInsightChanged: (_, { insightChanged }) => insightChanged,
+                syncInsightChanged: (_, { syncedInsightChanged }) => syncedInsightChanged,
             },
         ],
         lastInsightModeSource: [
