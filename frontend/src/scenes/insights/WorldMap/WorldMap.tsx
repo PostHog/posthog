@@ -12,6 +12,7 @@ import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
+import { useLiveMode } from './useLiveMode'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
 const SATURATION_FLOOR = 0.25
@@ -20,6 +21,7 @@ const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const TOOLTIP_OFFSET_PX = 8
 
+/** Syncs `worldMapLogic` and global tooltip. */
 function useWorldMapTooltip(svgRef: React.RefObject<SVGSVGElement>, showPersonsModal: boolean): void {
     const { insightProps } = useValues(insightLogic)
     const { tooltipOpacity, currentTooltip, tooltipCoordinates } = useValues(worldMapLogic(insightProps))
@@ -170,6 +172,7 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
     const svgRef = useRef<SVGSVGElement>(null)
 
     useWorldMapTooltip(svgRef, showPersonsModal)
+    useLiveMode()
 
     return (
         <WorldMapSVG
