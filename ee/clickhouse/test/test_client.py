@@ -68,6 +68,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_status_or_results(team_id, query_id)
         self.assertTrue(result.error)
+        self.assertRegex(result.error_message, "Code: 62.\nDB::Exception: Syntax error:")
 
     def test_async_query_client_does_not_leak(self):
         query = "SELECT 1+1"
