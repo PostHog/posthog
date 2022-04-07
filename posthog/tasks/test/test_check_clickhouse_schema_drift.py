@@ -118,8 +118,7 @@ def test_get_clickhouse_schema_drift() -> None:
 @patch("posthog.client.ch_pool.get_client")
 def test_check_clickhouse_schema_drift_error_from_clickhouse(mock_ch: Mock) -> None:
     mock_ch.side_effect = ClickhouseError("Broken to connect")
-    resp = check_clickhouse_schema_drift()
-    assert resp is None
+    check_clickhouse_schema_drift()
 
 
 @patch("statshog.defaults.django.statsd.gauge")
