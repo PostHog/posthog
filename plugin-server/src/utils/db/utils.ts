@@ -305,3 +305,11 @@ export function shouldStoreLog(
 
     return true
 }
+
+export function safeClickhouseString(str: string) {
+    return str.replace(/[\u{0080}-\u{FFFF}]/gu, (a, b) => {
+        console.log(JSON.stringify(a))
+        return `\\${a.toString()}\\`
+    })
+    // return String.raw`${str}`
+}

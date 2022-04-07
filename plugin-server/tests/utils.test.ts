@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 
 import { LogLevel } from '../src/types'
+import { safeClickhouseString } from '../src/utils/db/utils'
 import {
     bufferToStream,
     cloneObject,
@@ -397,6 +398,33 @@ describe('utils', () => {
             expect(parsedTimestamp.minute).toBe(0)
             expect(parsedTimestamp.second).toBe(0)
             expect(parsedTimestamp.millisecond).toBe(0)
+        })
+    })
+
+    describe('safeClickhouseString', () => {
+        // includes real data
+        const validStrings = [
+            `$autocapture`,
+            `correlation analyzed`,
+            `docs_search_used`,
+            `$$plugin_metrics`,
+            `996f3e2f-830b-42f0-b2b8-df42bb7f7144`,
+            `some?819)389**^371=2++211!!@==-''''..,,weird___id`,
+            `form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
+            `a:attr__href="/signup"href="/signup"nth-child="1"nth-of-type="1"text="Create one here.";p:nth-child="8"nth-of-type="1";form.form-signin:attr__action="/login"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
+            `input:nth-child="7"nth-of-type="3";form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
+            `a.nav-link:attr__class="nav-link"attr__href="/actions"href="/actions"nth-child="1"nth-of-type="1"text="Actions";li:nth-child="2"nth-of-type="2";ul.flex-sm-column.nav:attr__class="nav flex-sm-column"nth-child="1"nth-of-type="1";div.bg-light.col-md-2.col-sm-3.flex-shrink-1.pt-3.sidebar:attr__class="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-light pt-3"attr__style="min-height: 100vh;"nth-child="1"nth-of-type="1";div.flex-column.flex-fill.flex-sm-row.row:attr__class="row flex-fill flex-column flex-sm-row"nth-child="1"nth-of-type="1";div.container-fluid.d-flex.flex-grow-1:attr__class="container-fluid flex-grow-1 d-flex"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
+        ]
+
+        test('does not modify valid strings', () => {
+            for (const str of validStrings) {
+                expect(safeClickhouseString(str)).toEqual(str)
+            }
+        })
+
+        test('handles unicode characters correctly', () => {
+            console.log(String.raw`foo \ud83d\ bar`, safeClickhouseString(`foo \ud83d\ bar`))
+            expect(safeClickhouseString(`foo \ud83d\ bar`)).toEqual(`foo \\ud83d\\ bar`)
         })
     })
 })

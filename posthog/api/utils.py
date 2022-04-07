@@ -298,3 +298,7 @@ def check_definition_ids_inclusion_field_sql(
         return included_definitions_sql, []
 
     return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
+
+
+def safe_clickhouse_string(s: str) -> str:
+    return r"{}".format(s)

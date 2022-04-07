@@ -17,7 +17,13 @@ from statshog.defaults.django import statsd
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-from posthog.api.utils import EventIngestionContext, get_data, get_event_ingestion_context, get_token
+from posthog.api.utils import (
+    EventIngestionContext,
+    get_data,
+    get_event_ingestion_context,
+    get_token,
+    safe_clickhouse_string,
+)
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models.feature_flag import get_overridden_feature_flags
@@ -37,9 +43,9 @@ def parse_kafka_event_data(
 ) -> Dict:
     return {
         "uuid": str(event_uuid),
-        "distinct_id": distinct_id,
-        "ip": ip,
-        "site_url": site_url,
+        "distinct_id": safe_clickhouse_string(distinct_id),
+        "ip": safe_clickhouse_string(ip),
+        "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "team_id": team_id,
         "now": now.isoformat(),
@@ -72,11 +78,11 @@ def log_event_to_dead_letter_queue(
     data = event.copy()
 
     data["error_timestamp"] = datetime.now().isoformat()
-    data["error_location"] = error_location
-    data["error"] = error_message
+    data["error_location"] = safe_clickhouse_string(error_location)
+    data["error"] = safe_clickhouse_string(error_message)
     data["elements_chain"] = ""
     data["id"] = str(UUIDT())
-    data["event"] = event_name
+    data["event"] = safe_clickhouse_string(event_name)
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
     data["tags"] = ["django_server"]
