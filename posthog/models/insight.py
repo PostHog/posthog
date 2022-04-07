@@ -3,7 +3,7 @@ import string
 from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
-from django.db import IntegrityError, models, transaction
+from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -128,24 +128,6 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.items.filter():
         for dashboard_insight in DashboardInsight.objects.filter(insight=item, dashboard=instance):
             dashboard_insight.save()
-
-
-@receiver(post_save, sender=Insight)
-def insight_saved(sender, instance: Insight, **kwargs):
-    """
-    Not all creations and updates will come via the API. The API ensures that the `dashboards` relation is populated
-    If that has been missed, then catch it here
-    """
-    if instance.dashboard is not None and (instance.dashboards is None or instance.dashboards.count() == 0):
-        with transaction.atomic():
-            try:
-                DashboardInsight.objects.create(insight=instance, dashboard=instance.dashboard)
-            except IntegrityError as ex:
-                # it's ok to try to add more than once, and ignore duplicates
-                # adding transaction atomic block stops this error affecting the rest of the API call
-                is_a_duplicate_relation = ex.args[0].startswith("duplicate key")
-                if not is_a_duplicate_relation:
-                    raise ex
 
 
 class InsightViewed(models.Model):

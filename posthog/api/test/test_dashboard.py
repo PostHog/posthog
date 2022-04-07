@@ -217,10 +217,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         filter = Filter(data=filter_dict)
 
         # create two insights on the dashboard
-        first_insight = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        second_insight = Insight.objects.create(dashboard=dashboard, filters=filter.to_dict(), team=self.team,)
+        first_insight_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
+        second_insight_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
+
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
-        self.assertEqual([i["id"] for i in response["items"]], [first_insight.id, second_insight.id])
+        self.assertEqual([i["id"] for i in response["items"]], [first_insight_id, second_insight_id])
 
         # cache results
         response = self.client.get(
@@ -228,7 +229,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
-        first_insight = Insight.objects.get(pk=first_insight.pk)
+        first_insight = Insight.objects.get(pk=first_insight_id)
         self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(first_insight.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
@@ -236,6 +237,39 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+    def test_return_cached_results_dashboard_has_filters(self):
+        # Regression test, we were
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "date_from": "-7d",
+        }
+
+        item_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk,
+            {"filters": {"date_from": "-24h"}},
+            format="json",
+        ).json()
+        self.assertEqual(patch_response["items"][0]["result"], None)
+
+        # cache results
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-24h"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        self.assertEqual(response.status_code, 200)
+        Insight.objects.get(pk=item_id)
+        # Expecting this to only have one day as per the dashboard filter
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
+        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -593,42 +627,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"name": "another", "use_dashboard": another_team_dashboard.id,},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_return_cached_results_dashboard_has_filters(self):
-        # Regression test, we were
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "date_from": "-7d",
-        }
-        filter = Filter(data=filter_dict)
-
-        item = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        Insight.objects.create(
-            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
-        )
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk,
-            {"filters": {"date_from": "-24h"}},
-            format="json",
-        ).json()
-        self.assertEqual(patch_response["items"][0]["result"], None)
-
-        # cache results
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-24h"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        self.assertEqual(response.status_code, 200)
-        item = Insight.objects.get(pk=item.pk)
-        # Expecting this to only have one day as per the dashboard filter
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
-        self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
 
     def test_invalid_properties(self):
         properties = "invalid_json"

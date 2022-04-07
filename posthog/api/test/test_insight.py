@@ -591,6 +591,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"name": "insight new name", "description": "Internal system metrics.", "dashboard": dashboard_one.pk},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["dashboard"], dashboard_one.pk)
+        self.assertEqual(response.json()["dashboards"], [dashboard_one.pk])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",

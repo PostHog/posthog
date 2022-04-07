@@ -21,6 +21,7 @@ from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Organization, Team
+from posthog.models.dashboard import DashboardInsight
 from posthog.models.user import User
 from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -115,11 +116,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         elif request.data.get("items"):
             for item in request.data["items"]:
-                Insight.objects.create(
+                insight = Insight.objects.create(
                     **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
-                    dashboard=dashboard,
                     team=team,
                 )
+                DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -150,12 +151,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
 
-        instance = super().update(instance, validated_data)
+        updated_dashboard: Dashboard = super().update(instance, validated_data)
+
+        if "filters" in validated_data:
+            for updateable in updated_dashboard.dashboardinsight_set.filter():
+                updateable.save()
 
         if "request" in self.context:
-            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(user, "dashboard updated", updated_dashboard.get_analytics_metadata())
 
-        return instance
+        return updated_dashboard
 
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
