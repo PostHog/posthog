@@ -1,4 +1,5 @@
 import datetime
+from unittest.mock import patch
 
 import fakeredis
 from django.test import TestCase
@@ -49,10 +50,24 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client(self):
         query = "SELECT 1+1"
         team_id = 2
-        query_id = client.enqueue_execute_with_progress(team_id, query)
+        query_id = client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
         result = client.get_status_or_results(team_id, query_id)
         self.assertEqual(result.results, [[2]])
 
+    @patch('posthog.client.execute_with_progress')
+    def test_async_query_client_is_lazy(self, execute_sync_mock):
+        query = "SELECT 4 + 4"
+        team_id = 2
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+
+        # Try the same query again
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+
+        # Try the same query again (for good measure!)
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+
+        # Assert that we only called clickhouse once
+        execute_sync_mock.assert_called_once()
 
     def test_client_strips_comments_from_request(self):
         """

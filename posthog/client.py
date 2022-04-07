@@ -278,16 +278,26 @@ def execute_with_progress(
             save_query(prepared_sql, execution_time)
 
 
-def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False):
+def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False):
     query_id = _query_hash(query, args)
     key = generate_redis_results_key(query_id)
+    redis_client = redis.get_client()
+
+    if redis_client.get(key):
+        # If we've seen this query before return the query_id and don't resubmit it.
+        return query_id
 
     # Immediately set status so we don't have race with celery
     redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, status="submitted")
     redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)
 
-    enqueue_clickhouse_execute_with_progress.delay(team_id, query_id, query, args, settings, with_column_types)
+    if bypass_celery:
+        # Call directly ( for testing )
+        enqueue_clickhouse_execute_with_progress(team_id, query_id, query, args, settings, with_column_types)
+    else:
+        enqueue_clickhouse_execute_with_progress.delay(team_id, query_id, query, args, settings, with_column_types)
+
     return query_id
 
 
