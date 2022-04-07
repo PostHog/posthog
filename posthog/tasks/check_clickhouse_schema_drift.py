@@ -104,7 +104,7 @@ def check_clickhouse_schema_drift() -> None:
 
     logger.info("check_clickhouse_schema_drift", table_count=len(drift), tables=drift)
 
-    # Send to stasd the total count of drifting tables as well as a metric for each table
+    # Send to statsd the total count of drifting tables as well as a metric for each table
     for table_name in drift:
         statsd.gauge("clickhouse_schema_drift_table.{}".format(table_name), 1)
     statsd.gauge("clickhouse_schema_drift_table_count", len(drift))
