@@ -54,7 +54,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_status_or_results(team_id, query_id)
         self.assertEqual(result.results, [[2]])
 
-    @patch('posthog.client.execute_with_progress')
+    @patch("posthog.client.execute_with_progress")
     def test_async_query_client_is_lazy(self, execute_sync_mock):
         query = "SELECT 4 + 4"
         team_id = 2

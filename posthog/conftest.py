@@ -151,4 +151,3 @@ def team(base_test_mixin_fixture):
 @pytest.fixture
 def unittest_snapshot(request, snapshot):
     request.cls.snapshot = snapshot
-

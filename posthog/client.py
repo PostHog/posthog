@@ -169,6 +169,7 @@ def sync_execute(query, args=None, settings=None, with_column_types=False):
 
 REDIS_STATUS_TTL = 600  # 10 minutes
 
+
 @dataclass_json
 @dataclass
 class QueryStatus:
@@ -188,9 +189,7 @@ def generate_redis_results_key(query_uuid):
     return key
 
 
-def execute_with_progress(
-    team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2
-):
+def execute_with_progress(team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2):
     """
     Kick off query with progress reporting
     Iterate over the progress status
@@ -278,7 +277,9 @@ def execute_with_progress(
             save_query(prepared_sql, execution_time)
 
 
-def enqueue_execute_with_progress(team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False):
+def enqueue_execute_with_progress(
+    team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False
+):
     query_id = _query_hash(query, args)
     key = generate_redis_results_key(query_id)
     redis_client = redis.get_client()
