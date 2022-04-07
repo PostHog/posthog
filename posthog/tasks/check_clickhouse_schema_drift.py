@@ -89,10 +89,14 @@ def get_clickhouse_schema_drift(
     return diff
 
 
-def check_clickhouse_schema_drift() -> None:
+def check_clickhouse_schema_drift(
+    clickhouse_nodes: List[Tuple[str]] = [], clickhouse_schema: List[Tuple[str, str, str]] = []
+) -> None:
     try:
-        clickhouse_nodes = get_clickhouse_nodes()
-        clickhouse_schema = get_clickhouse_schema()
+        if not clickhouse_nodes:
+            clickhouse_nodes = get_clickhouse_nodes()
+        if not clickhouse_schema:
+            clickhouse_schema = get_clickhouse_schema()
     except ClickhouseError:
         logger.error("check_clickhouse_schema_drift_error", exc_info=True)
         return  # no need to raise as we execute this often

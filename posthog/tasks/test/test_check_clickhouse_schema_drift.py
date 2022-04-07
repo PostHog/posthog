@@ -1,4 +1,8 @@
-from posthog.tasks.check_clickhouse_schema_drift import get_clickhouse_schema_drift
+from unittest.mock import Mock, call, patch
+
+from clickhouse_driver.errors import Error as ClickhouseError
+
+from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift, get_clickhouse_schema_drift
 
 
 def test_get_clickhouse_schema_drift() -> None:
@@ -109,3 +113,42 @@ def test_get_clickhouse_schema_drift() -> None:
     ]
     diff = get_clickhouse_schema_drift(clickhouse_nodes, clickhouse_schema)
     assert diff == ["table1", "table2"]
+
+
+@patch("posthog.client.ch_pool.get_client")
+def test_check_clickhouse_schema_drift_error_from_clickhouse(mock_ch: Mock) -> None:
+    mock_ch.side_effect = ClickhouseError("Broken to connect")
+    resp = check_clickhouse_schema_drift()
+    assert resp is None
+
+
+@patch("statshog.defaults.django.statsd.gauge")
+def test_check_clickhouse_schema_drift_without_drift(mock_statsd: Mock) -> None:
+    clickhouse_nodes = [("node1",), ("node2",)]
+    clickhouse_schema = [
+        ("table1", "schema1", "host1"),
+        ("table2", "schema2", "host1"),
+        ("table1", "schema1", "host2"),
+        ("table2", "schema2", "host2"),
+    ]
+    check_clickhouse_schema_drift(clickhouse_nodes, clickhouse_schema)
+    assert mock_statsd.call_args_list == [
+        call("clickhouse_schema_drift_table_count", 0),
+    ]
+
+
+@patch("statshog.defaults.django.statsd.gauge")
+def test_check_clickhouse_schema_drift_with_drift(mock_statsd: Mock) -> None:
+    clickhouse_nodes = [("node1",), ("node2",), ("node3",)]
+    clickhouse_schema = [
+        ("table1", "schema1", "host1"),
+        ("table1", "schema1", "host2"),
+        ("table2", "schema2", "host1"),
+        ("table2", "schema2", "host2"),
+    ]
+    check_clickhouse_schema_drift(clickhouse_nodes, clickhouse_schema)
+    assert mock_statsd.call_args_list == [
+        call("clickhouse_schema_drift_table.table1", 1),
+        call("clickhouse_schema_drift_table.table2", 1),
+        call("clickhouse_schema_drift_table_count", 2),
+    ]
