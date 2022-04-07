@@ -17,6 +17,8 @@ import { FunnelBinsPicker } from './FunnelTab/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
+import { LocalFilter, toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -96,6 +98,20 @@ export function InsightDisplayConfig({
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const { featureFlags } = useValues(featureFlagLogic)
+    const { mathDefinitions } = useValues(mathsLogic)
+
+    let showLive = false
+    if (activeView === InsightType.TRENDS && filters.display === ChartDisplayType.WorldMap) {
+        const firstSeries: LocalFilter | undefined = toLocalFilters(filters)[0]
+        // Live mode is only intended for user activity, not event counts,
+        // so show Live option for World Map only if the single series is actor-based
+        if (
+            firstSeries &&
+            mathDefinitions[apiValueToMathType(firstSeries.math, firstSeries.math_group_type_index)]?.actor
+        ) {
+            showLive = true
+        }
+    }
 
     return (
         <div className="display-config-inner">
@@ -105,9 +121,7 @@ export function InsightDisplayConfig({
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
                             defaultValue="Last 7 days"
-                            showLive={
-                                activeView === InsightType.TRENDS && filters.display === ChartDisplayType.WorldMap
-                            }
+                            showLive={showLive}
                             disabled={disabled || (showFunnelBarOptions && isFunnelEmpty(filters))}
                             bordered
                             makeLabel={(key) => (
