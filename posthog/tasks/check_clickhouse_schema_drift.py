@@ -70,9 +70,6 @@ def get_clickhouse_schema_drift(
     # }
     tables = {}  # type: Dict
     for table_name, schema, node_name in clickhouse_schema:
-        table_name = item[0]
-        schema = item[1]
-        node_name = item[2]
         if table_name not in tables:
             tables[table_name] = {}
         if schema not in tables[table_name]:
