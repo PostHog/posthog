@@ -1,7 +1,9 @@
 import json
+from typing import Dict, List, Tuple
 
 from dateutil import parser
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection, connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -190,6 +192,68 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+    def _get_dashboard_counting_queries(self, dashboard: Dashboard) -> Tuple[int, List[Dict[str, str]]]:
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        with CaptureQueriesContext(db_connection) as capture_query_context:
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            query_count = len(capture_query_context.captured_queries)
+            return query_count, capture_query_context.captured_queries
+
+    def test_adding_insights_is_not_nplus1_for_gets(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        filter = Filter(data=filter_dict)
+
+        query_counts: List[int] = []
+        queries: List[List[Dict[str, str]]] = []
+
+        count, qs = self._get_dashboard_counting_queries(dashboard)
+        query_counts.append(count)
+        queries.append(qs)
+
+        # add insights to the dashboard and count how manh queries to read the dashboard afterwards
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter_dict, team=self.team,
+        )
+        count, qs = self._get_dashboard_counting_queries(dashboard)
+        query_counts.append(count)
+        queries.append(qs)
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        count, qs = self._get_dashboard_counting_queries(dashboard)
+        query_counts.append(count)
+        queries.append(qs)
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        count, qs = self._get_dashboard_counting_queries(dashboard)
+        query_counts.append(count)
+        queries.append(qs)
+
+        Insight.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        count, qs = self._get_dashboard_counting_queries(dashboard)
+        query_counts.append(count)
+        queries.append(qs)
+
+        # query count is the expected value - started out getting [9, 13, 13, 15, 17]
+        # 9 with no insight
+        # 13 with one
+        # 13 with two
+        # 15 with three
+        # 17 with four
+        self.assertEqual(query_counts, [11, 11, 11, 11, 11], f"received: {query_counts} for queries: \n\n {queries}")
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
