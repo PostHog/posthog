@@ -208,6 +208,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
         }
         filter = Filter(data=filter_dict)
 
@@ -247,13 +248,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query_counts.append(count)
         queries.append(qs)
 
-        # query count is the expected value - started out getting [9, 13, 13, 15, 17]
-        # 9 with no insight
-        # 13 with one
-        # 13 with two
-        # 15 with three
-        # 17 with four
-        self.assertEqual(query_counts, [11, 11, 11, 11, 11], f"received: {query_counts} for queries: \n\n {queries}")
+        # query count is the expected value
+        # reduced from n plus 1, to 8 queries no matter how many insights by saving insights less often
+        # when saving dashboards
+        self.assertEqual(query_counts, [8, 8, 8, 8, 8], f"received: {query_counts} for queries: \n\n {queries}")
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
