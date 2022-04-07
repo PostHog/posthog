@@ -199,7 +199,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
     key = generate_redis_results_key(query_id)
     ch_client = SyncClient(
         host=CLICKHOUSE_HOST,
-        database="posthog",
+        database=CLICKHOUSE_DATABASE,
         secure=CLICKHOUSE_SECURE,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
