@@ -248,9 +248,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query_counts.append(count)
         queries.append(qs)
 
-        # query count is the expected value
-        # reduced from n plus 1, to 8 queries no matter how many insights by saving insights less often
-        # when saving dashboards
+        # regression test
+        # getting a dashboard was originally n plus 1,
+        # with number of queries growing as the number of insights on the dashboard grew
+        # now a stable 8 queries no matter how many insights are on the dashboard
         self.assertEqual(query_counts, [8, 8, 8, 8, 8], f"received: {query_counts} for queries: \n\n {queries}")
 
     def test_no_cache_available(self):
