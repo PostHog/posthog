@@ -165,8 +165,10 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         # many-to-many fields with a through-model are read-only
         # so don't end up on validated_data
-        dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
-        self._link_to_dashboard(insight, dashboards)
+        # not all clients will send dashboards on creation
+        if "dashboards" in self.initial_data:
+            dashboards = self.initial_data.get("dashboards", [])
+            self._link_to_dashboard(insight, dashboards)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -181,8 +183,10 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         # many-to-many fields with a through-model are read-only
         # so don't end up on validated_data
-        dashboards = [self.validated_data.get("dashboard", None)] + self.initial_data.get("dashboards", [])
-        self._link_to_dashboard(instance, dashboards)
+        # not all patches contain all fields
+        if "dashboards" in self.initial_data:
+            dashboards = self.initial_data.get("dashboards", [])
+            self._link_to_dashboard(instance, dashboards)
 
         return super().update(instance, validated_data)
 
