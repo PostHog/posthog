@@ -1,5 +1,5 @@
 import { BuiltLogic, kea } from 'kea'
-import { Breadcrumb, FilterType, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
+import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
 import { insightSceneLogicType } from './insightSceneLogicType'
@@ -16,7 +16,7 @@ export function preventDiscardingInsightChanges(): boolean | null {
     let shouldPreventNavigatingAway: boolean | null = null
     let shouldCancelChanges: boolean = false
     const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-    if (mountedInsightSceneLogic?.values.insightCache?.logic.values.insightChanged) {
+    if (mountedInsightSceneLogic?.values.insightChanged) {
         // Cancel changes automatically if not in edit mode
         shouldCancelChanges = mountedInsightSceneLogic?.values.insightMode !== ItemMode.Edit
         if (!shouldCancelChanges) {
@@ -43,15 +43,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             insightId,
             insightMode,
         }),
-        setInsightLogic: (
-            logic: BuiltLogic<insightLogicType> | null,
-            selector: ((state: any, props: any) => Partial<InsightModel>) | null,
-            unmount: null | (() => void)
-        ) => ({
+        setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
-            selector,
             unmount,
         }),
+        syncInsightChanged: (insightChanged: boolean) => ({ insightChanged }),
     },
     reducers: {
         insightId: [
@@ -68,6 +64,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
+        insightChanged: [
+            false,
+            {
+                syncInsightChanged: (_, { insightChanged }) => insightChanged,
+            },
+        ],
         lastInsightModeSource: [
             null as InsightEventSource | null,
             {
@@ -77,17 +79,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         insightCache: [
             null as null | {
                 logic: BuiltLogic<insightLogicType>
-                selector: (state: any, props: any) => Partial<InsightModel> | null
                 unmount: () => void
             },
             {
-                setInsightLogic: (_, { logic, selector, unmount }) =>
-                    logic && selector && unmount ? { logic, selector, unmount } : null,
+                setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
     },
     selectors: () => ({
-        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.selector],
+        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [s.insight],
@@ -116,10 +116,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 if (insightId) {
                     const logic = insightLogic.build({ dashboardItemId: insightId }, false)
                     const unmount = logic.mount()
-                    const selector = logic.selectors.insight
-                    actions.setInsightLogic(logic, selector, unmount)
+                    actions.setInsightLogic(logic, unmount)
                 } else {
-                    actions.setInsightLogic(null, null, null)
+                    actions.setInsightLogic(null, null)
                 }
                 if (oldCache) {
                     oldCache.unmount()

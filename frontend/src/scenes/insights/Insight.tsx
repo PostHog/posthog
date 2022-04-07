@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -32,7 +32,7 @@ import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode } = useActions(insightSceneLogic)
+    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -62,6 +62,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
+
+    useEffect(() => {
+        syncInsightChanged(insightChanged)
+    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
