@@ -110,11 +110,11 @@ export const FEATURE_FLAGS = {
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @EDsCODE
-    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
+    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
     HEDGEHOGGER: 'hedgehogger', // owner: @Twixes
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
