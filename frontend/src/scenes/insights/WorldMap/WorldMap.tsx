@@ -13,7 +13,7 @@ import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
 
-/** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
+/** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.15
 /** --primary in HSL for saturation mixing */
 const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
