@@ -57,9 +57,10 @@ export const DEFAULT_ENTITY_FILTERS = {
 
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
-    key: (props) => props.personUUID || 'global',
+    key: (props) => props.key || props.personUUID || 'global',
     props: {} as {
         personUUID?: PersonUUID
+        key?: string
     },
     connect: {
         values: [teamLogic, ['currentTeamId']],

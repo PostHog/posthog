@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -66,11 +66,10 @@ export function InsightContainer(
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
-                    {
-                        filters.display !== ACTIONS_TABLE && (
-                            <div className="trends-insights-container" />
-                        ) /* Tables don't need this padding, but graphs do for sizing */
-                    }
+                    {filters.display !== ACTIONS_TABLE && filters.display !== ChartDisplayType.WorldMap && (
+                        /* Tables and world map don't need this padding, but graphs do for sizing */
+                        <div className="trends-insights-container" />
+                    )}
                     <Loading />
                 </>
             )
@@ -129,7 +128,7 @@ export function InsightContainer(
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        canCheckUncheckSeries={!canEditInsight}
+                        canCheckUncheckSeries={canEditInsight}
                     />
                 </BindLogic>
             )

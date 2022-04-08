@@ -1327,12 +1327,13 @@ export function LiveIcon({ width = 24, height = 24, ...props }: React.SVGProps<S
     )
 }
 
-export function HomeIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+/** Material Design Cottage icon. */
+export function IconCottage(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="54" height="48" viewBox="0 0 54 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
-                d="M26.7334 4.8L41.1334 15.792V12H45.9334V19.464L53.1334 24.96L50.2294 28.776L45.9334 25.488V48H7.53343V25.488L3.23742 28.752L0.333426 24.96L26.7334 4.8ZM12.3334 43.2H24.3334V33.6H29.1334V43.2H41.1334V21.84L26.7334 10.848L12.3334 21.84V43.2ZM31.5334 0C31.5334 3.984 34.7494 7.2 38.7334 7.2C40.0534 7.2 41.1334 8.28 41.1334 9.6H45.9334C45.9334 5.616 42.7174 2.4 38.7334 2.4C37.4134 2.4 36.3334 1.32 36.3334 0H31.5334Z"
-                fill="#F7A501"
+                d="m11.9 4.8 5.4 4.122v-1.422h1.8v2.799l2.7 2.061-1.089 1.431-1.611-1.233v8.442h-14.39995v-8.442l-1.611 1.224-1.089-1.422zm-5.39995 14.4h4.49995v-3.6h1.8v3.6h4.5v-8.01l-5.4-4.122-5.39995 4.122zm7.19995-16.2c0 1.494 1.206 2.7 2.7 2.7.495 0 .9.405.9.9h1.8c0-1.494-1.206-2.7-2.7-2.7-.495 0-.9-.405-.9-.9z"
+                fill="currentColor"
             />
         </svg>
     )
@@ -1378,6 +1379,17 @@ export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
             <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconPlayCircle(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M9.99988 0C4.47988 0 -0.00012207 4.48 -0.00012207 10C-0.00012207 15.52 4.47988 20 9.99988 20C15.5199 20 19.9999 15.52 19.9999 10C19.9999 4.48 15.5199 0 9.99988 0ZM9.99988 18C5.58988 18 1.99988 14.41 1.99988 10C1.99988 5.59 5.58988 2 9.99988 2C14.4099 2 17.9999 5.59 17.9999 10C17.9999 14.41 14.4099 18 9.99988 18ZM7.49988 14.5L14.4999 10L7.49988 5.5V14.5Z"
+                fill="currentColor"
+            />
         </svg>
     )
 }
