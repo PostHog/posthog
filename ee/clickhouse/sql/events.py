@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
