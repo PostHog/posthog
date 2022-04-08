@@ -303,7 +303,7 @@ def check_definition_ids_inclusion_field_sql(
 
 def safe_clickhouse_string(s: str) -> str:
     surrogate_regex = re.compile("([\ud800-\udfff])")
-    matches = re.findall(surrogate_regex, s)
+    matches = re.findall(surrogate_regex, s or "")
     for match in matches:
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
