@@ -14,7 +14,7 @@ import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModa
 import { countryVectors } from './countryVectors'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
-const SATURATION_FLOOR = 0.25
+const SATURATION_FLOOR = 0.15
 /** --primary in HSL for saturation mixing */
 const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
