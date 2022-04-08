@@ -141,7 +141,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                                         icon={<GlobalOutlined />}
                                         tooltip="Visualize data by country. Only works with one series at a time."
                                     >
-                                        Map
+                                        World Map
                                     </Label>
                                 ),
                                 disabled: worldMapDisabled,
