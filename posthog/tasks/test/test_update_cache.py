@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -328,7 +329,8 @@ class TestUpdateCache(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
-        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we woul donly update one of those
+        # Regression test. Previously if we had insights with the same filter,
+        # but different dashboard filters, we would only update one of those
         dashboard1 = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
         dashboard2 = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
         dashboard3 = Dashboard.objects.create(team=self.team, is_shared=True)
@@ -339,45 +341,45 @@ class TestUpdateCache(APIBaseTest):
         # dashboard 1 -> insight 1 and insight 2
         # dashboard 2 -> insight 2
         # dashboard 3 -> insight 3
-        insight1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        insight1: Insight = Insight.objects.create(filters=filter, team=self.team)
         insight1.dashboards.set([dashboard1])
-        insight2 = Insight.objects.create(filters=filter, team=self.team)
+        insight2: Insight = Insight.objects.create(filters=filter, team=self.team)
         insight2.dashboards.set([dashboard1, dashboard2])
-        insight3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+        insight3: Insight = Insight.objects.create(filters=filter, team=self.team)
+        insight3.dashboards.set([dashboard3])
 
         update_cached_items()
+
+        insight1.refresh_from_db()
+        insight2.refresh_from_db()
+        insight3.refresh_from_db()
 
         # insight one has different cache key with and without dashboard link
         # TODO need to add new dashboard insight filter hash store
         self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
-        self.assertEqual(
-            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 15,
-        )
+        self._assert_length_of_cached_value(insight=insight1, dashboard_id=dashboard1.pk, expected_length=15)
 
         # insight two has different cache key by itself and for two different dashboards
         self.assertEqual(len(get_safe_cache(insight2.filters_hash)["result"][0]["data"]), 8)
-        self.assertEqual(
-            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 15,
-        )
-        self.assertEqual(
-            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 31,
-        )
+        self._assert_length_of_cached_value(insight=insight2, dashboard_id=dashboard1.pk, expected_length=15)
+        self._assert_length_of_cached_value(insight=insight2, dashboard_id=dashboard2.pk, expected_length=31)
 
         # insight three has different cache key with and without dashboard link
-        self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(len(get_safe_cache(insight3.filters_hash)["result"][0]["data"]), 8)
+        # no additional filter from dashboard
+        self._assert_length_of_cached_value(insight=insight3, dashboard_id=dashboard3.pk, expected_length=8)
+
+        self.assertAlmostEqual(insight1.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertAlmostEqual(insight2.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertAlmostEqual(insight3.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+
+    def _assert_length_of_cached_value(self, insight: Insight, expected_length: int, dashboard_id: int) -> None:
+        cache_key = insight.dashboard_insight_filters_hash.get(str(dashboard_id))
+        cached_value = get_safe_cache(cache_key)
+        self.assertIsNotNone(cached_value)
         self.assertEqual(
-            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]),
-            8,  # no additional filter from dashboard
+            len(cached_value["result"][0]["data"]), expected_length,
         )
-
-        insight1.refresh_from_db()
-        self.assertEqual(insight1.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
-
-        insight2.refresh_from_db()
-        self.assertEqual(insight2.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
-
-        insight3.refresh_from_db()
-        self.assertEqual(insight3.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_insights_old_filter(self) -> None:

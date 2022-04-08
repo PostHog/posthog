@@ -128,6 +128,9 @@ def update_cached_items() -> None:
     )
 
     for insight in insights[0:PARALLEL_INSIGHT_CACHE]:
+        # this does more queries than before
+        # TODO flatten the selection into (insight, dashboard) pairs
+        #  that can be sliced to PARALLEL_INSIGHT_CACHE length
         for dashboard in insight.dashboards.iterator():
             try:
                 cache_key, cache_type, payload = dashboard_item_update_task_params(insight, dashboard)
