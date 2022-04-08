@@ -37,7 +37,7 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
         default:
-            return !filter.display || NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
+            return !filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
     }
 }
 
