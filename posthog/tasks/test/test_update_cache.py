@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight
-from posthog.models.dashboard import DashboardInsight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_earliest_timestamp
@@ -47,7 +46,7 @@ class TestUpdateCache(APIBaseTest):
             team=self.team,
         )
         new_relation_item_to_cache = Insight.objects.create(filters=filter.to_dict(), team=self.team,)
-        DashboardInsight.objects.create(dashboard=shared_dashboard, insight=new_relation_item_to_cache)
+        new_relation_item_to_cache.dashboards.set([shared_dashboard])
 
         item_do_not_cache = Insight.objects.create(
             dashboard=dashboard_do_not_cache,
@@ -334,53 +333,33 @@ class TestUpdateCache(APIBaseTest):
         # dashboard 2 -> insight 2
         # dashboard 3 -> insight 3
         insight1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        insight1.dashboards.set([dashboard1])
         insight2 = Insight.objects.create(filters=filter, team=self.team)
-        DashboardInsight.objects.create(insight=insight2, dashboard=dashboard1)
-        DashboardInsight.objects.create(insight=insight2, dashboard=dashboard2)
+        insight2.dashboards.set([dashboard1, dashboard2])
         insight3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
 
         update_cached_items()
 
-        insights = Insight.objects.all().order_by("id")
-
         # insight one has different cache key with and without dashboard link
+        # TODO need to add new dashboard insight filter hash store
         self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
         self.assertEqual(
-            len(
-                get_safe_cache(DashboardInsight.objects.get(insight=insight1, dashboard=dashboard1).filters_hash)[
-                    "result"
-                ][0]["data"]
-            ),
-            15,
+            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 15,
         )
 
         # insight two has different cache key by itself and for two different dashboards
         self.assertEqual(len(get_safe_cache(insight2.filters_hash)["result"][0]["data"]), 8)
         self.assertEqual(
-            len(
-                get_safe_cache(DashboardInsight.objects.get(insight=insight2, dashboard=dashboard1).filters_hash)[
-                    "result"
-                ][0]["data"]
-            ),
-            15,
+            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 15,
         )
         self.assertEqual(
-            len(
-                get_safe_cache(DashboardInsight.objects.get(insight=insight2, dashboard=dashboard2).filters_hash)[
-                    "result"
-                ][0]["data"]
-            ),
-            31,
+            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]), 31,
         )
 
         # insight three has different cache key with and without dashboard link
         self.assertEqual(len(get_safe_cache(insight1.filters_hash)["result"][0]["data"]), 8)
         self.assertEqual(
-            len(
-                get_safe_cache(DashboardInsight.objects.get(insight=insight3, dashboard=dashboard3).filters_hash)[
-                    "result"
-                ][0]["data"]
-            ),
+            len(get_safe_cache("get using the new mechanism")["result"][0]["data"]),
             8,  # no additional filter from dashboard
         )
 

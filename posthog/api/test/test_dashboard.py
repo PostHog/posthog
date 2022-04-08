@@ -10,7 +10,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
-from posthog.models.dashboard import DashboardInsight
 from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
@@ -447,7 +446,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight_on_both_relations: Insight = Insight.objects.create(
             short_id="both", filters={"hello": "test"}, team=self.team, created_by=self.user
         )
-        DashboardInsight.objects.create(dashboard=dashboard, insight=insight_on_both_relations)
+        insight_on_both_relations.dashboards.set([dashboard])
         dashboard.items.add(insight_on_both_relations)
 
         insight_on_old_relation = Insight.objects.create(
@@ -458,7 +457,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight_on_new_relation = Insight.objects.create(
             short_id="new", filters={"hello": "test"}, team=self.team, created_by=self.user
         )
-        DashboardInsight.objects.create(dashboard=dashboard, insight=insight_on_new_relation)
+        insight_on_new_relation.dashboards.set([dashboard])
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
         self.assertEqual(len(response["items"]), 3)
@@ -589,28 +588,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["creation_mode"], "default")
 
     def test_dashboard_duplication(self):
-        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        Insight.objects.create(
-            dashboard=existing_dashboard, filters={"name": "test1"}, team=self.team, last_refresh=now(),
-        )
-        Insight.objects.create(
-            dashboard=existing_dashboard, filters={"name": "test2"}, team=self.team, last_refresh=now(),
-        )
+
+        existing_dashboard_id, _ = self._create_dashboard({"name": "existing dashboard"})
+
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard_id], "filters": {"name": "test1"}})
+        insight_two_id, _ = self._create_insight({"dashboards": [existing_dashboard_id], "filters": {"name": "test2"}})
+        # Insight.objects.create(
+        #     dashboard=existing_dashboard, filters={"name": "test1"}, team=self.team, last_refresh=now(),
+        # )
+        # Insight.objects.create(
+        #     dashboard=existing_dashboard, filters={"name": "test2"}, team=self.team, last_refresh=now(),
+        # )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard.id}
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard_id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
-        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.items.all()))
+        self.assertEqual(len(response.json()["items"]), 2)
 
-        existing_dashboard_item_id_set = set(map(lambda x: x.id, existing_dashboard.items.all()))
         response_item_id_set = set(map(lambda x: x.get("id", None), response.json()["items"]))
         # check both sets are disjoint to verify that the new items' ids are different than the existing items
-        self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
+        self.assertTrue({insight_one_id, insight_two_id}.isdisjoint(response_item_id_set))
 
         for item in response.json()["items"]:
-            self.assertNotEqual(item.get("dashboard", None), existing_dashboard.pk)
+            self.assertNotEqual(item.get("dashboard", None), existing_dashboard_id)
 
     def test_invalid_dashboard_duplication(self):
         # pass a random number (non-existent dashboard id) as use_dashboard

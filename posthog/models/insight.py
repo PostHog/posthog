@@ -9,7 +9,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 
-from posthog.models.dashboard import Dashboard, DashboardInsight
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
 
@@ -111,10 +111,16 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_VIEW
 
     def save(self, *args, **kwargs):
+        # update viewed in isolation cache key
         if self.filters and self.filters != {}:
             filter = get_filter(data=self.dashboard_filters(dashboard=None), team=self.team)
-
             self.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), self.team_id))
+
+        # for dashboard in self.dashboards.all():
+        #     # TODO need to save a new structure here
+        #     # can't use the dashboards relation on first save cos no id
+        #     pass
+
         super(Insight, self).save(*args, **kwargs)
 
 
@@ -125,9 +131,8 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
         # Don't update items if signalled that only last_accessed_at changed
         return
 
-    for item in instance.items.filter():
-        for dashboard_insight in DashboardInsight.objects.filter(insight=item, dashboard=instance):
-            dashboard_insight.save()
+    for item in instance.insights.filter():
+        item.save()
 
 
 class InsightViewed(models.Model):

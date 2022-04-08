@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Type, Union
 
 import structlog
 from django.db.models import QuerySet
@@ -49,7 +49,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Filter, Insight, Team
-from posthog.models.dashboard import Dashboard, DashboardInsight
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -100,6 +100,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
+    dashboards = serializers.PrimaryKeyRelatedField(
+        many=True, required=False, queryset=Dashboard.objects.filter(deleted=False)
+    )
 
     class Meta:
         model = Insight
@@ -151,6 +154,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         created_by = validated_data.pop("created_by", request.user)
+        dashboards = validated_data.pop("dashboards", None)
 
         if not validated_data.get("dashboard", None):
             insight = Insight.objects.create(
@@ -166,7 +170,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # many-to-many fields with a through-model are read-only
         # so don't end up on validated_data
         # not all clients will send dashboards on creation
-        if "dashboards" in self.initial_data:
+        if dashboards is not None:
             self._link_to_dashboard(insight, self.initial_data.get("dashboards", []))
 
         # clients should use only dashboard or dashboards
@@ -220,12 +224,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         # remove legacy connection
         insight.dashboard = None
-        # delete any connections not in the received set
-        insight.dashboardinsight_set.exclude(dashboard__in=dashboard_instances).delete()
-        # add any connections that don't already exist
-        for d in dashboard_instances:
-            if not insight.dashboardinsight_set.filter(dashboard=d).exists():
-                DashboardInsight.objects.create(insight=insight, dashboard=d)
+        insight.dashboards.set(dashboard_instances)
 
     def get_result(self, insight: Insight):
         """
@@ -301,15 +300,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             return update_dashboard_item_cache(insight, dashboard)
 
         if dashboard:
-            dashboard_insight: Optional[DashboardInsight] = insight.dashboardinsight_set.filter(
-                dashboard=dashboard
-            ).first()
-            if dashboard_insight is None:
-                logger.warn(
-                    "unknown_dashboard_insight_link", insight_short_id=insight.short_id, dashboard_id=dashboard.id
-                )
-                return None
-            cache_key = dashboard_insight.filters_hash
+            # TODO look up cache key in new structure
+            cache_key = "tomato"  # dashboard_insight.filters_hash
         else:
             cache_key = insight.filters_hash
 

@@ -21,7 +21,6 @@ from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Organization, Team
-from posthog.models.dashboard import DashboardInsight
 from posthog.models.user import User
 from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -92,15 +91,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 from posthog.api.insight import InsightSerializer
 
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_dashboard_items = existing_dashboard.items.all()
-                for dashboard_item in existing_dashboard_items:
+                existing_insights = existing_dashboard.insights.all()
+                for insight in existing_insights:
                     override_dashboard_item_data = {
                         "id": None,  # to create a new Insight
                         "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
                     new_data = {
-                        **InsightSerializer(dashboard_item, context=self.context,).data,
+                        **InsightSerializer(insight, context=self.context,).data,
                         **override_dashboard_item_data,
                     }
                     new_tags = new_data.pop("tags", None)
@@ -120,7 +119,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
                     team=team,
                 )
-                DashboardInsight.objects.create(insight=insight, dashboard=dashboard)
+                insight.dashboards.add(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -154,7 +153,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         updated_dashboard: Dashboard = super().update(instance, validated_data)
 
         if "filters" in validated_data:
-            for updateable in updated_dashboard.dashboardinsight_set.filter():
+            for updateable in updated_dashboard.insights.filter():
                 updateable.save()
 
         if "request" in self.context:
@@ -236,6 +235,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             .filter(deleted=False)
             .order_by("order")
         )
+
         queryset = (
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)

@@ -5,8 +5,6 @@ from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
-from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
 
 
 class Dashboard(models.Model):
@@ -43,7 +41,7 @@ class Dashboard(models.Model):
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
 
-    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardInsight")
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
@@ -110,27 +108,27 @@ class Dashboard(models.Model):
         }
 
 
-class DashboardInsight(models.Model):
-    """
-    An explicit join model for adding insights to dashboards allows for future extension of the relationship
-    E.g. allowing the same insight to have different filters on different dashboards
-    """
-
-    class Meta:
-        unique_together = (
-            "dashboard",
-            "insight",
-        )
-
-    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
-    filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-
-    def save(self, *args, **kwargs):
-        if self.insight.filters and self.insight.filters != {}:
-            merged_filters = get_filter(
-                data=self.insight.dashboard_filters(dashboard=self.dashboard), team=self.insight.team
-            )
-            cache_key = generate_cache_key("{}_{}".format(merged_filters.toJSON(), self.insight.team_id))
-            self.filters_hash = cache_key
-        super(DashboardInsight, self).save(*args, **kwargs)
+# class DashboardInsight(models.Model):
+#     """
+#     An explicit join model for adding insights to dashboards allows for future extension of the relationship
+#     E.g. allowing the same insight to have different filters on different dashboards
+#     """
+#
+#     class Meta:
+#         unique_together = (
+#             "dashboard",
+#             "insight",
+#         )
+#
+#     dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
+#     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+#     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+#
+#     def save(self, *args, **kwargs):
+#         if self.insight.filters and self.insight.filters != {}:
+#             merged_filters = get_filter(
+#                 data=self.insight.dashboard_filters(dashboard=self.dashboard), team=self.insight.team
+#             )
+#             cache_key = generate_cache_key("{}_{}".format(merged_filters.toJSON(), self.insight.team_id))
+#             self.filters_hash = cache_key
+#         super(DashboardInsight, self).save(*args, **kwargs)
