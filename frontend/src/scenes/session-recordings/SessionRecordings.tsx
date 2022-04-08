@@ -26,7 +26,7 @@ export function SessionsRecordings(): JSX.Element {
                         <Button
                             type="primary"
                             onClick={() => {
-                                router.actions.push(urls.projectSettings(), {}, 'session-recording')
+                                router.actions.push(urls.projectSettings(), {}, 'recordings')
                             }}
                         >
                             Go to settings <ArrowRightOutlined />

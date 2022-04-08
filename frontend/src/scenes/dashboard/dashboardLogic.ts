@@ -2,6 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
+import { dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
@@ -9,6 +10,7 @@ import {
     PATHS_VIZ,
     DashboardPrivilegeLevel,
     OrganizationMembershipLevel,
+    FEATURE_FLAGS,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -341,15 +343,17 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 if (!items || !items.length) {
                     return null
                 }
-                let lastRefreshed = items[0].last_refresh
-
+                let oldestLastRefreshed = null
                 for (const item of items) {
-                    if (item.last_refresh && (!lastRefreshed || item.last_refresh < lastRefreshed)) {
-                        lastRefreshed = item.last_refresh
+                    const itemLastRefreshed = item.last_refresh ? dayjs(item.last_refresh) : null
+                    if (
+                        !oldestLastRefreshed ||
+                        (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
+                    ) {
+                        oldestLastRefreshed = itemLastRefreshed
                     }
                 }
-
-                return lastRefreshed
+                return oldestLastRefreshed
             },
         ],
         dashboard: [
@@ -672,8 +676,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
-            actions.refreshAllDashboardItems(notYetLoadedItems)
+            if (
+                values.lastRefreshed &&
+                values.lastRefreshed.isBefore(now().subtract(3, 'hours')) &&
+                values.featureFlags[FEATURE_FLAGS.AUTO_REFRESH_DASHBOARDS]
+            ) {
+                actions.refreshAllDashboardItems()
+            } else {
+                const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
+                if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
+                    actions.refreshAllDashboardItems(notYetLoadedItems)
+                }
+            }
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()

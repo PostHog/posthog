@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -15,7 +15,6 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
@@ -25,6 +24,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconEdit } from 'lib/components/icons'
+import { countryCodeToName } from '../WorldMap'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -98,22 +98,24 @@ export function InsightsTable({
         }
     }
 
-    const calcColumnMenu = (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setCalcColumnState(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
+    // The calc menu doesn't make sense for the map
+    const calcColumnMenu =
+        filters.display === ChartDisplayType.WorldMap ? null : (
+            <Menu>
+                {Object.keys(CALC_COLUMN_LABELS).map((key) => (
+                    <Menu.Item
+                        key={key}
+                        onClick={(e) => {
+                            setCalcColumnState(key as CalcColumnState)
+                            reportInsightsTableCalcToggled(key)
+                            e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
+                        }}
+                    >
+                        {CALC_COLUMN_LABELS[key as CalcColumnState]}
+                    </Menu.Item>
+                ))}
+            </Menu>
+        )
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumns<IndexedTrendResult> = []
@@ -196,6 +198,16 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
+        if (filters.display === ChartDisplayType.WorldMap) {
+            columns.push({
+                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
+                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                key: 'breakdown_addendum',
+                sorter: (a, b) => {
+                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                },
+            })
+        }
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
@@ -228,13 +240,15 @@ export function InsightsTable({
 
     if (showTotalCount) {
         columns.push({
-            title: (
+            title: calcColumnMenu ? (
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]}
                         <DownOutlined className="ml-025" />
                     </span>
                 </Dropdown>
+            ) : (
+                CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(count: any, item: IndexedTrendResult) {
                 if (calcColumnState === 'average') {
@@ -243,9 +257,10 @@ export function InsightsTable({
                     return median(item.data).toLocaleString()
                 } else if (
                     calcColumnState === 'total' &&
-                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        filters.display === ACTIONS_TABLE ||
-                        filters.display === ACTIONS_PIE_CHART)
+                    (filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
+                        filters.display === ChartDisplayType.ActionsTable ||
+                        filters.display === ChartDisplayType.ActionsPie ||
+                        filters.display === ChartDisplayType.WorldMap)
                 ) {
                     return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }

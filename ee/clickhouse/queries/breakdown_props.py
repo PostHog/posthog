@@ -11,7 +11,7 @@ from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
-from posthog.constants import BREAKDOWN_TYPES, BREAKDOWN_VALUES_LIMIT, PropertyOperatorType
+from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
@@ -29,7 +29,6 @@ def get_breakdown_prop_values(
     entity: Entity,
     aggregate_operation: str,
     team_id: int,
-    limit: int = BREAKDOWN_VALUES_LIMIT,
     extra_params={},
     column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
 ):
@@ -84,7 +83,7 @@ def get_breakdown_prop_values(
         elements_query,
         {
             "key": filter.breakdown,
-            "limit": limit,
+            "limit": filter.breakdown_limit_or_default,
             "team_id": team_id,
             "offset": filter.offset,
             **prop_filter_params,

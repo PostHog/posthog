@@ -59,6 +59,7 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
+    ProjectHomepage = 'project_homepage',
 }
 
 export enum GraphSeriesAddedSource {
