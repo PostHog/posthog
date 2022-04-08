@@ -3,18 +3,17 @@ import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
-
-# from celery import group
+from celery import group
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-# from posthog.celery import update_cache_item_task
+from posthog.celery import update_cache_item_task
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -108,35 +107,41 @@ def get_cache_type(filter: FilterType) -> CacheType:
 
 def update_cached_items() -> None:
 
-    # tasks = []
+    tasks = []
 
     # we only cache insights that are on a shared or recently accessed dashboard
-    dashboards = (
-        Dashboard.objects.filter(Q(Q(is_shared=True) | Q(last_accessed_at__gt=timezone.now() - relativedelta(days=7))))
+    dashboards = Dashboard.objects.filter(
+        Q(Q(is_shared=True) | Q(last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
+    ).exclude(deleted=True)
+
+    insights = (
+        Insight.objects.filter(
+            Q(dashboards__is_shared=True) | Q(dashboards__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+        )
+        .exclude(dashboard__deleted=True)
+        .exclude(refreshing=True)
         .exclude(deleted=True)
-        .exclude(insights__refreshing=True)
-        .exclude(insights__deleted=True)
-        .exclude(insights__refresh_attempt__gt=2)
-        .exclude(insights__filters={})
-        .order_by(F("insight__last_refresh").asc(nulls_first=True))
+        .exclude(refresh_attempt__gt=2)
+        .exclude(filters={})
+        .prefetch_related(Prefetch("dashboards", dashboards))
+        .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    # takes the first 5 insights
-    for dashboard in dashboards[0:PARALLEL_INSIGHT_CACHE]:
-        try:
-            pass
-            # cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard.insight, dashboard.dashboard)
-            # if dashboard.insight.filters_hash != cache_key:
-            #     dashboard.insight.save()  # force update if the saved key is different from the cache key
-            # tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
-        except Exception as e:
-            # dashboard.insight.refresh_attempt = (dashboard.insight.refresh_attempt or 0) + 1
-            # dashboard.insight.save()
-            capture_exception(e)
+    for insight in insights[0:PARALLEL_INSIGHT_CACHE]:
+        for dashboard in insight.dashboards.iterator():
+            try:
+                cache_key, cache_type, payload = dashboard_item_update_task_params(insight, dashboard)
+                if insight.filters_hash != cache_key:
+                    insight.save()  # force update if the saved key is different from the cache key
+                tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+            except Exception as e:
+                insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
+                insight.save()
+                capture_exception(e)
 
-    # logger.info("Found {} items to refresh".format(len(tasks)))
-    # task_set = group(tasks)
-    # task_set.apply_async()
+    logger.info("Found {} items to refresh".format(len(tasks)))
+    task_set = group(tasks)
+    task_set.apply_async()
     statsd.gauge("update_cache_queue_depth", dashboards.count())
 
 

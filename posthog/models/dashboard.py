@@ -2,6 +2,8 @@ from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
@@ -108,27 +110,16 @@ class Dashboard(models.Model):
         }
 
 
-# class DashboardInsight(models.Model):
-#     """
-#     An explicit join model for adding insights to dashboards allows for future extension of the relationship
-#     E.g. allowing the same insight to have different filters on different dashboards
-#     """
-#
-#     class Meta:
-#         unique_together = (
-#             "dashboard",
-#             "insight",
-#         )
-#
-#     dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
-#     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
-#     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-#
-#     def save(self, *args, **kwargs):
-#         if self.insight.filters and self.insight.filters != {}:
-#             merged_filters = get_filter(
-#                 data=self.insight.dashboard_filters(dashboard=self.dashboard), team=self.insight.team
-#             )
-#             cache_key = generate_cache_key("{}_{}".format(merged_filters.toJSON(), self.insight.team_id))
-#             self.filters_hash = cache_key
-#         super(DashboardInsight, self).save(*args, **kwargs)
+@receiver(post_save, sender=Dashboard)
+def dashboard_saved(sender, instance: Dashboard, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if frozenset({"last_accessed_at"}) == update_fields:
+        # Don't update items if signalled that only last_accessed_at changed
+        return
+
+    for item in instance.insights.filter():
+        item.save()
+
+    if instance.insights.count() == 0 and instance.items.count() > 0:
+        for item in instance.insights.filter():
+            item.save()

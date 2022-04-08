@@ -24,34 +24,41 @@ class TestUpdateCache(APIBaseTest):
         # Any shared dashboard, as we only use cached items to show those
         # Any dashboard accessed in the last 7 day
         # These need to work across the "legacy" `dashboard` foreign key from an insight to a single dashboard
-        # and the new `insights` many to many relation from dashboards to insights
+        # and the new `insights` many-to-many relation from dashboards to insights
         filter = Filter(
             data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
         )
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
-        dashboard_do_not_cache = Dashboard.objects.create(
-            team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
-        )
+        dashboard_to_cache = Dashboard.objects.create(team=self.team, last_accessed_at=now())
+        dashboard_do_not_cache = Dashboard.objects.create(team=self.team, last_accessed_at="2020-01-01T12:00:00Z")
 
-        item = Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-        funnel_item = Insight.objects.create(
-            dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
+        on_shared_dashboard = Insight.objects.create(
+            dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team, name="on_shared_dashboard"
         )
-        item_to_cache = Insight.objects.create(
+        funnel_on_shared_dashboard = Insight.objects.create(
+            dashboard=shared_dashboard,
+            filters=funnel_filter.to_dict(),
+            team=self.team,
+            name="funnel_on_shared_dashboard",
+        )
+        on_recently_updated_dashboard = Insight.objects.create(
             dashboard=dashboard_to_cache,
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(),
             team=self.team,
+            name="on_recently_updated_dashboard",
         )
-        new_relation_item_to_cache = Insight.objects.create(filters=filter.to_dict(), team=self.team,)
-        new_relation_item_to_cache.dashboards.set([shared_dashboard])
+        on_recently_updated_dashboard_many_to_many = Insight.objects.create(
+            filters=filter.to_dict(), team=self.team, name="on_recently_updated_dashboard_many_to_many"
+        )
+        on_recently_updated_dashboard_many_to_many.dashboards.set([dashboard_to_cache])
 
         item_do_not_cache = Insight.objects.create(
             dashboard=dashboard_do_not_cache,
             filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(),
             team=self.team,
+            name="item_do_not_cache",
         )
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
@@ -63,11 +70,11 @@ class TestUpdateCache(APIBaseTest):
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])
 
-        self.assertIsNotNone(Insight.objects.get(pk=new_relation_item_to_cache.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=item.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=funnel_item.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=item_to_cache.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=item_do_not_cache.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=on_recently_updated_dashboard_many_to_many.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=on_shared_dashboard.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=funnel_on_shared_dashboard.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=on_recently_updated_dashboard.pk).last_refresh)
+        self.assertIsNone(Insight.objects.get(pk=item_do_not_cache.pk).last_refresh)
         self.assertEqual(get_safe_cache(item_key)["result"][0]["count"], 0)
         self.assertEqual(get_safe_cache(funnel_key)["result"][0]["count"], 0)
 

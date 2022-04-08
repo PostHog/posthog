@@ -121,10 +121,12 @@ class Insight(models.Model):
             # update viewed on dashboard cache keys
             new_dashboard_cache_keys = {}
             for dashboard in self.dashboards.all():
-                generated_filter = get_filter(data=self.dashboard_filters(dashboard=dashboard), team=self.team)
-                new_dashboard_cache_keys[dashboard.id] = generate_cache_key(
-                    "{}_{}".format(generated_filter.toJSON(), self.team_id)
-                )
+                candidate_filters = self.dashboard_filters(dashboard=dashboard)
+                if candidate_filters != {}:
+                    generated_filter = get_filter(data=candidate_filters, team=self.team)
+                    new_dashboard_cache_keys[dashboard.id] = generate_cache_key(
+                        "{}_{}".format(generated_filter.toJSON(), self.team_id)
+                    )
 
             if new_dashboard_cache_keys != {}:
                 self.dashboard_insight_filters_hash = new_dashboard_cache_keys
@@ -132,19 +134,11 @@ class Insight(models.Model):
         super(Insight, self).save(*args, **kwargs)
 
 
-@receiver(post_save, sender=Dashboard)
-def dashboard_saved(sender, instance: Dashboard, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if frozenset({"last_accessed_at"}) == update_fields:
-        # Don't update items if signalled that only last_accessed_at changed
-        return
-
-    for item in instance.insights.filter():
-        item.save()
-
-    if instance.insights.count() == 0 and instance.items.count() > 0:
-        for item in instance.insights.filter():
-            item.save()
+@receiver(post_save, sender=Insight)
+def insight_saved(sender, instance: Insight, created: bool, **kwargs):
+    # ensure that insights created outside of the API using the old dashboard relation can be used
+    if created and instance.dashboard is not None and instance.dashboards.count() == 0:
+        instance.dashboards.set([instance.dashboard])
 
 
 class InsightViewed(models.Model):

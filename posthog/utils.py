@@ -772,7 +772,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def is_request_from_dashboard(request: Optional[Request]) -> Optional[int]:
+def is_request_from_dashboard(request: Optional[Request]) -> Optional[str]:
     if request is None:
         return None
     return request.GET.get(FROM_DASHBOARD, None)
