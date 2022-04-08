@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize, materialized_column_name
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -28,19 +28,14 @@ def create_materialized_columns(database):
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
         try:
-            materialize("events", property_name)
+            materialize("events", property_name, property_name)
         except ValueError:
             # property is already materialized. Now, ensure the column's name is correct.
-            # This handles the case where the bad 0024_materialize_window_and_session_id
-            # already ran
+            # This handles the case where the customer had already materialized the column
             materialized_columns = get_materialized_columns("events", use_cache=False)
             current_materialized_column_name = materialized_columns.get(property_name, None)
-            expected_materialized_column_name = materialized_column_name("events", property_name)
-            if (
-                current_materialized_column_name
-                and current_materialized_column_name != expected_materialized_column_name
-            ):
-                rename_column_on_events_table(current_materialized_column_name, expected_materialized_column_name)
+            if current_materialized_column_name and current_materialized_column_name != property_name:
+                rename_column_on_events_table(current_materialized_column_name, property_name)
 
 
 operations = [migrations.RunPython(create_materialized_columns)]
