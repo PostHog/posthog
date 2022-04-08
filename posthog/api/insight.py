@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Type, Union
+from typing import Any, Dict, List, Optional, Type, Union
 
 import structlog
 from django.db.models import QuerySet
@@ -53,12 +53,13 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +114,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "derived_name",
             "filters",
             "filters_hash",
+            "dashboard_insight_filters_hash",
             "order",
             "deleted",
             "dashboard",
@@ -226,6 +228,21 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         insight.dashboard = None
         insight.dashboards.set(dashboard_instances)
 
+        # update dashboard/insight filters_hash
+        new_filters_hash: Dict[int, str] = {}
+        for dashboard in insight.dashboards.iterator():
+            filters = insight.dashboard_filters(dashboard=dashboard)
+            if filters == {}:
+                continue
+
+            generated_filter = get_filter(data=filters, team=dashboard.team)
+            new_filters_hash[dashboard.id] = generate_cache_key(
+                "{}_{}".format(generated_filter.toJSON(), dashboard.team.id)
+            )
+
+        if new_filters_hash != {}:
+            insight.dashboard_insight_filters_hash = new_filters_hash
+
     def get_result(self, insight: Insight):
         """
         All insights are cached on calculation and results are returned from the cache.
@@ -282,7 +299,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         TODO update API docs for new "dashboard_id" param on refreshing an insight
         """
         dashboard = self.context.get("dashboard", None)
-        dashboard_id_from_params = self.context["request"].query_params.get("dashboard_id", None)
+        dashboard_id_from_params: Optional[int] = self.context["request"].query_params.get("dashboard_id", None)
         if not dashboard and dashboard_id_from_params is not None:
             try:
                 dashboard = Dashboard.objects.get(pk=dashboard_id_from_params)
@@ -300,8 +317,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             return update_dashboard_item_cache(insight, dashboard)
 
         if dashboard:
-            # TODO look up cache key in new structure
-            cache_key = "tomato"  # dashboard_insight.filters_hash
+            cache_key = insight.dashboard_insight_filters_hash.get(dashboard.id)
         else:
             cache_key = insight.filters_hash
 

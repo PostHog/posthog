@@ -31,6 +31,7 @@ class Insight(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    dashboard_insight_filters_hash: models.JSONField = models.JSONField(default=dict)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)

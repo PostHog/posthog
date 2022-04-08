@@ -344,9 +344,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_json["description"], None)
         self.assertEqual(response_json["tags"], [])
         self.assertEqual(response_json["dashboards"], [dashboard.pk])
+        self.assertIsNotNone(response_json["dashboard_insight_filters_hash"])
+        self.assertIsNotNone(response_json["dashboard_insight_filters_hash"][str(dashboard.pk)])
 
     def test_create_insight_with_dashboards_relation_adds_to_dashboards(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+        dashboard_two: Dashboard = Dashboard.objects.create(team=self.team)
 
         _, response_json = self._create_insight(
             {
@@ -355,12 +358,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
-                "dashboards": [dashboard.pk],
+                "dashboards": [dashboard.pk, dashboard_two.pk],
             }
         )
         self.assertEqual(response_json["description"], None)
         self.assertEqual(response_json["tags"], [])
-        self.assertEqual(response_json["dashboards"], [dashboard.pk])
+        self.assertEqual(response_json["dashboards"], [dashboard.pk, dashboard_two.pk])
+        self.assertIsNotNone(response_json["dashboard_insight_filters_hash"])
+        self.assertIsNotNone(response_json["dashboard_insight_filters_hash"][str(dashboard.pk)])
+        self.assertIsNotNone(response_json["dashboard_insight_filters_hash"][str(dashboard_two.pk)])
 
     def test_cannot_create_insight_with_dashboard_relation_from_another_team(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -1187,7 +1193,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def test_to_representation_with_dashboard_on_context(self):
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, filters={"dateFrom": "-7d"})
-        insight: Insight = Insight.objects.create(team=self.team, filters={"insight": "TRENDS"})
+
+        insight_id, _ = self._create_insight({"filters": {"insight": "TRENDS"}})
+        insight: Insight = Insight.objects.get(pk=insight_id)
 
         data = InsightSerializer(
             insight, many=False, context={"request": FakeRequest({}, self.user), "dashboard": dashboard}

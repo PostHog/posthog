@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
+from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
@@ -212,6 +213,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
         }
         filter = Filter(data=filter_dict)
 
@@ -228,9 +230,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
+        # check the first insight has been cached by checking last_refresh was set
         first_insight = Insight.objects.get(pk=first_insight_id)
         self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(first_insight.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
+
+        # check filter cache key is generated as expected
+        filters = first_insight.dashboard_filters(dashboard=dashboard)
+        generated_filter = get_filter(data=filters, team=dashboard.team)
+        dashboard_insight_cache_key = generate_cache_key("{}_{}".format(generated_filter.toJSON(), dashboard.team.id))
+        self.assertEqual(first_insight.filters_hash, dashboard_insight_cache_key)
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
