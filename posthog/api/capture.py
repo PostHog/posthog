@@ -44,7 +44,7 @@ def parse_kafka_event_data(
     return {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
-        "ip": safe_clickhouse_string(ip),
+        "ip": safe_clickhouse_string(ip or ""),
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "team_id": team_id,
