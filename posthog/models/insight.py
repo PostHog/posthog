@@ -112,15 +112,22 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_VIEW
 
     def save(self, *args, **kwargs):
-        # update viewed in isolation cache key
+        # set viewed in isolation cache key
         if self.filters and self.filters != {}:
-            filter = get_filter(data=self.dashboard_filters(dashboard=None), team=self.team)
-            self.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), self.team_id))
+            generated_filter = get_filter(data=self.dashboard_filters(dashboard=None), team=self.team)
+            self.filters_hash = generate_cache_key("{}_{}".format(generated_filter.toJSON(), self.team_id))
 
-        # for dashboard in self.dashboards.all():
-        #     # TODO need to save a new structure here
-        #     # can't use the dashboards relation on first save cos no id
-        #     pass
+        if self.id is not None:
+            # update viewed on dashboard cache keys
+            new_dashboard_cache_keys = {}
+            for dashboard in self.dashboards.all():
+                generated_filter = get_filter(data=self.dashboard_filters(dashboard=dashboard), team=self.team)
+                new_dashboard_cache_keys[dashboard.id] = generate_cache_key(
+                    "{}_{}".format(generated_filter.toJSON(), self.team_id)
+                )
+
+            if new_dashboard_cache_keys != {}:
+                self.dashboard_insight_filters_hash = new_dashboard_cache_keys
 
         super(Insight, self).save(*args, **kwargs)
 
@@ -134,6 +141,10 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
 
     for item in instance.insights.filter():
         item.save()
+
+    if instance.insights.count() == 0 and instance.items.count() > 0:
+        for item in instance.insights.filter():
+            item.save()
 
 
 class InsightViewed(models.Model):

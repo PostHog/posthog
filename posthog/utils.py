@@ -40,7 +40,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 
-from posthog.constants import AvailableFeature
+from posthog.constants import FROM_DASHBOARD, AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -770,6 +770,12 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def is_request_from_dashboard(request: Optional[Request]) -> Optional[int]:
+    if request is None:
+        return None
+    return request.GET.get(FROM_DASHBOARD, None)
 
 
 def should_refresh(request: Request) -> bool:

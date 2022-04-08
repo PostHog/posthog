@@ -37,7 +37,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
-    FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -59,7 +58,14 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import (
+    generate_cache_key,
+    get_safe_cache,
+    is_request_from_dashboard,
+    relative_date_parse,
+    should_refresh,
+    str_to_bool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -241,7 +247,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             )
 
         if new_filters_hash != {}:
-            insight.dashboard_insight_filters_hash = new_filters_hash
+            Insight.objects.filter(pk=insight.pk).update(dashboard_insight_filters_hash=new_filters_hash)
 
     def get_result(self, insight: Insight):
         """
@@ -337,7 +343,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
             insight.last_refresh = None
-            insight.save()
+            insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -604,7 +610,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:
-        dashboard_id = request.GET.get(FROM_DASHBOARD, None)
+        dashboard_id = is_request_from_dashboard(request)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 

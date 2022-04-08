@@ -207,44 +207,101 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             all(x == query_counts[1] for x in query_counts[2:]), f"received: {query_counts} for queries: \n\n {queries}"
         )
 
-    def test_return_cached_results(self):
+    def test_return_cached_results_viewed_not_on_a_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", filters={"date_from": "-24h"})
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        # create an insight on the dashboard
+        first_insight_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
+
+        # at this point the insight has a filters_hash which is a combination of its filters and team id,
+        # this is used as the cache key when viewed on its own
+        # and a single dashboard_insight_filters_hash which is the combination of dashboard filters, its filters,
+        # and the team id
+        # this is used as the cache key when viewed on a dashboard
+
+        # cache results
+        # the cachefunction decorator adds the results into the cache using the filters hash
+        events = f"events={json.dumps(filter_dict['events'])}"
+        properties = f"properties={json.dumps(filter_dict['properties'])}"
+        # calling the API for the results uses the provided filters and team_id to cache the results
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend?insight=TRENDS&{events}&{properties}")
+        self.assertEqual(response.status_code, 200)
+
+        # check the first insight has been cached by checking last_refresh was set
+        first_insight: Insight = Insight.objects.get(pk=first_insight_id)
+        self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+
+        # check filter cache key is generated as expected for off dashboard viewing
+        filters = first_insight.dashboard_filters(dashboard=None)
+        generated_filter = get_filter(data=filters, team=dashboard.team)
+        dashboard_insight_cache_key = generate_cache_key("{}_{}".format(generated_filter.toJSON(), self.team.id))
+        self.assertEqual(first_insight.filters_hash, dashboard_insight_cache_key)
+
+        # request the insight
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"short_id": first_insight.short_id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # this uses the insight's filters_hash to look up in the cache
+        # last refresh can be used as a proxy for whether the value was returned from the cache
+        # if it is found it returns the last_refresh value set above,
+        # if it is not, it does not return a last refresh value
+        self.assertNotEquals(response.json()["results"], [])
+        self.assertEqual(
+            response.json()["results"][0]["last_refresh"], first_insight.last_refresh.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        )
+
+    def test_return_cached_results_viewed_on_a_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "insight": "TRENDS",
         }
-        filter = Filter(data=filter_dict)
 
         # create two insights on the dashboard
         first_insight_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
         second_insight_id, _ = self._create_insight(data={"filters": filter_dict, "dashboards": [dashboard.pk]})
 
+        # confirm they're returned by the dashboard
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
         self.assertEqual([i["id"] for i in response["items"]], [first_insight_id, second_insight_id])
 
-        # cache results
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        self.assertEqual(response.status_code, 200)
-        # check the first insight has been cached by checking last_refresh was set
-        first_insight = Insight.objects.get(pk=first_insight_id)
-        self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-
         # check filter cache key is generated as expected
+        first_insight = Insight.objects.get(pk=first_insight_id)
         filters = first_insight.dashboard_filters(dashboard=dashboard)
         generated_filter = get_filter(data=filters, team=dashboard.team)
         dashboard_insight_cache_key = generate_cache_key("{}_{}".format(generated_filter.toJSON(), dashboard.team.id))
-        self.assertEqual(first_insight.filters_hash, dashboard_insight_cache_key)
+        self.assertEqual(first_insight.dashboard_insight_filters_hash, {str(dashboard.pk): dashboard_insight_cache_key})
+
+        # cache results
+        # the filters here, have to be the combination of dashboard and insight filters
+        # or the cachefunction decorator uses the wrong cache key
+        events = f"events={json.dumps(filter_dict['events'])}"
+        properties = f"properties={json.dumps(filter_dict['properties'])}"
+        date_from = "date_from=-24h"
+        from_dashboard = f"from_dashboard={dashboard.pk}"
+        # calling the API for the results uses the provided filters and team_id to cache the results
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend?insight=TRENDS&{from_dashboard}&{events}&{properties}&{date_from}"
+        )
+        self.assertEqual(response.status_code, 200)
+
+        # check the first insight has been cached by checking last_refresh was set
+        first_insight.refresh_from_db()
+        first_insight = Insight.objects.get(pk=first_insight_id)
+        self.assertAlmostEqual(first_insight.last_refresh, now(), delta=timezone.timedelta(seconds=5))
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
 
-    def test_return_cached_results_dashboard_has_filters(self):
+    def test_return_cached_results_viewed_on_a_dashboard_which_has_filters(self):
         # Regression test, we were
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {

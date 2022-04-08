@@ -11,7 +11,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.models import User
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import Insight
-from posthog.utils import should_refresh
+from posthog.utils import is_request_from_dashboard, should_refresh
 
 from .utils import generate_cache_key, get_safe_cache
 
@@ -60,7 +60,13 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                     cache_key, fresh_result_package, settings.TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
-                    insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
+                    dashboard_id = is_request_from_dashboard(request)
+                    if dashboard_id is not None:
+                        insights = Insight.objects.filter(
+                            team_id=team.pk, **{f"dashboard_insight_filters_hash__{dashboard_id}": cache_key}
+                        )
+                    else:
+                        insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
                     insights.update(last_refresh=now())
         return fresh_result_package
 
