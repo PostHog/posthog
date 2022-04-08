@@ -144,18 +144,6 @@ export function InsightTooltip({
         const columns: LemonTableColumns<SeriesDatum> = []
         const isTruncated = dataSource?.length > rowCutoff
 
-        if (!hideColorCol) {
-            columns.push({
-                key: 'color',
-                className: 'color-column',
-                sticky: true,
-                width: 6,
-                render: function renderColor(_, datum) {
-                    return <div className="color-cell" style={{ backgroundColor: datum.color }} />
-                },
-            })
-        }
-
         columns.push({
             key: 'datum',
             className: 'datum-label-column',
@@ -198,6 +186,7 @@ export function InsightTooltip({
                     rowKey="id"
                     size="small"
                     uppercaseHeader={false}
+                    rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (
