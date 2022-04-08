@@ -22,8 +22,8 @@ enum ServerMode {
 
 let serverMode: ServerMode = ServerMode.Ingestion
 
-if (env.SERVER_MODE && !['ingestion', 'runner'].includes(env.SERVER_MODE)) {
-    throw new Error(`SERVER_MODE must be 'ingestion' or 'runner'`)
+if (env.SERVER_MODE && !['INGESTION', 'RUNNER'].includes(env.SERVER_MODE)) {
+    throw new Error(`SERVER_MODE must be 'INGESTION' or 'RUNNER'`)
 }
 
 if (defaultConfig.PLUGIN_SERVER_IDLE) {

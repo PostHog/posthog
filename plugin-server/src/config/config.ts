@@ -1,6 +1,6 @@
 import os from 'os'
 
-import { LogLevel, PluginsServerConfig } from '../types'
+import { LogLevel, PluginServerMode, PluginsServerConfig } from '../types'
 import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
@@ -86,7 +86,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         KAFKA_RUNNER_TOPIC: 'plugin-server-runner-events',
-        SERVER_MODE: 'ingestion',
+        SERVER_MODE: PluginServerMode.Ingestion,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         DISABLE_HTTP_SERVER: isTestEnv,

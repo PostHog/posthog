@@ -18,7 +18,9 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
 
     status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
-    const pluginServerMode = env.SERVER_MODE === 'runner' ? PluginServerMode.Runner : PluginServerMode.Ingestion
+    const pluginServerMode =
+        config.SERVER_MODE === PluginServerMode.Runner ? PluginServerMode.Runner : PluginServerMode.Ingestion
+
     const [hub, closeHub] = await createHub(config, threadId, pluginServerMode)
     await setupPlugins(hub)
 

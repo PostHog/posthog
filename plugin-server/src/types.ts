@@ -112,7 +112,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     KAFKA_RUNNER_TOPIC: string
-    SERVER_MODE: 'ingestion' | 'runner'
+    SERVER_MODE: PluginServerMode
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string

@@ -21,5 +21,6 @@ if (isMainThread) {
 
     const { createWorker } = require('./worker')
     const { workerData } = require('@posthog/piscina')
+
     module.exports = createWorker(workerData.serverConfig, threadId)
 }

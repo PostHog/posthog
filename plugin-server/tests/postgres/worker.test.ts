@@ -4,7 +4,7 @@ import { mocked } from 'ts-jest/utils'
 
 import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub, LogLevel } from '../../src/types'
+import { Hub, LogLevel, PluginServerMode } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
@@ -51,41 +51,79 @@ describe('worker', () => {
         jest.spyOn(ActionMatcher.prototype, 'match')
     })
 
-    test('piscina worker test', async () => {
-        const workerThreads = 2
-        const testCode = `
-        function processEvent (event, meta) {
-            event.properties["somewhere"] = "over the rainbow";
-            return event
-        }
-        async function runEveryDay (meta) {
-            return 4
-        }
-    `
-        await resetTestDatabase(testCode)
-        const piscina = setupPiscina(workerThreads, 10)
+    describe('ingestion server', () => {
+        test('piscina worker test', async () => {
+            const workerThreads = 2
+            const testCode = `
+            function processEvent (event, meta) {
+                event.properties["somewhere"] = "over the rainbow";
+                return event
+            }
+            async function runEveryDay (meta) {
+                return 4
+            }
+        `
+            await resetTestDatabase(testCode)
+            const piscina = setupPiscina(workerThreads, 10)
 
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
-        const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
-        const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'ingestEvent', args: { event } })
+            const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+            const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'ingestEvent', args: { event } })
 
-        const pluginSchedule = await loadPluginSchedule(piscina)
-        expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
+            const event = await processEvent(createEvent())
+            expect(event.properties['somewhere']).toBe('over the rainbow')
 
-        const event = await processEvent(createEvent())
-        expect(event.properties['somewhere']).toBe('over the rainbow')
+            const ingestResponse1 = await ingestEvent(createEvent())
+            expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
 
-        const everyDayReturn = await runEveryDay(39)
-        expect(everyDayReturn).toBe(4)
+            const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
+            expect(ingestResponse2).toEqual({ success: true, actionMatches: [] })
 
-        const ingestResponse1 = await ingestEvent(createEvent())
-        expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
+            await delay(2000)
+            await piscina.destroy()
+        })
+    })
 
-        const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
-        expect(ingestResponse2).toEqual({ success: true, actionMatches: [] })
+    describe('runner server', () => {
+        //const OLD_ENV = process.env
 
-        await delay(2000)
-        await piscina.destroy()
+        beforeEach(() => {
+            jest.resetModules()
+            //process.env = { ...OLD_ENV }
+            process.env.SERVER_MODE = PluginServerMode.Runner
+        })
+
+        afterAll(() => {
+            //process.env = OLD_ENV // Restore old environment
+        })
+
+        test('piscina worker test', async () => {
+            process.env.SERVER_MODE = PluginServerMode.Runner
+
+            const workerThreads = 2
+            const testCode = `
+            function processEvent (event, meta) {
+                event.properties["somewhere"] = "over the rainbow";
+                return event
+            }
+            async function runEveryDay (meta) {
+                return 4
+            }
+        `
+            await resetTestDatabase(testCode)
+            const piscina = setupPiscina(workerThreads, 10, PluginServerMode.Runner)
+
+            const pluginSchedule = await loadPluginSchedule(piscina)
+            expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
+
+            const runEveryDay = (pluginConfigId: number) =>
+                piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
+
+            const everyDayReturn = await runEveryDay(39)
+            expect(everyDayReturn).toBe(4)
+
+            await delay(2000)
+            await piscina.destroy()
+        })
     })
 
     test('assume that the workerThreads and tasksPerWorker values behave as expected', async () => {
