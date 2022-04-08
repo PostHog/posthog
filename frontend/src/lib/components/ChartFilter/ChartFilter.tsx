@@ -161,6 +161,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             bordered
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             dropdownMatchSelectWidth={false}
+            listHeight={288} // We want to avoid the scrollbar, which is an issue with the default max-height of 256 px
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
