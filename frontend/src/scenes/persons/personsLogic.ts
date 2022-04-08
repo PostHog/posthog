@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter, Breadcrumb } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -295,6 +295,11 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
+
+                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
+                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                }
+
                 if (rawPersonDistinctId) {
                     // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
                     const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)

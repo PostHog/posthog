@@ -34,6 +34,8 @@ export class LazyPluginVM {
     vmResponseVariable: string | null
     pluginConfig: PluginConfig
     hub: Hub
+    lastError: Error | null
+    inErroredState: boolean
 
     constructor(hub: Hub, pluginConfig: PluginConfig) {
         this.totalInitAttemptsCounter = 0
@@ -42,6 +44,8 @@ export class LazyPluginVM {
         this.vmResponseVariable = null
         this.pluginConfig = pluginConfig
         this.hub = hub
+        this.lastError = null
+        this.inErroredState = false
         this.initVm()
     }
 
@@ -108,7 +112,6 @@ export class LazyPluginVM {
     }
 
     private initVm() {
-        this.totalInitAttemptsCounter++
         this.resolveInternalVm = new Promise((resolve) => {
             this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
@@ -142,7 +145,7 @@ export class LazyPluginVM {
     }
 
     public async setupPluginIfNeeded(): Promise<void> {
-        if (this.ready) {
+        if (this.ready || this.inErroredState) {
             return
         }
         const vm = (await this.resolveInternalVm)?.vm
@@ -157,6 +160,16 @@ export class LazyPluginVM {
         const logInfo = this.pluginConfig.plugin
             ? pluginDigest(this.pluginConfig.plugin)
             : `pluginConfig with ID '${this.pluginConfig.id}'`
+
+        if (++this.totalInitAttemptsCounter > VM_INIT_MAX_RETRIES) {
+            this.inErroredState = true
+            const failureContextMessage = `Disabling it due to too many retries – tried to load it ${
+                this.totalInitAttemptsCounter
+            } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
+            await this.processVmSetupError(this.lastError || new Error('unknown error'), failureContextMessage)
+            throw new SetupPluginError(`setupPlugin failed for ${logInfo}. ${failureContextMessage}`)
+        }
+
         try {
             await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             this.ready = true
@@ -164,26 +177,18 @@ export class LazyPluginVM {
             status.info('🔌', `setupPlugin completed successfully for ${logInfo}`)
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
-            if (this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
-                const nextRetryMs =
-                    INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
-                    INITIALIZATION_RETRY_BASE_MS
-                const nextRetrySeconds = `${nextRetryMs / 1000} s`
-                status.warn('⚠️', `setupPlugin failed for ${logInfo}. Retrying in ${nextRetrySeconds}.`)
-                await this.createLogEntry(
-                    `setupPlugin failed (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
-                    PluginLogEntryType.Error
-                )
-                this.initRetryTimeout = setTimeout(async () => {
-                    await this._setupPlugin(vm)
-                }, nextRetryMs)
-            } else {
-                const failureContextMessage = `Disabling it due to too many retries – tried to load it ${
-                    this.totalInitAttemptsCounter
-                } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
-                await this.processVmSetupError(error, failureContextMessage)
-                throw new SetupPluginError(`setupPlugin failed for ${logInfo}. ${failureContextMessage}`)
-            }
+            const nextRetryMs =
+                INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) * INITIALIZATION_RETRY_BASE_MS
+            const nextRetrySeconds = `${nextRetryMs / 1000} s`
+            status.warn('⚠️', `setupPlugin failed for ${logInfo}. Retrying in ${nextRetrySeconds}.`)
+            await this.createLogEntry(
+                `setupPlugin failed (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
+                PluginLogEntryType.Error
+            )
+            this.clearRetryTimeoutIfExists()
+            this.initRetryTimeout = setTimeout(async () => {
+                await this._setupPlugin(vm)
+            }, nextRetryMs)
         }
     }
 

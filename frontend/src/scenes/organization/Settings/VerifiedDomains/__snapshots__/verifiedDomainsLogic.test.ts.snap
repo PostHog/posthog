@@ -57,7 +57,7 @@ Object {
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": Array [],
-        "primary_dashboard": 20464,
+        "primary_dashboard": 1,
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [
@@ -69,7 +69,7 @@ Object {
           },
         ],
         "timezone": "Europe/Brussels",
-        "updated_at": "2022-03-17T16:09:21.566252Z",
+        "updated_at": "2022-03-17T16:09:21.566253Z",
         "uuid": "TEAM_UUID",
       },
     ],

@@ -6,7 +6,7 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import './TrendTab.scss'
@@ -65,7 +65,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         typeKey={`trends_${view}`}
                         buttonCopy="Add graph series"
                         showSeriesIndicator
-                        entitiesLimit={filters.insight === InsightType.LIFECYCLE ? 1 : alphabet.length}
+                        entitiesLimit={
+                            filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
+                                ? 1
+                                : alphabet.length
+                        }
                         mathAvailability={
                             filters.insight === InsightType.LIFECYCLE
                                 ? MathAvailability.None
