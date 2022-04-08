@@ -59,6 +59,7 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
+    ProjectHomepage = 'project_homepage',
 }
 
 export enum GraphSeriesAddedSource {
@@ -485,14 +486,15 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight })
         },
-        reportInsightViewed: async (
-            { insightModel, filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
-            breakpoint
-        ) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-            }
-
+        reportInsightViewed: ({
+            insightModel,
+            filters,
+            insightMode,
+            isFirstLoad,
+            fromDashboard,
+            delay,
+            changedFilters,
+        }) => {
             const { insight } = filters
 
             const properties: Record<string, any> = {

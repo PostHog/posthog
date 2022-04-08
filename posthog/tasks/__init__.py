@@ -3,6 +3,7 @@
 import posthog.tasks.async_migrations
 import posthog.tasks.calculate_cohort
 import posthog.tasks.calculate_event_property_usage
+import posthog.tasks.check_clickhouse_schema_drift
 import posthog.tasks.delete_clickhouse_data
 import posthog.tasks.delete_old_plugin_logs
 import posthog.tasks.email

@@ -644,11 +644,10 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team.pk, extra_params={"offset": 0}
             )
 
         return None

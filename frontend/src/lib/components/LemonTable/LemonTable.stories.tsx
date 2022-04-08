@@ -1,27 +1,42 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { LemonTable } from './LemonTable'
+import { LemonTable, LemonTableProps } from './LemonTable'
 
 export default {
     title: 'Components/Lemon Table',
     component: LemonTable,
-    argTypes: {
-        loading: {
-            control: {
-                type: 'boolean',
-            },
-        },
-    },
 } as ComponentMeta<typeof LemonTable>
 
-export function LemonTable_({ loading }: { loading: boolean }): JSX.Element {
+interface MockPerson {
+    name: string
+    occupation: string
+}
+
+export function LemonTable_(args: Omit<LemonTableProps<MockPerson>, 'dataSource' | 'columns'>): JSX.Element {
     return (
         <LemonTable
-            loading={loading}
-            columns={[{ title: 'Column' }]}
-            dataSource={[] as Record<string, any>[]}
-            pagination={{ pageSize: 10 }}
+            columns={[
+                { title: 'Name', dataIndex: 'name' },
+                { title: 'Occupation', dataIndex: 'occupation' },
+            ]}
+            dataSource={
+                [
+                    {
+                        name: 'Werner',
+                        occupation: 'Engineer',
+                    },
+                    {
+                        name: 'Ursula',
+                        occupation: 'Retired',
+                    },
+                    {
+                        name: 'Ludwig',
+                        occupation: 'Painter',
+                    },
+                ] as MockPerson[]
+            }
+            {...args}
         />
     )
 }

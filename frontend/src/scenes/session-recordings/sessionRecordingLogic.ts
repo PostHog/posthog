@@ -546,6 +546,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
 
         return {
             '/recordings': urlToAction,
+            '/home': urlToAction,
             '/person/*': urlToAction,
             '/insights/*': urlToAction,
             [urls.webPerformanceWaterfall('*')]: urlToAction,

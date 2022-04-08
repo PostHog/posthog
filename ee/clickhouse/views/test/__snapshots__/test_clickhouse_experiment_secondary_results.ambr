@@ -79,7 +79,7 @@
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---

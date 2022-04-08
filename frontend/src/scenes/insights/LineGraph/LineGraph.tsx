@@ -64,6 +64,17 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
+export function ensureTooltipElement(): HTMLElement {
+    let tooltipEl = document.getElementById('ph-graph-tooltip')
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div')
+        tooltipEl.id = 'ph-graph-tooltip'
+        tooltipEl.classList.add('ph-graph-tooltip')
+        document.body.appendChild(tooltipEl)
+    }
+    return tooltipEl
+}
+
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
         <ErrorBoundary>
@@ -307,23 +318,14 @@ export function LineGraph_({
                 },
                 tooltip: {
                     ...tooltipOptions,
-                    external(args: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                        let tooltipEl = document.getElementById('ph-graph-tooltip')
-                        const { tooltip } = args
-
-                        // Create element on first render
-                        if (!tooltipEl) {
-                            tooltipEl = document.createElement('div')
-                            tooltipEl.id = 'ph-graph-tooltip'
-                            tooltipEl.classList.add('ph-graph-tooltip')
-                            document.body.appendChild(tooltipEl)
-                        }
-                        if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                    external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
+                        if (!chartRef.current) {
                             return
                         }
 
-                        if (!chartRef.current) {
+                        const tooltipEl = ensureTooltipElement()
+                        if (tooltip.opacity === 0) {
+                            tooltipEl.style.opacity = '0'
                             return
                         }
 
@@ -331,13 +333,7 @@ export function LineGraph_({
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                        const bounds = chartRef.current.getBoundingClientRect()
-                        const chartClientLeft = bounds.left + window.pageXOffset
-
                         tooltipEl.style.opacity = '1'
-                        tooltipEl.style.position = 'absolute'
-                        tooltipEl.style.padding = '10px'
-                        tooltipEl.style.pointerEvents = 'none'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -376,9 +372,11 @@ export function LineGraph_({
                             )
                         }
 
+                        const bounds = chartRef.current.getBoundingClientRect()
                         const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
                         const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
+                        const chartClientLeft = bounds.left + window.pageXOffset
                         const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
                         const maxXPosition = bounds.right - tooltipEl.clientWidth
                         const tooltipClientLeft =

@@ -1,6 +1,5 @@
 from django.db.models import Q
 
-from posthog.models import Team
 from posthog.test.base import TestMigrations
 
 
@@ -15,6 +14,8 @@ class TagsTestCase(TestMigrations):
         Insight = apps.get_model("posthog", "Insight")
         Tag = apps.get_model("posthog", "Tag")
         TaggedItem = apps.get_model("posthog", "TaggedItem")
+        Team = apps.get_model("posthog", "Team")
+        Organization = apps.get_model("posthog", "Organization")
 
         # Setup
         tag = Tag.objects.create(name="existing tag", team_id=self.team.id)
@@ -39,8 +40,9 @@ class TagsTestCase(TestMigrations):
         TaggedItem.objects.create(tag=tag, insight_id=self.insight_with_tags.id)
 
         # Setup for batched tags
+        self.org2 = Organization.objects.create(name="o1")
         self.team2 = Team.objects.create(
-            organization=self.organization,
+            organization=self.org2,
             api_token="token12345",
             test_account_filters=[
                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
@@ -103,4 +105,7 @@ class TagsTestCase(TestMigrations):
         ).delete()
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.filter(id=self.dashboard.id).delete()
+        Team = self.apps.get_model("posthog", "Team")  # type: ignore
         Team.objects.get(id=self.team2.id).delete()
+        Organization = self.apps.get_model("posthog", "Organization")  # type: ignore
+        Organization.objects.get(id=self.org2.id).delete()
