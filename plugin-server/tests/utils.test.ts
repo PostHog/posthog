@@ -422,9 +422,16 @@ describe('utils', () => {
             }
         })
 
-        test('handles unicode characters correctly', () => {
-            console.log(String.raw`foo \ud83d\ bar`, safeClickhouseString(`foo \ud83d\ bar`))
+        test('handles surrogate unicode characters correctly', () => {
             expect(safeClickhouseString(`foo \ud83d\ bar`)).toEqual(`foo \\ud83d\\ bar`)
+            expect(safeClickhouseString(`\ud83d\ bar`)).toEqual(`\\ud83d\\ bar`)
+            expect(safeClickhouseString(`\ud800\ \ud803\ `)).toEqual(`\\ud800\\ \\ud803\\ `)
+        })
+
+        test('does not modify non-surrogate unicode characters', () => {
+            expect(safeClickhouseString(`✨`)).toEqual(`✨`)
+            expect(safeClickhouseString(`foo \u2728\ bar`)).toEqual(`foo \u2728\ bar`)
+            expect(safeClickhouseString(`💜 \u1f49c\ 💜`)).toEqual(`💜 \u1f49c\ 💜`)
         })
     })
 })
