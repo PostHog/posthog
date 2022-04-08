@@ -8,10 +8,10 @@ import {
     retentionOptions,
 } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
+import { ChartDisplayType, FilterType, PropertyGroupFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconOpenInNew } from 'lib/components/icons'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
@@ -202,7 +202,7 @@ export function RetentionTab(): JSX.Element {
                     )}
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-                    filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
+                    filters.display !== ChartDisplayType.ActionsLineGraph ? (
                         <>
                             <hr />
                             <h4 className="secondary">
