@@ -125,6 +125,13 @@ export const asyncMigrationsLogic = kea<
         ],
     }),
 
+    selectors: {
+        isAnyMigrationRunning: [
+            (s) => [s.asyncMigrations],
+            (asyncMigrations) => asyncMigrations.some((migration) => migration.status === AsyncMigrationStatus.Running),
+        ],
+    },
+
     listeners: ({ actions }) => ({
         triggerMigration: async ({ migrationId }) => {
             const res = await api.create(`/api/async_migrations/${migrationId}/trigger`)
