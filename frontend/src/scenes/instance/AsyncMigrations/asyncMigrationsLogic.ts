@@ -128,7 +128,10 @@ export const asyncMigrationsLogic = kea<
     selectors: {
         isAnyMigrationRunning: [
             (s) => [s.asyncMigrations],
-            (asyncMigrations) => asyncMigrations.some((migration) => migration.status === AsyncMigrationStatus.Running),
+            (asyncMigrations) =>
+                asyncMigrations.some((migration) =>
+                    [AsyncMigrationStatus.Running, AsyncMigrationStatus.Starting].includes(migration.status)
+                ),
         ],
     },
 

@@ -30,7 +30,7 @@ export const scene: SceneExport = {
     logic: asyncMigrationsLogic,
 }
 
-const STATUS_RELOAD_INTERVAL_MS = 5000
+const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
