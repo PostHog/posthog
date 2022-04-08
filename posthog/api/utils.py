@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
@@ -301,4 +302,8 @@ def check_definition_ids_inclusion_field_sql(
 
 
 def safe_clickhouse_string(s: str) -> str:
-    return r"{}".format(s)
+    surrogate_regex = re.compile("([\ud800-\udfff])")
+    matches = re.findall(surrogate_regex, s)
+    for match in matches:
+        s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
+    return s

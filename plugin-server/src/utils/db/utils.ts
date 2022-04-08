@@ -307,15 +307,9 @@ export function shouldStoreLog(
 }
 
 export function safeClickhouseString(str: string) {
-    return str.replace(/[\u{0080}-\u{FFFF}]/gu, (match, _) => {
-        const charCode = match.charCodeAt(0)
-        // character is a surrogate
-        if (charCode >= 0xd800 && charCode <= 0xdfff) {
-            // convert e.g. \ud83d\ -> \\ud83d\\
-            const res = JSON.stringify(match)
-            return res.slice(1, res.length - 1) + `\\`
-        }
-
-        return match
+    // character is a surrogate
+    return str.replace(/[\ud800-\udfff]/gu, (match, _) => {
+        const res = JSON.stringify(match)
+        return res.slice(1, res.length - 1) + `\\`
     })
 }
