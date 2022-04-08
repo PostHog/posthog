@@ -200,12 +200,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query_counts.append(count)
         queries.append(qs)
 
-        # query count is the expected value
-        # the first time we add an insight to a dashboard there are 10 extra queries
-        # 2 extra each time after that
-        # adding a different dashboard to the same insight adds no more queries than adding the original
-        self.assertEqual(
-            query_counts, [11, 21, 23, 25, 27, 29, 21], f"received: {query_counts} for queries: \n\n {queries}"
+        # fewer queries when loading dashboard with no insights
+        self.assertLess(query_counts[0], query_counts[1])
+        # then the same no matter how many insights there are
+        self.assertTrue(
+            all(x == query_counts[1] for x in query_counts[2:]), f"received: {query_counts} for queries: \n\n {queries}"
         )
 
     def test_return_cached_results(self):
