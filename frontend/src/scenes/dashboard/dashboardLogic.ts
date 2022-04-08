@@ -588,10 +588,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
-                            // TODO this change lets the data be correct
-                            // TODO but the insight card details don't update to show the dashboard's new date range
-                            // TODO it should
-                            dashboard_id: props.id || 'unknown',
+                            from_dashboard: props.id || null,
                         })}`
                     )
                     breakpoint()
