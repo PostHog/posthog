@@ -7,7 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -71,10 +71,11 @@ export function InsightContainer(
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
-                    {filters.display !== ACTIONS_TABLE && filters.display !== ChartDisplayType.WorldMap && (
-                        /* Tables and world map don't need this padding, but graphs do for sizing */
-                        <div className="trends-insights-container" />
-                    )}
+                    {filters.display !== ChartDisplayType.ActionsTable &&
+                        filters.display !== ChartDisplayType.WorldMap && (
+                            /* Tables and world map don't need this padding, but graphs do for sizing */
+                            <div className="trends-insights-container" />
+                        )}
                     <Loading />
                 </>
             )
@@ -131,7 +132,8 @@ export function InsightContainer(
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             (!filters.display ||
-                (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
+                (filters?.display !== ChartDisplayType.ActionsTable &&
+                    filters?.display !== ChartDisplayType.ActionsBarValue)) &&
             activeView === InsightType.TRENDS &&
             !disableTable
         ) {

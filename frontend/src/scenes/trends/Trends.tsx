@@ -1,12 +1,6 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PersonsModal } from './PersonsModal'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_TABLE,
-    ACTIONS_BAR_CHART,
-} from 'lib/constants'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
@@ -43,13 +37,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
-            _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-            _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-            _filters.display === ACTIONS_BAR_CHART
+            _filters.display === ChartDisplayType.ActionsLineGraph ||
+            _filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
+            _filters.display === ChartDisplayType.ActionsBar
         ) {
             return <ActionsLineGraph />
         }
-        if (_filters.display === ACTIONS_TABLE) {
+        if (_filters.display === ChartDisplayType.ActionsTable) {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
@@ -78,7 +72,8 @@ export function TrendInsight({ view }: Props): JSX.Element {
             {(_filters.actions || _filters.events) && (
                 <div
                     className={
-                        _filters.display !== ACTIONS_TABLE && _filters.display !== ChartDisplayType.WorldMap
+                        _filters.display !== ChartDisplayType.ActionsTable &&
+                        _filters.display !== ChartDisplayType.WorldMap
                             ? 'trends-insights-container'
                             : undefined /* Tables and world map don't need this padding, but graphs do for sizing */
                     }
