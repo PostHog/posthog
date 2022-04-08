@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { CSSProperties, useEffect, useRef } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -8,7 +8,7 @@ import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/type
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-
+import { objectsEqual } from 'lib/utils'
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
@@ -48,10 +48,14 @@ export function PropertyFilters({
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const previousPropertyFilters = useRef<AnyPropertyFilter[] | null>([])
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        if (!objectsEqual(previousPropertyFilters.current, propertyFilters)) {
+            setFilters(propertyFilters ?? [])
+        }
+        previousPropertyFilters.current = propertyFilters
     }, [propertyFilters])
 
     return (
