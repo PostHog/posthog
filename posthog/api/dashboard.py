@@ -161,7 +161,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if self.context["view"].action == "list":
             return None
 
-        items = dashboard.items.all()
+        items = dashboard.items.filter(deleted=False).order_by("order")
         self.context.update({"dashboard": dashboard})
 
         #  Make sure all items have an insight set
