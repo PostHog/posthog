@@ -5,4 +5,4 @@
 # and `mat_$window_id`. This led to potential inconsistencies between the tables state and the
 # schema defined by `EVENTS_TABLE_SQL`
 
-operations = []
+operations = []  # type: ignore
