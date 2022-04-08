@@ -104,6 +104,9 @@ describe('teardown', () => {
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
+        const event1 = await piscina!.run({ task: 'processEvent', args: { event: { ...defaultEvent } } })
+        expect(event1.properties.storage).toBe('nope')
+
         await delay(100)
 
         await hub.db.postgresQuery(
@@ -111,11 +114,9 @@ describe('teardown', () => {
             [pluginConfig39.id],
             'testTag'
         )
-        const event1 = await piscina!.run({ task: 'processEvent', args: { event: { ...defaultEvent } } })
-        expect(event1.properties.storage).toBe('nope')
 
         await piscina!.broadcastTask({ task: 'reloadPlugins' })
-        await delay(10000)
+        await delay(5000)
 
         const event2 = await piscina!.run({ task: 'processEvent', args: { event: { ...defaultEvent } } })
         expect(event2.properties.storage).toBe('tore down')
