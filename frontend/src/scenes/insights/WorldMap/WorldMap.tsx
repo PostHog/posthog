@@ -136,7 +136,7 @@ const WorldMapSVG = React.memo(
                             : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,
-                            style: { color: fill },
+                            style: { color: fill, cursor: showPersonsModal && countrySeries ? 'pointer' : undefined },
                             onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
                             onMouseLeave: () => hideTooltip(),
                             onMouseMove: (e: MouseEvent) => {
