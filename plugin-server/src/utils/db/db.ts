@@ -412,6 +412,25 @@ export class DB {
     }
 
     // Person
+    REDIS_PERSON_ID_PREFIX = 'pid'
+    REDIS_PERSON_PROPERTIES_PREFIX = 'pprops'
+    REDIS_PERSON_INFO_TTL = 1000
+
+    private async personIdToRedis(teamId: number, distinctId: string, personId: number): Promise<void> {
+        await this.redisSet(
+            '${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}',
+            personId,
+            this.REDIS_PERSON_INFO_TTL
+        )
+    }
+
+    private async personPropertiesToRedis(teamId: number, personId: number, properties: string): Promise<void> {
+        await this.redisSet(
+            '${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}',
+            properties,
+            this.REDIS_PERSON_INFO_TTL
+        )
+    }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
@@ -499,9 +518,11 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[]
+        distinctIds?: string[],
+        writeToRedis = false
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
+        const personProperties = JSON.stringify(properties)
 
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await this.postgresQuery(
@@ -545,18 +566,27 @@ export class DB {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
+        if (writeToRedis) {
+            for (const distinctId of distinctIds || []) {
+                await this.personIdToRedis(teamId, distinctId, person.id)
+            }
+            await this.personPropertiesToRedis(teamId, person.id, personProperties)
+        }
+
         return person
     }
 
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
+        writeToRedis: boolean,
         client: PoolClient
     ): Promise<ProducerRecord[]>
-    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
+    public async updatePersonDeprecated(person: Person, update: Partial<Person>, writeToRedis: boolean): Promise<Person>
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
+        writeToRedis: boolean,
         client?: PoolClient
     ): Promise<Person | ProducerRecord[]> {
         const updateValues = Object.values(unparsePersonPartial(update))
@@ -597,6 +627,14 @@ export class DB {
             } else {
                 await this.kafkaProducer.queueMessage(message)
             }
+        }
+
+        if (writeToRedis) {
+            await this.personPropertiesToRedis(
+                updatedPerson.team_id,
+                updatedPerson.id,
+                JSON.stringify(updatedPerson.properties)
+            )
         }
 
         return client ? kafkaMessages : updatedPerson
@@ -700,10 +738,13 @@ export class DB {
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: Person, distinctId: string): Promise<void> {
+    public async addDistinctId(person: Person, distinctId: string, writeToRedis = false): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
         if (this.kafkaProducer && kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
+        }
+        if (writeToRedis) {
+            await this.personIdToRedis(person.team_id, distinctId, person.id)
         }
     }
 
@@ -763,7 +804,12 @@ export class DB {
         }
     }
 
-    public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(
+        source: Person,
+        target: Person,
+        client?: PoolClient,
+        writeToRedis = false
+    ): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgresQuery(
@@ -834,6 +880,13 @@ export class DB {
                             },
                         ],
                     })
+                }
+                if (writeToRedis) {
+                    await this.personIdToRedis(
+                        usefulColumns.team_id,
+                        usefulColumns.distinct_id,
+                        usefulColumns.person_id
+                    )
                 }
             }
         }
