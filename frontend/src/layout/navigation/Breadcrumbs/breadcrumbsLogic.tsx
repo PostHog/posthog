@@ -159,11 +159,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
         ],
     }),
 
-    subscriptions: ({}: breadcrumbsLogicType) => ({
+    subscriptions: {
         documentTitle: (documentTitle: string) => {
             if (typeof document !== 'undefined') {
                 document.title = documentTitle
             }
         },
-    }),
+    },
 })
