@@ -43,7 +43,8 @@ class EnterpriseEventQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            person_properties_mode=person_properties_mode ** kwargs,
+            person_properties_mode=person_properties_mode,
+            **kwargs,
         )
 
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
