@@ -18,6 +18,7 @@
     }
     &::before,
     &::after {
+        z-index: 1;
         transition: opacity 200ms ease;
         opacity: 0;
         content: '';
@@ -67,13 +68,13 @@
         border-bottom: 1px solid var(--border);
         background: var(--bg-mid);
         font-size: 0.75rem;
-        font-weight: 600;
         letter-spacing: 0.03125rem;
         > tr {
             &:first-of-type:not(:last-of-type) {
                 --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
             }
             > th {
+                font-weight: 700;
                 text-align: left;
             }
         }
@@ -136,11 +137,12 @@
                     padding-right: 0 !important;
                 }
                 &.LemonTable__ribbon {
-                    padding: 0 !important;
+                    padding: 0 0.25rem 0 0 !important;
                 }
                 &.LemonTable__boundary:not(:last-child) {
                     border-right: 1px solid var(--border);
                 }
+                &.LemonTable__boundary,
                 &:last-child {
                     padding-right: 1rem;
                 }

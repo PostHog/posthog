@@ -223,10 +223,7 @@ export function InsightContainer(
             </Card>
             {renderTable()}
             {!disableTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <>
-                    <h2 style={{ margin: '1rem 0' }}>Correlation analysis</h2>
-                    <FunnelCorrelation />
-                </>
+                <FunnelCorrelation />
             )}
         </>
     )

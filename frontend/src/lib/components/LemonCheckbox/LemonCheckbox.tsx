@@ -75,7 +75,6 @@ export function LemonCheckbox({
                         id={id}
                         disabled={disabled}
                     />
-
                     <label
                         htmlFor={id}
                         className="LemonCheckbox__box"
@@ -89,11 +88,7 @@ export function LemonCheckbox({
             }
             {...rowProps}
         >
-            {label && (
-                <label htmlFor={id} className="LemonCheckbox__text">
-                    {label}
-                </label>
-            )}
+            {label && <label htmlFor={id}>{label}</label>}
         </LemonRow>
     )
 }
