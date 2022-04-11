@@ -146,24 +146,23 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 return tailBreadcrumbs
             },
         ],
-        titleBreadcrumbs: [
+        documentTitle: [
             (s) => [s.sceneBreadcrumbs],
-            (sceneBreadcrumbs) => {
-                return [
+            (sceneBreadcrumbs): string =>
+                [
                     ...sceneBreadcrumbs
                         .filter((breadcrumb) => !!breadcrumb.name)
                         .map((breadcrumb) => breadcrumb.name as string)
                         .reverse(),
                     'PostHog',
-                ]
-            },
+                ].join(' • '),
         ],
     }),
 
     subscriptions: ({}: breadcrumbsLogicType) => ({
-        titleBreadcrumbs: (titleBreadcrumbs: Breadcrumb[]) => {
+        documentTitle: (documentTitle: string) => {
             if (typeof document !== 'undefined') {
-                document.title = titleBreadcrumbs.join(' • ')
+                document.title = documentTitle
             }
         },
     }),
