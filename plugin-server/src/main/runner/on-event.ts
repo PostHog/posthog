@@ -8,7 +8,7 @@ export async function onEvent(
     workerMethods: WorkerMethods,
     event: PluginEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
-) {
+): Promise<void> {
     const isSnapshot = event.event === '$snapshot'
 
     checkAndPause?.()

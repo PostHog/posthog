@@ -34,6 +34,8 @@ export class KafkaQueue implements Queue {
     }
 
     private async eachMessage(message: KafkaMessage): Promise<void> {
+        // Currently the else part is never triggered. The plugin server can only be
+        // in "ingestion" mode at the moment, and onEvent is triggered in ingestEvent
         if (this.pluginServerMode === PluginServerMode.Ingestion) {
             const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
             const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
