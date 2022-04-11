@@ -96,6 +96,9 @@ class EventQuery(metaclass=ABCMeta):
             return ""
 
     def _determine_should_join_persons(self) -> None:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return False
+
         if self._person_query.is_used:
             self._should_join_distinct_ids = True
             self._should_join_persons = True
@@ -118,10 +121,7 @@ class EventQuery(metaclass=ABCMeta):
             return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
-        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
-            return False
-        else:
-            return prop.type == "cohort" and self._does_cohort_need_persons(prop)
+        return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
