@@ -10,6 +10,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 
 
@@ -29,6 +30,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        person_properties_mode: Optional[PersonPropertiesMode] = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -41,7 +43,7 @@ class EnterpriseEventQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            **kwargs,
+            person_properties_mode=person_properties_mode ** kwargs,
         )
 
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
