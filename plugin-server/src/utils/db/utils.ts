@@ -306,6 +306,7 @@ export function shouldStoreLog(
     return true
 }
 
+// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string) {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match, _) => {

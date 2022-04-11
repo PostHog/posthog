@@ -301,6 +301,7 @@ def check_definition_ids_inclusion_field_sql(
     return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
 
 
+# keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     surrogate_regex = re.compile("([\ud800-\udfff])")
     matches = re.findall(surrogate_regex, s or "")
