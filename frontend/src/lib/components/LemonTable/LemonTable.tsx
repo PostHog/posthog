@@ -316,6 +316,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         ))
                                     )}
                                 </tr>
+                                <div className="LemonTable__loader" />
                             </thead>
                         )}
                         <tbody>
@@ -379,7 +380,6 @@ export function LemonTable<T extends Record<string, any>>({
                     </table>
                     <PaginationControl {...paginationState} nouns={nouns} />
                     <div className="LemonTable__overlay" />
-                    <div className="LemonTable__loader" />
                 </div>
             </div>
         </div>
