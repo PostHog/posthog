@@ -27,12 +27,15 @@
 
 .LemonButton--secondary {
     border: 1px solid var(--border);
-    background: #fff;
+    background: var(--bg-light);
     &:not(:disabled):hover,
     &.LemonButton--active,
     &:not(:disabled):active {
-        background: inherit;
+        background: var(--bg-light);
         border-color: currentColor;
+    }
+    &:not(:disabled):active {
+        color: var(--primary-active);
     }
     .LemonRow__icon {
         color: var(--muted-alt);
