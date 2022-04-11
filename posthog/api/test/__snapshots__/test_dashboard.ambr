@@ -223,6 +223,40 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
+# name: TestDashboard.test_retrieve_dashboard.7
+  '
+  SELECT "posthog_dashboarditem"."id",
+         "posthog_dashboarditem"."dashboard_id",
+         "posthog_dashboarditem"."name",
+         "posthog_dashboarditem"."derived_name",
+         "posthog_dashboarditem"."description",
+         "posthog_dashboarditem"."team_id",
+         "posthog_dashboarditem"."filters",
+         "posthog_dashboarditem"."filters_hash",
+         "posthog_dashboarditem"."order",
+         "posthog_dashboarditem"."deleted",
+         "posthog_dashboarditem"."saved",
+         "posthog_dashboarditem"."created_at",
+         "posthog_dashboarditem"."layouts",
+         "posthog_dashboarditem"."color",
+         "posthog_dashboarditem"."last_refresh",
+         "posthog_dashboarditem"."refreshing",
+         "posthog_dashboarditem"."created_by_id",
+         "posthog_dashboarditem"."is_sample",
+         "posthog_dashboarditem"."short_id",
+         "posthog_dashboarditem"."favorited",
+         "posthog_dashboarditem"."refresh_attempt",
+         "posthog_dashboarditem"."last_modified_at",
+         "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
+         "posthog_dashboarditem"."updated_at"
+  FROM "posthog_dashboarditem"
+  WHERE (NOT "posthog_dashboarditem"."deleted"
+         AND "posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
+  '
+---
 # name: TestDashboard.test_retrieve_dashboard_list
   '
   SELECT "posthog_user"."id",
@@ -586,7 +620,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.21
@@ -976,7 +1012,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count
@@ -1544,7 +1582,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.28
@@ -1858,7 +1898,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.39
@@ -2211,6 +2253,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
+         AND NOT "posthog_dashboarditem"."deleted")
+  ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
