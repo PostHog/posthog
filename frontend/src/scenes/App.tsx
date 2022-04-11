@@ -17,7 +17,6 @@ import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
-import { usePageTitle } from '~/layout/navigation/Breadcrumbs/usePageTitle'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -129,8 +128,6 @@ function AppScene(): JSX.Element | null {
             position="bottom-right"
         />
     )
-
-    usePageTitle()
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
