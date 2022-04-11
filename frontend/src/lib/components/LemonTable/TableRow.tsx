@@ -1,7 +1,7 @@
 import React, { HTMLProps, useState } from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
-import { ExpandableConfig, LemonTableColumns, TableCellRepresentation } from './types'
+import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
 import clsx from 'clsx'
 
 export interface TableRowProps<T extends Record<string, any>> {
@@ -11,7 +11,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowClassNameDetermined: string | undefined
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
-    columns: LemonTableColumns<T>
+    columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
 }
@@ -23,7 +23,7 @@ function TableRowRaw<T extends Record<string, any>>({
     rowClassNameDetermined,
     rowRibbonColorDetermined,
     rowStatusDetermined,
-    columns,
+    columnGroups,
     onRow,
     expandable,
 }: TableRowProps<T>): JSX.Element {
@@ -71,30 +71,42 @@ function TableRowRaw<T extends Record<string, any>>({
                         )}
                     </td>
                 )}
-                {columns.map((column, columnIndex) => {
-                    const columnKeyRaw = column.key || column.dataIndex
-                    const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
-                    const value = column.dataIndex ? record[column.dataIndex] : undefined
-                    const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
-                    const areContentsCellRepresentations: boolean =
-                        !!contents && typeof contents === 'object' && !React.isValidElement(contents)
-                    return (
-                        <td
-                            key={`LemonTable-td-${columnKeyOrIndex}`}
-                            className={column.className}
-                            style={{ textAlign: column.align }}
-                            {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
-                        >
-                            {areContentsCellRepresentations ? (contents as TableCellRepresentation).children : contents}
-                        </td>
-                    )
-                })}
+                {columnGroups.flatMap((columnGroup) =>
+                    columnGroup.children.map((column, columnIndex) => {
+                        const columnKeyRaw = column.key || column.dataIndex
+                        const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
+                        const value = column.dataIndex ? record[column.dataIndex] : undefined
+                        const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
+                        const areContentsCellRepresentations: boolean =
+                            !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+                        return (
+                            <td
+                                key={`LemonTable-td-${columnKeyOrIndex}`}
+                                className={clsx(
+                                    columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                    column.className
+                                )}
+                                style={{ textAlign: column.align }}
+                                {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
+                            >
+                                {areContentsCellRepresentations
+                                    ? (contents as TableCellRepresentation).children
+                                    : contents}
+                            </td>
+                        )
+                    })
+                )}
             </tr>
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className="LemonTable__expansion">
                     {!expandable.noIndent && <td />}
-                    <td colSpan={columns.length + Number(!!expandable.noIndent)}>
+                    <td
+                        colSpan={
+                            columnGroups.reduce((acc, columnGroup) => acc + columnGroup.children.length, 0) +
+                            Number(!!expandable.noIndent)
+                        }
+                    >
                         {expandable.expandedRowRender(record, recordIndex)}
                     </td>
                 </tr>

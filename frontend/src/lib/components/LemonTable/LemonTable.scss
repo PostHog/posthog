@@ -74,9 +74,6 @@
     }
     > tbody {
         > tr {
-            &:not(:first-child) {
-                border-top: 1px solid var(--border);
-            }
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--bg-side);
@@ -124,6 +121,9 @@
     > tbody {
         > tr {
             height: var(--row-base-height);
+            &:not(:first-child) {
+                border-top: 1px solid var(--border);
+            }
             > th,
             > td {
                 padding-left: 1rem;
@@ -136,6 +136,9 @@
                 }
                 &.LemonTable__ribbon {
                     padding: 0 !important;
+                }
+                &.LemonTable__boundary:not(:last-child) {
+                    border-right: 1px solid var(--border);
                 }
                 &:last-child {
                     padding-right: 1rem;

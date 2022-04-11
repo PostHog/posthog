@@ -7,7 +7,7 @@ import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
-import { ExpandableConfig, LemonTableColumn, LemonTableColumns } from './types'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Skeleton } from 'antd'
 
@@ -79,7 +79,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
 
 export function LemonTable<T extends Record<string, any>>({
     id,
-    columns,
+    columns: rawColumns,
     dataSource = [],
     rowKey,
     rowClassName,
@@ -128,6 +128,17 @@ export function LemonTable<T extends Record<string, any>>({
             ),
         [location, searchParams, hashParams, push]
     )
+
+    const columnGroups = (
+        rawColumns[0]?.children
+            ? rawColumns
+            : [
+                  {
+                      children: rawColumns,
+                  },
+              ]
+    ) as LemonTableColumnGroup<T>[]
+    const columns = columnGroups.flatMap((group) => group.children)
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const updateIsScrollable = useCallback(() => {
@@ -222,69 +233,88 @@ export function LemonTable<T extends Record<string, any>>({
                         </colgroup>
                         {showHeader && (
                             <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
+                                {columnGroups.some((group) => group.title) && (
+                                    <tr>
+                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
+                                        {!!expandable && <th /> /* Expand/collapse column */}
+                                        {columnGroups.map((columnGroup, columnGroupIndex) => (
+                                            <th
+                                                key={columnGroupIndex}
+                                                colSpan={columnGroup.children.length}
+                                                className="LemonTable__boundary"
+                                            >
+                                                {columnGroup.title}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                )}
                                 <tr>
                                     {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
                                     {!!expandable && <th /> /* Expand/collapse column */}
-                                    {columns.map((column, columnIndex) => (
-                                        <th
-                                            key={determineColumnKey(column) || columnIndex}
-                                            className={clsx(
-                                                column.sorter && 'LemonTable__header--actionable',
-                                                column.className
-                                            )}
-                                            style={{ textAlign: column.align }}
-                                            onClick={
-                                                column.sorter
-                                                    ? () => {
-                                                          const nextSorting = getNextSorting(
-                                                              currentSorting,
-                                                              determineColumnKey(column, 'sorting'),
-                                                              disableSortingCancellation
-                                                          )
-                                                          setLocalSorting(nextSorting)
-                                                          onSort?.(nextSorting)
-                                                      }
-                                                    : undefined
-                                            }
-                                        >
-                                            <Tooltip
-                                                title={
-                                                    column.sorter &&
-                                                    (() => {
-                                                        const nextSorting = getNextSorting(
-                                                            currentSorting,
-                                                            determineColumnKey(column, 'sorting'),
-                                                            disableSortingCancellation
-                                                        )
-                                                        return `Click to ${
-                                                            nextSorting
-                                                                ? nextSorting.order === 1
-                                                                    ? 'sort ascending'
-                                                                    : 'sort descending'
-                                                                : 'cancel sorting'
-                                                        }`
-                                                    })
+                                    {columnGroups.flatMap((columnGroup) =>
+                                        columnGroup.children.map((column, columnIndex) => (
+                                            <th
+                                                key={determineColumnKey(column) || columnIndex}
+                                                className={clsx(
+                                                    column.sorter && 'LemonTable__header--actionable',
+                                                    columnIndex === columnGroup.children.length - 1 &&
+                                                        'LemonTable__boundary',
+                                                    column.className
+                                                )}
+                                                style={{ textAlign: column.align }}
+                                                onClick={
+                                                    column.sorter
+                                                        ? () => {
+                                                              const nextSorting = getNextSorting(
+                                                                  currentSorting,
+                                                                  determineColumnKey(column, 'sorting'),
+                                                                  disableSortingCancellation
+                                                              )
+                                                              setLocalSorting(nextSorting)
+                                                              onSort?.(nextSorting)
+                                                          }
+                                                        : undefined
                                                 }
                                             >
-                                                <div
-                                                    className="LemonTable__header-content"
-                                                    style={{ justifyContent: column.align }}
+                                                <Tooltip
+                                                    title={
+                                                        column.sorter &&
+                                                        (() => {
+                                                            const nextSorting = getNextSorting(
+                                                                currentSorting,
+                                                                determineColumnKey(column, 'sorting'),
+                                                                disableSortingCancellation
+                                                            )
+                                                            return `Click to ${
+                                                                nextSorting
+                                                                    ? nextSorting.order === 1
+                                                                        ? 'sort ascending'
+                                                                        : 'sort descending'
+                                                                    : 'cancel sorting'
+                                                            }`
+                                                        })
+                                                    }
                                                 >
-                                                    {column.title}
-                                                    {column.sorter && (
-                                                        <SortingIndicator
-                                                            order={
-                                                                currentSorting?.columnKey ===
-                                                                determineColumnKey(column, 'sorting')
-                                                                    ? currentSorting.order
-                                                                    : null
-                                                            }
-                                                        />
-                                                    )}
-                                                </div>
-                                            </Tooltip>
-                                        </th>
-                                    ))}
+                                                    <div
+                                                        className="LemonTable__header-content"
+                                                        style={{ justifyContent: column.align }}
+                                                    >
+                                                        {column.title}
+                                                        {column.sorter && (
+                                                            <SortingIndicator
+                                                                order={
+                                                                    currentSorting?.columnKey ===
+                                                                    determineColumnKey(column, 'sorting')
+                                                                        ? currentSorting.order
+                                                                        : null
+                                                                }
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </Tooltip>
+                                            </th>
+                                        ))
+                                    )}
                                 </tr>
                             </thead>
                         )}
@@ -311,7 +341,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             rowClassNameDetermined={rowClassNameDetermined}
                                             rowRibbonColorDetermined={rowRibbonColorDetermined}
                                             rowStatusDetermined={rowStatusDetermined}
-                                            columns={columns}
+                                            columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
                                         />
@@ -322,11 +352,20 @@ export function LemonTable<T extends Record<string, any>>({
                                     .fill(null)
                                     .map((_, rowIndex) => (
                                         <tr key={rowIndex}>
-                                            {columns.map((column, columnIndex) => (
-                                                <td key={columnIndex} className={column.className}>
-                                                    <Skeleton title paragraph={false} active />
-                                                </td>
-                                            ))}
+                                            {columnGroups.flatMap((columnGroup) =>
+                                                columnGroup.children.map((column, columnIndex) => (
+                                                    <td
+                                                        key={columnIndex}
+                                                        className={clsx(
+                                                            columnIndex === columnGroup.children.length - 1 &&
+                                                                'LemonTable__boundary',
+                                                            column.className
+                                                        )}
+                                                    >
+                                                        <Skeleton title paragraph={false} active />
+                                                    </td>
+                                                ))
+                                            )}
                                         </tr>
                                     ))
                             ) : (
