@@ -228,7 +228,7 @@ export function LemonTable<T extends Record<string, any>>({
                             {!!rowRibbonColor && <col style={{ width: 4 }} /> /* Ribbon column */}
                             {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
-                                <col key={index} style={{ width: column.width }} />
+                                <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
                             ))}
                         </colgroup>
                         {showHeader && (
@@ -239,7 +239,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         {!!expandable && <th /> /* Expand/collapse column */}
                                         {columnGroups.map((columnGroup, columnGroupIndex) => (
                                             <th
-                                                key={columnGroupIndex}
+                                                key={`LemonTable-th-group-${columnGroupIndex}`}
                                                 colSpan={columnGroup.children.length}
                                                 className="LemonTable__boundary"
                                             >
@@ -251,10 +251,12 @@ export function LemonTable<T extends Record<string, any>>({
                                 <tr>
                                     {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
                                     {!!expandable && <th /> /* Expand/collapse column */}
-                                    {columnGroups.flatMap((columnGroup) =>
+                                    {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children.map((column, columnIndex) => (
                                             <th
-                                                key={determineColumnKey(column) || columnIndex}
+                                                key={`LemonTable-th-${columnGroupIndex}-${
+                                                    determineColumnKey(column) || columnIndex
+                                                }`}
                                                 className={clsx(
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
@@ -335,7 +337,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
                                         <TableRow
-                                            key={`LemonTable-row-${rowKeyDetermined}`}
+                                            key={`LemonTable-tr-${rowKeyDetermined}`}
                                             record={record}
                                             recordIndex={paginationState.currentStartIndex + rowIndex}
                                             rowKeyDetermined={rowKeyDetermined}
@@ -352,11 +354,11 @@ export function LemonTable<T extends Record<string, any>>({
                                 Array(loadingSkeletonRows)
                                     .fill(null)
                                     .map((_, rowIndex) => (
-                                        <tr key={rowIndex}>
-                                            {columnGroups.flatMap((columnGroup) =>
+                                        <tr key={`LemonTable-tr-${rowIndex}`}>
+                                            {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                                 columnGroup.children.map((column, columnIndex) => (
                                                     <td
-                                                        key={columnIndex}
+                                                        key={`LemonTable-td-${columnGroupIndex}-${columnIndex}`}
                                                         className={clsx(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',

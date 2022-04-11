@@ -71,7 +71,7 @@ function TableRowRaw<T extends Record<string, any>>({
                         )}
                     </td>
                 )}
-                {columnGroups.flatMap((columnGroup) =>
+                {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                     columnGroup.children.map((column, columnIndex) => {
                         const columnKeyRaw = column.key || column.dataIndex
                         const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
@@ -81,7 +81,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
                         return (
                             <td
-                                key={`LemonTable-td-${columnKeyOrIndex}`}
+                                key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
                                     columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
                                     column.className

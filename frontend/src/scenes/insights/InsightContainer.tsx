@@ -8,7 +8,6 @@ import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
@@ -115,14 +114,7 @@ export function InsightContainer(
         ) {
             // The legacy FunnelStepTable is shown in top-to-bottom funnel view, otherwise the newer FunnelStepsTable
             if (filters?.layout === FunnelLayout.horizontal) {
-                return <FunnelStepTable />
-            } else {
-                return (
-                    <>
-                        <h2 style={{ margin: '1rem 0' }}>Funnel results</h2>
-                        <FunnelStepsTable />
-                    </>
-                )
+                return <FunnelStepsTable />
             }
         }
 

@@ -76,6 +76,7 @@
             > th {
                 font-weight: 700;
                 text-align: left;
+                white-space: pre-wrap;
             }
         }
     }
@@ -215,7 +216,6 @@
 
 .LemonTable__header-content {
     display: flex;
-    white-space: pre-wrap;
     align-items: center;
     line-height: 1.5;
 }
