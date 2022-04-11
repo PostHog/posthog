@@ -548,6 +548,7 @@ export class DB {
         return person
     }
 
+    // Currently in use, but there are various problems with this function
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
