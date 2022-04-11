@@ -26,6 +26,7 @@ import {
     elementsToString,
     extractElements,
     personInitialAndUTMProperties,
+    safeClickhouseString,
     sanitizeEventName,
     timeoutGuard,
 } from '../../utils/db/utils'
@@ -654,12 +655,12 @@ export class EventsProcessor {
 
         const eventPayload: IEvent = {
             uuid,
-            event,
+            event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
             timestamp: timestampString,
             team_id: teamId,
-            distinct_id: distinctId,
-            elements_chain: elementsChain,
+            distinct_id: safeClickhouseString(distinctId),
+            elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, timestampFormat),
         }
 
