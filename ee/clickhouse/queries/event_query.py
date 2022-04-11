@@ -30,7 +30,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_properties_mode: Optional[PersonPropertiesMode] = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         **kwargs,
     ) -> None:
         super().__init__(

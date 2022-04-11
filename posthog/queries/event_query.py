@@ -30,10 +30,10 @@ class EventQuery(metaclass=ABCMeta):
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
+    _person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
-    _person_properties_mode: PersonPropertiesMode
 
     def __init__(
         self,
@@ -47,7 +47,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_properties_mode: Optional[PersonPropertiesMode] = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         **kwargs,
     ) -> None:
         self._filter = filter
