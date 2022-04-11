@@ -5,13 +5,7 @@ import { router } from 'kea-router'
 import { dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    PATHS_VIZ,
-    DashboardPrivilegeLevel,
-    OrganizationMembershipLevel,
-    FEATURE_FLAGS,
-} from 'lib/constants'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -23,6 +17,7 @@ import {
     InsightShortId,
     InsightType,
     DashboardPlacement,
+    ChartDisplayType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -399,9 +394,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         .map((item) => {
                             const isRetention =
                                 item.filters.insight === InsightType.RETENTION &&
-                                item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
-                            const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
-                            const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
+                                item.filters.display === ChartDisplayType.ActionsLineGraph
+                            const defaultWidth =
+                                isRetention || item.filters.display === ChartDisplayType.PathsViz ? 8 : 6
+                            const defaultHeight = isRetention
+                                ? 8
+                                : item.filters.display === ChartDisplayType.PathsViz
+                                ? 12.5
+                                : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])

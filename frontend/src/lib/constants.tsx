@@ -1,16 +1,13 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
+import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-// Sync these with the ChartDisplayType enum in types.ts
-// ... and remove once all files have migrated to TypeScript
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
-export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
-export const ACTIONS_TABLE = 'ActionsTable'
-export const ACTIONS_PIE_CHART = 'ActionsPie'
-export const ACTIONS_BAR_CHART = 'ActionsBar'
-export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
-export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_VIZ = 'FunnelViz'
+// Sync with backend NON_TIME_SERIES_DISPLAY_TYPES
+export const NON_TIME_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.WorldMap,
+]
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -107,14 +104,13 @@ export const FEATURE_FLAGS = {
     DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
-    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @EDsCODE
-    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
+    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
     HEDGEHOGGER: 'hedgehogger', // owner: @Twixes
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
