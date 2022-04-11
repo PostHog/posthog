@@ -207,6 +207,17 @@ def parse_prop_clauses(
             )
             final.append(filter_query)
             params.update(filter_params)
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var="{}person_properties".format(table_name),
+                allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)

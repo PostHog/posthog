@@ -22,6 +22,7 @@ class PersonPropertiesMode(Enum):
     USING_PERSON_PROPERTIES_COLUMN = auto()
     # Used for generating query on Person table
     DIRECT = auto()
+    USING_PERSON_ON_EVENT_COLUMNS = auto()
 
 
 class UUIDT(uuid.UUID):

@@ -5,7 +5,7 @@ import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, convertPropertyGroupToProperties } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
@@ -386,7 +386,7 @@ export function EventsTable({
                         }}
                     >
                         <PropertyFilters
-                            propertyFilters={properties}
+                            propertyFilters={convertPropertyGroupToProperties(properties)}
                             onChange={setProperties}
                             pageKey={pageKey}
                             taxonomicPopoverPlacement="bottom-start"

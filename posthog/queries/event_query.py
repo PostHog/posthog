@@ -33,6 +33,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
+    _person_properties_mode: PersonPropertiesMode
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        person_properties_mode: Optional[PersonPropertiesMode] = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -74,6 +76,7 @@ class EventQuery(metaclass=ABCMeta):
             self._determine_should_join_persons()
 
         self._should_round_interval = round_interval
+        self._person_properties_mode = person_properties_mode
 
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -115,7 +118,10 @@ class EventQuery(metaclass=ABCMeta):
             return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
-        return prop.type == "cohort" and self._does_cohort_need_persons(prop)
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return False
+        else:
+            return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
@@ -174,6 +180,6 @@ class EventQuery(metaclass=ABCMeta):
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=self._person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
