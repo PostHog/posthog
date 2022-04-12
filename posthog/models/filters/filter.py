@@ -45,7 +45,6 @@ from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
-from posthog.models.team import Team
 
 
 class Filter(
@@ -94,7 +93,6 @@ class Filter(
 
     funnel_id: Optional[int] = None
     _data: Dict
-    team: Optional[Team] = None
 
     def __init__(
         self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
@@ -121,9 +119,6 @@ class Filter(
 
         self._data = data
         self.kwargs = kwargs
-
-        if "team" in kwargs:
-            self.team = kwargs["team"]
 
         if "team" in kwargs and not self.is_simplified:
             simplified_filter = self.simplify(kwargs["team"])
