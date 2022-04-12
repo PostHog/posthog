@@ -417,25 +417,29 @@ export class DB {
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_PERSON_INFO_TTL = 1000
 
+    private getPersonIdCacheKey(teamId: number, distinctId: string): string {
+        return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
+    }
+
+    private getPersonCreatedAtCacheKey(teamId: number, personId: number): string {
+        return `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`
+    }
+
+    private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
+        return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
+    }
+
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
-        await this.redisSet(
-            `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`,
-            personId,
-            this.REDIS_PERSON_INFO_TTL
-        )
+        await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.REDIS_PERSON_INFO_TTL)
     }
 
     private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
-        await this.redisSet(
-            `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`,
-            createdAt,
-            this.REDIS_PERSON_INFO_TTL
-        )
+        await this.redisSet(this.getPersonCreatedAtCacheKey(teamId, personId), createdAt, this.REDIS_PERSON_INFO_TTL)
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
         await this.redisSet(
-            `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`,
+            this.getPersonPropertiesCacheKey(teamId, personId),
             JSON.stringify(properties),
             this.REDIS_PERSON_INFO_TTL
         )
