@@ -332,7 +332,9 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
                                     const rowRibbonColorDetermined =
-                                        typeof rowRibbonColor === 'function' ? rowRibbonColor(record) : rowRibbonColor
+                                        typeof rowRibbonColor === 'function'
+                                            ? rowRibbonColor(record) || 'var(--border-light)'
+                                            : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
