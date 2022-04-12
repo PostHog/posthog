@@ -46,7 +46,7 @@ def materialize_session_and_window_id(database):
         if property_name not in materialized_columns:
             materialize("events", property_name, property_name)
 
-        # We need to clean up any inconsistencies with existing column names
+        # Now, we need to clean up any potentail inconsistencies with existing column names
         # Possible states are:
         # * Materialized column exists, and is named correctly -> nothing to do
         # * Materialized column exists, but is named incorrectly -> rename it

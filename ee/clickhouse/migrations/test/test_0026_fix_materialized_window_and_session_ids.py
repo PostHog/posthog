@@ -7,6 +7,7 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
+# Import the migration in this way because it starts with a number
 _0026_fix_materialized_window_and_session_ids = importlib.import_module(
     "ee.clickhouse.migrations.0026_fix_materialized_window_and_session_ids"
 )
