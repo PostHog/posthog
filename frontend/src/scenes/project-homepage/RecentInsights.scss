@@ -1,0 +1,33 @@
+@import '~/vars';
+
+.insight-row {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: $default_spacing/4;
+    font-weight: 400; // Overrides font-weight from LemonButton
+
+    .insight-text-container {
+        flex: 1;
+        margin: 0 $default_spacing/2;
+
+        p {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin: 0;
+            width: 260px;
+
+            &.insight-name {
+                font-weight: 600;
+                font-size: 1rem;
+            }
+
+            &.insight-last-modified {
+                color: $text_default;
+            }
+        }
+    }
+}

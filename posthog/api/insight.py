@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Type
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -245,6 +245,15 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
+
+            elif key == "recently_viewed":
+                if str_to_bool(request.GET["recently_viewed"]):
+                    insight_viewed = InsightViewed.objects.filter(
+                        team=self.team, user=request.user, insight=OuterRef("id")
+                    )
+                    queryset = queryset.annotate(
+                        last_viewed_at=Subquery(insight_viewed.values("last_viewed_at")[:1])
+                    ).filter(last_viewed_at__isnull=False)
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
