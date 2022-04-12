@@ -40,7 +40,7 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts()}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:

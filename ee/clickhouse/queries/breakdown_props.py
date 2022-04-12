@@ -20,6 +20,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.team import Team
 
 ALL_USERS_COHORT_ID = 0
 
@@ -28,7 +29,7 @@ def get_breakdown_prop_values(
     filter: Filter,
     entity: Entity,
     aggregate_operation: str,
-    team_id: int,
+    team: Team,
     limit: int = BREAKDOWN_VALUES_LIMIT,
     extra_params={},
     column_optimizer: Optional[ColumnOptimizer] = None,
@@ -38,14 +39,14 @@ def get_breakdown_prop_values(
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-    column_optimizer = column_optimizer or ColumnOptimizer(filter, team_id)
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
+    column_optimizer = column_optimizer or ColumnOptimizer(filter, team.pk)
+    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team.pk)
 
     props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
     outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team_id,
+        team_id=team.pk,
         property_group=outer_properties,
         table_name="e",
         prepend="e_brkdwn",
@@ -53,21 +54,21 @@ def get_breakdown_prop_values(
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team_id, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team.pk, table_name="e")
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
     person_join_clauses = ""
     person_join_params: Dict = {}
-    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
+    person_query = ClickhousePersonQuery(filter, team.pk, column_optimizer=column_optimizer, entity=entity)
     if person_query.is_used:
         person_subquery, person_join_params = person_query.get_query()
         person_join_clauses = f"""
-            INNER JOIN ({get_team_distinct_ids_query(team_id)}) AS pdi ON e.distinct_id = pdi.distinct_id
+            INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
 
-    groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team_id, column_optimizer).get_join_query()
+    groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
@@ -85,8 +86,9 @@ def get_breakdown_prop_values(
         {
             "key": filter.breakdown,
             "limit": limit,
-            "team_id": team_id,
+            "team_id": team.id,
             "offset": filter.offset,
+            "timezone": team.timezone_for_charts(),
             **prop_filter_params,
             **entity_params,
             **person_join_params,

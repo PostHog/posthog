@@ -21,7 +21,7 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
     params = {}
     if filter.date_from:
 
-        date_from = f"AND {table}timestamp >= %(date_from)s"
+        date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
@@ -29,12 +29,12 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
         except IndexError:
             date_from = ""
         else:
-            date_from = f"AND {table}timestamp >= %(date_from)s"
+            date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
             params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = f"AND {table}timestamp <= %(date_to)s"
+    date_to = f"AND {table}timestamp <= toDateTime(%(date_to)s, %(timezone)s)"
     params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params
@@ -120,9 +120,11 @@ def get_interval_func_ch(period: Optional[str]) -> str:
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
     if round_interval:
-        return "AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
+        return "AND {interval}(toDateTime(timestamp, %(timezone)s)) >= {interval}(toDateTime(%(date_from)s, %(timezone)s))".format(
+            interval=interval_annotation
+        )
     else:
-        return "AND timestamp >= %(date_from)s"
+        return "AND timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
 
 
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:

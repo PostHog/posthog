@@ -23,6 +23,8 @@ class BaseFilter(BaseParamMixin):
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
         self.kwargs = kwargs
+        if kwargs["team"]:
+            self.team = kwargs["team"]
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = getattr(self, "simplify")(kwargs["team"])

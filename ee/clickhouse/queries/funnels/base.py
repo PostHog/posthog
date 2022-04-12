@@ -648,7 +648,7 @@ class ClickhouseFunnelBase(ABC):
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team, limit, extra_params={"offset": 0}
             )
 
         return None

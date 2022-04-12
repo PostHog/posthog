@@ -22,14 +22,14 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
-    def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
+    def _set_default_dates(self, filter: Filter, team: Team) -> Filter:
         data = {}
         if not filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
         if not filter._date_to:
             data.update({"date_to": timezone.now()})
         if data:
-            return Filter(data={**filter._data, **data})
+            return Filter(data={**filter._data, **data}, team=team)
         return filter
 
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
@@ -98,7 +98,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        filter = self._set_default_dates(filter, team.pk)
+        filter = self._set_default_dates(filter, team)
 
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)

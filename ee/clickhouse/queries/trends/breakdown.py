@@ -84,6 +84,7 @@ class ClickhouseTrendsBreakdown:
             "event": self.entity.id,
             "key": self.filter.breakdown,
             **date_params,
+            "timezone": self.team.timezone_for_charts(),
         }
 
         breakdown_filter_params = {
@@ -203,7 +204,7 @@ class ClickhouseTrendsBreakdown:
             self.filter,
             self.entity,
             aggregate_operation,
-            self.team_id,
+            self.team,
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
         )
