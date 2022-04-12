@@ -1,7 +1,7 @@
 .ph-graph-tooltip {
     overflow: hidden;
     border: 1px solid var(--border);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-elevation);
     font-size: 14px;
     z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
