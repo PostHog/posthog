@@ -115,6 +115,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     PERSON_INFO_TO_REDIS_TEAMS: string
+    PERSON_INFO_CACHE_TTL: number
 }
 
 export interface Hub extends PluginsServerConfig {

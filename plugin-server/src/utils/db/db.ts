@@ -149,12 +149,20 @@ export class DB {
     /** Whether to write to clickhouse_person_unique_id topic */
     writeToPersonUniqueId?: boolean
 
+    /** How many seconds to keep person info in Redis cache */
+    PERSON_INFO_CACHE_TTL: number
+
+    /** Which teams is person info caching enabled on */
+    personInfoCachingEnabledTeams: Set<number>
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper | undefined,
         clickhouse: ClickHouse | undefined,
-        statsd: StatsD | undefined
+        statsd: StatsD | undefined,
+        personInfoCacheTtl = 1,
+        personInfoCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
@@ -162,6 +170,8 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
+        this.PERSON_INFO_CACHE_TTL = personInfoCacheTtl
+        this.personInfoCachingEnabledTeams = personInfoCachingEnabledTeams
     }
 
     // Postgres
@@ -413,9 +423,8 @@ export class DB {
 
     // Person
     REDIS_PERSON_ID_PREFIX = 'person_id'
-    REDIS_PERSON_CREATED_AT_PREFIX = 'person_create_at'
+    REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
-    REDIS_PERSON_INFO_TTL = 1000
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -430,19 +439,29 @@ export class DB {
     }
 
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
-        await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.REDIS_PERSON_INFO_TTL)
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.PERSON_INFO_CACHE_TTL)
+        }
     }
 
     private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
-        await this.redisSet(this.getPersonCreatedAtCacheKey(teamId, personId), createdAt, this.REDIS_PERSON_INFO_TTL)
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonCreatedAtCacheKey(teamId, personId),
+                createdAt,
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        await this.redisSet(
-            this.getPersonPropertiesCacheKey(teamId, personId),
-            JSON.stringify(properties),
-            this.REDIS_PERSON_INFO_TTL
-        )
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonPropertiesCacheKey(teamId, personId),
+                JSON.stringify(properties),
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -531,8 +550,7 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[],
-        writeToRedis = false
+        distinctIds?: string[]
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
@@ -578,13 +596,15 @@ export class DB {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
-        if (writeToRedis) {
-            for (const distinctId of distinctIds || []) {
-                await this.updatePersonIdCache(teamId, distinctId, person.id)
-            }
-            await this.updatePersonPropertiesCache(teamId, person.id, properties)
-            await this.updatePersonCreatedAtCache(teamId, person.id, person.created_at)
-        }
+        // Update person info cache
+        await Promise.all(
+            (distinctIds || [])
+                .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
+                .concat([
+                    this.updatePersonPropertiesCache(teamId, person.id, properties),
+                    this.updatePersonCreatedAtCache(teamId, person.id, person.created_at),
+                ])
+        )
 
         return person
     }
@@ -592,14 +612,12 @@ export class DB {
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
-        writeToRedis: boolean,
         client: PoolClient
     ): Promise<ProducerRecord[]>
-    public async updatePersonDeprecated(person: Person, update: Partial<Person>, writeToRedis: boolean): Promise<Person>
+    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
-        writeToRedis: boolean,
         client?: PoolClient
     ): Promise<Person | ProducerRecord[]> {
         const updateValues = Object.values(unparsePersonPartial(update))
@@ -642,9 +660,7 @@ export class DB {
             }
         }
 
-        if (writeToRedis) {
-            await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
-        }
+        await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
 
         return client ? kafkaMessages : updatedPerson
     }
@@ -747,14 +763,12 @@ export class DB {
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: Person, distinctId: string, writeToRedis = false): Promise<void> {
+    public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
         if (this.kafkaProducer && kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
-        if (writeToRedis) {
-            await this.updatePersonIdCache(person.team_id, distinctId, person.id)
-        }
+        await this.updatePersonIdCache(person.team_id, distinctId, person.id)
     }
 
     public async addDistinctIdPooled(
@@ -813,12 +827,7 @@ export class DB {
         }
     }
 
-    public async moveDistinctIds(
-        source: Person,
-        target: Person,
-        client?: PoolClient,
-        writeToRedis = false
-    ): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgresQuery(
@@ -890,13 +899,11 @@ export class DB {
                         ],
                     })
                 }
-                if (writeToRedis) {
-                    await this.updatePersonIdCache(
-                        usefulColumns.team_id,
-                        usefulColumns.distinct_id,
-                        usefulColumns.person_id
-                    )
-                }
+                await this.updatePersonIdCache(
+                    usefulColumns.team_id,
+                    usefulColumns.distinct_id,
+                    usefulColumns.person_id
+                )
             }
         }
         return kafkaMessages

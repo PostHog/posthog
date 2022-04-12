@@ -87,6 +87,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         PERSON_INFO_TO_REDIS_TEAMS: '',
+        PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
     }
 }
 

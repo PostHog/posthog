@@ -80,7 +80,6 @@ export class EventsProcessor {
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
     clickhouseExternalSchemasDisabledTeams: Set<number>
-    personInfoToRedisTeams: Set<number>
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -93,9 +92,6 @@ export class EventsProcessor {
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
         this.clickhouseExternalSchemasDisabledTeams = new Set(
             pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
-        )
-        this.personInfoToRedisTeams = new Set(
-            pluginsServer.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number)
         )
     }
 
@@ -275,11 +271,7 @@ export class EventsProcessor {
             return
         }
 
-        await this.db.updatePersonDeprecated(
-            personFound,
-            { properties: updatedProperties },
-            this.personInfoToRedisTeams.has(teamId)
-        )
+        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
@@ -288,11 +280,7 @@ export class EventsProcessor {
             throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
         }
         if (personFound && !personFound.is_identified) {
-            await this.db.updatePersonDeprecated(
-                personFound,
-                { is_identified: isIdentified },
-                this.personInfoToRedisTeams.has(teamId)
-            )
+            await this.db.updatePersonDeprecated(personFound, { is_identified: isIdentified })
         }
     }
 
@@ -416,7 +404,7 @@ export class EventsProcessor {
 
         if (oldPerson && !newPerson) {
             try {
-                await this.db.addDistinctId(oldPerson, distinctId, this.personInfoToRedisTeams.has(teamId))
+                await this.db.addDistinctId(oldPerson, distinctId)
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -434,7 +422,7 @@ export class EventsProcessor {
             }
         } else if (!oldPerson && newPerson) {
             try {
-                await this.db.addDistinctId(newPerson, previousDistinctId, this.personInfoToRedisTeams.has(teamId))
+                await this.db.addDistinctId(newPerson, previousDistinctId)
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -547,7 +535,6 @@ export class EventsProcessor {
                         properties: mergeInto.properties,
                         is_identified: mergeInto.is_identified || otherPerson.is_identified,
                     },
-                    this.personInfoToRedisTeams.has(teamId),
                     client
                 )
 
@@ -559,12 +546,7 @@ export class EventsProcessor {
                     client
                 )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(
-                    otherPerson,
-                    mergeInto,
-                    client,
-                    this.personInfoToRedisTeams.has(teamId)
-                )
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
@@ -842,8 +824,7 @@ export class EventsProcessor {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
-            this.personInfoToRedisTeams.has(teamId)
+            distinctIds
         )
     }
 
