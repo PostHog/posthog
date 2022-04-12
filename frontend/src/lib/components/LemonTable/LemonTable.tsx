@@ -318,7 +318,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         ))
                                     )}
                                 </tr>
-                                <div className="LemonTable__loader" />
+                                <tr className="LemonTable__loader" />
                             </thead>
                         )}
                         <tbody>
