@@ -1,5 +1,7 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
@@ -392,3 +394,109 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+class CohortFilterType(Enum):
+    PROPERTIES = auto()
+    EVENT = auto()
+    EVENT_MULTIPLE = auto()
+    EVENT_SEQUENCE = auto()
+    COHORT = auto()
+    EVENT_FIRST_TIME = auto()
+    EVENT_REGULARLY = auto()
+    EVENT_STOPPED = auto()
+    EVENT_RESTARTED = auto()
+
+
+@dataclass
+class CohortFilterBase:
+    type: CohortFilterType
+    negation: bool
+
+
+@dataclass
+class PropertyCohortFilter(CohortFilterBase):
+    type = CohortFilterType.PROPERTIES
+    properties: List[Property]
+
+
+@dataclass
+class EventCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+
+
+@dataclass
+class EventMultipleCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_MULTIPLE
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+    operator: str
+    operator_value: int
+
+
+@dataclass
+class EventSequenceCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_SEQUENCE
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+    seq_event_type: str
+    seq_event: Union[str, int]
+    seq_time_value: int
+    seq_time_interval: str
+
+
+@dataclass
+class CohortCohortFilter(CohortFilterBase):
+    type = CohortFilterType.COHORT
+    cohort_id: int
+
+
+@dataclass
+class EventFirstTimeCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_FIRST_TIME
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+
+
+@dataclass
+class EventRegularlyCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_REGULARLY
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+    operator: str
+    operator_value: int
+    operator_interval: str
+
+
+@dataclass
+class EventStoppedCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_STOPPED
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+    seq_time_value: int
+    seq_time_interval: str
+
+
+@dataclass
+class EventRestartedCohortFilter(CohortFilterBase):
+    type = CohortFilterType.EVENT_RESTARTED
+    event_type: str
+    event: Union[str, int]
+    time_value: int
+    time_interval: str
+    seq_time_value: int
+    seq_time_interval: str
