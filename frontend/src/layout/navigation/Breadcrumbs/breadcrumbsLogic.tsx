@@ -146,5 +146,24 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 return tailBreadcrumbs
             },
         ],
+        documentTitle: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): string =>
+                [
+                    ...sceneBreadcrumbs
+                        .filter((breadcrumb) => !!breadcrumb.name)
+                        .map((breadcrumb) => breadcrumb.name as string)
+                        .reverse(),
+                    'PostHog',
+                ].join(' • '),
+        ],
     }),
+
+    subscriptions: {
+        documentTitle: (documentTitle: string) => {
+            if (typeof document !== 'undefined') {
+                document.title = documentTitle
+            }
+        },
+    },
 })

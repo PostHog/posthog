@@ -643,6 +643,7 @@ export interface RecordingEventType extends EventType {
     playerTime: number
     playerPosition: PlayerPosition
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {
@@ -945,7 +946,7 @@ export interface FilterType {
 
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-
+    total_intervals?: number // retention total intervals
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>

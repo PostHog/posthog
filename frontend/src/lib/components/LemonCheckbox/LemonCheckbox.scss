@@ -1,6 +1,7 @@
 .LemonCheckbox {
     display: flex;
     width: fit-content;
+    font-weight: 500;
     input {
         appearance: none;
         width: 0;
@@ -57,8 +58,4 @@
             }
         }
     }
-}
-
-.LemonCheckbox__text {
-    font-weight: 500;
 }

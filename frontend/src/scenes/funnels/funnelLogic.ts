@@ -412,7 +412,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     }),
 
     selectors: ({ selectors }) => ({
-        isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
@@ -436,7 +435,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
             (s) => [s.filters],
             ({ funnel_window_interval, funnel_window_interval_unit }) => ({
@@ -794,8 +792,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
                     const hasBaseline =
-                        layout === FunnelLayout.vertical &&
-                        (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
+                        !baseStep.breakdown ||
+                        (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({

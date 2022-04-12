@@ -20,11 +20,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport, IconEdit } from 'lib/components/icons'
+import { IconEdit } from 'lib/components/icons'
 import { countryCodeToName } from '../WorldMap'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -68,7 +69,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportUrl, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -98,27 +99,28 @@ export function InsightsTable({
         }
     }
 
-    // The calc menu doesn't make sense for the map
-    const calcColumnMenu =
-        filters.display === ChartDisplayType.WorldMap ? null : (
-            <Menu>
-                {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                    <Menu.Item
-                        key={key}
-                        onClick={(e) => {
-                            setCalcColumnState(key as CalcColumnState)
-                            reportInsightsTableCalcToggled(key)
-                            e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                        }}
-                    >
-                        {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                    </Menu.Item>
-                ))}
-            </Menu>
-        )
+    const isDisplayModeNonTimeSeries: boolean =
+        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+
+    const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
+        <Menu>
+            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
+                <Menu.Item
+                    key={key}
+                    onClick={(e) => {
+                        setCalcColumnState(key as CalcColumnState)
+                        reportInsightsTableCalcToggled(key)
+                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
+                    }}
+                >
+                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
+                </Menu.Item>
+            ))}
+        </Menu>
+    )
 
     // Build up columns to include. Order matters.
-    const columns: LemonTableColumns<IndexedTrendResult> = []
+    const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
         columns.push({
@@ -251,18 +253,12 @@ export function InsightsTable({
                 CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(count: any, item: IndexedTrendResult) {
-                if (calcColumnState === 'average') {
+                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
+                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
+                } else if (calcColumnState === 'average') {
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
-                } else if (
-                    calcColumnState === 'total' &&
-                    (filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
-                        filters.display === ChartDisplayType.ActionsTable ||
-                        filters.display === ChartDisplayType.ActionsPie ||
-                        filters.display === ChartDisplayType.WorldMap)
-                ) {
-                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
                 return (
                     <>
@@ -282,31 +278,17 @@ export function InsightsTable({
     }
 
     return (
-        <>
-            {csvExportUrl && !isViewedOnDashboard && (
-                <Tooltip title="Export this table as csv." placement="left">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                        href={csvExportUrl}
-                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
-                    >
-                        Export
-                    </LemonButton>
-                </Tooltip>
-            )}
-            <LemonTable
-                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-                embedded={embedded}
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                loading={resultsLoading}
-                emptyState="No insight results"
-                data-attr="insights-table-graph"
-                className="insights-table"
-            />
-        </>
+        <LemonTable
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+            embedded={embedded}
+            columns={columns}
+            rowKey="id"
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            loading={resultsLoading}
+            emptyState="No insight results"
+            data-attr="insights-table-graph"
+            className="insights-table"
+        />
     )
 }
 

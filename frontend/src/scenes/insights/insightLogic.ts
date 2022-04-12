@@ -125,9 +125,11 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: true,
+        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsightSuccess: true,
+        saveInsightFailure: true,
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
@@ -445,6 +447,14 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
+        insightSaving: [
+            false,
+            {
+                saveInsight: () => true,
+                saveInsightSuccess: () => false,
+                saveInsightFailure: () => false,
+            },
+        ],
     }),
     selectors: {
         /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
@@ -659,37 +669,47 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-
-            if (insightNumericId && emptyFilters(values.insight.filters)) {
-                const error = new Error('Will not override empty filters in saveInsight.')
-                Sentry.captureException(error, {
-                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
-                })
-                throw error
-            }
-
-            // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
             const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
-            const insightRequest: Partial<InsightModel> = {
-                name,
-                derived_name: values.derivedName,
-                description,
-                favorited,
-                filters,
-                deleted,
-                saved: true,
-                layouts,
-                color,
-                dashboard,
-                tags,
-            }
+            let savedInsight: InsightModel
 
-            const savedInsight: InsightModel = insightNumericId
-                ? await api.update(
-                      `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
-                      insightRequest
-                  )
-                : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+            try {
+                if (insightNumericId && emptyFilters(values.insight.filters)) {
+                    const error = new Error('Will not override empty filters in saveInsight.')
+                    Sentry.captureException(error, {
+                        extra: {
+                            filters: JSON.stringify(values.insight.filters),
+                            insight: JSON.stringify(values.insight),
+                        },
+                    })
+                    throw error
+                }
+
+                // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
+                const insightRequest: Partial<InsightModel> = {
+                    name,
+                    derived_name: values.derivedName,
+                    description,
+                    favorited,
+                    filters,
+                    deleted,
+                    saved: true,
+                    layouts,
+                    color,
+                    dashboard,
+                    tags,
+                }
+
+                savedInsight = insightNumericId
+                    ? await api.update(
+                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                          insightRequest
+                      )
+                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                actions.saveInsightSuccess()
+            } catch (e) {
+                actions.saveInsightFailure()
+                throw e
+            }
 
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
@@ -705,13 +725,13 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
+                const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+                mountedInsightSceneLogic?.actions.syncInsightChanged(false)
                 if (!insightNumericId && dashboard) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
                 } else if (insightNumericId) {
-                    insightSceneLogic
-                        .findMounted()
-                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
@@ -771,10 +791,12 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
         },
-        cancelChanges: () => {
+        cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})
-            insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-            eventUsageLogic.actions.reportInsightsTabReset()
+            if (goToViewMode) {
+                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                eventUsageLogic.actions.reportInsightsTabReset()
+            }
         },
     }),
 

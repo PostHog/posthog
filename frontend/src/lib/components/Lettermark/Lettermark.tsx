@@ -1,8 +1,13 @@
+import clsx from 'clsx'
 import React from 'react'
 import './Lettermark.scss'
 
-export function Lettermark({ name }: { name?: string | number | null }): JSX.Element {
+export enum LettermarkColor {
+    Gray = 'gray',
+}
+
+export function Lettermark({ name, color }: { name?: string | number | null; color?: LettermarkColor }): JSX.Element {
     const initialLetter = name ? String(name)[0].toLocaleUpperCase() : '?'
 
-    return <div className="Lettermark">{initialLetter}</div>
+    return <div className={clsx('Lettermark', color && `Lettermark--${color}`)}>{initialLetter}</div>
 }
