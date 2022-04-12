@@ -412,11 +412,12 @@ export class DB {
     }
 
     // Person
-    REDIS_PERSON_ID_PREFIX = 'pid'
-    REDIS_PERSON_PROPERTIES_PREFIX = 'pprops'
+    REDIS_PERSON_ID_PREFIX = 'person_id'
+    REDIS_PERSON_CREATED_AT_PREFIX = 'person_create_at'
+    REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_PERSON_INFO_TTL = 1000
 
-    private async personIdToRedis(teamId: number, distinctId: string, personId: number): Promise<void> {
+    private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
         await this.redisSet(
             '${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}',
             personId,
@@ -424,7 +425,15 @@ export class DB {
         )
     }
 
-    private async personPropertiesToRedis(teamId: number, personId: number, properties: string): Promise<void> {
+    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+        await this.redisSet(
+            '${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}',
+            createdAt,
+            this.REDIS_PERSON_INFO_TTL
+        )
+    }
+
+    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: string): Promise<void> {
         await this.redisSet(
             '${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}',
             properties,
@@ -568,9 +577,10 @@ export class DB {
 
         if (writeToRedis) {
             for (const distinctId of distinctIds || []) {
-                await this.personIdToRedis(teamId, distinctId, person.id)
+                await this.updatePersonIdCache(teamId, distinctId, person.id)
             }
-            await this.personPropertiesToRedis(teamId, person.id, personProperties)
+            await this.updatePersonPropertiesCache(teamId, person.id, personProperties)
+            await this.updatePersonCreatedAtCache(teamId, person.id, person.created_at)
         }
 
         return person
@@ -630,7 +640,7 @@ export class DB {
         }
 
         if (writeToRedis) {
-            await this.personPropertiesToRedis(
+            await this.updatePersonPropertiesCache(
                 updatedPerson.team_id,
                 updatedPerson.id,
                 JSON.stringify(updatedPerson.properties)
@@ -744,7 +754,7 @@ export class DB {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
         if (writeToRedis) {
-            await this.personIdToRedis(person.team_id, distinctId, person.id)
+            await this.updatePersonIdCache(person.team_id, distinctId, person.id)
         }
     }
 
@@ -882,7 +892,7 @@ export class DB {
                     })
                 }
                 if (writeToRedis) {
-                    await this.personIdToRedis(
+                    await this.updatePersonIdCache(
                         usefulColumns.team_id,
                         usefulColumns.distinct_id,
                         usefulColumns.person_id
