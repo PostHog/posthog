@@ -14,6 +14,7 @@ import {
     Hub,
     Person,
     PostgresSessionRecordingEvent,
+    PreIngestionEvent,
     PropertyUpdateOperation,
     SessionRecordingEvent,
     TeamId,
@@ -104,7 +105,7 @@ export class EventsProcessor {
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<EventProcessingResult | void> {
+    ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
@@ -113,7 +114,7 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
-        let result: EventProcessingResult | void
+        let result: PreIngestionEvent | null = null
         try {
             // Sanitize values, even though `sanitizeEvent` should have gotten to them
             const properties: Properties = data.properties ?? {}
@@ -165,7 +166,7 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    const [event, eventId, elements] = await this.capture(
+                    result = await this.capture(
                         eventUuid,
                         personUuid,
                         ip,
@@ -178,11 +179,6 @@ export class EventsProcessor {
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
-                    result = {
-                        event,
-                        eventId,
-                        elements,
-                    }
                 } finally {
                     clearTimeout(timeout3)
                 }
@@ -588,7 +584,7 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime
-    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+    ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
@@ -636,18 +632,30 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)
+        return {
+            eventUuid,
+            event,
+            teamId,
+            distinctId,
+            properties,
+            timestamp,
+            elementsList,
+        }
     }
 
-    private async createEvent(
-        uuid: string,
-        event: string,
-        teamId: TeamId,
-        distinctId: string,
-        properties?: Properties,
-        timestamp?: DateTime | string,
-        elements?: Element[]
+    async createEvent(
+        preIngestionEvent: PreIngestionEvent
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+        const {
+            eventUuid: uuid,
+            event,
+            teamId,
+            distinctId,
+            properties,
+            timestamp,
+            elementsList: elements,
+        } = preIngestionEvent
+
         const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 

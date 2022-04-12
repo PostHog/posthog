@@ -878,3 +878,15 @@ export enum PluginServerMode {
     Ingestion = 'INGESTION',
     Runner = 'RUNNER',
 }
+
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
+}
+
+//         await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)
