@@ -20,10 +20,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport, IconEdit } from 'lib/components/icons'
+import { IconEdit } from 'lib/components/icons'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
@@ -69,7 +69,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportUrl, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -120,7 +120,7 @@ export function InsightsTable({
     )
 
     // Build up columns to include. Order matters.
-    const columns: LemonTableColumns<IndexedTrendResult> = []
+    const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
         columns.push({
@@ -278,31 +278,17 @@ export function InsightsTable({
     }
 
     return (
-        <>
-            {csvExportUrl && !isViewedOnDashboard && (
-                <Tooltip title="Export this table in CSV format" placement="left">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                        href={csvExportUrl}
-                        style={{ float: 'right', marginBottom: '1rem' }}
-                    >
-                        Export
-                    </LemonButton>
-                </Tooltip>
-            )}
-            <LemonTable
-                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-                embedded={embedded}
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                loading={resultsLoading}
-                emptyState="No insight results"
-                data-attr="insights-table-graph"
-                className="insights-table"
-            />
-        </>
+        <LemonTable
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+            embedded={embedded}
+            columns={columns}
+            rowKey="id"
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            loading={resultsLoading}
+            emptyState="No insight results"
+            data-attr="insights-table-graph"
+            className="insights-table"
+        />
     )
 }
 

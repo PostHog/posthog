@@ -199,7 +199,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     >
                         <div
                             style={{
-                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
                                 marginRight: verticalLayout ? '1rem' : 0,
                             }}
                         >
@@ -217,7 +217,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <div
                             style={{
                                 flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
                             }}
                         >
                             <InsightContainer />

@@ -8,7 +8,6 @@ import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
@@ -29,6 +28,10 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport } from 'lib/components/icons'
+import { FunnelStepsTable } from './InsightTabs/FunnelTab/FunnelStepsTable'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -56,6 +59,7 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
+        csvExportUrl,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -106,11 +110,18 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            filters?.layout === FunnelLayout.horizontal &&
             !disableTable
         ) {
-            return <FunnelStepTable />
+            // The legacy FunnelStepTable is shown in top-to-bottom funnel view, otherwise the newer FunnelStepsTable
+            if (filters?.layout === FunnelLayout.horizontal) {
+                return <FunnelStepsTable />
+            }
         }
+
+        // InsightsTable is loaded for all trend views (except below), plus the sessions view.
+        // Exclusions:
+        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             (!filters.display ||
                 (filters?.display !== ChartDisplayType.ActionsTable &&
@@ -118,21 +129,32 @@ export function InsightContainer(
             activeView === InsightType.TRENDS &&
             !disableTable
         ) {
-            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    Exclusions:
-        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        2. Bar value chart. Because this view displays data in completely different dimensions.
-    */
             return (
-                <BindLogic logic={trendsLogic} props={insightProps}>
-                    <InsightsTable
-                        isLegend
-                        showTotalCount
-                        filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                        canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        canCheckUncheckSeries={canEditInsight}
-                    />
-                </BindLogic>
+                <>
+                    {csvExportUrl && (
+                        <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
+                            <h2>Trend results</h2>
+                            <Tooltip title="Export this table in CSV format" placement="left">
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                                    href={csvExportUrl}
+                                >
+                                    Export
+                                </LemonButton>
+                            </Tooltip>
+                        </div>
+                    )}
+                    <BindLogic logic={trendsLogic} props={insightProps}>
+                        <InsightsTable
+                            isLegend
+                            showTotalCount
+                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                            canCheckUncheckSeries={canEditInsight}
+                        />
+                    </BindLogic>
+                </>
             )
         }
 

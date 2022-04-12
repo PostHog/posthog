@@ -3,6 +3,12 @@
 $funnel_canvas_background: #fff;
 
 .insights-page {
+    h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
     .top-bar {
         width: 100%;
         .ant-tabs,
