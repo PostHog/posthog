@@ -1,6 +1,7 @@
 from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.replication.utils import clickhouse_is_replicated
+from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -27,4 +28,8 @@ def add_columns_to_required_tables(_):
 
 operations = [
     migrations.RunPython(add_columns_to_required_tables),
+    migrations.RunSQL(f"DROP TABLE events_json_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    migrations.RunSQL(f"DROP TABLE kafka_events_json ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    migrations.RunSQL(KAFKA_EVENTS_TABLE_JSON_SQL()),
+    migrations.RunSQL(EVENTS_TABLE_JSON_MV_SQL()),
 ]

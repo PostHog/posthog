@@ -55,7 +55,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -105,7 +105,16 @@ FROM {database}.kafka_events
     database=settings.CLICKHOUSE_DATABASE,
 )
 
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+# we add the settings to prevent poison pills from stopping ingestion
+# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
+# the max block size to consume from kafka such that we skip _all_ broken messages
+# this is an added safety mechanism given we control payloads to this topic
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
+    EVENTS_TABLE_BASE_SQL
+    + """
+    SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505
+"""
+).format(
     table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
@@ -322,7 +331,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
 )
 
 GET_CUSTOM_EVENTS = """
