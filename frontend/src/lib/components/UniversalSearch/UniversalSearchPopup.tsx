@@ -1,27 +1,38 @@
+import './UniversalSearch.scss'
 import React, { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
-import { TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { SearchDefinitionTypes, UniversalSearchGroupType, UniversalSearchProps } from './types'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { Popup } from 'lib/components/Popup/Popup'
-import { UniversalSearch } from './UniversalSearch'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { ActionType, ChartDisplayType, Group, InsightModel, InsightType } from '~/types'
+import {
+    ActionType,
+    ChartDisplayType,
+    CohortType,
+    EventDefinition,
+    Experiment,
+    FeatureFlagType,
+    Group,
+    InsightModel,
+    InsightType,
+    PersonType,
+} from '~/types'
 import { PluginSelectionType } from 'scenes/plugins/pluginsLogic'
 import clsx from 'clsx'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { useValues } from 'kea'
-import { universalSearchLogic } from './universalSearchLogic'
 import { IconMagnifier } from '../icons'
 import { Input } from 'antd'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
-    groupType: UniversalSearchGroupType
+    groupType: TaxonomicFilterGroupType
     value?: ValueType
-    onChange?: (value: ValueType, groupType: UniversalSearchGroupType, item: SearchDefinitionTypes) => void
-    groupTypes?: UniversalSearchGroupType[]
+    onChange?: (value: ValueType, groupType: TaxonomicFilterGroupType, item: SearchDefinitionTypes) => void
+    groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element
     dataAttr?: string
     placeholder?: React.ReactNode
@@ -29,12 +40,23 @@ export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     allowClear?: boolean
 }
 
+type SearchDefinitionTypes =
+    | EventDefinition
+    | CohortType
+    | ActionType
+    | Experiment
+    | PersonType
+    | Group
+    | FeatureFlagType
+    | InsightModel
+    | PluginSelectionType
+
 function redirectOnSelectItems(
     value: TaxonomicFilterValue,
-    groupType: UniversalSearchGroupType,
+    groupType: TaxonomicFilterGroupType,
     item: SearchDefinitionTypes
 ): void {
-    if (groupType === UniversalSearchGroupType.Events) {
+    if (groupType === TaxonomicFilterGroupType.Events) {
         router.actions.push(
             combineUrl(
                 urls.insightNew({
@@ -45,7 +67,7 @@ function redirectOnSelectItems(
                 })
             ).url
         )
-    } else if (groupType === UniversalSearchGroupType.Actions) {
+    } else if (groupType === TaxonomicFilterGroupType.Actions) {
         router.actions.push(
             combineUrl(
                 urls.insightNew({
@@ -63,26 +85,26 @@ function redirectOnSelectItems(
                 })
             ).url
         )
-    } else if (groupType === UniversalSearchGroupType.Cohorts) {
+    } else if (groupType === TaxonomicFilterGroupType.Cohorts) {
         router.actions.push(urls.cohort(value))
-    } else if (groupType === UniversalSearchGroupType.Persons) {
+    } else if (groupType === TaxonomicFilterGroupType.Persons) {
         router.actions.push(urls.person(String(value)))
-    } else if (groupType.startsWith(UniversalSearchGroupType.GroupsPrefix)) {
+    } else if (groupType.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)) {
         router.actions.push(urls.group((item as Group).group_type_index, String(value)))
-    } else if (groupType === UniversalSearchGroupType.Insights) {
+    } else if (groupType === TaxonomicFilterGroupType.Insights) {
         router.actions.push(urls.insightView((item as InsightModel).short_id))
-    } else if (groupType === UniversalSearchGroupType.FeatureFlags) {
+    } else if (groupType === TaxonomicFilterGroupType.FeatureFlags) {
         router.actions.push(urls.featureFlag(value))
-    } else if (groupType === UniversalSearchGroupType.Experiments) {
+    } else if (groupType === TaxonomicFilterGroupType.Experiments) {
         router.actions.push(urls.experiment(value))
-    } else if (groupType === UniversalSearchGroupType.Plugins) {
+    } else if (groupType === TaxonomicFilterGroupType.Plugins) {
         router.actions.push(
             combineUrl(urls.plugins(), {
                 tab: (item as PluginSelectionType).tab,
                 name: (item as PluginSelectionType).name,
             }).url
         )
-    } else if (groupType === UniversalSearchGroupType.Dashboards) {
+    } else if (groupType === TaxonomicFilterGroupType.Dashboards) {
         router.actions.push(urls.dashboard(value))
     }
 }
@@ -99,7 +121,7 @@ export function UniversalSearchPopup({
     const [visible, setVisible] = useState(false)
 
     const { isSideBarShown } = useValues(navigationLogic)
-    const universalSearchLogicProps: UniversalSearchProps = {
+    const universalSearchLogicProps: TaxonomicFilterLogicProps = {
         groupType,
         value,
         onChange: ({ type }, payload, item) => {
@@ -107,12 +129,13 @@ export function UniversalSearchPopup({
             onChange?.(payload, type, item)
             setVisible(false)
         },
-        searchGroupTypes: groupTypes ?? [groupType],
+        taxonomicGroupTypes: groupTypes ?? [groupType],
         optionsFromProp: undefined,
         popoverEnabled: true,
         selectFirstItem: true,
+        taxonomicFilterLogicKey: 'universalSearch',
     }
-    const logic = universalSearchLogic(universalSearchLogicProps)
+    const logic = taxonomicFilterLogic(universalSearchLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
 
     useEventListener('keydown', (event) => {
@@ -126,7 +149,12 @@ export function UniversalSearchPopup({
         <div className="universal-search">
             <Popup
                 overlay={
-                    <UniversalSearch groupType={groupType} value={value} searchGroupTypes={groupTypes ?? [groupType]} />
+                    <TaxonomicFilter
+                        taxonomicFilterLogicKey="universalSearch"
+                        groupType={groupType}
+                        value={value}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                    />
                 }
                 visible={visible}
                 placement="right-start"
@@ -136,6 +164,7 @@ export function UniversalSearchPopup({
                     name: 'offset',
                     options: {
                         offset: ({ placement }) => {
+                            // eslint-disable-line
                             if (placement === 'right-start') {
                                 return [-10, -249 - 243]
                             } else {

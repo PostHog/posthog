@@ -14,7 +14,8 @@ import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
-import { UniversalSearchGroupType } from 'lib/components/UniversalSearch/types'
+import { TaxonomicFilterGroupType } from 'lib/components/UniversalSearch/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -42,20 +43,23 @@ export function TopBar(): JSX.Element {
                     </Link>
                     <div style={{ flexGrow: 1 }}>
                         <UniversalSearchPopup
-                            groupType={UniversalSearchGroupType.Events}
+                            groupType={TaxonomicFilterGroupType.Events}
                             groupTypes={[
-                                UniversalSearchGroupType.Events,
-                                UniversalSearchGroupType.Persons,
-                                UniversalSearchGroupType.Actions,
-                                UniversalSearchGroupType.Cohorts,
-                                UniversalSearchGroupType.Insights,
-                                UniversalSearchGroupType.FeatureFlags,
-                                UniversalSearchGroupType.Plugins,
-                                UniversalSearchGroupType.Experiments,
-                                UniversalSearchGroupType.Dashboards,
-                                // UniversalSearchGroupType.GroupsPrefix,
+                                TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Persons,
+                                TaxonomicFilterGroupType.Actions,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Insights,
+                                TaxonomicFilterGroupType.FeatureFlags,
+                                TaxonomicFilterGroupType.Plugins,
+                                TaxonomicFilterGroupType.Experiments,
+                                TaxonomicFilterGroupType.Dashboards,
+                                // TaxonomicFilterGroupType.GroupsPrefix,
                                 'groups_0',
                                 'groups_1',
+                                'name_groups_0',
+                                'name_groups_1',
+                                'name_groups_2',
                                 // // 'groups_2',
                             ]}
                         />
