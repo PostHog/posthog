@@ -51,7 +51,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     : false)
                             }
                             onChange={() => {
-                                // either toggle all data on or off
+                                // Either toggle all data on or off
                                 setHiddenById(
                                     Object.fromEntries(
                                         visibleStepsWithConversionMetrics.flatMap((s) =>
@@ -116,6 +116,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             stepSeries && (
                                 <ValueInspectorButton
                                     onClick={() => openPersonsModalForStep({ step: stepSeries, converted: true })}
+                                    style={{ padding: 0 }}
                                 >
                                     {stepSeries.count ?? 0}
                                 </ValueInspectorButton>
