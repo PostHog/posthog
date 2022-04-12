@@ -161,7 +161,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if self.context["view"].action == "list":
             return None
 
-        items = dashboard.items.filter(deleted=False).order_by("order").all()
+        items = dashboard.items.filter(deleted=False).order_by("order")
         self.context.update({"dashboard": dashboard})
 
         #  Make sure all items have an insight set
@@ -229,7 +229,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
-        dashboard.save()
+        dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 

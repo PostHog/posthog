@@ -26,7 +26,7 @@ from posthog.demo import demo
 from posthog.models import User
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -132,7 +132,7 @@ urlpatterns = [
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path(
-        "login/<str:backend>/", sso_login, name="social_begin"
+        "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
 ]

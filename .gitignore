@@ -37,3 +37,4 @@ ee/benchmarks/results
 plugin-server/src/config/idl/protos.*
 .coverage
 coverage-*.xml
+object_storage/

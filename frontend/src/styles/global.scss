@@ -119,6 +119,10 @@ body strong {
     font-size: 8px;
 }
 
+.nowrap {
+    white-space: nowrap !important;
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
@@ -128,6 +132,9 @@ body strong {
     margin: 1.25rem 0 0.25rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
+    }
+    .ant-form-item {
+        margin-bottom: 0 !important;
     }
 }
 
@@ -174,7 +181,7 @@ body strong {
 .l3 {
     /* Level 3 title (ideally H3) */
     font-size: 16px;
-    font-weight: bold;
+    font-weight: 600;
     line-height: 19px;
 }
 

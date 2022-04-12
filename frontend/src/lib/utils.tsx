@@ -17,6 +17,7 @@ import {
     PropertyFilter,
     CohortType,
 } from '~/types'
+import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
@@ -27,7 +28,6 @@ import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
-import equal from 'fast-deep-equal'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1207,10 +1207,6 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
-}
-
-export function setPageTitle(title: string): void {
-    document.title = title ? `${title} • PostHog` : 'PostHog'
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {

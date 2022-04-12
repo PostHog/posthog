@@ -49,6 +49,8 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../InfoMessage/AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -97,6 +99,10 @@ const displayMap: Record<
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
+    },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
     },
 }
 
@@ -400,6 +406,14 @@ function InsightMeta({
     )
 }
 
+function VizComponentFallback(): JSX.Element {
+    return (
+        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
+            Unknown insight display type
+        </AlertMessage>
+    )
+}
+
 interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
@@ -419,7 +433,7 @@ function InsightViz({
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
-    const VizComponent = displayMap[displayedType].element
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
     return (
         <div

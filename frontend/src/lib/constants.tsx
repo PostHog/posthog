@@ -1,16 +1,13 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
+import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-// Sync these with the ChartDisplayType enum in types.ts
-// ... and remove once all files have migrated to TypeScript
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
-export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
-export const ACTIONS_TABLE = 'ActionsTable'
-export const ACTIONS_PIE_CHART = 'ActionsPie'
-export const ACTIONS_BAR_CHART = 'ActionsBar'
-export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
-export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_VIZ = 'FunnelViz'
+// Sync with backend NON_TIME_SERIES_DISPLAY_TYPES
+export const NON_TIME_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.WorldMap,
+]
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -91,32 +88,32 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
-    NPS_PROMPT: '4562-nps', // owner: @paolodamico
+    NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
-    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
+    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @liyiy
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
-    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
-    FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
+    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
+    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @alexkim205
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
-    PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
-    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
-    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
+    HEDGEHOGGER: 'hedgehogger', // owner: @Twixes
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
+    AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -147,7 +144,7 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BinCountAuto = 'auto'
+export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
 export const COHORT_STATIC = 'static'
@@ -170,3 +167,6 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
 // pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
 export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
     cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
+
+export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi

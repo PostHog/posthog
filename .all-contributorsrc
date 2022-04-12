@@ -1669,7 +1669,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/1317194?v=4",
       "profile": "https://github.com/inbreaks",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -1814,7 +1815,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/24385409?v=4",
       "profile": "https://github.rahul3v.xyz",
       "contributions": [
-        "code"
+        "code",
+        "content"
       ]
     },
     {
@@ -1831,6 +1833,15 @@
       "name": "Michael Cavallaro",
       "avatar_url": "https://avatars.githubusercontent.com/u/27144805?v=4",
       "profile": "https://github.com/Cavallando",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "RoryCrispin",
+      "name": "Rory Crispin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/716269?v=4",
+      "profile": "https://github.com/RoryCrispin",
       "contributions": [
         "code"
       ]
