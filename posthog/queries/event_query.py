@@ -97,7 +97,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _determine_should_join_persons(self) -> None:
         if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
-            return False
+            return
 
         if self._person_query.is_used:
             self._should_join_distinct_ids = True
