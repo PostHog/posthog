@@ -37,6 +37,7 @@ function LemonButtonInternal(
         popup,
         to,
         href,
+        disabled,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
@@ -51,6 +52,7 @@ function LemonButtonInternal(
             className
         ),
         type: htmlType,
+        disabled: disabled || buttonProps.loading,
         ...buttonProps,
     }
     if (popup && (children || !buttonProps.icon) && !rowProps.sideIcon) {
