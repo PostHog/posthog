@@ -44,6 +44,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
 
     def _run_query(self, filter: Filter, entity: Entity, team: Team) -> List[Dict[str, Any]]:
         sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
+
         result = sync_execute(sql, params)
 
         result = parse_function(result)
