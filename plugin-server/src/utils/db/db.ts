@@ -465,6 +465,54 @@ export class DB {
         }
     }
 
+    public async getPersonIdThroughCache(teamId: number, distinctId: string): Promise<number | null> {
+        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+            return null
+        }
+        const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
+        if (personId) {
+            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
+            return personId as number
+        }
+        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
+        // Query from postgres and update cache
+        const result = await this.postgresQuery(
+            'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$1 LIMIT 1',
+            [teamId, distinctId],
+            'fetchPersonId'
+        )
+        if (result.rows.length === 0) {
+            const personId = result.rows[0].person_id as number
+            await this.updatePersonIdCache(teamId, distinctId, personId)
+            return personId
+        }
+        return null
+    }
+
+    public async getPersonPropertiesThroughCache(teamId: number, personId: number): Promise<Properties | null> {
+        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+            return null
+        }
+        const personProperties = await this.redisGet(this.getPersonPropertiesCacheKey(teamId, personId), null)
+        if (personProperties) {
+            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
+            return personProperties as Properties
+        }
+        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
+        // Query from postgres and update cache
+        const result = await this.postgresQuery(
+            'SELECT properties FROM posthog_person WHERE team_id=$1 AND id=$1 LIMIT 1',
+            [teamId, personId],
+            'fetchPersonProperties'
+        )
+        if (result.rows.length === 0) {
+            const personProperties = result.rows[0].properties as Properties
+            await this.updatePersonPropertiesCache(teamId, personId, personProperties)
+            return personProperties
+        }
+        return null
+    }
+
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
     public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {

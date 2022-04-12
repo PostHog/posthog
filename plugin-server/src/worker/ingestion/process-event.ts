@@ -576,6 +576,10 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
+        const personId = await this.db.getPersonIdThroughCache(teamId, distinctId)
+        const personProperties = personId ? await this.db.getPersonPropertiesThroughCache(teamId, personId) : null
+        console.log(` ***** ${personId}  ***  ${personProperties}`)
+
         const eventPayload: IEvent = {
             uuid,
             event: safeClickhouseString(event),
