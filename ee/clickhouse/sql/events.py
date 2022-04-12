@@ -256,7 +256,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number), %(timezone)s) AS day_start
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number)) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --

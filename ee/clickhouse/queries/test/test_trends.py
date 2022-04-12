@@ -1367,3 +1367,18 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "5-Jan-2020",
             ],
         )
+
+        #  breakdown + DAU
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "breakdown": "$os",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
