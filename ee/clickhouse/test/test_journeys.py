@@ -53,6 +53,7 @@ def journeys_for(
                     event=event["event"],
                     timestamp=event["timestamp"],
                     properties=event.get("properties", {}),
+                    person_id=people[distinct_id].uuid,
                 )
             )
 
@@ -68,12 +69,12 @@ def _create_all_events(all_events: List[Dict]):
         data.update(event)
         in_memory_event = InMemoryEvent(**data)
         parsed += f"""
-        ('{str(uuid4())}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        ('{str(uuid4())}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
     sync_execute(
         f"""
-    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )
@@ -87,6 +88,7 @@ class InMemoryEvent:
     team: Team
     timestamp: str
     properties: Dict
+    person_id: str
 
 
 def _create_event(**event):

@@ -90,7 +90,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _get_extra_person_query_fields(self) -> str:
-        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
             return [
                 f", {get_property_string_expr(self.EVENT_TABLE_ALIAS, column_name, var='person_properties', allow_denormalized_props=False)} as {column_name}"
                 for column_name in self._person_properties_to_query()
