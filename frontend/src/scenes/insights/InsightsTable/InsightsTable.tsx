@@ -25,7 +25,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport, IconEdit } from 'lib/components/icons'
 import { countryCodeToName } from '../WorldMap'
-import { TRENDS_DISPLAY_BY_VALUE } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -99,7 +99,8 @@ export function InsightsTable({
         }
     }
 
-    const isDisplayModeNonTimeSeries: boolean = !!filters.display && TRENDS_DISPLAY_BY_VALUE.includes(filters.display)
+    const isDisplayModeNonTimeSeries: boolean =
+        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
     const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>

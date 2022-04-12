@@ -3,7 +3,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { FilterType, FunnelVizType, ItemMode, InsightType, ChartDisplayType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -39,15 +39,7 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
         default:
-            return (
-                !filter.display ||
-                ![
-                    ChartDisplayType.ActionsPie,
-                    ChartDisplayType.ActionsTable,
-                    ChartDisplayType.ActionsBarValue,
-                    ChartDisplayType.WorldMap,
-                ].includes(filter.display)
-            )
+            return !filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
     }
 }
 
@@ -150,7 +142,7 @@ export function InsightDisplayConfig({
                 {activeView === InsightType.TRENDS &&
                 !filters.breakdown_type &&
                 !filters.compare &&
-                (!filters.display || filters.display === ACTIONS_LINE_GRAPH_LINEAR) &&
+                (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
                 featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
                     <SmoothingFilter />
                 ) : null}

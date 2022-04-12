@@ -17,7 +17,7 @@ import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
-import { usePageTitle } from '~/layout/navigation/Breadcrumbs/usePageTitle'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -111,6 +111,7 @@ function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Elem
 }
 
 function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
@@ -129,8 +130,6 @@ function AppScene(): JSX.Element | null {
             position="bottom-right"
         />
     )
-
-    usePageTitle()
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (

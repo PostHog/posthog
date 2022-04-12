@@ -643,6 +643,7 @@ export interface RecordingEventType extends EventType {
     playerTime: number
     playerPosition: PlayerPosition
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {

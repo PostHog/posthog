@@ -873,3 +873,8 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
     Owner = 15,
 }
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
+}

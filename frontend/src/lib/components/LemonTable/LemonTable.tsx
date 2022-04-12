@@ -13,14 +13,14 @@ import { Skeleton } from 'antd'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
- * If `obligation` is specified, will throw an error if the key can't be determined.
- * */
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation: string): string
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation?: undefined): string | null
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation?: string): string | null {
+ * If `obligationReason` is specified, will throw an error if the key can't be determined.
+ */
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
-    if (obligation && !columnKey) {
-        throw new Error(`LemonTable: Column \`key\` or \`dataIndex\` must be defined for ${obligation}`)
+    if (obligationReason && !columnKey) {
+        throw new Error(`LemonTable: Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
 }
