@@ -1,10 +1,11 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
+from posthog.models.utils import PersonPropertiesMode
 
 
 class FunnelEventQuery(EnterpriseEventQuery):
@@ -50,9 +51,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
         )
 
         if self._should_join_persons:
-            _fields.extend(
-                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
-            )
+            _fields.extend(self._get_extra_person_query_fields())
 
         _fields = list(filter(None, _fields))
 
@@ -89,6 +88,22 @@ class FunnelEventQuery(EnterpriseEventQuery):
         """
 
         return query, self.params
+
+    def _get_extra_person_query_fields(self) -> str:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN:
+            return [
+                f", {get_property_string_expr(self.EVENT_TABLE_ALIAS, column_name, var='person_properties', allow_denormalized_props=False)} as {column_name}"
+                for column_name in self._person_properties_to_query()
+            ]
+        else:
+            return [
+                f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                for column_name in self._person_query.fields
+            ]
+
+    def _person_properties_to_query(self) -> List[str]:
+        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        return [property_name for property_name, _, _ in set(properties_to_query)]
 
     def _determine_should_join_distinct_ids(self) -> None:
         if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:

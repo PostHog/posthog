@@ -20,7 +20,6 @@ from posthog.queries.util import parse_timestamps
 
 
 class EventQuery(metaclass=ABCMeta):
-    DISTINCT_ID_TABLE_ALIAS = "pdi"
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
@@ -78,6 +77,13 @@ class EventQuery(metaclass=ABCMeta):
         self._should_round_interval = round_interval
         self._person_properties_mode = person_properties_mode
 
+    @property
+    def DISTINCT_ID_TABLE_ALIAS(self) -> str:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return self.EVENT_TABLE_ALIAS
+        else:
+            return "pdi"
+
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         pass
@@ -87,6 +93,9 @@ class EventQuery(metaclass=ABCMeta):
         pass
 
     def _get_distinct_id_query(self) -> str:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return ""
+
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
@@ -142,6 +151,9 @@ class EventQuery(metaclass=ABCMeta):
         return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields)
 
     def _get_person_query(self) -> Tuple[str, Dict]:
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return "", {}
+
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
             return (
