@@ -148,6 +148,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                               onClick={() =>
                                                   openPersonsModalForStep({ step: stepSeries, converted: false })
                                               }
+                                              style={{ padding: 0 }}
                                           >
                                               {stepSeries.droppedOffFromPrevious ?? 0}
                                           </ValueInspectorButton>
