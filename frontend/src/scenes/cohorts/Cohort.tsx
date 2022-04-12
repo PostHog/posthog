@@ -113,7 +113,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         )}
                         <LemonButton
                             type="primary"
-                            data-attr="cohort-submit"
+                            data-attr="save-cohort"
                             htmlType="submit"
                             onClick={() => {
                                 saveCohort()
