@@ -50,4 +50,7 @@ class EnterpriseEventQuery(EventQuery):
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
+        if self._person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            return "", {}
+        else:
+            return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()

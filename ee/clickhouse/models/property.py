@@ -236,6 +236,17 @@ def parse_prop_clauses(
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
+        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.USING_PERSON_ON_EVENT_COLUMNS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var=f"$group{prop.group_type_index}_properties",
+                allow_denormalized_props=False,
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
                 filter_query, filter_params = prop_filter_json_extract(
