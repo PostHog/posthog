@@ -2,10 +2,9 @@ import { Input } from 'antd'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
+import { DOMAIN_REGEX } from 'lib/constants'
 import React, { useState } from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-
-const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 
 export function AddDomainModal(): JSX.Element {
     const { addModalShown, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
@@ -36,7 +35,7 @@ export function AddDomainModal(): JSX.Element {
     return (
         <LemonModal onCancel={handleClose} visible={addModalShown} destroyOnClose>
             <section>
-                <h5>Add verified domain</h5>
+                <h5>Add authentication domain</h5>
 
                 <Input
                     placeholder="posthog.com"

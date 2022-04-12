@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, isUserLoggedIn, setPageTitle } from 'lib/utils'
+import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { dashboardsModelType } from './dashboardsModelType'
@@ -19,7 +19,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item: Partial<InsightModel>) => ({ item }),
+        updateDashboardItem: (item: InsightModel) => ({ item }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
@@ -84,9 +84,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
-                    if (updatedAttribute === 'name') {
-                        setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
-                    }
                 }
                 return response
             },

@@ -13,7 +13,11 @@ describe('insightSceneLogic', () => {
     let logic: ReturnType<typeof insightSceneLogic.build>
     beforeEach(async () => {
         useMocks({
+            get: {
+                '/api/projects/:team/insights/trend/': { result: ['result from api'] },
+            },
             post: {
+                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
                 '/api/projects/:team/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
@@ -25,13 +29,23 @@ describe('insightSceneLogic', () => {
         logic.mount()
     })
 
-    it('redirects when opening /insight/new', async () => {
+    it('keeps url /insight/new', async () => {
+        router.actions.push(urls.insightNew())
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(router)
+            .delay(1)
+            .toMatchValues({
+                location: partial({ pathname: urls.insightNew() }),
+            })
+    })
+
+    it('redirects when opening /insight/new with filters', async () => {
         router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: urls.insightEdit(Insight12) }),
+                location: partial({ pathname: urls.insightNew(), search: '', hash: '' }),
             })
     })
 

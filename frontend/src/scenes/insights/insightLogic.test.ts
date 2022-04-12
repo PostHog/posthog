@@ -1,6 +1,6 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { insightLogic } from './insightLogic'
+import { createEmptyInsight, insightLogic } from './insightLogic'
 import { AvailableFeature, InsightShortId, InsightType, ItemMode, PropertyOperator } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
@@ -10,7 +10,8 @@ import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -27,7 +28,7 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(() => {
-        useFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
+        useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/insights/trend/': (req) => {
@@ -86,6 +87,7 @@ describe('insightLogic', () => {
             },
             post: {
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                '/api/projects/:team/insights/:id/viewed': [201],
                 '/api/projects/:team/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
@@ -100,6 +102,9 @@ describe('insightLogic', () => {
                             id: req.params['id'] === '42' ? 42 : 43,
                             short_id: req.params['id'] === '42' ? Insight42 : Insight43,
                             filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                            name: req.params['id'] === '42' ? undefined : 'Foobar 43',
+                            description: req.params['id'] === '42' ? undefined : 'Lorem ipsum.',
+                            tags: req.params['id'] === '42' ? undefined : ['good'],
                         },
                     ]
                 },
@@ -475,13 +480,13 @@ describe('insightLogic', () => {
         })
         logic.mount()
 
-        // `setFilters` only changes `filters`, does not change `savedFilters`
+        // `setFilters` only changes `filters`, does not change `savedInsight`
         await expectLogic(logic, () => {
             logic.actions.setFilters({ insight: InsightType.TRENDS })
         }).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.FUNNELS }),
-            filtersChanged: true,
+            savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+            insightChanged: true,
         })
 
         // results from search don't change anything
@@ -492,8 +497,8 @@ describe('insightLogic', () => {
             })
         }).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.FUNNELS }),
-            filtersChanged: true,
+            savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+            insightChanged: true,
         })
 
         // results from API GET and POST calls change saved filters
@@ -504,8 +509,8 @@ describe('insightLogic', () => {
             })
         }).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.PATHS }),
-            filtersChanged: true,
+            savedInsight: partial({ filters: partial({ insight: InsightType.PATHS }) }),
+            insightChanged: true,
         })
         await expectLogic(logic, () => {
             logic.actions.updateInsightSuccess({
@@ -514,8 +519,8 @@ describe('insightLogic', () => {
             })
         }).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.RETENTION }),
-            filtersChanged: true,
+            savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+            insightChanged: true,
         })
 
         // saving persists the in-flight filters
@@ -525,8 +530,8 @@ describe('insightLogic', () => {
         await expectLogic(logic).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
             loadedFilters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.RETENTION }),
-            filtersChanged: true,
+            savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+            insightChanged: true,
         })
 
         await expectLogic(logic, () => {
@@ -536,9 +541,53 @@ describe('insightLogic', () => {
         await expectLogic(logic).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
             loadedFilters: partial({ insight: InsightType.TRENDS }),
-            savedFilters: partial({ insight: InsightType.TRENDS }),
-            filtersChanged: false,
+            savedInsight: partial({ filters: partial({ insight: InsightType.TRENDS }) }),
+            insightChanged: false,
         })
+    })
+
+    test('keeps saved name, description, tags', async () => {
+        logic = insightLogic({
+            dashboardItemId: Insight43,
+            cachedInsight: { ...createEmptyInsight(Insight43), filters: API_FILTERS },
+        })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            insight: partial({ name: '', description: '', tags: [] }),
+            savedInsight: partial({ name: '', description: '', tags: [] }),
+            insightChanged: false,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+        }).toMatchValues({
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            savedInsight: partial({ name: '', description: '', tags: [] }),
+            insightChanged: true,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            insightChanged: false,
+        })
+    })
+
+    test('saveInsight saves new insight and redirects to view mode', async () => {
+        logic = insightLogic({
+            dashboardItemId: 'new',
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters(cleanFilters({}))
+            logic.actions.saveInsight()
+        }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
     test('saveInsight and updateInsight reload the saved insights list', async () => {
@@ -579,9 +628,10 @@ describe('insightLogic', () => {
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
+                savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 filters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                filtersChanged: true,
+                insightChanged: false,
             })
 
         await expectLogic(router)

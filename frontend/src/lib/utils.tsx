@@ -17,6 +17,7 @@ import {
     PropertyFilter,
     CohortType,
 } from '~/types'
+import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
@@ -204,7 +205,8 @@ export function deleteWithUndo({
         props.callback?.()
         lemonToast[undo ? 'success' : 'info'](
             <>
-                <b>{props.object.name || <i>Unnnamed</i>}</b> has been {undo ? 'restored' : 'deleted'}
+                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                {undo ? 'restored' : 'deleted'}
             </>,
             {
                 toastId: `delete-item-${props.object.id}-${undo}`,
@@ -347,16 +349,10 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
 }
 
-export function chooseOperatorMap(
-    propertyType: PropertyType | undefined,
-    allowQueryingEventsByDateTime: boolean
-): Record<string, string> {
+export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
-            choice = genericOperatorMap
-        }
     }
     return choice
 }
@@ -416,7 +412,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return JSON.stringify(obj1) === JSON.stringify(obj2)
+    return equal(obj1, obj2)
 }
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
@@ -1211,10 +1207,6 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
-}
-
-export function setPageTitle(title: string): void {
-    document.title = title ? `${title} • PostHog` : 'PostHog'
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {

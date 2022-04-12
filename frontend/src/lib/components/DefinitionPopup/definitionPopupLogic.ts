@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { definitionPopupLogicType } from './definitionPopupLogicType'
+import type { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
@@ -14,6 +14,8 @@ import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -44,6 +46,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopupState: (state: DefinitionPopupState) => ({ state }),
         handleCancel: true,
+        recordHoverActivity: true,
     },
     reducers: {
         state: [
@@ -108,7 +111,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             definition = await api.update(`api/projects/@current/cohorts/${_cohort.id}`, _cohort)
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
-                    } catch (error) {
+                    } catch (error: any) {
                         lemonToast.error(error.message)
                     }
                     breakpoint()
@@ -195,6 +198,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 values.definition?.name !== selectors.definition(previousState).name
             ) {
                 actions.setPopupState(DefinitionPopupState.View)
+                actions.recordHoverActivity()
             }
         },
         handleSave: () => {
@@ -229,6 +233,15 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
+        },
+        recordHoverActivity: async (_, breakpoint) => {
+            await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.recordHoverActivity()
         },
     }),
 })

@@ -43,6 +43,9 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
+    # Monitoring tasks
+    sender.add_periodic_task(60.0, monitoring_check_clickhouse_schema_drift.s(), name="Monitor ClickHouse schema drift")
+
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
     # Heartbeat every 10sec to make sure the worker is alive
@@ -132,14 +135,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = {"kind": "celery", "id": task.name}
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = None
 
@@ -165,7 +168,7 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -180,7 +183,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -195,7 +198,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -211,7 +214,7 @@ def clickhouse_part_count():
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -299,6 +302,13 @@ def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
+
+
+@app.task(ignore_result=True)
+def monitoring_check_clickhouse_schema_drift():
+    from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
+
+    check_clickhouse_schema_drift()
 
 
 @app.task(ignore_result=True)

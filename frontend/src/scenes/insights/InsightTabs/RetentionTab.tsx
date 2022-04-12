@@ -8,10 +8,10 @@ import {
     retentionOptions,
 } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
+import { ChartDisplayType, FilterType, PropertyGroupFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconOpenInNew } from 'lib/components/icons'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
@@ -26,6 +26,7 @@ import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/Proper
 import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from '../common'
+import { MathAvailability } from '../ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -48,7 +49,7 @@ export function RetentionTab(): JSX.Element {
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
@@ -121,7 +122,7 @@ export function RetentionTab(): JSX.Element {
                             <ActionFilter
                                 horizontalUI
                                 entitiesLimit={1}
-                                hideMathSelector
+                                mathAvailability={MathAvailability.None}
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
@@ -201,7 +202,7 @@ export function RetentionTab(): JSX.Element {
                     )}
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-                    filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
+                    filters.display !== ChartDisplayType.ActionsLineGraph ? (
                         <>
                             <hr />
                             <h4 className="secondary">

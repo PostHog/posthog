@@ -10,8 +10,6 @@ import {
     DashboardType,
     PersonType,
     DashboardMode,
-    HotKeys,
-    GlobalHotKeys,
     EntityType,
     InsightModel,
     InsightType,
@@ -61,6 +59,7 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
+    ProjectHomepage = 'project_homepage',
 }
 
 export enum GraphSeriesAddedSource {
@@ -285,7 +284,6 @@ export const eventUsageLogic = kea<
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
         reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -392,6 +390,7 @@ export const eventUsageLogic = kea<
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
         // Definition Popup
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
@@ -487,14 +486,15 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight })
         },
-        reportInsightViewed: async (
-            { insightModel, filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
-            breakpoint
-        ) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-            }
-
+        reportInsightViewed: ({
+            insightModel,
+            filters,
+            insightMode,
+            isFirstLoad,
+            fromDashboard,
+            delay,
+            changedFilters,
+        }) => {
             const { insight } = filters
 
             const properties: Record<string, any> = {
@@ -712,9 +712,6 @@ export const eventUsageLogic = kea<
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
-        reportHotkeyNavigation: async (payload) => {
-            posthog.capture('hotkey navigation', payload)
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -810,8 +807,8 @@ export const eventUsageLogic = kea<
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
-                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: recordingData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,
@@ -896,6 +893,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
@@ -904,6 +902,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -912,6 +911,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
             })
         },
@@ -921,6 +921,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
@@ -940,6 +941,9 @@ export const eventUsageLogic = kea<
         },
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionHovered: ({ type }) => {
+            posthog.capture('definition hovered', { type })
         },
         reportDataManagementDefinitionClickView: ({ type }) => {
             posthog.capture('definition click view', { type })

@@ -26,6 +26,7 @@ from posthog.models.filters.mixins.common import (
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
+    SmoothingIntervalsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
     FunnelCorrelationActorsMixin,
@@ -50,6 +51,7 @@ from posthog.models.team import Team
 class Filter(
     PropertyMixin,
     IntervalMixin,
+    SmoothingIntervalsMixin,
     EntitiesMixin,
     EntityIdMixin,
     EntityTypeMixin,

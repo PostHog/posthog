@@ -6,11 +6,11 @@ from typing import Any, Callable, Dict, List, Tuple, Union, cast
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
+from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep

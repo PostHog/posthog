@@ -36,7 +36,8 @@ class TestFilter(BaseTest):
             }
         )
         self.assertCountEqual(
-            list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from", "interval"],
+            list(filter.to_dict().keys()),
+            ["events", "display", "compare", "insight", "date_from", "interval", "smoothing_intervals"],
         )
 
     def test_simplify_test_accounts(self):

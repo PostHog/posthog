@@ -35,7 +35,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FunnelLayout } from 'lib/constants'
+import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
@@ -187,20 +187,27 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadCorrelations: async () => {
-                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                            ...values.apiParams,
-                            funnel_correlation_type: 'events',
-                            funnel_correlation_exclude_event_names: values.excludedEventNames,
-                        })
-                    ).result?.events
+                loadCorrelations: async (_, breakpoint) => {
+                    await breakpoint(100)
 
-                    return {
-                        events: results.map((result) => ({
-                            ...result,
-                            result_type: FunnelCorrelationResultsType.Events,
-                        })),
+                    try {
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'events',
+                                funnel_correlation_exclude_event_names: values.excludedEventNames,
+                            })
+                        ).result?.events
+
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Events,
+                            })),
+                        }
+                    } catch (error) {
+                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                        return { events: [] }
                     }
                 },
             },
@@ -208,7 +215,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         propertyCorrelations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async () => {
+                loadPropertyCorrelations: async (_, breakpoint) => {
                     const targetProperties =
                         values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
 
@@ -216,20 +223,27 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         return { events: [] }
                     }
 
-                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                            ...values.apiParams,
-                            funnel_correlation_type: 'properties',
-                            funnel_correlation_names: targetProperties,
-                            funnel_correlation_exclude_names: values.excludedPropertyNames,
-                        })
-                    ).result?.events
+                    await breakpoint(100)
 
-                    return {
-                        events: results.map((result) => ({
-                            ...result,
-                            result_type: FunnelCorrelationResultsType.Properties,
-                        })),
+                    try {
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'properties',
+                                funnel_correlation_names: targetProperties,
+                                funnel_correlation_exclude_names: values.excludedPropertyNames,
+                            })
+                        ).result?.events
+
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            })),
+                        }
+                    } catch (error) {
+                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                        return { events: [] }
                     }
                 },
             },
@@ -398,7 +412,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     }),
 
     selectors: ({ selectors }) => ({
-        isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
@@ -422,7 +435,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
             (s) => [s.filters],
             ({ funnel_window_interval, funnel_window_interval_unit }) => ({
@@ -780,8 +792,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
                     const hasBaseline =
-                        layout === FunnelLayout.vertical &&
-                        (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
+                        !baseStep.breakdown ||
+                        (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({
@@ -832,7 +844,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         numericBinCount: [
             () => [selectors.filters, selectors.timeConversionResults],
             (filters, timeConversionResults): number => {
-                if (filters.bin_count === BinCountAuto) {
+                if (filters.bin_count === BIN_COUNT_AUTO) {
                     return timeConversionResults?.bins?.length ?? 0
                 }
                 return filters.bin_count ?? 0
@@ -1195,13 +1207,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         clearFunnel: ({}) => {
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
-        saveFunnelInsight: async ({ name }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                filters: values.filters,
-                name,
-                saved: true,
-            })
-        },
         openPersonsModalForStep: ({ step, converted }) => {
             if (!values.isModalActive) {
                 return
@@ -1264,7 +1269,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             })
         },
         setBinCount: async ({ binCount }) => {
-            actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
+            actions.setFilters({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
@@ -1322,7 +1327,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             )
         },
         setPropertyNames: async ({ propertyNames }) => {
-            actions.loadPropertyCorrelations()
+            actions.loadPropertyCorrelations({})
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
                 'set property names',

@@ -2,7 +2,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
@@ -11,7 +10,6 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
-import { LinkButton } from 'lib/components/LinkButton'
 import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
@@ -123,26 +121,15 @@ export function Experiments(): JSX.Element {
                 }
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                        <LinkButton
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
-                            icon={<PlusOutlined />}
-                        >
-                            New Experiment
-                        </LinkButton>
+                        <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                            New experiment
+                        </LemonButton>
                     ) : undefined
                 }
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div
-                        style={{
-                            borderBottom: '1px solid var(--border)',
-                            paddingBottom: '0.5rem',
-                            marginBottom: '1rem',
-                        }}
-                    >
+                    <div className="mb">
                         Check out our
                         <a
                             data-attr="experiment-help"

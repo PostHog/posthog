@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -35,6 +36,8 @@ function TZLabelRaw({
     showSeconds?: boolean
     formatString?: string
 }): JSX.Element {
+    usePeriodicRerender(1000)
+
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
     const { currentTeam } = useValues(teamLogic)
 

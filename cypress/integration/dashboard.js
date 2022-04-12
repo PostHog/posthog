@@ -15,7 +15,8 @@ describe('Dashboard', () => {
     it('Adding new insight to dashboard works', () => {
         cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.get('[data-attr="edit-prop-name"]').click() // Rename insight
+        cy.wait(100)
+        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
         cy.focused().clear().type('Test Insight Zeus')
         cy.get('button').contains('Save').click() // Save the new name
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
@@ -136,5 +137,18 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
         cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
+    })
+
+    it('Add insight from empty dashboard', () => {
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr=dashboard-name-input]').clear().type('Watermelon')
+        cy.get('button').contains('Create').click()
+
+        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
+        cy.get('[data-attr=toast-close-button]').click()
+        cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
+
+        cy.wait(200)
+        cy.get('.page-title').contains('Watermelon').should('exist')
     })
 })

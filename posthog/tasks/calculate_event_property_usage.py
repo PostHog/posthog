@@ -44,8 +44,8 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
-    from ee.clickhouse.client import sync_execute
     from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
+    from posthog.client import sync_execute
 
     return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
 

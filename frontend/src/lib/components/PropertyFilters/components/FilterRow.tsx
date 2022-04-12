@@ -6,7 +6,7 @@ import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
@@ -149,10 +149,10 @@ export const FilterRow = React.memo(function FilterRow({
                                                 color: 'var(--primary)',
                                                 border: 'none',
                                                 boxShadow: 'none',
+                                                paddingLeft: 0,
                                                 background: 'none',
-                                                padding: '0 12px',
                                             }}
-                                            icon={<PlusOutlined />}
+                                            icon={<PlusCircleOutlined />}
                                             type="default"
                                         >
                                             {label}

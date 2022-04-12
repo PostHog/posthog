@@ -12,6 +12,9 @@ import clsx from 'clsx'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SSOProviderNames } from 'lib/constants'
+import { SSOProviders } from '~/types'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -35,6 +38,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
             for details.
         </>
     ),
+    jit_not_enabled:
+        'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
 }
 
 export const scene: SceneExport = {
@@ -42,10 +47,34 @@ export const scene: SceneExport = {
     logic: loginLogic,
 }
 
+function SSOLoginButton({
+    email,
+    provider,
+    style,
+}: {
+    email: string
+    provider: SSOProviders
+    style?: React.CSSProperties
+}): JSX.Element {
+    return (
+        <Button
+            className="btn-bridge"
+            data-attr="sso-login"
+            htmlType="button"
+            block
+            onClick={() => (window.location.href = `/login/${provider}/?email=${email}`)}
+            style={style}
+        >
+            {SocialLoginIcon(provider)} Login with {SSOProviderNames[provider]}
+        </Button>
+    )
+}
+
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
-    const { authenticate } = useActions(loginLogic)
-    const { authenticateResponseLoading, authenticateResponse } = useValues(loginLogic)
+    const { authenticate, precheck } = useActions(loginLogic)
+    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -92,20 +121,50 @@ export function Login(): JSX.Element {
                                     data-attr="login-email"
                                     placeholder="email@yourcompany.com"
                                     type="email"
+                                    onBlur={() => precheck({ email: form.getFieldValue('email') })}
+                                    onPressEnter={() => {
+                                        precheck({ email: form.getFieldValue('email') })
+                                        document.getElementById('password')?.focus()
+                                    }}
+                                    autoComplete="off"
                                 />
                             </Form.Item>
-                            <PasswordInput />
+                            <div
+                                className={clsx(
+                                    'password-wrapper',
+                                    (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
+                                        'hidden'
+                                )}
+                            >
+                                <PasswordInput />
+                            </div>
                             <Form.Item>
-                                <Button
-                                    className="btn-bridge"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    loading={authenticateResponseLoading}
-                                    block
-                                >
-                                    Login
-                                </Button>
+                                {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                                    <Button
+                                        className="btn-bridge"
+                                        htmlType="submit"
+                                        data-attr="password-login"
+                                        loading={authenticateResponseLoading || precheckResponseLoading}
+                                        block
+                                    >
+                                        Login
+                                    </Button>
+                                ) : (
+                                    <SSOLoginButton
+                                        provider={precheckResponse.sso_enforcement}
+                                        email={form.getFieldValue('email')}
+                                    />
+                                )}
                             </Form.Item>
+                            {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                                <Form.Item>
+                                    <SSOLoginButton
+                                        provider="saml"
+                                        email={form.getFieldValue('email')}
+                                        style={{ backgroundColor: 'var(--primary)', borderColor: 'var(--primary)' }}
+                                    />
+                                </Form.Item>
+                            )}
                         </Form>
                         <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
                             {preflight?.cloud && (

@@ -76,6 +76,7 @@ import {
     generatePostgresValuesString,
     getFinalPostgresQuery,
     hashElements,
+    safeClickhouseString,
     shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
@@ -1094,14 +1095,14 @@ export class DB {
         }
 
         const parsedEntry = {
+            source,
+            type,
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
             plugin_id: pluginConfig.plugin_id,
             plugin_config_id: pluginConfig.id,
             timestamp: (timestamp || new Date().toISOString()).replace('T', ' ').replace('Z', ''),
-            source,
-            type,
-            message,
+            message: safeClickhouseString(message),
             instance_id: instanceId.toString(),
         }
 

@@ -26,6 +26,7 @@ import {
     elementsToString,
     extractElements,
     personInitialAndUTMProperties,
+    safeClickhouseString,
     sanitizeEventName,
     timeoutGuard,
 } from '../../utils/db/utils'
@@ -79,6 +80,7 @@ export class EventsProcessor {
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
+    clickhouseExternalSchemasDisabledTeams: Set<number>
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -89,6 +91,9 @@ export class EventsProcessor {
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
+        this.clickhouseExternalSchemasDisabledTeams = new Set(
+            pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
+        )
     }
 
     public async processEvent(
@@ -212,6 +217,13 @@ export class EventsProcessor {
 
     public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
         return this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED ?? false
+    }
+
+    public clickhouseExternalSchemasEnabled(teamId: number): boolean {
+        if (this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS) {
+            return false
+        }
+        return !this.clickhouseExternalSchemasDisabledTeams.has(teamId)
     }
 
     private async updatePersonProperties(
@@ -643,24 +655,25 @@ export class EventsProcessor {
 
         const eventPayload: IEvent = {
             uuid,
-            event,
+            event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
             timestamp: timestampString,
             team_id: teamId,
-            distinct_id: distinctId,
-            elements_chain: elementsChain,
+            distinct_id: safeClickhouseString(distinctId),
+            elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, timestampFormat),
         }
 
         let eventId: Event['id'] | undefined
 
         if (this.kafkaProducer) {
-            const message = this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS
-                ? Buffer.from(JSON.stringify(eventPayload))
-                : (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+            const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+            const message = useExternalSchemas
+                ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+                : Buffer.from(JSON.stringify(eventPayload))
 
             await this.kafkaProducer.queueMessage({
-                topic: KAFKA_EVENTS,
+                topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 messages: [
                     {
                         key: uuid,

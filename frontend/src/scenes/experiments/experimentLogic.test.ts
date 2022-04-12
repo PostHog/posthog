@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature, InsightType } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { useMocks } from '~/mocks/jest'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
 import { userLogic } from 'scenes/userLogic'
 
 const RUNNING_EXP_ID = 45
@@ -15,7 +15,7 @@ describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
 
     beforeEach(async () => {
-        useFeatures([AvailableFeature.EXPERIMENTATION])
+        useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
         useMocks({
             post: {
                 '/api/projects/:team/insights': { short_id: 'a5qqECqP', filters: { insight: InsightType.FUNNELS } },
