@@ -125,7 +125,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: true,
+        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -725,13 +725,13 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
+                const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+                mountedInsightSceneLogic?.actions.syncInsightChanged(false)
                 if (!insightNumericId && dashboard) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
                 } else if (insightNumericId) {
-                    insightSceneLogic
-                        .findMounted()
-                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
@@ -791,10 +791,12 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
         },
-        cancelChanges: () => {
+        cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})
-            insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-            eventUsageLogic.actions.reportInsightsTabReset()
+            if (goToViewMode) {
+                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                eventUsageLogic.actions.reportInsightsTabReset()
+            }
         },
     }),
 
