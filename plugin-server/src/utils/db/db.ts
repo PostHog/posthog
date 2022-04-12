@@ -433,10 +433,10 @@ export class DB {
         )
     }
 
-    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: string): Promise<void> {
+    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
         await this.redisSet(
             `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`,
-            properties,
+            JSON.stringify(properties),
             this.REDIS_PERSON_INFO_TTL
         )
     }
@@ -531,7 +531,6 @@ export class DB {
         writeToRedis = false
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
-        const personProperties = JSON.stringify(properties)
 
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await this.postgresQuery(
@@ -579,7 +578,7 @@ export class DB {
             for (const distinctId of distinctIds || []) {
                 await this.updatePersonIdCache(teamId, distinctId, person.id)
             }
-            await this.updatePersonPropertiesCache(teamId, person.id, personProperties)
+            await this.updatePersonPropertiesCache(teamId, person.id, properties)
             await this.updatePersonCreatedAtCache(teamId, person.id, person.created_at)
         }
 
@@ -640,11 +639,7 @@ export class DB {
         }
 
         if (writeToRedis) {
-            await this.updatePersonPropertiesCache(
-                updatedPerson.team_id,
-                updatedPerson.id,
-                JSON.stringify(updatedPerson.properties)
-            )
+            await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
         }
 
         return client ? kafkaMessages : updatedPerson
