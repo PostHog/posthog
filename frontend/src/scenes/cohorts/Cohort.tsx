@@ -1,12 +1,12 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
-import { Button, Col, Divider, Row, Tooltip } from 'antd'
+import { Col, Divider, Row, Tooltip } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { AvailableFeature, CohortType } from '~/types'
 import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
-import { InboxOutlined, SaveOutlined, CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { InboxOutlined, CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
@@ -16,10 +16,22 @@ import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelect
 import { userLogic } from 'scenes/userLogic'
 import 'antd/lib/dropdown/style/index.css'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from 'lib/components/LemonButton'
+import { PageHeader } from 'lib/components/PageHeader'
 
-export function Cohort(props: { cohort: CohortType }): JSX.Element {
-    const logic = cohortLogic(props)
-    const { setCohort } = useActions(logic)
+export const scene: SceneExport = {
+    component: Cohort,
+    logic: cohortLogic,
+    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new', pageKey: 0 }),
+}
+
+let uniqueMemoizedIndex = 0
+
+export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
+    const pageKey = useMemo(() => uniqueMemoizedIndex++, [id])
+    const logic = cohortLogic({ pageKey, id })
+    const { setCohort, saveCohort, deleteCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -81,12 +93,38 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
     )
 
     return (
-        <div className="mb">
-            <Row gutter={16}>
-                <Col>
-                    <h3 className="l3">General</h3>
-                </Col>
-            </Row>
+        <div className="cohort">
+            <PageHeader
+                title={cohort.id === 'new' ? 'New cohort' : cohort.name || 'Untitled'}
+                buttons={
+                    <div className="flex-center">
+                        {cohort.id !== 'new' && (
+                            <LemonButton
+                                data-attr="delete-cohort"
+                                status="danger"
+                                type="secondary"
+                                onClick={() => {
+                                    deleteCohort()
+                                }}
+                                style={{ marginRight: 16 }}
+                            >
+                                Delete
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            data-attr="cohort-submit"
+                            htmlType="submit"
+                            onClick={() => {
+                                saveCohort()
+                            }}
+                        >
+                            Save {cohort.id === 'new' ? 'cohort' : 'changes'}
+                        </LemonButton>
+                    </div>
+                }
+            />
+            <Divider />
             <Row gutter={16}>
                 <Col md={14}>
                     <CohortNameInput input={cohort.name} onChange={(name: string) => setCohort({ ...cohort, name })} />
@@ -157,29 +195,5 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                 </>
             )}
         </div>
-    )
-}
-
-export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
-    const logic = cohortLogic(props)
-    const { cohort } = useValues(logic)
-    const { saveCohort } = useActions(logic)
-
-    return (
-        <Row style={{ display: 'flex' }}>
-            <div style={{ flexGrow: 1, textAlign: 'right' }}>
-                <Button
-                    disabled={!cohort.name || cohort.is_calculating}
-                    type="primary"
-                    htmlType="submit"
-                    data-attr="save-cohort"
-                    onClick={() => saveCohort()}
-                    style={{ float: 'right' }}
-                    icon={<SaveOutlined />}
-                >
-                    Save cohort
-                </Button>
-            </div>
-        </Row>
     )
 }
