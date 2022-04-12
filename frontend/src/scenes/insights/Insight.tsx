@@ -45,6 +45,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insight,
         insightChanged,
         tagLoading,
+        insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
@@ -131,6 +132,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboard && !insight.id}
+                                insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
                         )}

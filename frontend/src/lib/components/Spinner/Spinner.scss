@@ -25,10 +25,7 @@
         stroke-dasharray: 60;
     }
     &.inverse {
-        .base,
-        .overlay {
-            stroke: #fff;
-        }
+        color: #fff;
     }
     &.sm {
         width: 16px;
