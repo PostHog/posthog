@@ -278,7 +278,7 @@ export class EventsProcessor {
         await this.db.updatePersonDeprecated(
             personFound,
             { properties: updatedProperties },
-            teamId in this.personInfoToRedisTeams
+            this.personInfoToRedisTeams.has(teamId)
         )
     }
 
@@ -291,7 +291,7 @@ export class EventsProcessor {
             await this.db.updatePersonDeprecated(
                 personFound,
                 { is_identified: isIdentified },
-                teamId in this.personInfoToRedisTeams
+                this.personInfoToRedisTeams.has(teamId)
             )
         }
     }
@@ -416,7 +416,7 @@ export class EventsProcessor {
 
         if (oldPerson && !newPerson) {
             try {
-                await this.db.addDistinctId(oldPerson, distinctId, teamId in this.personInfoToRedisTeams)
+                await this.db.addDistinctId(oldPerson, distinctId, this.personInfoToRedisTeams.has(teamId))
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -434,7 +434,7 @@ export class EventsProcessor {
             }
         } else if (!oldPerson && newPerson) {
             try {
-                await this.db.addDistinctId(newPerson, previousDistinctId, teamId in this.personInfoToRedisTeams)
+                await this.db.addDistinctId(newPerson, previousDistinctId, this.personInfoToRedisTeams.has(teamId))
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -547,7 +547,7 @@ export class EventsProcessor {
                         properties: mergeInto.properties,
                         is_identified: mergeInto.is_identified || otherPerson.is_identified,
                     },
-                    teamId in this.personInfoToRedisTeams,
+                    this.personInfoToRedisTeams.has(teamId),
                     client
                 )
 
@@ -563,7 +563,7 @@ export class EventsProcessor {
                     otherPerson,
                     mergeInto,
                     client,
-                    teamId in this.personInfoToRedisTeams
+                    this.personInfoToRedisTeams.has(teamId)
                 )
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
@@ -843,7 +843,7 @@ export class EventsProcessor {
             isIdentified,
             uuid,
             distinctIds,
-            teamId in this.personInfoToRedisTeams
+            this.personInfoToRedisTeams.has(teamId)
         )
     }
 

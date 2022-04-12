@@ -419,7 +419,7 @@ export class DB {
 
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
         await this.redisSet(
-            '${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}',
+            `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`,
             personId,
             this.REDIS_PERSON_INFO_TTL
         )
@@ -427,7 +427,7 @@ export class DB {
 
     private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
         await this.redisSet(
-            '${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}',
+            `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`,
             createdAt,
             this.REDIS_PERSON_INFO_TTL
         )
@@ -435,7 +435,7 @@ export class DB {
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: string): Promise<void> {
         await this.redisSet(
-            '${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}',
+            `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`,
             properties,
             this.REDIS_PERSON_INFO_TTL
         )
