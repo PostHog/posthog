@@ -241,7 +241,7 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend,
-                prop_var=f"$group{prop.group_type_index}_properties",
+                prop_var=f"group{prop.group_type_index}_properties",
                 allow_denormalized_props=False,
                 property_operator=property_operator,
             )
