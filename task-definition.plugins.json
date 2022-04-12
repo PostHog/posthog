@@ -94,7 +94,7 @@
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS",
-                    "value": "7964"
+                    "value": "2,7964"
                 }
             ],
             "secrets": [
