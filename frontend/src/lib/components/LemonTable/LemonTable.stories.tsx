@@ -63,11 +63,11 @@ export function Grouped(args: Omit<LemonTableProps<MockFunnelSeries>, 'dataSourc
                     children: [
                         {
                             title: 'Completed',
-                            render: (_: number, record: MockFunnelSeries) => record.stepResults[0][0],
+                            render: (_, record) => record.stepResults[0][0],
                         },
                         {
                             title: 'Dropped off',
-                            render: (_: number, record: MockFunnelSeries) => record.stepResults[0][1],
+                            render: (_, record) => record.stepResults[0][1],
                         },
                     ],
                 },
@@ -76,11 +76,11 @@ export function Grouped(args: Omit<LemonTableProps<MockFunnelSeries>, 'dataSourc
                     children: [
                         {
                             title: 'Completed',
-                            render: (_: number, record: MockFunnelSeries) => record.stepResults[1][0],
+                            render: (_, record) => record.stepResults[1][0],
                         },
                         {
                             title: 'Dropped off',
-                            render: (_: number, record: MockFunnelSeries) => record.stepResults[1][1],
+                            render: (_, record) => record.stepResults[1][1],
                         },
                     ],
                 },

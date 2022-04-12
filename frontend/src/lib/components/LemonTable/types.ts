@@ -29,7 +29,6 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sticky?: boolean
     /** Set width. */
     width?: string | number
-    children?: never
 }
 export interface LemonTableColumnGroup<T extends Record<string, any>> {
     title?: string | React.ReactNode
@@ -37,7 +36,7 @@ export interface LemonTableColumnGroup<T extends Record<string, any>> {
 }
 export type LemonTableColumns<T extends Record<string, any>> =
     | LemonTableColumn<T, keyof T | undefined>[]
-    | LemonTableColumnGroup<T, keyof T | undefined>[]
+    | LemonTableColumnGroup<T>[]
 
 export interface ExpandableConfig<T extends Record<string, any>> {
     /** Row expansion render function. */

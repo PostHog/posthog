@@ -20,7 +20,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconEdit } from 'lib/components/icons'
@@ -120,7 +120,7 @@ export function InsightsTable({
     )
 
     // Build up columns to include. Order matters.
-    const columns: LemonTableColumns<IndexedTrendResult> = []
+    const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
         columns.push({
