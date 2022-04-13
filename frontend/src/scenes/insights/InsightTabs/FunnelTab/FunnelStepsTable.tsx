@@ -97,7 +97,7 @@ export function FunnelStepsTable(): JSX.Element | null {
         ...steps.map((step, stepIndex) => ({
             title: (
                 <LemonRow
-                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} double />}
                     style={{ font: 'inherit', padding: 0 }}
                     compact
                 >
