@@ -34,7 +34,7 @@ class KafkaClientTestCase(TestCase):
 
     def test_kafka_default_security_protocol(self):
         producer = _KafkaProducer(test=False)
-        self.assertEqual(producer.producer.config["security_protocol"], "PLAINTEXT")
+        self.assertEqual(producer.producer.config["security_protocol"], "PLAINTEXT")  # type: ignore
 
     @patch("ee.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
     @patch("ee.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
@@ -53,7 +53,7 @@ class KafkaClientTestCase(TestCase):
         with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
             producer = _KafkaProducer(test=False)
         for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])
+            self.assertEqual(value, producer.producer.config[key])  # type: ignore
 
     @patch("ee.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SSL")
     @patch("ee.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
@@ -69,4 +69,4 @@ class KafkaClientTestCase(TestCase):
         with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
             producer = _KafkaProducer(test=False)
         for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])
+            self.assertEqual(value, producer.producer.config[key])  # type: ignore
