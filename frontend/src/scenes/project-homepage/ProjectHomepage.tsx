@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -20,6 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -28,6 +29,14 @@ export function ProjectHomepage(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+
+    const [topListContainerWidth, setTopListContainerWidth] = useState<number>()
+    const topListContainerRef = useRef<HTMLDivElement>(null)
+    const windowSize = useWindowSize()
+
+    useEffect(() => {
+        setTopListContainerWidth(topListContainerRef.current?.getBoundingClientRect().width)
+    }, [windowSize])
 
     const headerButtons = (
         <div style={{ display: 'flex' }}>
@@ -57,7 +66,14 @@ export function ProjectHomepage(): JSX.Element {
         <div className="project-homepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
             {featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS] && (
-                <div className="top-list-container-horizontal">
+                <div
+                    ref={topListContainerRef}
+                    className={
+                        topListContainerWidth && topListContainerWidth < 600
+                            ? 'top-list-container-vertical'
+                            : 'top-list-container-horizontal'
+                    }
+                >
                     <div className="top-list">
                         <RecentInsights />
                     </div>

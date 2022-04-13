@@ -37,6 +37,12 @@
         }
     }
 
+    .top-list-container-vertical {
+        .spacer {
+            height: $default_spacing;
+        }
+    }
+
     .empty-state-container {
         background-color: $bg_side;
         width: 100%;
