@@ -19,7 +19,9 @@ interface InsightRowProps {
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
     return (
         <LemonButton fullWidth className="insight-row" to={urls.insightView(insight.short_id)}>
-            <InsightIcon insight={insight} />
+            <div className="insight-icon">
+                <InsightIcon insight={insight} />
+            </div>
 
             <div className="insight-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
                 <p className="insight-name">{insight.name || insight.derived_name}</p>

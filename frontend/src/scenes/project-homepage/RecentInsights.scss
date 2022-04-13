@@ -9,16 +9,20 @@
     margin-bottom: $default_spacing/4;
     font-weight: 400; // Overrides font-weight from LemonButton
 
+    .insight-icon {
+        flex-shrink: 0;
+    }
+
     .insight-text-container {
         flex: 1;
         margin: 0 $default_spacing/2;
+        overflow: hidden;
 
         p {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             margin: 0;
-            width: 260px;
 
             &.insight-name {
                 font-weight: 600;
