@@ -31,13 +31,10 @@ class Insight(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    dashboard_insight_filters_hash: models.JSONField = models.JSONField(default=dict)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, auto_now_add=True)
-    layouts: models.JSONField = models.JSONField(default=dict)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -54,7 +51,11 @@ class Insight(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
-    # TODO: dive dashboards have never been shipped, but they still may be in the future
+    # DEPRECATED: on dashboard_insight now
+    layouts: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: on dashboard_insight now
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: dive dashboards were never shipped
     dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -62,16 +63,15 @@ class Insight(models.Model):
     type: models.CharField = deprecate_field(models.CharField(max_length=400, null=True, blank=True))
     # DEPRECATED: we don't store funnels as a separate model any more
     funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
-
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
         ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
     )
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     tags: ArrayField = deprecate_field(
         ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
     )
-
-    # deprecated in favour of the `insights` relation on `models/Dashboard`
+    # Deprecated in favour of the `insights` relation on `models/Dashboard`
     dashboard: models.ForeignKey = models.ForeignKey(
         "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
     )
