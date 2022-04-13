@@ -144,6 +144,12 @@ export function FunnelBarChart(): JSX.Element {
 
     return (
         <table className="FunnelBarChart" style={{ '--bar-width': barWidth } as FunnelBarChartSSProperties}>
+            <colgroup>
+                {visibleStepsWithConversionMetrics.map((_, i) => (
+                    <col key={i} width={0} />
+                ))}
+                <col width="100%" /> {/* The last column is meant to fill up leftover space. */}
+            </colgroup>
             <tbody>
                 <tr>
                     <td>

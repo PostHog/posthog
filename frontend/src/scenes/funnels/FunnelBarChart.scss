@@ -1,5 +1,6 @@
 .FunnelBarChart {
-    --bar-width: 0; // Placeholder
+    --bar-width: 0.5rem; // Placeholder
+    width: 100%;
     > tbody {
         > tr {
             &:first-child {
@@ -112,12 +113,14 @@
 .StepLegend {
     border-left: 1px solid var(--border);
     .LemonRow {
-        min-height: 1.5rem;
+        min-height: 1.75rem;
         padding: 0 0.5rem;
         font-weight: 500;
         &:first-child {
             font-weight: 600;
-            padding-bottom: 0.25rem;
         }
+    }
+    .funnel-inspect-button {
+        height: 1.75rem;
     }
 }
