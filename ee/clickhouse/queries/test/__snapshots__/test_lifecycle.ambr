@@ -48,7 +48,7 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT person_id,
                                     toDateTime(dateTrunc('day', events.timestamp)) AS period,
                                     person.created_at AS created_at
                     FROM events AS e
@@ -131,7 +131,7 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT person_id,
                                     toDateTime(dateTrunc('month', events.timestamp)) AS period,
                                     person.created_at AS created_at
                     FROM events AS e
@@ -214,7 +214,7 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT person_id,
                                     toDateTime(dateTrunc('week', events.timestamp)) AS period,
                                     person.created_at AS created_at
                     FROM events AS e
@@ -297,7 +297,7 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT person_id,
                                     toDateTime(dateTrunc('day', events.timestamp)) AS period,
                                     person.created_at AS created_at
                     FROM events AS e
@@ -380,7 +380,7 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT person_id,
                                     toDateTime(dateTrunc('day', events.timestamp)) AS period,
                                     person.created_at AS created_at
                     FROM events AS e

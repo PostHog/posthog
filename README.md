@@ -27,7 +27,7 @@ For <100K events ingested monthly on Linux with Docker (recommended 4GB memory):
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
  ``` 
 ### Option 2: Production instance on your infrastructure
-Follow our <a href="https://posthog.com/docs/self-host/overview#deploy">Scalable Self-Hosting Guide</a> for all major cloud service providers and on-premise deploys
+Follow our <a href="https://posthog.com/docs/self-host/overview#deploy">Scaleable Self-Hosting Guide</a> for all major cloud service providers and on-premise deploys
 
 ### Option 3: If you don't need to self-host
 Sign up for a free [PostHog Cloud](https://app.posthog.com/signup) project

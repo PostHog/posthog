@@ -21,14 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC'),
-    person_id UUID,
-    person_properties VARCHAR,
-    group0_properties VARCHAR,
-    group1_properties VARCHAR,
-    group2_properties VARCHAR,
-    group3_properties VARCHAR,
-    group4_properties VARCHAR
+    created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
@@ -55,7 +48,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -105,16 +98,7 @@ FROM {database}.kafka_events
     database=settings.CLICKHOUSE_DATABASE,
 )
 
-# we add the settings to prevent poison pills from stopping ingestion
-# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
-# the max block size to consume from kafka such that we skip _all_ broken messages
-# this is an added safety mechanism given we control payloads to this topic
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """
-    SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505
-"""
-).format(
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
@@ -134,13 +118,6 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
-person_id,
-person_properties,
-group0_properties,
-group1_properties,
-group2_properties,
-group3_properties,
-group4_properties,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
@@ -331,7 +308,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
 GET_CUSTOM_EVENTS = """

@@ -450,7 +450,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
                             breakdown_value
            FROM
@@ -458,7 +458,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
+                (SELECT person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
@@ -475,7 +475,7 @@
                    AND timestamp <= '2012-01-15 23:59:59'
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
-                       breakdown_value) AS pdi
+                       breakdown_value)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

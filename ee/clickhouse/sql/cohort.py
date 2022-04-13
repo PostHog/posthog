@@ -68,7 +68,7 @@ SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {ent
 """
 
 GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
-SELECT pdi.person_id as person_id FROM events
+SELECT person_id FROM events
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
 ON events.distinct_id = pdi.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
