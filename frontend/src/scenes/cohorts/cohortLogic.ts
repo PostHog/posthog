@@ -65,7 +65,7 @@ export interface CohortLogicProps {
 
 export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     props: {} as CohortLogicProps,
-    key: (props) => (props.id === 'new' ? props.pageKey : props.id || props.pageKey),
+    key: (props) => (props.id === 'new' ? `new-${props.pageKey}` : props.id) ?? 'new',
     path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
     connect: [cohortsModel],
 
@@ -228,12 +228,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     actions.setPollTimeout(null)
                 }
             }
-        },
-    }),
-
-    actionToUrl: () => ({
-        setCohort: ({ cohort }) => {
-            return urls.cohort(cohort.id)
         },
     }),
 
