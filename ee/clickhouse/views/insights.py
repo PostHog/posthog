@@ -22,7 +22,7 @@ class CanEditInsight(BasePermission):
         # check permissions on any dashboard on legacy dashboard relation or the many-to-many dashboards relation
         dashboards: List[Dashboard] = [insight.dashboard] + list(insight.dashboards.all())
         edit_permissions = [d.can_user_edit(cast(User, request.user).id) for d in dashboards if d is not None]
-        return all(edit_permissions)
+        return any(edit_permissions)
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
