@@ -103,7 +103,7 @@
 # name: Test0004ReplicatedSchema.test_migration.6
   <class 'tuple'> (
     'kafka_events_json',
-    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_max_block_size = 65505, kafka_skip_broken_messages = 65505",
+    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.7
@@ -205,7 +205,7 @@
 # name: Test0004ReplicatedSchema.test_rollback.6
   <class 'tuple'> (
     'kafka_events_json',
-    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_max_block_size = 65505, kafka_skip_broken_messages = 65505",
+    "Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.7
