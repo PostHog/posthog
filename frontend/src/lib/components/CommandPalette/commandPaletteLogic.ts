@@ -45,6 +45,7 @@ import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -688,7 +689,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }

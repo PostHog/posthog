@@ -1,10 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Input, Row, Tabs } from 'antd'
+import { Card, Col, Input, Row, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
@@ -20,8 +20,9 @@ import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
 import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -30,10 +31,10 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
-    const { showNewDashboardModal, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
+    const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -74,7 +75,14 @@ export function Dashboards(): JSX.Element {
                             )}
                             {isPrimary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
+                                    <IconCottage
+                                        style={{
+                                            marginLeft: 6,
+                                            color: 'var(--warning)',
+                                            fontSize: '1rem',
+                                            verticalAlign: '-0.125em',
+                                        }}
+                                    />
                                 </Tooltip>
                             )}
                         </div>
@@ -138,7 +146,11 @@ export function Dashboards(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
-                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
+                                <LemonRow
+                                    icon={<IconCottage style={{ color: 'var(--warning)' }} />}
+                                    fullWidth
+                                    status="muted"
+                                >
                                     <span>
                                         Change the default dashboard on the{' '}
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
@@ -167,14 +179,9 @@ export function Dashboards(): JSX.Element {
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <Button
-                        data-attr={'new-dashboard'}
-                        onClick={showNewDashboardModal}
-                        type="primary"
-                        icon={<PlusOutlined />}
-                    >
-                        New Dashboard
-                    </Button>
+                    <LemonButton data-attr={'new-dashboard'} onClick={showNewDashboardModal} type="primary">
+                        New dashboard
+                    </LemonButton>
                 }
             />
             <Tabs
@@ -245,7 +252,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'New Dashboard',
-                                        show: true,
                                         useTemplate: '',
                                     })
                                 }
@@ -263,7 +269,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'Web App Dashboard',
-                                        show: true,
                                         useTemplate: 'DEFAULT_APP',
                                     })
                                 }

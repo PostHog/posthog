@@ -1,5 +1,5 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
-import { api, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -24,7 +24,8 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
+import api from 'lib/api'
 
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
@@ -139,7 +140,7 @@ describe('funnelLogic', () => {
     let correlationConfig: TeamType['correlation_config'] = {}
 
     beforeEach(() => {
-        useFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
+        useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
         useMocks({
             get: {
                 '/api/projects/@current': () => [
@@ -204,6 +205,7 @@ describe('funnelLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
+                '/api/projects/:team/insights/:id/viewed': [201],
                 '/api/projects/:team/insights/funnel/': {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',

@@ -7,6 +7,7 @@ import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/components/lemonToast'
 import { subscriptionsPlugin } from '~/subscriptionsPlugin'
+import { formsPlugin } from 'kea-forms'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -39,8 +40,9 @@ export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
 
-export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
+        autoConnectMountWarning: true,
         plugins: [
             ...(beforePlugins || []),
             localStoragePlugin,
@@ -54,6 +56,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                     segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
                 },
             }),
+            formsPlugin,
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -77,11 +80,5 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
             subscriptionsPlugin,
             waitForPlugin,
         ],
-        defaults: state,
-        createStore: state
-            ? {
-                  preloadedState: state,
-              }
-            : true,
     })
 }

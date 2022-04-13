@@ -1,11 +1,10 @@
 import React, { useState } from 'react'
 import { deleteWithUndo } from 'lib/utils'
-import { Button, Input } from 'antd'
+import { Input } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PlusOutlined } from '@ant-design/icons'
 import { Cohort, CohortFooter } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { AvailableFeature, CohortType } from '~/types'
@@ -232,14 +231,9 @@ export function Cohorts(): JSX.Element {
                     }}
                 />
                 <div className="mb float-right">
-                    <Button
-                        type="primary"
-                        data-attr="create-cohort"
-                        onClick={() => setOpenCohort(NEW_COHORT)}
-                        icon={<PlusOutlined />}
-                    >
+                    <LemonButton type="primary" data-attr="create-cohort" onClick={() => setOpenCohort(NEW_COHORT)}>
                         New Cohort
-                    </Button>
+                    </LemonButton>
                 </div>
 
                 <LemonTable

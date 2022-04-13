@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.models import ActivityLog, FeatureFlag, GroupTypeMapping, User
+from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
@@ -165,9 +165,10 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com",},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "alpha-feature"},
+                    "detail": {"changes": None, "merge": None, "name": "alpha-feature"},
                 }
             ],
         )
@@ -365,6 +366,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
@@ -398,15 +400,17 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
+                        "merge": None,
                         "name": "a-feature-flag-that-is-updated",
                     },
                 },
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated"},
+                    "detail": {"changes": None, "merge": None, "name": "a-feature-flag-that-is-updated"},
                 },
             ],
         )
@@ -440,16 +444,19 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        self._get_feature_flag_activity(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
-
-        # can't get the flag delete from the activity API but it should have been logged
-        delete_activity = ActivityLog.objects.filter(
-            team_id=self.team.id, scope="FeatureFlag", item_id=instance.pk, activity="deleted"
-        ).first()
-        if isinstance(delete_activity, ActivityLog):
-            self.assertEqual(delete_activity.detail["name"], "potato")
-        else:
-            raise AssertionError("must be able to load this activity log")
+        self.assert_feature_flag_activity(
+            flag_id=None,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "new_annotations@posthog.com"},
+                    "activity": "deleted",
+                    "scope": "FeatureFlag",
+                    "item_id": str(instance.pk),
+                    "detail": {"changes": None, "merge": None, "name": "potato"},
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                }
+            ],
+        )
 
     def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
@@ -488,6 +495,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
@@ -500,15 +508,98 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
+                        "merge": None,
                         "name": "feature_with_activity",
                     },
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity"},
+                },
+            ],
+        )
+
+    def test_get_feature_flag_activity_for_all_flags(self):
+        new_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="person_acting_and_then_viewing_activity@posthog.com",
+            password=None,
+            first_name="Potato",
+        )
+        self.client.force_login(new_user)
+
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "feature flag with activity", "key": "feature_with_activity"},
+            )
+
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            flag_id = create_response.json()["id"]
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "feature flag with activity",
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                },
+                format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+
+            second_create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": "a second feature flag", "key": "flag-two"},
+            )
+
+            self.assertEqual(second_create_response.status_code, status.HTTP_201_CREATED)
+            second_flag_id = second_create_response.json()["id"]
+
+        self.assert_feature_flag_activity(
+            flag_id=None,
+            expected=[
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:29:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(second_flag_id),
+                    "detail": {"changes": None, "merge": None, "name": "flag-two"},
+                },
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
+                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                            }
+                        ],
+                        "merge": None,
+                        "name": "feature_with_activity",
+                    },
+                },
+                {
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity"},
                 },
             ],
         )
@@ -619,6 +710,91 @@ class TestFeatureFlag(APIBaseTest):
         )
         self._get_feature_flag_activity(
             flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+        )
+
+    def test_paging_all_feature_flag_activity(self):
+        for x in range(15):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": f"feature flag {x}", "key": f"{x}"},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]], ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10",
+        )
+
+    def test_paging_specific_feature_flag_activity(self):
+        create_response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "ff", "key": "0"},)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        for x in range(1, 15):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}", {"key": str(x),}, format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag_id}/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
+            ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10",
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -1029,16 +1205,21 @@ class TestFeatureFlag(APIBaseTest):
         return create_response
 
     def _get_feature_flag_activity(
-        self, flag_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self, flag_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
     ):
         if team_id is None:
             team_id = self.team.id
 
-        activity = self.client.get(f"/api/projects/{team_id}/feature_flags/{flag_id}/activity")
+        if flag_id:
+            url = f"/api/projects/{team_id}/feature_flags/{flag_id}/activity"
+        else:
+            url = f"/api/projects/{team_id}/feature_flags/activity"
+
+        activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_feature_flag_activity(self, flag_id: int, expected: List[Dict]):
+    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: List[Dict]):
         activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: List[Dict] = activity_response["results"]

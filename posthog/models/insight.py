@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
-from django.db.models.signals import pre_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
@@ -107,9 +107,15 @@ class Insight(models.Model):
         )
 
 
-@receiver(pre_save, sender=Dashboard)
-def dashboard_saved(sender, instance: Dashboard, **kwargs):
+@receiver(post_save, sender=Dashboard)
+def dashboard_saved(sender, instance: Dashboard, created: bool, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if frozenset({"last_accessed_at"}) == update_fields:
+        # Don't update items if signalled that only last_accessed_at changed
+        return
+
     for item in instance.items.all():
+        # Update all items in case the dashboard filters changed and the cache key needs updating
         dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
         item.save()
 
@@ -120,3 +126,18 @@ def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+
+
+class InsightViewed(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
+        ]
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    last_viewed_at: models.DateTimeField = models.DateTimeField()

@@ -3,6 +3,7 @@ import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
+from enum import Enum, auto
 from time import time
 from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
 
@@ -14,6 +15,13 @@ from posthog.constants import MAX_SLUG_LENGTH
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+
+
+class PersonPropertiesMode(Enum):
+    USING_SUBQUERY = auto()
+    USING_PERSON_PROPERTIES_COLUMN = auto()
+    # Used for generating query on Person table
+    DIRECT = auto()
 
 
 class UUIDT(uuid.UUID):

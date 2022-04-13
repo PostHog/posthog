@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
+import { SECURE_URL_REGEX } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationDomainType, AvailableFeature } from '~/types'
 import { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
@@ -10,6 +11,11 @@ type OrganizationDomainUpdatePayload = Partial<
 > &
     Pick<OrganizationDomainType, 'id'>
 
+type SAMLConfigType = Partial<
+    Pick<OrganizationDomainType, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> &
+        Pick<OrganizationDomainType, 'id'>
+>
+
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDomainUpdatePayload>>({
     path: ['scenes', 'organization', 'verifiedDomainsLogic'],
     connect: {
@@ -18,6 +24,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
     actions: {
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
+        setConfigureSAMLModalId: (id: string | null) => ({ id }),
         setVerifyModal: (id: string | null) => ({ id }),
     },
     reducers: {
@@ -36,6 +43,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
             {
                 setAddModalShown: (_, { shown }) => shown,
                 addVerifiedDomainSuccess: () => false,
+            },
+        ],
+        configureSAMLModalId: [
+            null as null | string,
+            {
+                setConfigureSAMLModalId: (_, { id }) => id,
             },
         ],
         verifyModal: [
@@ -94,21 +107,61 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
             },
         ],
     }),
+    listeners: ({ actions, values }) => ({
+        setConfigureSAMLModalId: ({ id }) => {
+            const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
+            if (id && domain) {
+                const { saml_acs_url, saml_entity_id, saml_x509_cert } = domain
+                actions.setSamlConfigValues({ saml_acs_url, saml_entity_id, saml_x509_cert, id })
+            }
+        },
+    }),
     selectors: {
         domainBeingVerified: [
             (s) => [s.verifiedDomains, s.verifyModal],
             (verifiedDomains, verifyingId): OrganizationDomainType | null =>
                 (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
         ],
-        isFeatureAvailable: [
+        isSSOEnforcementAvailable: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean =>
-                (currentOrganization?.available_features.includes(AvailableFeature.SSO_ENFORCEMENT) ||
-                    currentOrganization?.available_features.includes(AvailableFeature.SAML)) ??
-                false,
+                currentOrganization?.available_features.includes(AvailableFeature.SSO_ENFORCEMENT) ?? false,
+        ],
+        isSAMLAvailable: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean =>
+                currentOrganization?.available_features.includes(AvailableFeature.SAML) ?? false,
         ],
     },
     events: ({ actions }) => ({
         afterMount: [actions.loadVerifiedDomains],
+    }),
+    forms: ({ actions, values }) => ({
+        samlConfig: {
+            defaults: {} as SAMLConfigType,
+            validator: (payload) => ({
+                saml_acs_url:
+                    payload.saml_acs_url && !payload.saml_acs_url.match(SECURE_URL_REGEX)
+                        ? 'Please enter a valid URL, including https://'
+                        : undefined,
+            }),
+            submit: async (payload, breakpoint) => {
+                const { id, ...updateParams } = payload
+                if (!id) {
+                    return
+                }
+                const response = (await api.update(
+                    `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
+                    {
+                        ...updateParams,
+                    }
+                )) as OrganizationDomainType
+                breakpoint()
+                actions.replaceDomain(response)
+                actions.setConfigureSAMLModalId(null)
+                actions.setSamlConfigValues({})
+                lemonToast.success(`SAML configuration for ${response.domain} updated successfully.`)
+            },
+        },
     }),
 })

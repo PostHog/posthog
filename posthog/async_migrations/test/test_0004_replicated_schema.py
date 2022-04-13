@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
 from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, KAFKA_EVENTS_TABLE_SQL
@@ -15,6 +14,7 @@ from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_E
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.test.base import BaseTest
@@ -50,7 +50,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         create_clickhouse_tables(0)
 
     def test_is_required(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         migration = get_async_migration_definition(MIGRATION_NAME)
 
@@ -69,8 +69,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         self.verify_table_engines_correct(
@@ -91,11 +91,11 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
+        setup_async_migrations(ignore_posthog_version=True)
         migration = get_async_migration_definition(MIGRATION_NAME)
 
-        self.assertEqual(len(migration.operations), 53)
-        migration.operations[30].sql = "THIS WILL FAIL!"  # type: ignore
+        self.assertEqual(len(migration.operations), 57)
+        migration.operations[31].sql = "THIS WILL FAIL!"  # type: ignore
 
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertFalse(migration_successful)

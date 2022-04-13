@@ -11,15 +11,14 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
-from social_django.views import auth
 
 from posthog.email import is_email_available
 from posthog.models import Organization, User
 from posthog.utils import (
-    get_available_sso_providers,
     get_available_timezones_with_offsets,
     get_can_create_org,
     get_celery_heartbeat,
+    get_instance_available_sso_providers,
     get_instance_realm,
     is_celery_alive,
     is_plugin_server_alive,
@@ -27,10 +26,6 @@ from posthog.utils import (
     is_redis_alive,
 )
 from posthog.version import VERSION
-
-ROBOTS_TXT_CONTENT = (
-    "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
-)
 
 
 def noop(*args, **kwargs) -> None:
@@ -58,17 +53,6 @@ def login_required(view):
     return handler
 
 
-def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    sso_providers = get_available_sso_providers()
-
-    if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
-
-    if not sso_providers[backend]:
-        return redirect(f"/login?error_code=improperly_configured_sso")
-    return auth(request, backend)
-
-
 def health(request):
     executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
@@ -88,7 +72,19 @@ def stats(request):
 
 
 def robots_txt(request):
+    ROBOTS_TXT_CONTENT = (
+        "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
+    )
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
+
+
+def security_txt(request):
+    SECURITY_TXT_CONTENT = """
+        Contact: mailto:engineering@posthog.com
+        Hiring: https://posthog.com/careers
+        Expires: 2024-03-14T00:00:00.000Z
+        """
+    return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
 
 
 @never_cache
@@ -103,7 +99,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "cloud": settings.MULTI_TENANCY,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
-        "available_social_auth_providers": get_available_sso_providers(),
+        "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(),
         "email_service_available": is_email_available(with_absolute_urls=True),
     }
@@ -111,11 +107,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
             "posthog_version": VERSION,
-            "is_debug": settings.DEBUG,
+            "is_debug": settings.DEBUG or settings.E2E_TESTING,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
             "licensed_users_available": get_licensed_users_available(),
             "site_url": settings.SITE_URL,

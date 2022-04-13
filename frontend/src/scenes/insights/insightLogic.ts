@@ -52,6 +52,15 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
+export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' ? insightId : undefined,
+    name: '',
+    description: '',
+    tags: [],
+    filters: {},
+    result: null,
+})
+
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
@@ -116,8 +125,11 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
+        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
+        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsightSuccess: true,
+        saveInsightFailure: true,
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
@@ -135,13 +147,7 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ??
-                ({
-                    short_id: props.dashboardItemId,
-                    tags: [],
-                    filters: {},
-                    result: null,
-                } as Partial<InsightModel>),
+            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -177,7 +183,7 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    const updatedInsight: Partial<InsightModel> = {
+                    const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
@@ -190,7 +196,12 @@ export const insightLogic = kea<insightLogicType>({
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
-                    if (insightSceneLogic.values.insightMode === ItemMode.Edit) {
+                    const editMode =
+                        insightSceneLogic.isMounted() &&
+                        insightSceneLogic.values.insight === values.insight &&
+                        insightSceneLogic.values.insightMode === ItemMode.Edit
+
+                    if (editMode) {
                         return { ...values.insight, ...metadata }
                     }
 
@@ -212,7 +223,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight: Partial<InsightModel> = { ...values.insight }
+                    const updatedInsight = { ...values.insight } as InsightModel
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -271,7 +282,7 @@ export const insightLogic = kea<insightLogicType>({
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.name === 'AbortError') {
                             actions.abortQuery(queryId, insight, scene, e)
                         }
@@ -358,14 +369,17 @@ export const insightLogic = kea<insightLogicType>({
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
         ],
-        /* savedFilters contain filters that are persisted on an insight */
-        savedFilters: [
-            () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
+        /** The insight's state as it is in the database. */
+        savedInsight: [
+            () => props.cachedInsight || ({} as InsightModel),
             {
-                setInsight: (state, { insight: { filters }, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? cleanFilters(filters || {}) : state,
-                loadInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
-                updateInsightSuccess: (_, { insight }) => cleanFilters(insight.filters || {}),
+                setInsight: (state, { insight, options: { fromPersistentApi } }) =>
+                    fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
+                loadInsightSuccess: (_, { insight }) => ({ ...insight, filters: cleanFilters(insight.filters || {}) }),
+                updateInsightSuccess: (_, { insight }) => ({
+                    ...insight,
+                    filters: cleanFilters(insight.filters || {}),
+                }),
             },
         ],
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
@@ -433,12 +447,28 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
+        insightSaving: [
+            false,
+            {
+                saveInsight: () => true,
+                saveInsightSuccess: () => false,
+                saveInsightFailure: () => false,
+            },
+        ],
     }),
     selectors: {
-        /** filters for data that's being displayed, might not be same as savedFilters or filters */
+        /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
-        insightName: [(s) => [s.insight], (insight) => insight.name],
+        derivedName: [
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
+                summarizeInsightFilters(insight.filters || {}, aggregationLabel, cohortsById, mathDefinitions).slice(
+                    0,
+                    400
+                ),
+        ],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -450,12 +480,21 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.insight, s.activeView],
             ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
         ],
-        filtersChanged: [
-            (s) => [s.savedFilters, s.filters],
-            (savedFilters, filters) =>
-                filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
+        insightChanged: [
+            (s) => [s.insight, s.savedInsight, s.filters],
+            (insight, savedInsight, filters): boolean =>
+                (insight.name || '') !== (savedInsight.name || '') ||
+                (insight.description || '') !== (savedInsight.description || '') ||
+                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
+                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
-        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
+        isViewedOnDashboard: [
+            () => [router.selectors.location],
+            ({ pathname }) =>
+                pathname.startsWith('/dashboard') ||
+                pathname.startsWith('/home') ||
+                pathname.startsWith('/shared-dashboard'),
+        ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
@@ -494,7 +533,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     },
-    listeners: ({ actions, selectors, values, props }) => ({
+    listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
@@ -524,31 +563,43 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            const { fromDashboard } = router.values.hashParams
-            const changedKeysObj: Record<string, any> | undefined =
-                previousFilters && extractObjectDiffKeys(previousFilters, filters)
+            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
+            if (!values.isViewedOnDashboard) {
+                const { fromDashboard } = router.values.hashParams
+                const changedKeysObj: Record<string, any> | undefined =
+                    previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightSceneLogic.values.insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                0,
-                changedKeysObj
-            )
-            actions.setNotFirstLoad()
-            await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                const insightMode =
+                    insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
+                        ? insightSceneLogic.values.insightMode
+                        : ItemMode.View
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightSceneLogic.values.insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                10,
-                changedKeysObj
-            )
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    0,
+                    changedKeysObj
+                )
+
+                // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+
+                actions.setNotFirstLoad()
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    10,
+                    changedKeysObj
+                )
+            }
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
@@ -615,41 +666,56 @@ export const insightLogic = kea<insightLogicType>({
                 clearTimeout(values.timeout)
             }
         },
-        saveInsight: async ({ setViewMode }) => {
+        saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            if (!insightNumericId) {
-                throw new Error('Can only save saved insights whose id is known.')
+            const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
+            let savedInsight: InsightModel
+
+            try {
+                if (insightNumericId && emptyFilters(values.insight.filters)) {
+                    const error = new Error('Will not override empty filters in saveInsight.')
+                    Sentry.captureException(error, {
+                        extra: {
+                            filters: JSON.stringify(values.insight.filters),
+                            insight: JSON.stringify(values.insight),
+                        },
+                    })
+                    throw error
+                }
+
+                // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
+                const insightRequest: Partial<InsightModel> = {
+                    name,
+                    derived_name: values.derivedName,
+                    description,
+                    favorited,
+                    filters,
+                    deleted,
+                    saved: true,
+                    layouts,
+                    color,
+                    dashboard,
+                    tags,
+                }
+
+                savedInsight = insightNumericId
+                    ? await api.update(
+                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                          insightRequest
+                      )
+                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                actions.saveInsightSuccess()
+            } catch (e) {
+                actions.saveInsightFailure()
+                throw e
             }
 
-            if (emptyFilters(values.insight.filters)) {
-                const error = new Error('Will not override empty filters in saveInsight.')
-                Sentry.captureException(error, {
-                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
-                })
-                throw error
-            }
-            const savedInsight: InsightModel = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
-                {
-                    ...values.insight,
-                    derived_name: summarizeInsightFilters(
-                        values.insight.filters || {},
-                        values.aggregationLabel,
-                        values.cohortsById,
-                        values.mathDefinitions
-                    ).slice(0, 400),
-                    saved: true,
-                } as InsightModel
-            )
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            if (setViewMode) {
-                insightSceneLogic.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-            }
-            lemonToast.success('Insight saved', {
+            lemonToast.success(`Insight saved${dashboard ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -657,6 +723,19 @@ export const insightLogic = kea<insightLogicType>({
             })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             dashboardsModel.actions.updateDashboardItem(savedInsight)
+
+            if (redirectToViewMode) {
+                const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+                mountedInsightSceneLogic?.actions.syncInsightChanged(false)
+                if (!insightNumericId && dashboard) {
+                    // redirect new insights added to dashboard to the dashboard
+                    router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
+                } else if (insightNumericId) {
+                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                } else {
+                    router.actions.push(urls.insightView(savedInsight.short_id))
+                }
+            }
         },
         saveAs: async () => {
             prompt({ key: `save-as-insight` }).actions.prompt({
@@ -673,7 +752,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: values.filters,
                 saved: true,
             })
-            lemonToast.info(`You're now working on a copy of ${values.insight.name}`)
+            lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             router.actions.push(urls.insightEdit(insight.short_id))
@@ -683,22 +762,6 @@ export const insightLogic = kea<insightLogicType>({
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()
-            }
-        },
-        // called when search query was successful
-        loadResultsSuccess: async ({ insight }, breakpoint) => {
-            if (props.doNotPersist) {
-                return
-            }
-            if (!insight.short_id) {
-                const createdInsight: InsightModel = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                    filters: insight.filters,
-                })
-                breakpoint()
-                actions.setInsight(
-                    { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
-                    {}
-                )
             }
         },
         toggleInsightLegend: () => {
@@ -728,12 +791,19 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
         },
+        cancelChanges: ({ goToViewMode }) => {
+            actions.setFilters(values.savedInsight.filters || {})
+            if (goToViewMode) {
+                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                eventUsageLogic.actions.reportInsightsTabReset()
+            }
+        },
     }),
 
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (props.dashboardItemId) {
+                if (props.dashboardItemId && props.dashboardItemId !== 'new') {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId,
                         router.values.hashParams.fromDashboard
@@ -751,7 +821,7 @@ export const insightLogic = kea<insightLogicType>({
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (props.dashboardItemId) {
+                    } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
                         actions.loadInsight(props.dashboardItemId)
                     }
                 }

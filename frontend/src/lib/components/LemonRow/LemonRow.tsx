@@ -84,13 +84,25 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         <>
             <div className="LemonRow__main-area">
                 {icon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--prefix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {icon}
                     </span>
                 )}
                 {children && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--suffix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {sideIcon}
                     </span>
                 )}
@@ -107,9 +119,15 @@ export interface LemonSpacerProps {
     large?: boolean
     /** Whether the spacer should be vertical instead of horizontal. */
     vertical?: boolean
+    style?: React.CSSProperties
 }
 
 /** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false, vertical = false }: LemonSpacerProps): JSX.Element {
-    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')} />
+export function LemonSpacer({ large = false, vertical = false, style }: LemonSpacerProps): JSX.Element {
+    return (
+        <div
+            className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')}
+            style={style}
+        />
+    )
 }

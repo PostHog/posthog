@@ -62,7 +62,8 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
                 saveAction: async () => {
-                    let action = Object.assign({}, values.action) as ActionType
+                    // TODO: don't nix tags once tags are also added to actions
+                    let action = Object.assign({}, values.action, { tags: undefined }) as ActionType
 
                     action.steps = action.steps
                         ? action.steps.filter((step) => {
@@ -76,7 +77,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                         } else {
                             action = await api.actions.create(action, props.temporaryToken)
                         }
-                    } catch (response) {
+                    } catch (response: any) {
                         if (response.code === 'unique') {
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`

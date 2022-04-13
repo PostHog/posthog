@@ -5,8 +5,8 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene'
 
 export default {
-    title: 'Scenes/Insights',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    title: 'Scenes-App/Insights',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
@@ -24,6 +24,7 @@ export const TrendsLine = createInsightScene(require('./__mocks__/trendsLine.jso
 export const TrendsLineBreakdown = createInsightScene(require('./__mocks__/trendsLineBreakdown.json'))
 export const TrendsBar = createInsightScene(require('./__mocks__/trendsBar.json'))
 export const TrendsBarBreakdown = createInsightScene(require('./__mocks__/trendsBarBreakdown.json'))
+export const TrendsWorldMap = createInsightScene(require('./__mocks__/trendsWorldMap.json'))
 export const TrendsValue = createInsightScene(require('./__mocks__/trendsValue.json'))
 export const TrendsValueBreakdown = createInsightScene(require('./__mocks__/trendsValueBreakdown.json'))
 export const TrendsTable = createInsightScene(require('./__mocks__/trendsTable.json'))

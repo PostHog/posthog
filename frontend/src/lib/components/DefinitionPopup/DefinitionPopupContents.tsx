@@ -51,12 +51,12 @@ function TaxonomyIntroductionSection(): JSX.Element {
             </DefinitionPopup.Grid>
             <DefinitionPopup.Section>
                 <Link
-                    to="https://posthog.com/docs/user-guides"
+                    to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
                     style={{ fontWeight: 600, marginTop: 8 }}
                 >
-                    Learn more about Taxonomy
+                    Learn more about Data Management
                     <IconOpenInNew style={{ marginLeft: 8 }} />
                 </Link>
             </DefinitionPopup.Section>
@@ -296,7 +296,7 @@ function DefinitionEdit(): JSX.Element {
                             id="description"
                             className="definition-popup-edit-form-value"
                             autoFocus
-                            placeholder={`There is no description for this ${singularType}.`}
+                            placeholder={`Add a description for this ${singularType}.`}
                             value={localDefinition.description || ''}
                             onChange={(e) => {
                                 setLocalDefinition({ description: e.target.value })

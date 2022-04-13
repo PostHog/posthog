@@ -1,21 +1,18 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Button, Popconfirm, Card } from 'antd'
+import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
@@ -28,15 +25,16 @@ import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { LemonButton } from 'lib/components/LemonButton'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
-export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
+export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode } = useActions(insightSceneLogic)
+    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
 
-    const logic = insightLogic({ dashboardItemId: insightId })
+    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
         insightProps,
         insightLoading,
@@ -45,58 +43,34 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         canEditInsight,
         activeView,
         insight,
-        filtersChanged,
-        savedFilters,
+        insightChanged,
         tagLoading,
+        insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
-    const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const screens = useBreakpoint()
+
+    const isSmallScreen = !screens.xl
 
     // Whether to display the control tab on the side instead of on top
-    const verticalLayout = activeView === InsightType.FUNNELS
+    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
-    const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
-        setActiveView(view)
-        reportHotkeyNavigation('insights', hotkey)
-    }
+    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
-    useKeyboardHotkeys({
-        t: {
-            action: () => handleHotkeyNavigation(InsightType.TRENDS, 't'),
-        },
-        f: {
-            action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
-        },
-        r: {
-            action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
-        },
-        p: {
-            action: () => handleHotkeyNavigation(InsightType.PATHS, 'p'),
-        },
-        i: {
-            action: () => handleHotkeyNavigation(InsightType.STICKINESS, 'i'),
-        },
-        l: {
-            action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
-        },
-        e: {
-            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.View,
-        },
-    })
+    useEffect(() => {
+        syncInsightChanged(insightChanged)
+    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightLoading && !filtersKnown) {
+    if (insightId !== 'new' && insightLoading && !filtersKnown) {
         return <InsightSkeleton />
     }
 
@@ -135,34 +109,32 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                 }
                 buttons={
                     <div className="insights-tab-actions">
-                        {filtersChanged ? (
-                            <Popconfirm
-                                title="Are you sure? This will discard all unsaved changes in this insight."
-                                onConfirm={() => {
-                                    setFilters(savedFilters)
-                                    reportInsightsTabReset()
-                                }}
-                            >
-                                <Button type="link" className="btn-reset">
-                                    Discard changes
-                                </Button>
-                            </Popconfirm>
-                        ) : null}
-                        {insight.short_id && <SaveToDashboard insight={insight} />}
+                        {insightMode === ItemMode.Edit && insight.saved && (
+                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
+                                Cancel
+                            </LemonButton>
+                        )}
+                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
-                                <HotkeyButton
+                                <LemonButton
                                     type="primary"
                                     style={{ marginLeft: 8 }}
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
-                                    hotkey="e"
                                 >
                                     Edit
-                                </HotkeyButton>
+                                </LemonButton>
                             )
                         ) : (
-                            <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
+                            <InsightSaveButton
+                                saveAs={saveAs}
+                                saveInsight={saveInsight}
+                                isSaved={insight.saved}
+                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                insightSaving={insightSaving}
+                                insightChanged={insightChanged}
+                            />
                         )}
                     </div>
                 }
@@ -215,24 +187,23 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                 }
             />
             {insightMode === ItemMode.View ? (
-                <Row style={{ marginTop: 16 }}>
-                    <Col span={24}>
-                        <InsightContainer />
-                    </Col>
-                </Row>
+                <InsightContainer />
             ) : (
                 <>
-                    <Row style={{ marginTop: 8 }}>
-                        <InsightsNav />
-                    </Row>
+                    <InsightsNav />
 
-                    <Row
-                        gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}
-                        style={verticalLayout ? { marginBottom: 64 } : undefined}
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: verticalLayout ? 'row' : 'column',
+                            marginBottom: verticalLayout ? 64 : 0,
+                        }}
                     >
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8) : undefined}
+                        <div
+                            style={{
+                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
+                                marginRight: verticalLayout ? '1rem' : 0,
+                            }}
                         >
                             {verticalLayout ? (
                                 insightTab
@@ -244,14 +215,16 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                                     </div>
                                 </Card>
                             )}
-                        </Col>
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16) : undefined}
+                        </div>
+                        <div
+                            style={{
+                                flexGrow: 1,
+                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
+                            }}
                         >
                             <InsightContainer />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     <NPSPrompt />
                     <FeedbackCallCTA />
                 </>

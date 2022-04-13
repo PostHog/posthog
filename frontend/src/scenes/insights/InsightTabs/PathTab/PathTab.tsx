@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
@@ -24,8 +24,6 @@ import { PayCard } from 'lib/components/PayCard/PayCard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { PathAdvanded } from './PathAdvanced'
-import clsx from 'clsx'
-import { IconArrowDropDown } from 'lib/components/icons'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
@@ -36,7 +34,6 @@ export function PathTab(): JSX.Element {
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const [advancedOptionsShown, setAdvancedOptionShown] = useState(false) // TODO: Move to kea logic if option is kept
 
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -384,42 +381,13 @@ export function PathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {['control', 'direct'].includes(
-                            featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] as string
-                        ) &&
-                            hasAdvancedPaths && (
-                                <>
-                                    <hr />
-                                    <h4
-                                        className="secondary"
-                                        style={{ display: 'flex', cursor: 'pointer', alignItems: 'center' }}
-                                        onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
-                                    >
-                                        <span style={{ flexGrow: 1 }}>Advanced options</span>
-                                        {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'control' && (
-                                            <div
-                                                className={clsx(
-                                                    'advanced-options-dropdown',
-                                                    advancedOptionsShown && 'expanded'
-                                                )}
-                                            >
-                                                <IconArrowDropDown />
-                                            </div>
-                                        )}
-                                    </h4>
-                                    {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'direct' ||
-                                    advancedOptionsShown ? (
-                                        <PathAdvanded />
-                                    ) : (
-                                        <div
-                                            className="text-muted-alt cursor-pointer"
-                                            onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
-                                        >
-                                            Adjust maximum number of paths, path density or path cleaning options.
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                        {hasAdvancedPaths && (
+                            <>
+                                <hr />
+                                <h4 className="secondary">Advanced options</h4>
+                                <PathAdvanded />
+                            </>
+                        )}
                         {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
                             <Row align="middle">
                                 <Col span={24}>

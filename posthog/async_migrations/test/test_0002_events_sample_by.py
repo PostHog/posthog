@@ -13,7 +13,7 @@ MIGRATION_NAME = "0002_events_sample_by"
 
 
 def execute_query(query: str) -> Any:
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 
     return sync_execute(query)
 
@@ -89,9 +89,9 @@ class Test0002EventsSampleBy(BaseTest):
     # Run the full migration through
     @pytest.mark.ee
     def test_run_migration_in_full(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
         self.assertTrue(migration_successful)

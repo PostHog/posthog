@@ -1,16 +1,11 @@
 import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
+import { dayjs, now } from 'lib/dayjs'
+import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    PATHS_VIZ,
-    DashboardPrivilegeLevel,
-    OrganizationMembershipLevel,
-} from 'lib/constants'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -22,6 +17,7 @@ import {
     InsightShortId,
     InsightType,
     DashboardPlacement,
+    ChartDisplayType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -64,7 +60,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
             receivedErrors,
         }),
-        addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
         }: {
@@ -91,8 +86,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
-        /** Take the user to insights to add a graph. */
-        addGraph: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -121,9 +114,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         return dashboard
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.status === 404) {
                             return []
                         }
@@ -182,12 +174,20 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                    return state
-                        ? ({
-                              ...state,
-                              items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                          } as DashboardType)
-                        : null
+                    if (state) {
+                        const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
+                        const newItems = state.items.slice(0)
+                        if (itemIndex >= 0) {
+                            newItems[itemIndex] = item
+                        } else {
+                            newItems.push(item)
+                        }
+                        return {
+                            ...state,
+                            items: newItems,
+                        } as DashboardType
+                    }
+                    return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
@@ -338,15 +338,17 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 if (!items || !items.length) {
                     return null
                 }
-                let lastRefreshed = items[0].last_refresh
-
+                let oldestLastRefreshed = null
                 for (const item of items) {
-                    if (item.last_refresh && (!lastRefreshed || item.last_refresh < lastRefreshed)) {
-                        lastRefreshed = item.last_refresh
+                    const itemLastRefreshed = item.last_refresh ? dayjs(item.last_refresh) : null
+                    if (
+                        !oldestLastRefreshed ||
+                        (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
+                    ) {
+                        oldestLastRefreshed = itemLastRefreshed
                     }
                 }
-
-                return lastRefreshed
+                return oldestLastRefreshed
             },
         ],
         dashboard: [
@@ -392,9 +394,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         .map((item) => {
                             const isRetention =
                                 item.filters.insight === InsightType.RETENTION &&
-                                item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
-                            const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
-                            const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
+                                item.filters.display === ChartDisplayType.ActionsLineGraph
+                            const defaultWidth =
+                                isRetention || item.filters.display === ChartDisplayType.PathsViz ? 8 : 6
+                            const defaultHeight = isRetention
+                                ? 8
+                                : item.filters.display === ChartDisplayType.PathsViz
+                                ? 12.5
+                                : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
@@ -519,19 +526,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache, props }) => ({
-        addNewDashboard: async () => {
-            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
-                title: 'New dashboard',
-                placeholder: 'Please enter a name',
-                value: '',
-                error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
-            })
-        },
-        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
-        },
+    listeners: ({ actions, values, cache, props }) => ({
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
             eventUsageLogic.actions.reportDashboardShareToggled(isShared)
@@ -615,7 +610,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.short_id)
-                } catch (e) {
+                } catch (e: any) {
                     if (isBreakpoint(e)) {
                         breakpointTriggered = true
                     } else {
@@ -664,11 +659,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
             }
         },
-        addGraph: () => {
-            if (values.dashboard) {
-                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
-            }
-        },
         setAutoRefresh: () => {
             actions.resetInterval()
         },
@@ -686,8 +676,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
-            actions.refreshAllDashboardItems(notYetLoadedItems)
+            if (
+                values.lastRefreshed &&
+                values.lastRefreshed.isBefore(now().subtract(3, 'hours')) &&
+                values.featureFlags[FEATURE_FLAGS.AUTO_REFRESH_DASHBOARDS]
+            ) {
+                actions.refreshAllDashboardItems()
+            } else {
+                const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
+                if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
+                    actions.refreshAllDashboardItems(notYetLoadedItems)
+                }
+            }
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()
@@ -697,7 +697,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (values.allItems) {
                 eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
-                if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
+                if (
+                    router.values.location.pathname === urls.dashboard(values.allItems.id) ||
+                    router.values.location.pathname === urls.projectHomepage() ||
+                    (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
+                ) {
                     eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
                 }
             } else {

@@ -1,19 +1,20 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
-import { afterLoginRedirect } from './authentication/loginLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preventDiscardingInsightChanges } from './insights/insightSceneLogic'
+import { UPGRADE_LINK } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -34,7 +35,7 @@ export const sceneLogic = kea<sceneLogicType>({
         scenes?: Record<Scene, () => any>
     },
     connect: {
-        logic: [router],
+        logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
     },
     path: ['scenes', 'sceneLogic'],
@@ -204,15 +205,15 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
-            if (preflightLogic.values.preflight?.cloud) {
-                return router.actions.push('/organization/billing')
+            const link = UPGRADE_LINK(preflightLogic.values.preflight?.cloud)
+            if (link.target) {
+                window.open(link.url, link.target)
+            } else {
+                router.actions.push(link.url)
             }
-            const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
-            window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
-            setPageTitle(sceneConfigurations[scene]?.name || identifierToHuman(scene || ''))
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)
@@ -221,6 +222,12 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
+            // If navigating from an Insight scene to a non-Insight scene and changes are unsaved, prompt the user
+            if (values.scene === Scene.Insight && scene !== Scene.Insight && preventDiscardingInsightChanges()) {
+                history.back()
+                return
+            }
+
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -241,7 +248,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
                     if (scene === Scene.Login) {
-                        router.actions.replace(afterLoginRedirect())
+                        handleLoginRedirect()
                     } else {
                         router.actions.replace(urls.default())
                     }
@@ -298,7 +305,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(scene)
                     importedScene = await props.scenes[scene]()
-                } catch (error) {
+                } catch (error: any) {
                     if (
                         error.name === 'ChunkLoadError' || // webpack
                         error.message?.includes('Failed to fetch dynamically imported module') // esbuild

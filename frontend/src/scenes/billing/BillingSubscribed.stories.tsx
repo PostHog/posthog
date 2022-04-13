@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export default {
-    title: 'Scenes/Billing',
+    title: 'Scenes-Other/Billing',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({

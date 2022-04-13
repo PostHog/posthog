@@ -8,7 +8,7 @@ import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { IconCopy, IconDelete, IconPlus } from '../icons'
+import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
@@ -68,6 +68,7 @@ export function PropertyGroupFilters({
                                 />
                             )}
                         </Row>
+                        <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                         {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
                                 <>
@@ -113,9 +114,9 @@ export function PropertyGroupFilters({
                                         />
                                     </div>
                                     {propertyGroupIndex !== filtersWithNew.values.length - 1 && (
-                                        <Row className="text-small primary-alt">
+                                        <div className="text-small primary-alt" style={{ margin: '-0.5rem 0' }}>
                                             <b>{filtersWithNew.type}</b>
-                                        </Row>
+                                        </div>
                                     )}
                                 </>
                             )
@@ -123,34 +124,16 @@ export function PropertyGroupFilters({
                     </BindLogic>
                 </div>
             )}
-            <div>
-                <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
-                {filtersWithNew.values.length > 1 ? (
-                    <LemonButton
-                        data-attr={`${pageKey}-add-filter-group`}
-                        className="mb full-width"
-                        type="secondary"
-                        style={{ fontWeight: 400 }}
-                        onClick={() => addFilterGroup()}
-                    >
-                        <IconPlus className="mr-05" /> Add filter group
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        data-attr={`${pageKey}-add-filter-group`}
-                        onClick={() => addFilterGroup()}
-                        className="mb"
-                        style={{
-                            border: 'none',
-                            background: 'none',
-                            fontWeight: 400,
-                        }}
-                        type="default"
-                    >
-                        <IconPlus className="mr-05" /> Add filter group
-                    </LemonButton>
-                )}
-            </div>
+            <LemonButton
+                data-attr={`${pageKey}-add-filter-group`}
+                className="mb mt"
+                type="secondary"
+                onClick={() => addFilterGroup()}
+                icon={<IconPlusMini color="var(--primary)" />}
+                fullWidth
+            >
+                Add filter group
+            </LemonButton>
         </>
     )
 }

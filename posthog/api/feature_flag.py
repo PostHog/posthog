@@ -13,11 +13,18 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import format_query_params_absolute_url
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -199,15 +206,42 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         return Response(flags)
 
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
+
+        return self._return_activity_page(activity_page, limit, page, request)
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, item_id=item_id,)
+        activity_page = load_activity(
+            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
+        )
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
         return Response(
-            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
             status=status.HTTP_200_OK,
         )
 

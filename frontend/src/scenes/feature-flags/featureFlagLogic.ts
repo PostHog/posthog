@@ -45,13 +45,18 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType>({
-    path: ['scenes', 'feature-flags', 'featureFlagLogic'],
+export interface FeatureFlagLogicProps {
+    id: number | 'new'
+}
+
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
+    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
+    props: {} as FeatureFlagLogicProps,
+    key: ({ id }) => id ?? 'new',
     connect: {
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     },
     actions: {
-        setFeatureFlagId: (id: number | 'new') => ({ id }),
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
@@ -66,23 +71,44 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             newRolloutPercentage,
             newProperties,
         }),
-        deleteFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
-        updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
     },
-    reducers: {
-        featureFlagId: [
-            null as null | number | 'new',
-            {
-                setFeatureFlagId: (_, { id }) => id,
+    forms: ({ actions }) => ({
+        featureFlag: {
+            defaults: { ...NEW_FLAG } as FeatureFlagType,
+            validator: ({ key, filters }) => ({
+                key: !key
+                    ? 'You need to set a key'
+                    : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                    : undefined,
+                filters: {
+                    multivariate: {
+                        variants: filters?.multivariate?.variants?.map(
+                            ({ key: variantKey }: MultivariateFlagVariant) => ({
+                                key: !variantKey
+                                    ? 'You need to set a key'
+                                    : !variantKey.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                                    : undefined,
+                            })
+                        ),
+                    },
+                },
+            }),
+            submit: (featureFlag) => {
+                actions.saveFeatureFlag(featureFlag)
             },
-        ],
+        },
+    }),
+    reducers: {
         featureFlag: [
-            null as FeatureFlagType | null,
+            { ...NEW_FLAG } as FeatureFlagType,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     if (featureFlag.filters.groups) {
@@ -159,29 +185,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         },
                     }
                 },
-                updateVariant: (state, { index, newProperties }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const variants = [...(state.filters.multivariate?.variants || [])]
-                    if (!variants[index]) {
-                        return state
-                    }
-                    variants[index] = {
-                        ...variants[index],
-                        ...newProperties,
-                    }
-                    return {
-                        ...state,
-                        filters: {
-                            ...state.filters,
-                            multivariate: {
-                                ...state.filters.multivariate,
-                                variants,
-                            },
-                        },
-                    }
-                },
                 removeVariant: (state, { index }) => {
                     if (!state) {
                         return state
@@ -249,11 +252,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         ],
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (values.featureFlagId && values.featureFlagId !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlagId}`)
+                if (props.id && props.id !== 'new') {
+                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
                 }
                 return NEW_FLAG
             },
@@ -275,6 +278,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+            router.actions.replace(urls.featureFlag(featureFlag.id))
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -342,32 +346,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             ],
         ],
     },
-    actionToUrl: () => ({
-        // change URL from '/feature_flags/new' to '/feature_flags/123' after saving
-        saveFeatureFlagSuccess: ({ featureFlag }) => [
-            `/feature_flags/${featureFlag.id || 'new'}`,
-            {},
-            {},
-            { replace: true },
-        ],
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/feature_flags/*': ({ _: id }) => {
-            if (id && id !== values.featureFlagId) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                actions.setFeatureFlagId(parsedId)
-
-                const foundFlag = featureFlagsLogic
-                    .findMounted()
-                    ?.values.featureFlags.find((flag) => flag.id === parsedId)
-                if (foundFlag) {
-                    actions.setFeatureFlag(foundFlag)
-                } else {
-                    actions.setFeatureFlag(NEW_FLAG)
-                }
-                if (id !== 'new') {
+    urlToAction: ({ actions, props }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+            // If the URL was pushed (user clicked on a link), reset the scene's data.
+            // This avoids resetting form fields if you click back/forward.
+            if (method === 'PUSH') {
+                if (props.id) {
                     actions.loadFeatureFlag()
+                } else {
+                    actions.resetFeatureFlag()
                 }
+            }
+        },
+    }),
+    events: ({ props, actions }) => ({
+        afterMount: () => {
+            const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
+            if (foundFlag) {
+                actions.setFeatureFlag(foundFlag)
+            } else if (props.id !== 'new') {
+                actions.loadFeatureFlag()
             }
         },
     }),

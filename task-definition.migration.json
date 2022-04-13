@@ -73,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PRIMARY_DB",
-                    "value": "clickhouse"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },
@@ -99,10 +95,6 @@
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
                     "value": "True"
-                },
-                {
-                    "name": "PERSISTED_FEATURE_FLAGS",
-                    "value": "0"
                 },
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",

@@ -31,7 +31,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -182,7 +182,7 @@ function Pages(): JSX.Element {
                         to={urls.savedInsights()}
                         sideAction={{
                             icon: <IconPlus />,
-                            to: urls.insightNew({ insight: InsightType.TRENDS }),
+                            to: urls.insightNew(),
                             tooltip: 'New insight',
                             identifier: Scene.Insight,
                             onClick: hideSideBarMobile,
@@ -196,12 +196,7 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton
-                            icon={<IconExperiment />}
-                            identifier={Scene.Experiments}
-                            to={urls.experiments()}
-                            highlight="beta"
-                        />
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton

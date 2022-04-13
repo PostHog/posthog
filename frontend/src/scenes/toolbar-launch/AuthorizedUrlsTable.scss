@@ -5,9 +5,8 @@
         display: flex;
         align-items: center;
         .lemon-tag {
-            margin-left: 4px;
+            margin-left: 6px;
         }
-
         &.suggestion {
             color: $text_muted_alt;
         }

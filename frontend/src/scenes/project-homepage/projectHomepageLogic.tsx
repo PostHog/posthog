@@ -7,6 +7,9 @@ import { DashboardPlacement } from '~/types'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>({
     path: ['scenes', 'project-homepage', 'projectHomepageLogic'],
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
 
     selectors: {
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
