@@ -60,13 +60,13 @@
         .recording-person-text-container {
             flex: 1;
             margin: 0 $default_spacing/2;
+            overflow: hidden;
 
             p {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
                 margin: 0;
-                width: 160px;
 
                 &.recording-person-text {
                     font-weight: 600;
@@ -76,8 +76,12 @@
         }
 
         .recording-duration {
+            flex-shrink: 0;
             text-align: right;
             margin: 0 $default_spacing/2 0 0px;
+        }
+        .recording-icon {
+            flex-shrink: 0;
         }
     }
 }

@@ -48,7 +48,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 <p className="recording-start-time">{dayjs(recording.start_time).fromNow()}</p>
             </div>
             <span className="recording-duration">{humanFriendlyDuration(recording.recording_duration)}</span>
-            <IconPlayCircle style={{ fontSize: '1.25rem' }} />
+            <IconPlayCircle className="recording-icon" style={{ fontSize: '1.25rem' }} />
         </LemonButton>
     )
 }
