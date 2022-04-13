@@ -55,7 +55,7 @@ def format_person_query(
 
     for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
-            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
+            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx, custom_match_field)
             params = {**params, **entity_params}
             filters.append(entity_query)
 
@@ -128,7 +128,9 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
     return "\n".join(query_parts).replace("AND ", "", 1), params
 
 
-def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+def get_entity_cohort_subquery(
+    cohort: Cohort, cohort_group: Dict, group_idx: int, custom_match_field: str = "person_id"
+):
     event_id = cohort_group.get("event_id")
     action_id = cohort_group.get("action_id")
     days = cohort_group.get("days")
@@ -157,7 +159,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
 
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
 
-        return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
+        return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
@@ -240,7 +242,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index)
+    person_query, params = format_cohort_subquery(cohort, index, "person_id")
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
