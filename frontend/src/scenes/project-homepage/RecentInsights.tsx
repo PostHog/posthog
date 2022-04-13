@@ -22,7 +22,7 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
             <InsightIcon insight={insight} />
 
             <div className="insight-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="insight-name">{insight.name}</p>
+                <p className="insight-name">{insight.name || insight.derived_name}</p>
                 <p className="insight-last-modified">Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
             </div>
         </LemonButton>
