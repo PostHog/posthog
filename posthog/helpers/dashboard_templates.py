@@ -30,14 +30,14 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
-
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Daily active users (DAUs)",
@@ -48,15 +48,19 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         order=0,
-        color="blue",
         description="Shows the number of unique users that use your app every day.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="blue",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Weekly active users (WAUs)",
@@ -67,15 +71,19 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         order=1,
-        color="green",
         description="Shows the number of unique users that use your app every week.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="green",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Retention",
@@ -88,15 +96,19 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         order=2,
-        color="blue",
         description="Weekly retention of your users.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="blue",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Growth accounting",
@@ -110,15 +122,19 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         order=3,
-        color="purple",
         description="How many of your users are new, returning, resurrecting, or dormant each week.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="purple",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Referring domain (last 14 days)",
@@ -131,17 +147,21 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             DATE_FROM: "-14d",
             BREAKDOWN_TYPE: "event",
         },
-        color="black",
         order=4,
         last_refresh=now(),
         description="Shows the most common referring domains for your users over the past 14 days.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="black",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
         dashboard=dashboard,
         name="Pageview funnel, by browser",
@@ -161,10 +181,14 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             EXCLUSIONS: [],
         },
         last_refresh=now(),
-        color="green",
         order=5,
         is_sample=True,
         description="This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight,
+        color="green",
         layouts={
             "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
             "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3, "moved": False, "static": False},

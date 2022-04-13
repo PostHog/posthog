@@ -7,7 +7,7 @@ from celery import group
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -108,44 +108,36 @@ def get_cache_type(filter: FilterType) -> CacheType:
 def update_cached_items() -> None:
 
     tasks = []
-
-    # we only cache insights that are on a shared or recently accessed dashboard
-    dashboards = Dashboard.objects.filter(
-        Q(Q(is_shared=True) | Q(last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
-    ).exclude(deleted=True)
-
-    insights = (
+    items = (
         Insight.objects.filter(
-            Q(dashboards__is_shared=True) | Q(dashboards__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+            Q(
+                Q(dashboard_tile__dashboard__is_shared=True)
+                | Q(dashboard_tile__dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+            )
         )
-        .exclude(dashboard__deleted=True)
+        .exclude(dashboard_tile__dashboard__deleted=True)
         .exclude(refreshing=True)
         .exclude(deleted=True)
         .exclude(refresh_attempt__gt=2)
         .exclude(filters={})
-        .prefetch_related(Prefetch("dashboards", dashboards))
         .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    for insight in insights[0:PARALLEL_INSIGHT_CACHE]:
-        # this does more queries than before
-        # TODO flatten the selection into (insight, dashboard) pairs
-        #  that can be sliced to PARALLEL_INSIGHT_CACHE length
-        for dashboard in insight.dashboards.iterator():
-            try:
-                cache_key, cache_type, payload = dashboard_item_update_task_params(insight, dashboard)
-                if insight.filters_hash != cache_key:
-                    insight.save()  # force update if the saved key is different from the cache key
-                tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
-            except Exception as e:
-                insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
-                insight.save()
-                capture_exception(e)
+    for item in items[0:PARALLEL_INSIGHT_CACHE]:
+        try:
+            cache_key, cache_type, payload = dashboard_item_update_task_params(item)
+            if item.filters_hash != cache_key:
+                item.save()  # force update if the saved key is different from the cache key
+            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        except Exception as e:
+            item.refresh_attempt = (item.refresh_attempt or 0) + 1
+            item.save()
+            capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))
-    task_set = group(tasks)
-    task_set.apply_async()
-    statsd.gauge("update_cache_queue_depth", dashboards.count())
+    taskset = group(tasks)
+    taskset.apply_async()
+    statsd.gauge("update_cache_queue_depth", items.count())
 
 
 def dashboard_item_update_task_params(

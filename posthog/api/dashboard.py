@@ -17,10 +17,9 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, Insight, Organization, Team
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team
 from posthog.models.user import User
 from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -91,15 +90,18 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 from posthog.api.insight import InsightSerializer
 
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_insights = existing_dashboard.insights.all()
-                for insight in existing_insights:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=dashboard)
+                    .select_related("insight")
+                    .prefetch_related("insight")
+                )
+                for existing_tile in existing_tiles:
                     override_dashboard_item_data = {
                         "id": None,  # to create a new Insight
-                        "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
                     new_data = {
-                        **InsightSerializer(insight, context=self.context,).data,
+                        **InsightSerializer(existing_tile.insight, context=self.context,).data,
                         **override_dashboard_item_data,
                     }
                     new_tags = new_data.pop("tags", None)
@@ -110,16 +112,29 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     # Create new insight's tags separately. Force create tags on dashboard duplication.
                     self._attempt_set_tags(new_tags, insight_serializer.instance, force_create=True)
 
+                    DashboardTile.objects.create(
+                        dashboard=existing_dashboard,
+                        insight=insight_serializer.instance,
+                        layouts=existing_tile.layouts,
+                        color=existing_tile.color,
+                    )
+
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
 
         elif request.data.get("items"):
             for item in request.data["items"]:
                 insight = Insight.objects.create(
-                    **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
+                    **{
+                        key: value
+                        for key, value in item.items()
+                        if key not in ("id", "deleted", "dashboard", "team", "layout", "color")
+                    },
                     team=team,
                 )
-                insight.dashboards.add(dashboard)
+                DashboardTile.objects.create(
+                    dashboard=dashboard, insight=insight, layouts=item.get("layouts"), color=item.get("color"),
+                )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -165,22 +180,17 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if self.context["view"].action == "list":
             return None
 
-        self.context.update({"dashboard": dashboard})
-        # deduplicate between items and insights relations, until items relation is guaranteed empty
-        dashboard_insights: Dict[str, Insight] = {insight.short_id: insight for insight in dashboard.insights.filter()}
+        tiles = DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").prefetch_related("insight")
+        insights = []
+        for tile in tiles:
+            if tile.insight:
+                insight = tile.insight
+                insight_data = InsightSerializer(insight, many=False, context=self.context).data
+                insight_data["layouts"] = tile.layouts
+                insight_data["color"] = tile.color
+                insights.append(insight_data)
 
-        for item in dashboard.items.filter():
-            if item.short_id not in dashboard_insights:
-                dashboard_insights[item.short_id] = item
-
-        #  Make sure all items have an insight set
-        # This should have only happened historically
-        for item in dashboard_insights.values():
-            if not item.filters.get("insight"):
-                item.filters["insight"] = INSIGHT_TRENDS
-                item.save()
-
-        return InsightSerializer(dashboard_insights.values(), many=True, context=self.context).data
+        return insights
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
         return dashboard.get_effective_privilege_level(self.context["request"].user.id)

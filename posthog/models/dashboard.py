@@ -42,10 +42,7 @@ class Dashboard(models.Model):
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
-
-    insights = models.ManyToManyField(
-        "posthog.Insight", related_name="dashboards", through="DashboardInsight", blank=True
-    )
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
@@ -110,14 +107,6 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
-
-
-class DashboardInsight(models.Model):
-    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
-    filters: models.JSONField = models.JSONField(default=dict)
-    layouts: models.JSONField = models.JSONField(default=dict)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
 
 @receiver(post_save, sender=Dashboard)

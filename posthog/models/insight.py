@@ -4,14 +4,10 @@ from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
 
 
 def generate_short_id():
@@ -106,39 +102,10 @@ class Insight(models.Model):
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
         edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
-        if all(edit_permissions):
+        if any(edit_permissions):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:
             return Dashboard.PrivilegeLevel.CAN_VIEW
-
-    def save(self, *args, **kwargs):
-        # set viewed in isolation cache key
-        if self.filters and self.filters != {}:
-            generated_filter = get_filter(data=self.dashboard_filters(dashboard=None), team=self.team)
-            self.filters_hash = generate_cache_key("{}_{}".format(generated_filter.toJSON(), self.team_id))
-
-        if self.id is not None:
-            # update viewed on dashboard cache keys
-            new_dashboard_cache_keys = {}
-            for dashboard in self.dashboards.all():
-                candidate_filters = self.dashboard_filters(dashboard=dashboard)
-                if candidate_filters != {}:
-                    generated_filter = get_filter(data=candidate_filters, team=self.team)
-                    new_dashboard_cache_keys[dashboard.id] = generate_cache_key(
-                        "{}_{}".format(generated_filter.toJSON(), self.team_id)
-                    )
-
-            if new_dashboard_cache_keys != {}:
-                self.dashboard_insight_filters_hash = new_dashboard_cache_keys
-
-        super(Insight, self).save(*args, **kwargs)
-
-
-@receiver(post_save, sender=Insight)
-def insight_saved(sender, instance: Insight, created: bool, **kwargs):
-    # ensure that insights created outside of the API using the old dashboard relation can be used
-    if created and instance.dashboard is not None and instance.dashboards.count() == 0:
-        instance.dashboards.set([instance.dashboard])
 
 
 class InsightViewed(models.Model):

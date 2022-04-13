@@ -8,18 +8,18 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
     logger = structlog.get_logger(__name__)
     logger.info("starting_0227_migrate_insight_relations")
 
-    DashboardInsight = apps.get_model("posthog", "DashboardInsight")
+    DashboardTile = apps.get_model("posthog", "DashboardTile")
 
     with connection.cursor() as cursor:
         """
         Fetch all of the insights that have a dashboard ID
-        and don't already have a posthog_dashboardinsight relation
+        and don't already have a posthog_dashboardtile relation
         """
         cursor.execute(
             """
             SELECT old_relation.id, old_relation.dashboard_id, old_relation.layouts, old_relation.color
             FROM posthog_dashboarditem as old_relation
-            LEFT JOIN posthog_dashboardinsight new_relation
+            LEFT JOIN posthog_dashboardtile new_relation
                 ON new_relation.insight_id = old_relation.id AND new_relation.dashboard_id = old_relation.dashboard_id
             WHERE old_relation.dashboard_id IS NOT NULL -- has a dashboard id on the old relation
             AND new_relation.insight_id IS NULL; -- no new relation yet
@@ -31,8 +31,8 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
             page = cursor.fetchmany(1000)
             if not page:
                 break
-            DashboardInsight.objects.bulk_create(
-                [DashboardInsight(insight_id=row[0], dashboard_id=row[1], layouts=row[2], color=row[3]) for row in page]
+            DashboardTile.objects.bulk_create(
+                [DashboardTile(insight_id=row[0], dashboard_id=row[1], layouts=row[2], color=row[3]) for row in page]
             )
             count += len(page)
 
@@ -40,9 +40,9 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
 
 
 def reverse(apps, _) -> None:
-    DashboardInsight = apps.get_model("posthog", "DashboardInsight")
+    DashboardTile = apps.get_model("posthog", "DashboardTile")
     # issues a single delete
-    DashboardInsight.objects.all().delete()
+    DashboardTile.objects.all().delete()
 
 
 class Migration(migrations.Migration):
@@ -53,12 +53,11 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="DashboardInsight",
+            name="DashboardTile",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("dashboard", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.dashboard")),
                 ("insight", models.ForeignKey(on_delete=models.deletion.CASCADE, to="posthog.insight")),
-                ("filters", models.JSONField(default=dict)),
                 ("layouts", models.JSONField(default=dict)),
                 ("color", models.CharField(blank=True, max_length=400, null=True)),
             ],
@@ -67,7 +66,7 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="insights",
             field=models.ManyToManyField(
-                blank=True, related_name="dashboards", through="posthog.DashboardInsight", to="posthog.Insight"
+                blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.Insight"
             ),
         ),
         migrations.RunPython(migrate_dashboard_insight_relations, reverse),
