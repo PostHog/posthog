@@ -110,7 +110,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 buttons={
                     <div className="insights-tab-actions">
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={cancelChanges}>
+                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
                             </LemonButton>
                         )}
