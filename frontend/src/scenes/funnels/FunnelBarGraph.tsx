@@ -5,7 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { ArrowBottomRightOutlined, IconInfinity } from 'lib/components/icons'
+import { IconTrendingFlatDown, IconInfinity } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
@@ -23,12 +23,12 @@ import {
 } from './funnelUtils'
 import { FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { FunnelStepDropdown } from './FunnelStepDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
+import { FunnelBarChart } from './FunnelBarChart'
 
 interface BarProps {
     percentage: number
@@ -299,9 +299,8 @@ export function FunnelBarGraph(): JSX.Element {
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
 
-    // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
     if (layout === FunnelLayout.vertical) {
-        return <FunnelStepTable />
+        return <FunnelBarChart />
     }
 
     // Everything rendered after is a funnel in top-to-bottom mode.
@@ -579,7 +578,7 @@ export function FunnelBarGraph(): JSX.Element {
                                             disabled={!isModalActive}
                                         >
                                             <span className="value-inspector-button-icon">
-                                                <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                                <IconTrendingFlatDown style={{ color: 'var(--danger)' }} />
                                             </span>
                                             <b>
                                                 {humanizeStepCount(dropOffCount)}{' '}

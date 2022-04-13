@@ -728,7 +728,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 selectors.hiddenLegendKeys,
                 selectors.flattenedStepsByBreakdown,
             ],
-            (steps, hiddenLegendKeys, flattenedStepsByBreakdown) => {
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown): FunnelStepWithConversionMetrics[] => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,

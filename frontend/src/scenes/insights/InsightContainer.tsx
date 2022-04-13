@@ -7,7 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
@@ -112,10 +112,12 @@ export function InsightContainer(
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
-            // The legacy FunnelStepTable is shown in top-to-bottom funnel view, otherwise the newer FunnelStepsTable
-            if (filters?.layout === FunnelLayout.horizontal) {
-                return <FunnelStepsTable />
-            }
+            return (
+                <>
+                    <h2 style={{ margin: '1rem 0' }}>Funnel results</h2>
+                    <FunnelStepsTable />
+                </>
+            )
         }
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.

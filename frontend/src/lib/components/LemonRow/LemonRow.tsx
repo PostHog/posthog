@@ -61,10 +61,10 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
 ): JSX.Element {
+    const symbolic = children == null || children === false
     if (loading) {
         icon = <Spinner size="sm" />
     }
-
     const element = React.createElement(
         tag || 'div',
         {
@@ -73,7 +73,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 className,
                 status && `LemonRow--status-${status}`,
                 compact && 'LemonRow--compact',
-                !children && 'LemonRow--symbolic',
+                symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center'
@@ -94,7 +94,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                         {icon}
                     </span>
                 )}
-                {children && <div className="LemonRow__content">{children}</div>}
+                {!symbolic && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
                     <span
                         className={clsx(
