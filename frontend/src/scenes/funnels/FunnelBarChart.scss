@@ -1,23 +1,39 @@
 .FunnelBarChart {
     --bar-width: 0.5rem; // Placeholder
+    --bar-row-height: 18rem;
+    position: relative;
     width: 100%;
-    > tbody {
-        > tr {
-            &:first-child {
-                border-bottom: 1px solid var(--border);
-                > td {
-                    padding: 1.5rem 0;
+    overflow: hidden;
+    table {
+        width: 100%;
+        > tbody {
+            > tr {
+                &:first-child {
+                    border-bottom: 1px solid var(--border);
+                    > td {
+                        padding: 1.5rem 0;
+                    }
                 }
-            }
-            > td {
-                padding: 0.75rem 0;
+                > td {
+                    padding: 0.75rem 0;
+                }
             }
         }
     }
 }
 
+.FunnelBarChart__scroll {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+}
+
+.FunnelBarChart__content {
+    min-width: fit-content;
+}
+
 .StepBarLabels {
-    height: 18rem;
+    height: var(--bar-row-height);
     display: flex;
     flex-direction: column-reverse;
     align-items: flex-end;
@@ -45,7 +61,7 @@
     align-items: flex-end;
     gap: 0.125rem;
     border-bottom: 1px solid var(--border);
-    height: 18rem;
+    height: var(--bar-row-height);
     padding: 0 1rem;
     &.StepBars--beyond-first {
         border-left: 1px dashed var(--border);

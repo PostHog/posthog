@@ -13,6 +13,7 @@ import { humanFriendlyDuration, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
+import { useScrollable } from 'lib/hooks/useScrollable'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -118,6 +119,8 @@ export function FunnelBarChart(): JSX.Element {
     const logic = funnelLogic(insightProps)
     const { visibleStepsWithConversionMetrics } = useValues(logic)
 
+    const [scrollRef, scrollableClassNames] = useScrollable()
+
     /** Average conversion time is only shown if it's known for at least one step. */
     const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
@@ -140,36 +143,43 @@ export function FunnelBarChart(): JSX.Element {
             ? '4rem'
             : seriesCount >= 2
             ? '6rem'
-            : '8rem'
+            : '12rem'
 
     return (
-        <table className="FunnelBarChart" style={{ '--bar-width': barWidth } as FunnelBarChartSSProperties}>
-            <colgroup>
-                {visibleStepsWithConversionMetrics.map((_, i) => (
-                    <col key={i} width={0} />
-                ))}
-                <col width="100%" /> {/* The last column is meant to fill up leftover space. */}
-            </colgroup>
-            <tbody>
-                <tr>
-                    <td>
-                        <StepBarLabels />
-                    </td>
-                    {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                        <td key={stepIndex}>
-                            <StepBars step={step} stepIndex={stepIndex} />
-                        </td>
-                    ))}
-                </tr>
-                <tr>
-                    <td />
-                    {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                        <td key={stepIndex}>
-                            <StepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
-                        </td>
-                    ))}
-                </tr>
-            </tbody>
-        </table>
+        <div
+            className={clsx('FunnelBarChart', ...scrollableClassNames)}
+            style={{ '--bar-width': barWidth } as FunnelBarChartSSProperties}
+        >
+            <div className="FunnelBarChart__scroll" ref={scrollRef}>
+                <table>
+                    <colgroup>
+                        {visibleStepsWithConversionMetrics.map((_, i) => (
+                            <col key={i} width={0} />
+                        ))}
+                        <col width="100%" /> {/* The last column is meant to fill up leftover space. */}
+                    </colgroup>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <StepBarLabels />
+                            </td>
+                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                <td key={stepIndex}>
+                                    <StepBars step={step} stepIndex={stepIndex} />
+                                </td>
+                            ))}
+                        </tr>
+                        <tr>
+                            <td />
+                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                <td key={stepIndex}>
+                                    <StepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
+                                </td>
+                            ))}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     )
 }

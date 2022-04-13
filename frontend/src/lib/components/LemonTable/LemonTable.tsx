@@ -1,8 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useResizeObserver } from '../../hooks/useResizeObserver'
+import React, { HTMLProps, useCallback, useEffect, useMemo } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
@@ -10,6 +9,7 @@ import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Skeleton } from 'antd'
+import { useScrollable } from 'lib/hooks/useScrollable'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -110,9 +110,6 @@ export function LemonTable<T extends Record<string, any>>({
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
-    // A tuple signaling scrollability, on the left and on the right respectively
-    const [isScrollable, setIsScrollable] = useState([false, false])
-
     /** Replace the current browsing history item to change sorting */
     const setLocalSorting = useCallback(
         (newSorting: Sorting | null) =>
@@ -140,30 +137,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const scrollRef = useRef<HTMLDivElement>(null)
-    const updateIsScrollable = useCallback(() => {
-        const element = scrollRef.current
-        if (element) {
-            const left = element.scrollLeft > 0
-            const right =
-                element.scrollWidth > element.clientWidth &&
-                element.scrollWidth > element.scrollLeft + element.clientWidth
-            if (left !== isScrollable[0] || right !== isScrollable[1]) {
-                setIsScrollable([left, right])
-            }
-        }
-    }, [isScrollable[0], isScrollable[1]])
-    const { width } = useResizeObserver({
-        ref: scrollRef,
-    })
-    useEffect(updateIsScrollable, [updateIsScrollable, width])
-    useEffect(() => {
-        const element = scrollRef.current
-        if (element) {
-            element.addEventListener('scroll', updateIsScrollable)
-            return () => element.removeEventListener('scroll', updateIsScrollable)
-        }
-    }, [updateIsScrollable])
+    const [scrollRef, scrollableClassNames] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -214,8 +188,7 @@ export function LemonTable<T extends Record<string, any>>({
                 size && size !== 'middle' && `LemonTable--${size}`,
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                isScrollable[0] && 'LemonTable--scrollable-left',
-                isScrollable[1] && 'LemonTable--scrollable-right',
+                ...scrollableClassNames,
                 className
             )}
             style={style}
