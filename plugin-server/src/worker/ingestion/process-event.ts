@@ -578,9 +578,11 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const personId = await this.db.getPersonIdThroughCache(teamId, distinctId)
-        const personProperties = personId ? await this.db.getPersonPropertiesThroughCache(teamId, personId) : null
-        console.log(` ***** ${personId}  ***  ${personProperties}`)
+        // TODO: don't parse back and forth with json
+        const [personUuid, _, personProperties] = await this.db.getPersonInfoThroughCacheFromDistinctId(
+            teamId,
+            distinctId
+        )
 
         const eventPayload: IEvent = {
             uuid,
@@ -599,7 +601,13 @@ export class EventsProcessor {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
             const message = useExternalSchemas
                 ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-                : Buffer.from(JSON.stringify(eventPayload))
+                : Buffer.from(
+                      JSON.stringify({
+                          ...eventPayload,
+                          person_id: personUuid,
+                          person_properties: JSON.stringify(personProperties),
+                      })
+                  )
 
             await this.kafkaProducer.queueMessage({
                 topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
