@@ -41,7 +41,7 @@ export function RecentInsights(): JSX.Element {
                 viewAllURL={urls.savedInsights()}
                 loading={recentInsightsLoading}
                 emptyMessage={{
-                    title: 'There are no recently viewed insights',
+                    title: 'You have no recently viewed insights',
                     description: 'To start exploring insights, take a look at your projects saved insights.',
                     buttonText: 'Saved insights',
                     buttonTo: urls.savedInsights(),
