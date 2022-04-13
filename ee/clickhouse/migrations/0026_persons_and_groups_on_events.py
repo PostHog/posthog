@@ -28,8 +28,8 @@ def add_columns_to_required_tables(_):
 
 operations = [
     migrations.RunPython(add_columns_to_required_tables),
-    migrations.RunSQL(f"DROP TABLE events_json_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
-    migrations.RunSQL(f"DROP TABLE kafka_events_json ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    migrations.RunSQL(f"DROP TABLE IF EXISTS events_json_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    migrations.RunSQL(f"DROP TABLE IF EXISTS kafka_events_json ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(KAFKA_EVENTS_TABLE_JSON_SQL()),
     migrations.RunSQL(EVENTS_TABLE_JSON_MV_SQL()),
 ]
