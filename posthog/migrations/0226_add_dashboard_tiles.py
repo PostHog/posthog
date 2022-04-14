@@ -6,7 +6,7 @@ from django.db import connection, migrations, models
 
 def migrate_dashboard_insight_relations(apps, _) -> None:
     logger = structlog.get_logger(__name__)
-    logger.info("starting_0227_migrate_insight_relations")
+    logger.info("starting_0226_add_dashboard_tiles")
 
     DashboardTile = apps.get_model("posthog", "DashboardTile")
 
@@ -36,7 +36,7 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
             )
             count += len(page)
 
-        logger.info("finished_0227_migrate_insight_relations", migration_count=count)
+        logger.info("finished_0226_add_dashboard_tiles", migration_count=count)
 
 
 def reverse(apps, _) -> None:
