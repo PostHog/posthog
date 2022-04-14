@@ -237,19 +237,13 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
         )
 
-        insights_queryset = (
-            Insight.objects.select_related("created_by", "last_modified_by")
-            .prefetch_related(
-                "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
-            )
-            .filter(deleted=False)
-            .order_by("order")
-        )
-
         queryset = (
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)
-            .prefetch_related(Prefetch("insights", queryset=insights_queryset))
+            .prefetch_related(
+                Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")),
+                # Prefetch("tiles", queryset=DashboardTile.objects.all()),
+            )
         )
         return queryset
 
