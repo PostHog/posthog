@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { prompt } from 'lib/logic/prompt'
 import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -37,6 +37,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { loaders } from 'kea-loaders'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -61,12 +62,12 @@ export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<I
     result: null,
 })
 
-export const insightLogic = kea<insightLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'insightLogic', key],
+export const insightLogic = kea<insightLogicType>([
+    path((key) => ['scenes', 'insights', 'insightLogic', key]),
+    key(keyForInsightLogicProps('new')),
+    props({} as InsightLogicProps),
 
-    connect: {
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -80,9 +81,9 @@ export const insightLogic = kea<insightLogicType>({
             ['mathDefinitions'],
         ],
         logic: [eventUsageLogic, dashboardsModel],
-    },
+    }),
 
-    actions: () => ({
+    actions({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
@@ -145,7 +146,7 @@ export const insightLogic = kea<insightLogicType>({
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
     }),
-    loaders: ({ actions, cache, values, props }) => ({
+    loaders(({ actions, cache, values, props }) => ({
         insight: [
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
@@ -337,8 +338,8 @@ export const insightLogic = kea<insightLogicType>({
                 },
             },
         ],
-    }),
-    reducers: ({ props }) => ({
+    })),
+    reducers(({ props }) => ({
         insight: {
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
@@ -455,8 +456,8 @@ export const insightLogic = kea<insightLogicType>({
                 saveInsightFailure: () => false,
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
@@ -532,8 +533,8 @@ export const insightLogic = kea<insightLogicType>({
                 }
             },
         ],
-    },
-    listeners: ({ actions, selectors, values }) => ({
+    }),
+    listeners(({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
@@ -798,41 +799,39 @@ export const insightLogic = kea<insightLogicType>({
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
         },
-    }),
+    })),
 
-    events: ({ actions, cache, props, values }) => ({
-        afterMount: () => {
-            if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId,
-                        router.values.hashParams.fromDashboard
-                    )
-                    if (insight) {
-                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                        if (insight?.result) {
-                            actions.reportInsightViewed(insight, insight.filters || {})
-                        } else {
-                            actions.loadResults()
-                        }
-                        return
-                    }
-                }
-                if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters) {
+    afterMount(({ actions, props }) => {
+        if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
+            if (props.dashboardItemId && props.dashboardItemId !== 'new') {
+                const insight = findInsightFromMountedLogic(
+                    props.dashboardItemId,
+                    router.values.hashParams.fromDashboard
+                )
+                if (insight) {
+                    actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                    if (insight?.result) {
+                        actions.reportInsightViewed(insight, insight.filters || {})
+                    } else {
                         actions.loadResults()
-                    } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                        actions.loadInsight(props.dashboardItemId)
                     }
+                    return
                 }
             }
-        },
-        beforeUnmount: () => {
-            cache.abortController?.abort()
-            if (values.timeout) {
-                clearTimeout(values.timeout)
+            if (!props.doNotLoad) {
+                if (props.cachedInsight?.filters) {
+                    actions.loadResults()
+                } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
+                    actions.loadInsight(props.dashboardItemId)
+                }
             }
-            lemonToast.dismiss()
-        },
+        }
     }),
-})
+    beforeUnmount(({ cache, values }) => {
+        cache.abortController?.abort()
+        if (values.timeout) {
+            clearTimeout(values.timeout)
+        }
+        lemonToast.dismiss()
+    }),
+])
