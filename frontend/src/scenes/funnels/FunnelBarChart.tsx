@@ -208,7 +208,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     }, [visibleStepsWithConversionMetrics, height])
 
     return (
-        <div className={clsx('FunnelBarChart', ...scrollableClassNames)}>
+        <div className={clsx('FunnelBarChart', ...scrollableClassNames)} data-attr="funnel-bar-graph">
             <div className="scrollable__inner" ref={scrollRef}>
                 {table}
             </div>
