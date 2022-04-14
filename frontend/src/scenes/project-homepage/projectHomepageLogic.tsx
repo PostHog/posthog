@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardPlacement, InsightModel } from '~/types'
+import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>({
@@ -36,6 +36,15 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
                 },
             },
         ],
+        persons: [
+            [] as PersonType[],
+            {
+                loadPersons: async () => {
+                    const response = await api.get(`api/person/`)
+                    return response.results
+                },
+            },
+        ],
     }),
 
     subscriptions: ({ cache }: projectHomepageLogicType) => ({
@@ -49,6 +58,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
         afterMount: () => {
             cache.unmount?.()
             actions.loadRecentInsights()
+            actions.loadPersons()
         },
     }),
 })

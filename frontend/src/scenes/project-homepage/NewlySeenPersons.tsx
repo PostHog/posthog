@@ -10,7 +10,7 @@ import { PersonType } from '~/types'
 
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { newlySeenPersonsLogic } from './newlySeenPersonsLogic'
+import { projectHomepageLogic } from './projectHomepageLogic'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     return (
@@ -26,7 +26,7 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function NewlySeenPersons(): JSX.Element {
-    const { persons, personsLoading } = useValues(newlySeenPersonsLogic)
+    const { persons, personsLoading } = useValues(projectHomepageLogic)
 
     return (
         <CompactList
