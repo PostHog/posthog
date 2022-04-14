@@ -13,16 +13,18 @@ import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
 
-/** The saturation of a country is proportional to its value BUT the saturation has a floor for better scannability. */
-const SATURATION_FLOOR = 0.25
+/** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
+const SATURATION_FLOOR = 0.2
 /** --primary in HSL for saturation mixing */
 const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const TOOLTIP_OFFSET_PX = 8
 
-function useWorldMapTooltip(svgRef: React.RefObject<SVGSVGElement>, showPersonsModal: boolean): void {
+function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
     const { tooltipOpacity, currentTooltip, tooltipCoordinates } = useValues(worldMapLogic(insightProps))
+
+    const svgRef = useRef<SVGSVGElement>(null)
 
     useEffect(() => {
         const svgRect = svgRef.current?.getBoundingClientRect()
@@ -47,7 +49,7 @@ function useWorldMapTooltip(svgRef: React.RefObject<SVGSVGElement>, showPersonsM
                             renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                                 typeof datum.breakdown_value === 'string' && (
                                     <div className="flex-center">
-                                        <span style={{ fontSize: '1.25rem' }} className="mr-025">
+                                        <span style={{ fontSize: '1.25rem' }} className="mr-05">
                                             {countryCodeToFlag(datum.breakdown_value)}
                                         </span>
                                         <span style={{ whiteSpace: 'nowrap' }}>
@@ -82,6 +84,8 @@ function useWorldMapTooltip(svgRef: React.RefObject<SVGSVGElement>, showPersonsM
             tooltipEl.style.top = 'revert'
         }
     }, [tooltipOpacity, currentTooltip, tooltipCoordinates])
+
+    return svgRef
 }
 
 interface WorldMapSVGProps extends ChartParams {
@@ -132,7 +136,7 @@ const WorldMapSVG = React.memo(
                             : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,
-                            style: { color: fill },
+                            style: { color: fill, cursor: showPersonsModal && countrySeries ? 'pointer' : undefined },
                             onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
                             onMouseLeave: () => hideTooltip(),
                             onMouseMove: (e: MouseEvent) => {
@@ -167,9 +171,7 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
     const { loadPeople } = useActions(personsModalLogic)
 
-    const svgRef = useRef<SVGSVGElement>(null)
-
-    useWorldMapTooltip(svgRef, showPersonsModal)
+    const svgRef = useWorldMapTooltip(showPersonsModal)
 
     return (
         <WorldMapSVG
