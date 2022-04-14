@@ -32,7 +32,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at`
                     )
-                    console.log(response)
                     return response.results
                 },
             },
