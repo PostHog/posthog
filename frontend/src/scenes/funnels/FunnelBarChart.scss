@@ -1,3 +1,5 @@
+@import '~/vars.scss';
+
 .FunnelBarChart {
     position: relative;
     width: 100%;
@@ -86,11 +88,14 @@
     --conversion-rate: 100%; // This should be overriden from React
     position: relative;
     border-radius: var(--radius);
-    width: var(--bar-width);
+    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     flex-shrink: 0;
     height: 100%;
+    @media screen and (min-width: $lg) {
+        width: var(--bar-width);
+    }
     .InsightCard & {
-        width: calc(var(--bar-width) / 2); // We need to conserve space in cards
+        width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
     }
     &::before {
         content: '';
