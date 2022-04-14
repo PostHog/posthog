@@ -21,6 +21,7 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -30,7 +31,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         temporaryToken,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, errorActionId, actionCount, actionCountLoading } = useValues(logic)
+    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -293,12 +294,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </div>
                 </div>
-                {errorActionId && (
-                    <p className="text-danger">
-                        Action with this name already exists.{' '}
-                        <a href={urls.action(errorActionId)}>Click here to edit.</a>
-                    </p>
-                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     {!!id ? deleteButton() : cancelButton()}
                     <LemonButton
@@ -313,5 +308,13 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 </div>
             </VerticalForm>
         </div>
+    )
+}
+
+export function duplicateActionErrorToast(errorActionId: string): void {
+    lemonToast.error(
+        <>
+            Action with this name already exists. <a href={urls.action(errorActionId)}>Click here to edit.</a>
+        </>
     )
 }

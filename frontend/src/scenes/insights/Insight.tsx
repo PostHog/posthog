@@ -163,25 +163,25 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 }
                             />
                         )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            (canEditInsight ? (
-                                <ObjectTags
-                                    tags={insight.tags ?? []}
-                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                    saving={tagLoading}
-                                    tagsAvailable={[]}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                />
-                            ) : insight.tags?.length ? (
-                                <ObjectTags
-                                    tags={insight.tags}
-                                    saving={tagLoading}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                    staticOnly
-                                />
-                            ) : null)}
+                        {canEditInsight ? (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                                paywall={!hasAvailableFeature(AvailableFeature.TAGGING)}
+                            />
+                        ) : insight.tags?.length ? (
+                            <ObjectTags
+                                tags={insight.tags}
+                                saving={tagLoading}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                                staticOnly
+                            />
+                        ) : null}
                         <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }

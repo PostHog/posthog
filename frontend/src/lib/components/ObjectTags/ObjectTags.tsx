@@ -74,7 +74,7 @@ export function ObjectTags({
     }
 
     return (
-        <div style={style} className={className} data-attr={dataAttr}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, ...style }} className={className} data-attr={dataAttr}>
             {paywall ? (
                 <Tooltip
                     title={
@@ -111,7 +111,7 @@ export function ObjectTags({
                                       <Tag
                                           key={index}
                                           color={COLOR_OVERRIDES[tag] || colorForString(tag)}
-                                          style={{ marginTop: 8 }}
+                                          style={{ marginRight: 0 }}
                                       >
                                           {tag}{' '}
                                           {!staticOnly &&

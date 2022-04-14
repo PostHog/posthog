@@ -224,7 +224,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
                         )}
-                        {dashboard?.tags && hasAvailableFeature(AvailableFeature.TAGGING) && (
+                        {dashboard?.tags && (
                             <>
                                 {canEditDashboard ? (
                                     <ObjectTags
@@ -233,6 +233,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
+                                        paywall={!hasAvailableFeature(AvailableFeature.TAGGING)}
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
