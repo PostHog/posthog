@@ -107,7 +107,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
             {
-                "dashboard": dashboard.pk,
+                "dashboards": [dashboard.pk],
                 "name": "dashboard item",
                 "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error
             },
@@ -115,6 +115,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         dashboard_item = Insight.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
+        self.assertEqual(list(dashboard_item.dashboards.all()), [dashboard])
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
@@ -347,7 +348,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
         self.client.post(
             f"/api/projects/{self.team.id}/insights/",
-            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard.pk], "name": "some_item"},
             format="json",
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
@@ -393,7 +394,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
-            {"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "another"},
+            {"filters": {"hello": "test"}, "dashboards": [dashboard.pk], "name": "another"},
             format="json",
         ).json()
 

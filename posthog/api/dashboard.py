@@ -17,6 +17,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team
@@ -178,6 +179,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         for tile in tiles:
             if tile.insight:
                 insight = tile.insight
+
+                # Make sure all items have an insight set
+                if not insight.filters.get("insight"):
+                    insight.filters["insight"] = INSIGHT_TRENDS
+                    insight.save()
+
                 insight_data = InsightSerializer(insight, many=False, context=self.context).data
                 insight_data["layouts"] = tile.layouts
                 insight_data["color"] = tile.color
