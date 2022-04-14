@@ -115,10 +115,10 @@ KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHO
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL")
-KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM")
-KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER")
-KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD")
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
+KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
+KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
+KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

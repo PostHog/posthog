@@ -12,7 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, PluginId, PluginsServerConfig } from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -107,7 +107,10 @@ export async function createHub(
             on the ca trust_cert for this purpose. */
             rejectUnauthorized: false,
         }
-    } else if (serverConfig.KAFKA_SECURITY_PROTOCOL === 'SSL' || serverConfig.KAFKA_SECURITY_PROTOCOL === 'SASL_SSL') {
+    } else if (
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
+    ) {
         kafkaSsl = true
     }
 

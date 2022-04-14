@@ -44,6 +44,19 @@ export const logLevelToNumber: Record<LogLevel, number> = {
     [LogLevel.Error]: 50,
 }
 
+export enum KafkaSecurityProtocol {
+    Plaintext = 'PLAINTEXT',
+    SaslPlaintext = 'SASL_PLAINTEXT',
+    Ssl = 'SSL',
+    SaslSsl = 'SASL_SSL',
+}
+
+export enum KafkaSaslMechanism {
+    Plain = 'plain',
+    ScramSha256 = 'scram-sha-256',
+    ScramSha512 = 'scram-sha-512',
+}
+
 export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
@@ -66,8 +79,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
-    KAFKA_SECURITY_PROTOCOL: string | null
-    KAFKA_SASL_MECHANISM: 'plain' | 'scram-sha-256' | 'scram-sha-512' | null
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null

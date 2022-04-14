@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
 import kafka.errors
@@ -59,8 +60,15 @@ class TestKafkaConsumer:
         return
 
 
-def sasl_params():
-    if KAFKA_SECURITY_PROTOCOL in ["SASL_PLAINTEXT", "SASL_SSL"]:
+class _KafkaSecurityProtocol(str, Enum):
+    PLAINTEXT = "PLAINTEXT"
+    SSL = "SSL"
+    SASL_PLAINTEXT = "SASL_PLAINTEXT"
+    SASL_SSL = "SASL_SSL"
+
+
+def _sasl_params():
+    if KAFKA_SECURITY_PROTOCOL in [_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL]:
         return {
             "sasl_mechanism": KAFKA_SASL_MECHANISM,
             "sasl_plain_username": KAFKA_SASL_USER,
@@ -79,8 +87,8 @@ class _KafkaProducer:
             self.producer = KP(
                 retries=KAFKA_PRODUCER_RETRIES,
                 bootstrap_servers=KAFKA_HOSTS,
-                security_protocol=KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-                **sasl_params(),
+                security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+                **_sasl_params(),
             )
 
     @staticmethod
@@ -138,8 +146,8 @@ def build_kafka_consumer(
             bootstrap_servers=KAFKA_HOSTS,
             auto_offset_reset=auto_offset_reset,
             value_deserializer=value_deserializer,
-            security_protocol=KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-            **sasl_params(),
+            security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+            **_sasl_params(),
         )
     return consumer
 
