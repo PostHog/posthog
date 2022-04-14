@@ -101,7 +101,7 @@ class Dashboard(models.Model):
         """
         return {
             "pinned": self.pinned,
-            "item_count": self.items.count(),
+            "item_count": self.insights.count(),
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
@@ -120,6 +120,6 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.insights.filter():
         item.save()
 
-    if instance.insights.count() == 0 and instance.items.count() > 0:
+    if instance.insights.count() == 0 and instance.insights.count() > 0:
         for item in instance.insights.filter():
             item.save()

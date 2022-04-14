@@ -49,7 +49,7 @@ class TestTeam(BaseTest):
         )
 
         # Ensure insights are created
-        self.assertEqual(Insight.objects.filter(dashboard=team.primary_dashboard).count(), 6)
+        self.assertEqual(Insight.objects.filter(dashboards__in=team.primary_dashboard).count(), 6)
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_preinstalled_are_autoenabled(self, mock_get):

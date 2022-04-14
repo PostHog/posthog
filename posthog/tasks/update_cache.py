@@ -110,9 +110,12 @@ def update_cached_items() -> None:
     tasks = []
     items = (
         Insight.objects.filter(
-            Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
+            Q(
+                Q(dashboards__is_shared=True)
+                | Q(dashboards__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+            )
         )
-        .exclude(dashboard__deleted=True)
+        .exclude(dashboards__deleted=True)
         .exclude(refreshing=True)
         .exclude(deleted=True)
         .exclude(refresh_attempt__gt=2)

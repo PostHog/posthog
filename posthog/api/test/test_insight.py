@@ -16,6 +16,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
     Cohort,
     Dashboard,
+    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -272,13 +273,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             user = User.objects.create(email=f"testuser{i}@posthog.com")
             OrganizationMembership.objects.create(user=user, organization=self.organization)
             dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
-            Insight.objects.create(
+            item = Insight.objects.create(
                 filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
                 team=self.team,
                 short_id=f"insight{i}",
-                dashboard=dashboard,
                 created_by=user,
             )
+            DashboardTile.objects.create(dashboard=dashboard, insight=item)
 
         # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users + organization + tag
         with self.assertNumQueries(12):

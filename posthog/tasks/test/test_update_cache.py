@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, Filter, Insight
+from posthog.models import Dashboard, DashboardTile, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_earliest_timestamp
@@ -31,26 +31,24 @@ class TestUpdateCache(APIBaseTest):
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
-        item = Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-        funnel_item = Insight.objects.create(
-            dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
-        )
+        item = Insight.objects.create(filters=filter.to_dict(), team=self.team)
+        DashboardTile.objects.create(insight=item, dashboard=shared_dashboard)
+        funnel_item = Insight.objects.create(filters=funnel_filter.to_dict(), team=self.team)
+        DashboardTile.objects.create(insight=funnel_item, dashboard=shared_dashboard)
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
-            dashboard=dashboard_to_cache,
-            filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(),
-            team=self.team,
+            filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(), team=self.team,
         )
+        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
         dashboard_do_not_cache = Dashboard.objects.create(
             team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
         )
         item_do_not_cache = Insight.objects.create(
-            dashboard=dashboard_do_not_cache,
-            filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(),
-            team=self.team,
+            filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(), team=self.team,
         )
+        DashboardTile.objects.create(insight=item_do_not_cache, dashboard=dashboard_do_not_cache)
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
@@ -216,12 +214,11 @@ class TestUpdateCache(APIBaseTest):
     def _create_dashboard(self, filter: FilterType, item_refreshing: bool = False) -> Insight:
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
 
-        return Insight.objects.create(
-            dashboard=dashboard_to_cache,
-            filters=filter.to_dict(),
-            team=self.team,
-            last_refresh=now() - timedelta(days=30),
+        insight = Insight.objects.create(
+            filters=filter.to_dict(), team=self.team, last_refresh=now() - timedelta(days=30),
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard_to_cache)
+        return insight
 
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
@@ -251,8 +248,10 @@ class TestUpdateCache(APIBaseTest):
         )
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
 
-        Insight.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
-        Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
+        insight = Insight.objects.create(filters=filter_stickiness.to_dict(), team=self.team)
+        DashboardTile.objects.create(insight=insight, dashboard=shared_dashboard)
+        insight = Insight.objects.create(filters=filter.to_dict(), team=self.team)
+        DashboardTile.objects.create(insight=insight, dashboard=shared_dashboard)
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 
@@ -274,12 +273,12 @@ class TestUpdateCache(APIBaseTest):
     def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
-            dashboard=dashboard_to_cache,
             filters=Filter(
                 data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
             ).to_dict(),
             team=self.team,
         )
+        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
         patch_calculate_by_filter.side_effect = Exception()
 
@@ -324,9 +323,12 @@ class TestUpdateCache(APIBaseTest):
 
         filter = {"events": [{"id": "$pageview"}]}
 
-        item1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
-        item2 = Insight.objects.create(dashboard=dashboard2, filters=filter, team=self.team)
-        item3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+        item1 = Insight.objects.create(filters=filter, team=self.team)
+        DashboardTile.objects.create(insight=item1, dashboard=dashboard1)
+        item2 = Insight.objects.create(filters=filter, team=self.team)
+        DashboardTile.objects.create(insight=item2, dashboard=dashboard2)
+        item3 = Insight.objects.create(filters=filter, team=self.team)
+        DashboardTile.objects.create(insight=item3, dashboard=dashboard3)
 
         update_cached_items()
 
@@ -350,9 +352,8 @@ class TestUpdateCache(APIBaseTest):
         # Some filters hashes are wrong (likely due to changes in our filters models) and previously we would not save changes to those insights and constantly retry them.
         dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
-        item = Insight.objects.create(
-            dashboard=dashboard, filters=filter, filters_hash="cache_thisiswrong", team=self.team
-        )
+        item = Insight.objects.create(filters=filter, filters_hash="cache_thisiswrong", team=self.team)
+        DashboardTile.objects.create(insight=item, dashboard=dashboard)
         Insight.objects.all().update(filters_hash="cache_thisiswrong")
         self.assertEquals(Insight.objects.get().filters_hash, "cache_thisiswrong")
 
@@ -369,7 +370,8 @@ class TestUpdateCache(APIBaseTest):
     def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         # sometimes we have broken insights, add a test to catch
         dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
-        item = Insight.objects.create(dashboard=dashboard, filters={}, team=self.team)
+        item = Insight.objects.create(filters={}, team=self.team)
+        DashboardTile.objects.create(insight=item, dashboard=dashboard)
 
         update_cached_items()
 
@@ -380,7 +382,8 @@ class TestUpdateCache(APIBaseTest):
         dashboard_item_update_task_params.side_effect = Exception()
         dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
-        item = Insight.objects.create(dashboard=dashboard, filters=filter, team=self.team)
+        item = Insight.objects.create(filters=filter, team=self.team)
+        DashboardTile.objects.create(insight=item, dashboard=dashboard)
 
         update_cached_items()
 

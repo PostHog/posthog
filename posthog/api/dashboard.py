@@ -108,13 +108,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     insight_serializer = InsightSerializer(data=new_data, context=self.context,)
                     insight_serializer.is_valid()
                     insight_serializer.save()
+                    insight = cast(Insight, insight_serializer.instance)
 
                     # Create new insight's tags separately. Force create tags on dashboard duplication.
-                    self._attempt_set_tags(new_tags, insight_serializer.instance, force_create=True)
+                    self._attempt_set_tags(new_tags, insight, force_create=True)
 
                     DashboardTile.objects.create(
                         dashboard=existing_dashboard,
-                        insight=insight_serializer.instance,
+                        insight=insight,
                         layouts=existing_tile.layouts,
                         color=existing_tile.color,
                     )
