@@ -163,6 +163,44 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
 
 
+def performed_event_subquery(prop: Property, team_id: int, prepend: Union[int, str]) -> Tuple[str, Dict[str, Any]]:
+    if prop.event_type == "action":
+        action_id = prop.event
+        event_id = None
+    else:
+        event_id = prop.event
+        action_id = None
+
+    count_operator = prop.operator
+    count = prop.operator_value
+    days = prop.time_value
+
+    date_query, date_params = get_date_query(days, None, None)
+    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+
+    if count is not None:
+
+        is_negation = (
+            count_operator == "exact" or count_operator == "lt"
+        ) and count == 0  # = 0 means all people who never performed the event
+
+        count_operator = _get_count_operator(count_operator)
+        pdi_query = get_team_distinct_ids_query(team_id)
+        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
+            entity_query=entity_query,
+            date_query=date_query,
+            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
+            count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
+        )
+
+        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
+
+        return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
+    else:
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
+        return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
+
+
 def _get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
@@ -175,7 +213,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
 
 
 def _get_entity_query(
-    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: int
+    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
         return "event = %(event)s", {"event": event_id}

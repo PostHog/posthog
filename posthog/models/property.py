@@ -28,7 +28,7 @@ PropertyType = Literal[
     "group",
     "recording",
     "performed_event",
-    "performed_multiple_events",
+    "performed_event_multiple",
 ]
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
@@ -65,7 +65,7 @@ VALIDATE_PROP_TYPES = {
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
     "performed_event": ["event", "event_type", "time_value", "time_interval"],
-    "performed_multiple_events": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
+    "performed_event_multiple": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
 }
 
 
@@ -107,7 +107,7 @@ class Property:
         seq_event: Optional[Union[str, int]] = None,
         seq_time_value: Optional[int] = None,
         seq_time_interval: Optional[OperatorInterval] = None,
-        negation: Optional[bool] = False,
+        negation: Optional[bool] = None,
         **kwargs,
     ) -> None:
         self.key = key
