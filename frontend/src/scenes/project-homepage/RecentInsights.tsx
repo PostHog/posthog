@@ -1,9 +1,8 @@
 import React from 'react'
-import './RecentInsights.scss'
+import './ProjectHomepage.scss'
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
-import './RecentRecordings.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
@@ -18,14 +17,11 @@ interface InsightRowProps {
 
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
     return (
-        <LemonButton fullWidth className="insight-row" to={urls.insightView(insight.short_id)}>
-            <div className="insight-icon">
-                <InsightIcon insight={insight} />
-            </div>
-
-            <div className="insight-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="insight-name">{insight.name || insight.derived_name}</p>
-                <p className="insight-last-modified">Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
+        <LemonButton fullWidth className="list-row" to={urls.insightView(insight.short_id)}>
+            <InsightIcon insight={insight} />
+            <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
+                <p className="row-title link-text">{insight.name || insight.derived_name}</p>
+                <p>Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
             </div>
         </LemonButton>
     )
