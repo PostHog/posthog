@@ -26,7 +26,7 @@ export interface HistogramConfig {
 
 export const INITIAL_CONFIG = {
     layout: FunnelLayout.vertical,
-    height: 500,
+    height: 352,
     width: 500,
     margin: { top: 20, right: 20, bottom: 20, left: 40 },
     borderRadius: 4, // same as funnel bar graph,
