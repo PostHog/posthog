@@ -138,6 +138,7 @@ export function UniversalSearchPopup({
     const logic = taxonomicFilterLogic(universalSearchLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
 
+    // Command+S shortcut to get to universal search
     useEventListener('keydown', (event) => {
         if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
@@ -163,8 +164,8 @@ export function UniversalSearchPopup({
                 modifier={{
                     name: 'offset',
                     options: {
+                        // @ts-ignore
                         offset: ({ placement }) => {
-                            // eslint-disable-line
                             if (placement === 'right-start') {
                                 return [-10, -249 - 243]
                             } else {

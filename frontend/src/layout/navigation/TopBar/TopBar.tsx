@@ -14,8 +14,8 @@ import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
-import { TaxonomicFilterGroupType } from 'lib/components/UniversalSearch/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '~/models/groupsModel'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -24,6 +24,8 @@ export function TopBar(): JSX.Element {
         useActions(navigationLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
+
+    const { groupNamesTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <>
@@ -54,13 +56,7 @@ export function TopBar(): JSX.Element {
                                 TaxonomicFilterGroupType.Plugins,
                                 TaxonomicFilterGroupType.Experiments,
                                 TaxonomicFilterGroupType.Dashboards,
-                                // TaxonomicFilterGroupType.GroupsPrefix,
-                                'groups_0',
-                                'groups_1',
-                                'name_groups_0',
-                                'name_groups_1',
-                                'name_groups_2',
-                                // // 'groups_2',
+                                ...groupNamesTaxonomicTypes,
                             ]}
                         />
                     </div>
