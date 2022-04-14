@@ -57,7 +57,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -373,7 +373,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        self._refresh_dashboard(request=request)
+        self._update_cached_insights(filter, result)
         return {"result": result}
 
     # ******************************************
@@ -475,6 +475,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp}
+
+    def _update_cached_insights(self, filter: Filter, result):
+        filters_hash = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        Insight.objects.filter(team=self.team, filters_hash=filters_hash).update(last_refresh=now(), result=result)
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:

@@ -4,11 +4,14 @@ from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter  # noqa: F401
+from posthog.utils import generate_cache_key
 
 
 def generate_short_id():
@@ -130,3 +133,10 @@ class InsightViewed(models.Model):
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
+
+
+@receiver(pre_save, sender=Insight)
+def insight_saved(sender, instance: Insight, dashboard=None, **kwargs):
+    if instance.filters and instance.filters != {}:
+        filter = get_filter(data=instance.filters, team=instance.team)
+        instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
