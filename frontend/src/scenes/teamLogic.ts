@@ -1,12 +1,13 @@
-import { kea } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
-import { getAppContext } from '../lib/utils/getAppContext'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
+import { loaders } from 'kea-loaders'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -18,14 +19,14 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
-export const teamLogic = kea<teamLogicType>({
-    path: ['scenes', 'teamLogic'],
-    actions: {
-        deleteTeam: (team: TeamType) => ({ team }),
+export const teamLogic = kea<teamLogicType>([
+    path(['scenes', 'teamLogic']),
+    actions({
+        deleteeTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
-    },
-    reducers: {
+    }),
+    reducers({
         teamBeingDeleted: [
             null as TeamType | null,
             {
@@ -34,8 +35,8 @@ export const teamLogic = kea<teamLogicType>({
                 deleteTeamFailure: () => null,
             },
         ],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         currentTeam: [
             null as TeamType | null,
             {
@@ -82,8 +83,8 @@ export const teamLogic = kea<teamLogicType>({
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -111,8 +112,8 @@ export const teamLogic = kea<teamLogicType>({
                 return currentTeam?.correlation_config || {}
             },
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -128,18 +129,16 @@ export const teamLogic = kea<teamLogicType>({
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
         },
+    })),
+    afterMount(({ actions }) => {
+        const appContext = getAppContext()
+        const contextualTeam = appContext?.current_team
+        if (contextualTeam) {
+            // If app context is available (it should be practically always) we can immediately know currentTeam
+            actions.loadCurrentTeamSuccess(contextualTeam)
+        } else {
+            // If app context is not available, a traditional request is needed
+            actions.loadCurrentTeam()
+        }
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            const appContext = getAppContext()
-            const contextualTeam = appContext?.current_team
-            if (contextualTeam) {
-                // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(contextualTeam)
-            } else {
-                // If app context is not available, a traditional request is needed
-                actions.loadCurrentTeam()
-            }
-        },
-    }),
-})
+])
