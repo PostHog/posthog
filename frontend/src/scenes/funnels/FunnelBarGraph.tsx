@@ -11,7 +11,7 @@ import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
@@ -29,6 +29,8 @@ import { FunnelStepDropdown } from './FunnelStepDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { FunnelBarChart } from './FunnelBarChart'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 
 interface BarProps {
     percentage: number
@@ -298,9 +300,10 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
         isModalActive,
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (layout === FunnelLayout.vertical) {
-        return <FunnelBarChart {...props} />
+        return featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? <FunnelBarChart {...props} /> : <FunnelStepTable />
     }
 
     // Everything rendered after is a funnel in top-to-bottom mode.
