@@ -170,27 +170,27 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         self._attempt_set_tags(tags, insight)
         return insight
 
-    def update(self, insight: Insight, validated_data: Dict, **kwargs) -> Insight:
+    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
-            insight.last_modified_at = now()
-            insight.last_modified_by = self.context["request"].user
+            instance.last_modified_at = now()
+            instance.last_modified_by = self.context["request"].user
         dashboards = validated_data.pop("dashboards", None)
         if dashboards is not None:
-            old_dashboard_ids = [tile.dashboard_id for tile in insight.dashboardtile_set.all()]
+            old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
             new_dashboard_ids = [d.id for d in dashboards]
 
             ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
             ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
-            for dashboard in Dashboard.objects.filter(team=insight.team, id__in=ids_to_add):
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+            for dashboard in Dashboard.objects.filter(team=instance.team, id__in=ids_to_add):
+                DashboardTile.objects.create(insight=instance, dashboard=dashboard)
 
             if ids_to_remove:
-                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=insight).delete()
+                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
-        return super().update(insight, validated_data)
+        return super().update(instance, validated_data)
 
     def get_result(self, insight: Insight):
         if not insight.filters:
