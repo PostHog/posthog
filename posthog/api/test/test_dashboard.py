@@ -265,6 +265,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["items"][0]["last_refresh"], None)
 
     def test_refresh_cache(self):
+        self.team.organization = Organization.objects.create()
+        self.team.save()
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
         with freeze_time("2020-01-04T13:00:01Z"):
