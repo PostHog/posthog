@@ -24,9 +24,9 @@ from ee.clickhouse.sql.trends.breakdown import (
 )
 from posthog.constants import (
     MONTHLY_ACTIVE,
+    NON_TIME_SERIES_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
     TRENDS_CUMULATIVE,
-    TRENDS_DISPLAY_BY_VALUE,
     WEEKLY_ACTIVE,
     PropertyOperatorType,
 )
@@ -123,7 +123,7 @@ class ClickhouseTrendsBreakdown:
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,

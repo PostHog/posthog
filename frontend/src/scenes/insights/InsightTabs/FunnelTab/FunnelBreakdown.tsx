@@ -12,7 +12,7 @@ import {
 } from 'scenes/funnels/funnelUtils'
 import React, { useRef } from 'react'
 import useSize from '@react-hook/size'
-import { humanFriendlyDuration, pluralize } from 'lib/utils'
+import { clamp, humanFriendlyDuration, pluralize } from 'lib/utils'
 import { Popover } from 'antd'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -20,7 +20,6 @@ import { MetricRow } from 'scenes/funnels/FunnelBarGraph'
 
 interface BreakdownBarGroupProps {
     currentStep: FunnelStepWithConversionMetrics
-    basisStep: FunnelStepWithConversionMetrics
     previousStep: FunnelStepWithConversionMetrics
     showLabels: boolean
     onBarClick?: (breakdown_value: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>) => void
@@ -31,7 +30,6 @@ interface BreakdownBarGroupProps {
 
 export function BreakdownVerticalBarGroup({
     currentStep,
-    basisStep,
     previousStep,
     showLabels,
     onBarClick,
@@ -46,10 +44,8 @@ export function BreakdownVerticalBarGroup({
     return (
         <div className="breakdown-bar-group" ref={ref}>
             {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
-                const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
-                const previousBarHeight =
-                    (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
+                const currentBarHeight = clamp(height * breakdown.conversionRates.fromBasisStep, 0, height)
+                const previousBarHeight = clamp(currentBarHeight / breakdown.conversionRates.fromBasisStep, 0, height)
                 const color = getSeriesColor(breakdown.order, isSingleSeries)
                 const breakdownValues = getBreakdownStepValues(breakdown, breakdownIndex)
 
@@ -168,21 +164,18 @@ export function BreakdownBarGroupWrapper({
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const {
-        stepReference,
         visibleStepsWithConversionMetrics: steps,
         isModalActive,
         flattenedBreakdowns,
         aggregationTargetLabel,
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
-    const basisStep = getReferenceStep(steps, stepReference, step.order)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
 
     return (
         <div className="funnel-bar-wrapper breakdown vertical">
             <BreakdownVerticalBarGroup
                 currentStep={step}
-                basisStep={basisStep}
                 previousStep={previousStep}
                 showLabels={showLabels}
                 onBarClick={(breakdown) => {

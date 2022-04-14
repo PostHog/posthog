@@ -186,7 +186,15 @@ export async function createHub(
     )
     status.info('👍', `Redis`)
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
+    const db = new DB(
+        postgres,
+        redisPool,
+        kafkaProducer,
+        clickhouse,
+        statsd,
+        serverConfig.PERSON_INFO_CACHE_TTL,
+        new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
+    )
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)

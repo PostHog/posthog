@@ -49,6 +49,8 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../InfoMessage/AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -98,6 +100,10 @@ const displayMap: Record<
         className: 'paths-viz',
         element: Paths,
     },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
+    },
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
@@ -124,6 +130,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Whether loading timed out. */
     timedOut?: boolean
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor?: (newColor: InsightModel['color']) => void
@@ -399,6 +406,14 @@ function InsightMeta({
     )
 }
 
+function VizComponentFallback(): JSX.Element {
+    return (
+        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
+            Unknown insight display type
+        </AlertMessage>
+    )
+}
+
 interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
@@ -418,7 +433,7 @@ function InsightViz({
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
-    const VizComponent = displayMap[displayedType].element
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
     return (
         <div
@@ -458,6 +473,7 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
         updateColor,
         removeFromDashboard,
         deleteWithUndo,
@@ -545,9 +561,9 @@ function InsightCardInternal(
             </BindLogic>
             {showResizeHandles && (
                 <>
-                    <ResizeHandle1D orientation="vertical" />
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
                     <ResizeHandle1D orientation="horizontal" />
-                    <ResizeHandle2D />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
                 </>
             )}
             {children /* Extras, such as resize handles */}

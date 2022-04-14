@@ -18,6 +18,7 @@
     }
     &::before,
     &::after {
+        z-index: 1;
         transition: opacity 200ms ease;
         opacity: 0;
         content: '';
@@ -63,20 +64,24 @@
     border-collapse: collapse;
     border-spacing: 0;
     > thead {
+        position: relative;
         border-bottom: 1px solid var(--border);
         background: var(--bg-mid);
         font-size: 0.75rem;
-        font-weight: 600;
         letter-spacing: 0.03125rem;
-        > tr > th {
-            text-align: left;
+        > tr {
+            &:first-of-type:not(:last-of-type) {
+                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
+            }
+            > th {
+                font-weight: 700;
+                text-align: left;
+                white-space: pre-wrap;
+            }
         }
     }
     > tbody {
         > tr {
-            &:not(:first-child) {
-                border-top: 1px solid var(--border);
-            }
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--bg-side);
@@ -84,17 +89,14 @@
                     padding: 0; // Disable padding inside the expansion for better tailored placement of contents
                 }
             }
-
             &.LemonTable__tr--status-highlighted {
                 background: rgba($primary, 0.1);
                 color: var(--text-default);
                 font-weight: 600;
-
                 .LemonTable__tr__icon {
                     color: var(--primary);
                 }
             }
-
             &.LemonTable__tr--status-danger {
                 color: var(--danger);
 
@@ -102,13 +104,11 @@
                     color: var(--danger);
                 }
             }
-
             &.LemonTable__tr--status-warning {
                 .LemonTable__tr__icon {
                     color: var(--warning);
                 }
             }
-
             &.LemonTable__tr--status-success {
                 .LemonTable__tr__icon {
                     color: var(--success);
@@ -124,6 +124,9 @@
     > tbody {
         > tr {
             height: var(--row-base-height);
+            &:not(:first-child) {
+                border-top: 1px solid var(--border);
+            }
             > th,
             > td {
                 padding-left: 1rem;
@@ -134,6 +137,13 @@
                     padding-left: 0 !important;
                     padding-right: 0 !important;
                 }
+                &.LemonTable__ribbon {
+                    padding: 0 0.25rem 0 0 !important;
+                }
+                &.LemonTable__boundary:not(:last-child) {
+                    border-right: 1px solid var(--border);
+                }
+                &.LemonTable__boundary,
                 &:last-child {
                     padding-right: 1rem;
                 }
@@ -177,9 +187,10 @@
 
 .LemonTable__loader {
     transition: height 200ms ease, top 200ms ease;
+    z-index: 10;
     position: absolute;
     left: 0;
-    top: var(--row-base-height);
+    bottom: -1px;
     width: 100%;
     height: 0;
     background: var(--primary-bg-active);
@@ -195,7 +206,6 @@
         background: var(--primary);
     }
     .LemonTable--loading & {
-        top: calc(var(--row-base-height) - 0.25rem);
         height: 0.25rem;
     }
 }
@@ -206,7 +216,6 @@
 
 .LemonTable__header-content {
     display: flex;
-    white-space: pre-wrap;
     align-items: center;
     line-height: 1.5;
 }

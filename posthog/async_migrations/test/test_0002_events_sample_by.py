@@ -91,7 +91,7 @@ class Test0002EventsSampleBy(BaseTest):
     def test_run_migration_in_full(self):
         from posthog.client import sync_execute
 
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
         self.assertTrue(migration_successful)

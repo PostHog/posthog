@@ -1,14 +1,12 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -30,10 +28,11 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode } = useActions(insightSceneLogic)
+    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -46,12 +45,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insight,
         insightChanged,
         tagLoading,
-        sourceDashboardId,
+        insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -64,35 +62,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
-    const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
-        setActiveView(view)
-        reportHotkeyNavigation('insights', hotkey)
-    }
+    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
-    useKeyboardHotkeys({
-        t: {
-            action: () => handleHotkeyNavigation(InsightType.TRENDS, 't'),
-        },
-        f: {
-            action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
-        },
-        r: {
-            action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
-        },
-        p: {
-            action: () => handleHotkeyNavigation(InsightType.PATHS, 'p'),
-        },
-        i: {
-            action: () => handleHotkeyNavigation(InsightType.STICKINESS, 'i'),
-        },
-        l: {
-            action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
-        },
-        e: {
-            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.View,
-        },
-    })
+    useEffect(() => {
+        syncInsightChanged(insightChanged)
+    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -136,13 +110,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 buttons={
                     <div className="insights-tab-actions">
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={cancelChanges}>
+                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && (
-                            <SaveToDashboard insight={insight} sourceDashboardId={sourceDashboardId} />
-                        )}
+                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <LemonButton
@@ -160,6 +132,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboard && !insight.id}
+                                insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
                         )}
@@ -228,7 +201,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     >
                         <div
                             style={{
-                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
                                 marginRight: verticalLayout ? '1rem' : 0,
                             }}
                         >
@@ -246,7 +219,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <div
                             style={{
                                 flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
                             }}
                         >
                             <InsightContainer />

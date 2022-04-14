@@ -8,7 +8,7 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -51,6 +51,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import InsightViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -455,6 +456,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+    # ******************************************
+    # /projects/:id/insights/:short_id/viewed
+    # Creates or updates an InsightViewed object for the user/insight combo
+    # ******************************************
+    @action(methods=["POST"], detail=True)
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class LegacyInsightViewSet(InsightViewSet):

@@ -6,19 +6,18 @@ import { router } from 'kea-router'
 describe('tableConfigLogic', () => {
     let logic: ReturnType<typeof tableConfigLogic.build>
 
-    const defaultColumns = ['a', 'b']
-    const availableColumns = [...defaultColumns, 'c', 'd', 'e']
+    const startingColumns = 'DEFAULT'
 
     beforeEach(() => {
         initKeaTests()
-        logic = tableConfigLogic({ defaultColumns, availableColumns })
+        logic = tableConfigLogic({ startingColumns })
         logic.mount()
     })
 
     it('starts with expected defaults', async () => {
         await expectLogic(logic).toMatchValues({
             modalVisible: false,
-            selectedColumns: 'DEFAULT',
+            selectedColumns: startingColumns,
             tableWidth: 7,
         })
     })

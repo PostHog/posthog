@@ -1,47 +1,43 @@
 import { kea } from 'kea'
-import api, { PaginatedResponse } from 'lib/api'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
+import {
+    ActivityLogItem,
+    ActivityScope,
+    humanize,
+    HumanizedActivityLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { urls } from 'scenes/urls'
 
-interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
-    total_count: number
-}
-
-const ACTIVITY_PAGE_SIZE = 20
-
-export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedResponse>>({
+export const activityLogLogic = kea<activityLogLogicType>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
     props: {} as ActivityLogProps,
     key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
-    loaders: ({ values }) => ({
+    actions: {
+        setPage: (page: number) => ({ page }),
+    },
+    loaders: ({ values, props }) => ({
         nextPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
-                fetchNextPage: async () => {
-                    const url = values.nextPageURL
-                    return url === null ? null : await api.get(url)
-                },
+                fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
             { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
             {
-                fetchPreviousPage: async () => {
-                    const url = values.previousPageURL
-                    return url === null ? null : await api.get(url)
-                },
+                fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },
         ],
     }),
     reducers: ({ props }) => ({
         page: [
-            props.startingPage ? props.startingPage - 1 : 0,
+            1,
             {
-                fetchNextPageSuccess: (state) => state + 1,
-                fetchPreviousPageSuccess: (state) => state - 1,
+                setPage: (_, { page }) => page,
             },
         ],
         humanizedActivity: [
@@ -53,13 +49,6 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                     previousPage ? humanize(previousPage.results, props.describer) : state,
             },
         ],
-        previousPageURL: [
-            null as string | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.previous || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.previous || null,
-            },
-        ],
         totalCount: [
             null as number | null,
             {
@@ -67,23 +56,8 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
                 fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.total_count || null,
             },
         ],
-        nextPageURL: [
-            (props.id
-                ? `/api/projects/@current/feature_flags/${props.id}/activity?page=${
-                      props.startingPage || 1
-                  }&limit=${ACTIVITY_PAGE_SIZE}`
-                : `/api/projects/@current/feature_flags/activity?page=${
-                      props.startingPage || 1
-                  }&limit=${ACTIVITY_PAGE_SIZE}`) as string | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.next || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.next || null,
-            },
-        ],
     }),
     selectors: ({ actions }) => ({
-        hasNextPage: [(s) => [s.nextPageURL], (nextPageURL: string | null) => !!nextPageURL],
-        hasPreviousPage: [(s) => [s.previousPageURL], (previousPageURL: string | null) => !!previousPageURL],
         pagination: [
             (s) => [s.page, s.totalCount],
             (page, totalCount): PaginationManual => {
@@ -98,6 +72,34 @@ export const activityLogLogic = kea<activityLogLogicType<CountedPaginatedRespons
             },
         ],
     }),
+    listeners: ({ actions }) => ({
+        setPage: async (_, breakpoint) => {
+            await breakpoint()
+            actions.fetchNextPage()
+        },
+    }),
+    urlToAction: ({ values, actions, props }) => {
+        const onPageChange = (
+            searchParams: Record<string, any>,
+            hashParams: Record<string, any>,
+            pageScope: ActivityScope
+        ): void => {
+            const pageInURL = searchParams['page']
+
+            const shouldPage =
+                (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
+                (pageScope === ActivityScope.FEATURE_FLAG && searchParams['tab'] === 'history')
+
+            if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === props.scope) {
+                actions.setPage(pageInURL)
+            }
+        }
+        return {
+            '/person/*': ({}, searchParams, hashParams) => onPageChange(searchParams, hashParams, ActivityScope.PERSON),
+            [urls.featureFlags()]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
+        }
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             actions.fetchNextPage()
