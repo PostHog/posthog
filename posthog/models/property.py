@@ -19,7 +19,16 @@ from posthog.utils import is_valid_regex, str_to_bool
 
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
-    "event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group", "performed_event"
+    "event",
+    "person",
+    "cohort",
+    "element",
+    "static-cohort",
+    "precalculated-cohort",
+    "group",
+    "recording",
+    "performed_event",
+    "performed_multiple_events",
 ]
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
@@ -54,6 +63,7 @@ VALIDATE_PROP_TYPES = {
     "static-cohort": ["key", "value"],
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
+    "recording": ["key", "value"],
     "performed_event": ["event", "event_type", "time_value", "time_interval"],
     "performed_multiple_events": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
 }
@@ -115,7 +125,7 @@ class Property:
         self.seq_event = seq_event
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
-        self.negation = str_to_bool(negation)
+        self.negation = None if negation is None else str_to_bool(negation)
 
         self._data = {
             "key": self.key,
