@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -20,7 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
+import useSize from '@react-hook/size'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -29,14 +29,8 @@ export function ProjectHomepage(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
-
-    const [topListContainerWidth, setTopListContainerWidth] = useState<number>()
-    const topListContainerRef = useRef<HTMLDivElement>(null)
-    const windowSize = useWindowSize()
-
-    useEffect(() => {
-        setTopListContainerWidth(topListContainerRef.current?.getBoundingClientRect().width)
-    }, [windowSize])
+    const topListContainerRef = useRef<HTMLDivElement | null>(null)
+    const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
         <div style={{ display: 'flex' }}>

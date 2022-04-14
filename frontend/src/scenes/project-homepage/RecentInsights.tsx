@@ -8,8 +8,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { InsightModel } from '~/types'
 
-import { recentInsightsLogic } from './recentInsightsLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { projectHomepageLogic } from './projectHomepageLogic'
 
 interface InsightRowProps {
     insight: InsightModel
@@ -28,7 +28,7 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
 }
 
 export function RecentInsights(): JSX.Element {
-    const { recentInsights, recentInsightsLoading } = useValues(recentInsightsLogic)
+    const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
 
     return (
         <>
