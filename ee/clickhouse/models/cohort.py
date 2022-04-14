@@ -15,6 +15,7 @@ from ee.clickhouse.sql.cohort import (
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_PERSON_ID_FIRST_TIME_EVENT,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
@@ -180,9 +181,9 @@ def performed_event_subquery(prop: Property, team_id: int, prepend: Union[int, s
 
     if count is not None:
 
-        is_negation = (
-            count_operator == "exact" or count_operator == "lt"
-        ) and count == 0  # = 0 means all people who never performed the event
+        is_negation = prop.negation or (
+            (count_operator == "exact" or count_operator == "lt") and count == 0
+        )  # = 0 means all people who never performed the event
 
         count_operator = _get_count_operator(count_operator)
         pdi_query = get_team_distinct_ids_query(team_id)
@@ -199,6 +200,32 @@ def performed_event_subquery(prop: Property, team_id: int, prepend: Union[int, s
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
+
+
+def performed_event_first_time_subquery(
+    prop: Property, team_id: int, prepend: Union[int, str]
+) -> Tuple[str, Dict[str, Any]]:
+    if prop.event_type == "action":
+        action_id = prop.event
+        event_id = None
+    else:
+        event_id = prop.event
+        action_id = None
+
+    days = prop.time_value
+
+    date_query, date_params = get_date_query(days, None, None)
+    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+    pdi_query = get_team_distinct_ids_query(team_id)
+    is_negation = prop.negation
+
+    extract_person = GET_PERSON_ID_FIRST_TIME_EVENT.format(
+        entity_query=entity_query, date_query=date_query, GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
+    )
+
+    params: Dict[str, Union[str, int]] = {**entity_params, **date_params, "team_id": team_id}
+
+    return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
 
 
 def _get_count_operator(count_operator: Optional[str]) -> str:

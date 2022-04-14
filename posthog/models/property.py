@@ -29,6 +29,11 @@ PropertyType = Literal[
     "recording",
     "performed_event",
     "performed_event_multiple",
+    "performed_event_first_time",
+    "performed_event_sequence",
+    "performed_event_regularly",
+    "stopped_performing_event",
+    "restarted_performing_event",
 ]
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
