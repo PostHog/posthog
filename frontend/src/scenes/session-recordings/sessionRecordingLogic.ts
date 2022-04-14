@@ -458,8 +458,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                             const { level, payload, trace } = snapshot.data.payload as RRWebRecordingConsoleLogPayload
 
                             const parsedPayload = payload
-                                ?.map?.((item: string) =>
-                                    item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
+                                ?.map?.((item) =>
+                                    item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
                                 )
                                 .join(' ')
 

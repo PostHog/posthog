@@ -150,12 +150,20 @@ export class DB {
     /** Whether to write to clickhouse_person_unique_id topic */
     writeToPersonUniqueId?: boolean
 
+    /** How many seconds to keep person info in Redis cache */
+    PERSON_INFO_CACHE_TTL: number
+
+    /** Which teams is person info caching enabled on */
+    personInfoCachingEnabledTeams: Set<number>
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper | undefined,
         clickhouse: ClickHouse | undefined,
-        statsd: StatsD | undefined
+        statsd: StatsD | undefined,
+        personInfoCacheTtl = 1,
+        personInfoCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
@@ -163,6 +171,8 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
+        this.PERSON_INFO_CACHE_TTL = personInfoCacheTtl
+        this.personInfoCachingEnabledTeams = personInfoCachingEnabledTeams
     }
 
     // Postgres
@@ -413,6 +423,47 @@ export class DB {
     }
 
     // Person
+    REDIS_PERSON_ID_PREFIX = 'person_id'
+    REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
+    REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
+
+    private getPersonIdCacheKey(teamId: number, distinctId: string): string {
+        return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
+    }
+
+    private getPersonCreatedAtCacheKey(teamId: number, personId: number): string {
+        return `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`
+    }
+
+    private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
+        return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
+    }
+
+    private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.PERSON_INFO_CACHE_TTL)
+        }
+    }
+
+    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonCreatedAtCacheKey(teamId, personId),
+                createdAt,
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
+    }
+
+    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonPropertiesCacheKey(teamId, personId),
+                JSON.stringify(properties),
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
+    }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
@@ -546,9 +597,20 @@ export class DB {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
+        // Update person info cache
+        await Promise.all(
+            (distinctIds || [])
+                .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
+                .concat([
+                    this.updatePersonPropertiesCache(teamId, person.id, properties),
+                    this.updatePersonCreatedAtCache(teamId, person.id, person.created_at),
+                ])
+        )
+
         return person
     }
 
+    // Currently in use, but there are various problems with this function
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
@@ -600,42 +662,9 @@ export class DB {
             }
         }
 
+        await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
+
         return client ? kafkaMessages : updatedPerson
-    }
-
-    public async updatePerson(
-        client: PoolClient,
-        personId: number,
-        createdAt: DateTime,
-        properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation
-    ): Promise<number> {
-        const updateResult: QueryResult = await this.postgresQuery(
-            `UPDATE posthog_person SET
-            created_at = $1,
-            properties = $2,
-            properties_last_updated_at = $3,
-            properties_last_operation = $4,
-            version = COALESCE(version, 0)::numeric + 1
-        WHERE id = $5
-        RETURNING version`,
-            [
-                createdAt.toISO(),
-                JSON.stringify(properties),
-                JSON.stringify(propertiesLastUpdatedAt),
-                JSON.stringify(propertiesLastOperation),
-                personId,
-            ],
-            'updatePersonProperties',
-            client
-        )
-
-        if (updateResult.rows.length === 0) {
-            // this function should always be called in a transaction with person fetch locking for update before
-            throw new RaceConditionError('Failed updating person properties')
-        }
-        return Number(updateResult.rows[0].version)
     }
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
@@ -706,6 +735,7 @@ export class DB {
         if (this.kafkaProducer && kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
+        await this.updatePersonIdCache(person.team_id, distinctId, person.id)
     }
 
     public async addDistinctIdPooled(
@@ -836,6 +866,11 @@ export class DB {
                         ],
                     })
                 }
+                await this.updatePersonIdCache(
+                    usefulColumns.team_id,
+                    usefulColumns.distinct_id,
+                    usefulColumns.person_id
+                )
             }
         }
         return kafkaMessages

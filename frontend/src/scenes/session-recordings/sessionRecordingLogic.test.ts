@@ -526,6 +526,17 @@ describe('sessionRecordingLogic', () => {
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
                         },
+                        // Payload has null object
+                        {
+                            level: 'log',
+                            parsedPayload: '',
+                            parsedTraceString: 'file.js:123:456',
+                            parsedTraceURL: 'https://example.com/path/to/file.js',
+                            playerPosition: {
+                                time: 167777,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                        },
                         // Normal trace and payload
                         {
                             level: 'warn',

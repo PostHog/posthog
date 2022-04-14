@@ -399,7 +399,7 @@ export interface PlayerPosition {
 
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
-    payload: string[]
+    payload: (string | null)[]
     trace: string[]
 }
 

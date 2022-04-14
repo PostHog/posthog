@@ -24,11 +24,6 @@
             margin: 0;
         }
 
-        .color-column {
-            padding: 0;
-            width: 6px;
-        }
-
         .datum-column {
             padding-left: 0.5rem;
         }
@@ -60,16 +55,6 @@
             }
         }
         .LemonTable__content > table > tbody {
-            .color-column {
-                position: relative;
-
-                .color-cell {
-                    position: absolute;
-                    top: 0;
-                    bottom: 0;
-                    width: 6px;
-                }
-            }
             .datum-label-column {
                 font-weight: 600;
                 display: flex;
