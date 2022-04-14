@@ -81,7 +81,11 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 } // assume visible status from first step's visibility
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
-                                rowProps={{ compact: true, style: { padding: 0, marginLeft: '-0.5rem' } }}
+                                rowProps={{
+                                    compact: true,
+                                    style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
+                                    title: label,
+                                }}
                             />
                         )
                     },
