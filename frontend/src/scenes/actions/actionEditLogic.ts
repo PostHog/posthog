@@ -25,7 +25,6 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     props: {} as ActionEditLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
-        saveAction: true,
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
@@ -50,6 +49,18 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
         ],
     }),
 
+    forms: ({ actions, props }) => ({
+        action: {
+            defaults: { ...props.action } as ActionEditType,
+            validator: ({ name }) => ({
+                name: !name ? 'You need to set a name' : null,
+            }),
+            submit: (action) => {
+                actions.saveAction(action)
+            },
+        },
+    }),
+
     loaders: ({ props, values, actions }) => ({
         actionCount: {
             loadActionCount: async () => {
@@ -57,13 +68,12 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
             },
         },
         action: [
-            props.action as ActionEditType,
+            { ...props.action } as ActionEditType,
             {
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
-                saveAction: async () => {
-                    // TODO: don't nix tags once tags are also added to actions
-                    let action = Object.assign({}, values.action, { tags: undefined }) as ActionType
+                saveAction: async (updatedAction: ActionEditType) => {
+                    let action = { ...updatedAction }
 
                     action.steps = action.steps
                         ? action.steps.filter((step) => {
@@ -87,15 +97,20 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                             throw response
                         }
                     }
-
-                    lemonToast.success('Action saved')
-                    props.onSave(action)
-                    actionsModel.actions.loadActions() // reload actions so they are immediately available
                     return action
                 },
             },
         ],
     }),
+
+    listeners: ({ props }) => ({
+        saveActionSuccess: ({ action }) => {
+            lemonToast.success('Action saved')
+            props.onSave(action as ActionType)
+            actionsModel.actions.loadActions() // reload actions so they are immediately available
+        },
+    }),
+
     events: ({ actions, props }) => ({
         afterMount: async () => {
             if (props.id) {

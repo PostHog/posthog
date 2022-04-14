@@ -6,6 +6,7 @@ import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -22,13 +23,15 @@ type ObjectTagsProps =
           staticOnly: true
           onChange?: never
           tagsAvailable?: never
+          paywall?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
           staticOnly?: false
           onChange?: (tag: string, tags?: string[], id?: string) => void
           /** List of all tags that already exist. */
-          tagsAvailable?: string[]
+          tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
+          paywall?: boolean
       })
 
 const COLOR_OVERRIDES: Record<string, string> = {
@@ -48,6 +51,7 @@ export function ObjectTags({
     style = {},
     staticOnly = false,
     id, // For pages that allow multiple object tags
+    paywall = false,
     className,
     'data-attr': dataAttr,
 }: ObjectTagsProps): JSX.Element {
@@ -71,88 +75,122 @@ export function ObjectTags({
 
     return (
         <div style={style} className={className} data-attr={dataAttr}>
-            {showPlaceholder
-                ? '—'
-                : tags
-                      .filter((t) => !!t)
-                      .map((tag, index) => {
-                          return (
-                              <Tag
-                                  key={index}
-                                  color={COLOR_OVERRIDES[tag] || colorForString(tag)}
-                                  style={{ marginTop: 8 }}
-                              >
-                                  {tag}{' '}
-                                  {!staticOnly &&
-                                      onChange &&
-                                      (deletedTags.includes(tag) ? (
-                                          <SyncOutlined spin />
-                                      ) : (
-                                          <CloseOutlined
-                                              className="click-outside-block"
-                                              style={{ cursor: 'pointer' }}
-                                              onClick={() => handleDelete(tag)}
-                                          />
-                                      ))}
-                              </Tag>
-                          )
-                      })}
-            {!staticOnly && onChange && saving !== undefined && (
-                <span style={{ display: 'inline-flex', fontWeight: 400 }}>
-                    <Tag
-                        onClick={() => setAddingNewTag(true)}
-                        data-attr="button-add-tag"
-                        style={{
-                            cursor: 'pointer',
-                            borderStyle: 'dashed',
-                            backgroundColor: '#ffffff',
-                            display: addingNewTag ? 'none' : 'initial',
-                        }}
-                        icon={<PlusOutlined />}
-                    >
-                        Add tag
-                    </Tag>
-                    {addingNewTag && (
-                        <SelectGradientOverflow
-                            size="small"
-                            onBlur={() => setAddingNewTag(false)}
-                            data-attr="new-tag-input"
-                            autoFocus
-                            allowClear
-                            autoClearSearchValue
-                            defaultOpen
-                            showSearch
-                            style={{ width: 160 }}
-                            onChange={handleAdd}
-                            loading={saving}
-                            onSearch={setNewTag}
-                            placeholder='try "official"'
+            {paywall ? (
+                <Tooltip
+                    title={
+                        paywall
+                            ? "This field is part of PostHog's tagging collaboration set and requires a premium plan."
+                            : undefined
+                    }
+                    placement="right"
+                >
+                    <span style={{ display: 'inline-flex', fontWeight: 400 }}>
+                        <Tag
+                            data-attr="button-add-tag"
+                            style={{
+                                borderStyle: 'dashed',
+                                backgroundColor: '#ffffff',
+                                display: 'initial',
+                                opacity: 0.6,
+                                cursor: 'not-allowed',
+                            }}
+                            icon={<PlusOutlined />}
                         >
-                            {newTag ? (
-                                <Select.Option
-                                    key={`${newTag}_${id}`}
-                                    value={newTag}
-                                    className="ph-no-capture"
-                                    data-attr="new-tag-option"
+                            Add tag
+                        </Tag>
+                    </span>
+                </Tooltip>
+            ) : (
+                <>
+                    {showPlaceholder
+                        ? '—'
+                        : tags
+                              .filter((t) => !!t)
+                              .map((tag, index) => {
+                                  return (
+                                      <Tag
+                                          key={index}
+                                          color={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                          style={{ marginTop: 8 }}
+                                      >
+                                          {tag}{' '}
+                                          {!staticOnly &&
+                                              onChange &&
+                                              (deletedTags.includes(tag) ? (
+                                                  <SyncOutlined spin />
+                                              ) : (
+                                                  <CloseOutlined
+                                                      className="click-outside-block"
+                                                      style={{ cursor: 'pointer' }}
+                                                      onClick={() => handleDelete(tag)}
+                                                  />
+                                              ))}
+                                      </Tag>
+                                  )
+                              })}
+                    {!staticOnly && onChange && saving !== undefined && (
+                        <span style={{ display: 'inline-flex', fontWeight: 400 }}>
+                            <Tag
+                                onClick={() => setAddingNewTag(true)}
+                                data-attr="button-add-tag"
+                                style={{
+                                    cursor: 'pointer',
+                                    borderStyle: 'dashed',
+                                    backgroundColor: '#ffffff',
+                                    display: addingNewTag ? 'none' : 'initial',
+                                }}
+                                icon={<PlusOutlined />}
+                            >
+                                Add tag
+                            </Tag>
+                            {addingNewTag && (
+                                <SelectGradientOverflow
+                                    size="small"
+                                    onBlur={() => setAddingNewTag(false)}
+                                    data-attr="new-tag-input"
+                                    autoFocus
+                                    allowClear
+                                    autoClearSearchValue
+                                    defaultOpen
+                                    showSearch
+                                    style={{ width: 160 }}
+                                    onChange={handleAdd}
+                                    loading={saving}
+                                    onSearch={setNewTag}
+                                    placeholder='try "official"'
                                 >
-                                    {cleanedNewTag}
-                                </Select.Option>
-                            ) : (
-                                (!tagsAvailable || !tagsAvailable.length) && (
-                                    <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
-                                        Type to add a new tag
-                                    </Select.Option>
-                                )
+                                    {newTag ? (
+                                        <Select.Option
+                                            key={`${newTag}_${id}`}
+                                            value={newTag}
+                                            className="ph-no-capture"
+                                            data-attr="new-tag-option"
+                                        >
+                                            {cleanedNewTag}
+                                        </Select.Option>
+                                    ) : (
+                                        (!tagsAvailable || !tagsAvailable.length) && (
+                                            <Select.Option
+                                                key="__"
+                                                value="__"
+                                                disabled
+                                                style={{ color: 'var(--muted)' }}
+                                            >
+                                                Type to add a new tag
+                                            </Select.Option>
+                                        )
+                                    )}
+                                    {tagsAvailable &&
+                                        tagsAvailable.map((tag) => (
+                                            <Select.Option key={tag} value={tag} className="ph-no-capture">
+                                                {tag}
+                                            </Select.Option>
+                                        ))}
+                                </SelectGradientOverflow>
                             )}
-                            {tagsAvailable &&
-                                tagsAvailable.map((tag) => (
-                                    <Select.Option key={tag} value={tag} className="ph-no-capture">
-                                        {tag}
-                                    </Select.Option>
-                                ))}
-                        </SelectGradientOverflow>
+                        </span>
                     )}
-                </span>
+                </>
             )}
         </div>
     )
