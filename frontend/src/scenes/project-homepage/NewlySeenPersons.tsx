@@ -29,20 +29,18 @@ export function NewlySeenPersons(): JSX.Element {
     const { persons, personsLoading } = useValues(newlySeenPersonsLogic)
 
     return (
-        <>
-            <CompactList
-                title="Newly seen persons"
-                viewAllURL={urls.persons()}
-                loading={personsLoading}
-                emptyMessage={{
-                    title: 'There are no newly seen persons',
-                    description: 'Learn more about identifying persons and ingesting data in the documentation.',
-                    buttonText: 'Documentation',
-                    buttonTo: 'https://posthog.com/docs/integrate/identifying-users',
-                }}
-                items={persons.slice(0, 5)}
-                renderRow={(person: PersonType, index) => <PersonRow key={index} person={person} />}
-            />
-        </>
+        <CompactList
+            title="Newly seen persons"
+            viewAllURL={urls.persons()}
+            loading={personsLoading}
+            emptyMessage={{
+                title: 'There are no newly seen persons',
+                description: 'Learn more about identifying persons and ingesting data in the documentation.',
+                buttonText: 'Documentation',
+                buttonTo: 'https://posthog.com/docs/integrate/identifying-users',
+            }}
+            items={persons.slice(0, 5)}
+            renderRow={(person: PersonType, index) => <PersonRow key={index} person={person} />}
+        />
     )
 }
