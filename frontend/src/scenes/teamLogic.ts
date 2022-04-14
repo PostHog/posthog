@@ -22,7 +22,7 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     actions({
-        deleteeTeam: (team: TeamType) => ({ team }),
+        deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
     }),
