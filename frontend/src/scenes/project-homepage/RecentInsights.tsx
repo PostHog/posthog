@@ -38,8 +38,8 @@ export function RecentInsights(): JSX.Element {
                 loading={recentInsightsLoading}
                 emptyMessage={{
                     title: 'You have no recently viewed insights',
-                    description: 'To start exploring insights, take a look at your projects saved insights.',
-                    buttonText: 'Saved insights',
+                    description: "Explore this project's insights by clicking below.",
+                    buttonText: 'View insights',
                     buttonTo: urls.savedInsights(),
                 }}
                 items={recentInsights.slice(0, 5)}
