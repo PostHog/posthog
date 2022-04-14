@@ -4,7 +4,7 @@
     height: 100%;
     overflow: hidden;
     table {
-        --bar-width: 0.5rem; // Placeholder
+        --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
         width: 100%;
         > tbody {
@@ -82,13 +82,16 @@
 }
 
 .StepBars__bar {
-    --series-color: var(--text-default); // Placeholder
-    --conversion-rate: 0%; // Placeholder
+    --series-color: var(--text-default); // This should be overriden from React
+    --conversion-rate: 100%; // This should be overriden from React
     position: relative;
     border-radius: var(--radius);
     width: var(--bar-width);
     flex-shrink: 0;
     height: 100%;
+    .InsightCard & {
+        width: calc(var(--bar-width) / 2); // We need to conserve space in cards
+    }
     &::before {
         content: '';
         display: block;

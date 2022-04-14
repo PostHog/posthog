@@ -150,7 +150,9 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
         const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
         const barWidth =
-            seriesCount >= 20
+            seriesCount >= 48
+                ? '0.25rem'
+                : seriesCount >= 24
                 ? '0.5rem'
                 : seriesCount >= 12
                 ? '1rem'
