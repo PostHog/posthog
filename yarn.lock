@@ -11040,10 +11040,10 @@ kea-forms@^3.0.0-alpha.0:
   resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.0.tgz#bc9675f34ca8e7984700476e237e12d7ce081d65"
   integrity sha512-qOuAIpm7YjBNNVXA9QRU929ycDtnWBJUMJwpmBG7txJI1Q7ybq0Fk4wEFyWLLarBDtqYsArtnvXKxsxMHrKF3w==
 
-kea-loaders@^3.0.0-alpha.0:
-  version "3.0.0-alpha.0"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.0.tgz#2864e8644fd82788f4bf902a60e62754f9cba28f"
-  integrity sha512-+1UxZnS02DNcjC4dEDuLl3jZlszM9beF7vLNtVgQoyaIp123rgMaNWOEl5PAEyz0YudpvvPLyVxadUyHEnQY3A==
+kea-loaders@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.1.tgz#5cb4598e30bf89724ffd91beb97642b00cc78558"
+  integrity sha512-VPkaRbrzRXKLLxxW+kDojH85SBorJI0SaSJlmUZLhjOoN0VJB/EiM4Y5KOFw6LaPqjT/IOP1lBMig5hEvFaaPw==
 
 kea-localstorage@^3.0.0-alpha.0:
   version "3.0.0-alpha.0"
@@ -11079,15 +11079,15 @@ kea-waitfor@^0.2.1:
   resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.1.tgz#d786ff69bcd05939dfef0211faecdbce132e5a04"
   integrity sha512-oXZ42wZl46+KShuPORgAHKFQr1ewrNJ1ZVBUFLDyn4J3XTndQqCvN0GaFrSCIR0qeBzGHtNu/WwPgVGsmDH8DA==
 
-kea-window-values@^3.0.0-alpha.0:
-  version "3.0.0-alpha.0"
-  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.0.tgz#83fb88b40c586ce0b25925c042c60bcb769f6ea5"
-  integrity sha512-HgKM/hHQqJer6E+wtYIYG8iqk0Nd5CUV29+C12Ud1Rh/TIIzRvTKShlnbGOu39gkemr8jcYVSiiW0g1MPXVeKA==
+kea-window-values@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
+  integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-alpha.3:
-  version "3.0.0-alpha.3"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.3.tgz#6c11929d7dff9ba384478f12b794fbbba525aecf"
-  integrity sha512-V/PNLk88pmXoLGRp9BKpil500Xwt3SjwIZzkpklwt0oudush4EuEKu3g5zeiRSEAmeKhg/SxipsJmt0SX9SICg==
+kea@^3.0.0-alpha.4:
+  version "3.0.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.4.tgz#04115487698a054f4369869d8bf90c31019ff604"
+  integrity sha512-PMPlF/UXz8pnWFo8IYtNB33QunvMHm5OoMK6ygOUaHbACms+vvHtEATMCIK54bx0eAZLMoYcJ2AAWbufTGqziA==
 
 killable@^1.0.1:
   version "1.0.1"
