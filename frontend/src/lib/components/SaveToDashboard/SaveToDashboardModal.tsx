@@ -17,7 +17,10 @@ interface SaveToDashboardModalProps {
 }
 
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({ id: insight.short_id, fromDashboard: insight.dashboard || undefined })
+    const logic = saveToDashboardModalLogic({
+        id: insight.short_id,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
@@ -27,7 +30,7 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
-        updateInsight({ ...insight, dashboard: dashboardId }, () => {
+        updateInsight({ ...insight, dashboards: [...(insight.dashboards ?? []), dashboardId] }, () => {
             reportSavedInsightToDashboard()
             lemonToast.success('Insight added to dashboard', {
                 button: {

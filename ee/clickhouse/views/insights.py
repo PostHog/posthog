@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, cast
 
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -8,17 +8,21 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.api.insight import InsightViewSet
 from posthog.decorators import cached_function
-from posthog.models import User
+from posthog.models import Dashboard, Insight, User
 from posthog.models.filters import Filter
 
 
 class CanEditInsight(BasePermission):
     message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
 
-    def has_object_permission(self, request: Request, view, insight) -> bool:
-        if request.method in SAFE_METHODS or insight.dashboard_id is None:
+    def has_object_permission(self, request: Request, view, insight: Insight) -> bool:
+        if request.method in SAFE_METHODS:
             return True
-        return insight.dashboard.can_user_edit(cast(User, request.user).id)
+
+        # check permissions on any dashboard on legacy dashboard relation or the many-to-many dashboards relation
+        dashboards: List[Dashboard] = insight.dashboards.all()
+        edit_permissions = [d.can_user_edit(cast(User, request.user).id) for d in dashboards if d is not None]
+        return all(edit_permissions)
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):

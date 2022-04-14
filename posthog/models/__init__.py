@@ -4,6 +4,7 @@ from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
+from .dashboard_tile import DashboardTile
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -38,6 +39,7 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "Dashboard",
+    "DashboardTile",
     "Insight",
     "InsightViewed",
     "Element",

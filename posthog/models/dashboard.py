@@ -2,6 +2,8 @@ from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
@@ -40,6 +42,7 @@ class Dashboard(models.Model):
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
@@ -104,3 +107,19 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
+
+
+# TODO: verify this
+@receiver(post_save, sender=Dashboard)
+def dashboard_saved(sender, instance: Dashboard, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if frozenset({"last_accessed_at"}) == update_fields:
+        # Don't update items if signalled that only last_accessed_at changed
+        return
+
+    for item in instance.insights.filter():
+        item.save()
+
+    if instance.insights.count() == 0 and instance.items.count() > 0:
+        for item in instance.insights.filter():
+            item.save()
