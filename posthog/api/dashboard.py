@@ -91,19 +91,17 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
                 existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=dashboard)
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .select_related("insight")
                     .prefetch_related("insight")
                 )
                 for existing_tile in existing_tiles:
-                    override_dashboard_item_data = {
+                    new_data = {
+                        **InsightSerializer(existing_tile.insight, context=self.context,).data,
                         "id": None,  # to create a new Insight
                         "last_refresh": now(),
                     }
-                    new_data = {
-                        **InsightSerializer(existing_tile.insight, context=self.context,).data,
-                        **override_dashboard_item_data,
-                    }
+                    new_data.pop("dashboards", None)
                     new_tags = new_data.pop("tags", None)
                     insight_serializer = InsightSerializer(data=new_data, context=self.context,)
                     insight_serializer.is_valid()
@@ -114,10 +112,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     self._attempt_set_tags(new_tags, insight, force_create=True)
 
                     DashboardTile.objects.create(
-                        dashboard=existing_dashboard,
-                        insight=insight,
-                        layouts=existing_tile.layouts,
-                        color=existing_tile.color,
+                        dashboard=dashboard, insight=insight, layouts=existing_tile.layouts, color=existing_tile.color,
                     )
 
             except Dashboard.DoesNotExist:
