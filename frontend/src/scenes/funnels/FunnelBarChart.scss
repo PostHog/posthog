@@ -58,7 +58,7 @@
     border-bottom: 1px solid var(--border);
     height: calc(var(--bar-row-height) - 3rem);
     padding: 0 1rem;
-    &.StepBars--beyond-first {
+    &:not(.StepBars--first) {
         border-left: 1px dashed var(--border);
     }
 }

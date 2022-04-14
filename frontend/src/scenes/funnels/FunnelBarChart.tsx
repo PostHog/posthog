@@ -40,7 +40,7 @@ interface StepBarCSSProperties extends React.CSSProperties {
 
 function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
     return (
-        <div className={clsx('StepBars', stepIndex > 0 && 'StepBars--beyond-first')}>
+        <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__background">
                 {Array(5)
                     .fill(null)
@@ -48,7 +48,6 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                         <div key={i} className="StepBars__gridline StepBars__gridline--horizontal" />
                     ))}
             </div>
-
             {step?.nested_breakdown?.map((breakdown, breakdownIndex) => (
                 <div
                     key={breakdownIndex}
@@ -56,7 +55,7 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                     style={
                         {
                             '--series-color': getSeriesColor(breakdownIndex, step.nested_breakdown?.length === 1),
-                            '--conversion-rate': `${breakdown.conversionRates.fromPrevious * 100}%`,
+                            '--conversion-rate': `${breakdown.conversionRates.fromBasisStep * 100}%`,
                         } as StepBarCSSProperties
                     }
                 />
