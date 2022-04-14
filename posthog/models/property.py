@@ -137,7 +137,7 @@ class Property:
         }
 
         for key in VALIDATE_PROP_TYPES[self.type]:
-            if key not in self.data or self.data[key] is None:
+            if key not in self._data or self._data[key] is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
     def __repr__(self):
