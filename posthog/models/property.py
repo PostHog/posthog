@@ -15,10 +15,12 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import is_valid_regex
+from posthog.utils import is_valid_regex, str_to_bool
 
 ValueT = Union[str, int, List[str]]
-PropertyType = Literal["event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group"]
+PropertyType = Literal[
+    "event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group", "performed_event"
+]
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
@@ -44,6 +46,18 @@ PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
+VALIDATE_PROP_TYPES = {
+    "event": ["key", "value"],
+    "person": ["key", "value"],
+    "cohort": ["key", "value"],
+    "element": ["key", "value"],
+    "static-cohort": ["key", "value"],
+    "precalculated-cohort": ["key", "value"],
+    "group": ["key", "value", "group_type_index"],
+    "performed_event": ["event", "event_type", "time_value", "time_interval"],
+    "performed_multiple_events": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
+}
+
 
 class Property:
     key: Optional[str]
@@ -62,6 +76,7 @@ class Property:
     seq_event: Optional[Union[str, int]]
     seq_time_value: Optional[int]
     seq_time_interval: Optional[OperatorInterval]
+    negation: Optional[bool] = False
     _data: Dict
 
     def __init__(
@@ -82,6 +97,7 @@ class Property:
         seq_event: Optional[Union[str, int]] = None,
         seq_time_value: Optional[int] = None,
         seq_time_interval: Optional[OperatorInterval] = None,
+        negation: Optional[bool] = False,
         **kwargs,
     ) -> None:
         self.key = key
@@ -99,8 +115,9 @@ class Property:
         self.seq_event = seq_event
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
+        self.negation = str_to_bool(negation)
 
-        self.data = {
+        self._data = {
             "key": self.key,
             "value": self.value,
             "operator": self.operator,
@@ -116,7 +133,12 @@ class Property:
             "seq_event": self.seq_event,
             "seq_time_value": self.seq_time_value,
             "seq_time_interval": self.seq_time_interval,
+            "negation": self.negation,
         }
+
+        for key in VALIDATE_PROP_TYPES[self.type]:
+            if key not in self.data or self.data[key] is None:
+                raise ValueError(f"Missing required key {key} for property type {self.type}")
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
