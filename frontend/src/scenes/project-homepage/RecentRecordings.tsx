@@ -2,7 +2,7 @@ import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { useActions, useValues } from 'kea'
 
-import './RecentRecordings.scss'
+import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -26,18 +26,18 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     return (
         <LemonButton
             fullWidth
-            className="recording-row"
+            className="list-row"
             onClick={() => {
                 openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
             }}
         >
             <ProfilePicture name={asDisplay(recording.person)} />
-            <div className="recording-person-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="recording-person-text">{asDisplay(recording.person)}</p>
-                <p className="recording-start-time">{dayjs(recording.start_time).fromNow()}</p>
+            <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
+                <p className="row-title">{asDisplay(recording.person)}</p>
+                <p>{dayjs(recording.start_time).fromNow()}</p>
             </div>
-            <span className="recording-duration">{humanFriendlyDuration(recording.recording_duration)}</span>
-            <IconPlayCircle className="recording-play-circle" />
+            <span>{humanFriendlyDuration(recording.recording_duration)}</span>
+            <IconPlayCircle style={{ fontSize: '1.25rem', marginLeft: '0.5rem' }} />
         </LemonButton>
     )
 }
