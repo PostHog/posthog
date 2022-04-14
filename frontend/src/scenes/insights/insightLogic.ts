@@ -566,7 +566,7 @@ export const insightLogic = kea<insightLogicType>({
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
 
-            // NOTE: This should be merged into the same action as `reportInsightViewed`, but we can't right now
+            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
             // because there are some issues with `reportInsightViewed` not being called when the
             // insightLogic is already loaded.
             // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`

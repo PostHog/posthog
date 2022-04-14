@@ -8,8 +8,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { InsightModel } from '~/types'
 
-import { recentInsightsLogic } from './recentInsightsLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { projectHomepageLogic } from './projectHomepageLogic'
 
 interface InsightRowProps {
     insight: InsightModel
@@ -28,7 +28,7 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
 }
 
 export function RecentInsights(): JSX.Element {
-    const { recentInsights, recentInsightsLoading } = useValues(recentInsightsLogic)
+    const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
 
     return (
         <>
@@ -38,8 +38,8 @@ export function RecentInsights(): JSX.Element {
                 loading={recentInsightsLoading}
                 emptyMessage={{
                     title: 'You have no recently viewed insights',
-                    description: 'To start exploring insights, take a look at your projects saved insights.',
-                    buttonText: 'Saved insights',
+                    description: "Explore this project's insights by clicking below.",
+                    buttonText: 'View insights',
                     buttonTo: urls.savedInsights(),
                 }}
                 items={recentInsights.slice(0, 5)}
