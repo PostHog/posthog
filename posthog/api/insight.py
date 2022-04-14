@@ -163,7 +163,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             raise serializers.ValidationError("Dashboard not found")
 
         if dashboards is not None:
-            for dashboard in Dashboard.objects.filter(team=insight.team, id__in=dashboards).all():
+            for dashboard in Dashboard.objects.filter(team=insight.team, id__in=[d.id for d in dashboards]).all():
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard)
 
         # Manual tag creation since this create method doesn't call super()
