@@ -21,6 +21,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { NewlySeenPersons } from './NewlySeenPersons'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -79,9 +80,12 @@ export function ProjectHomepage(): JSX.Element {
                     </div>
                     <div className="spacer" />
                     <div className="top-list">
-                        <RecentRecordings />
+                        <NewlySeenPersons />
                     </div>
                     <div className="spacer" />
+                    <div className="top-list">
+                        <RecentRecordings />
+                    </div>
                 </div>
             )}
             {currentTeam?.primary_dashboard ? (
