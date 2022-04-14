@@ -21,7 +21,7 @@ import {
     humanizeOrder,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStepReference, StepOrderValue } from '~/types'
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
@@ -285,7 +285,7 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
-export function FunnelBarGraph(): JSX.Element {
+export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
@@ -300,7 +300,7 @@ export function FunnelBarGraph(): JSX.Element {
     const { openPersonsModalForStep } = useActions(logic)
 
     if (layout === FunnelLayout.vertical) {
-        return <FunnelBarChart />
+        return <FunnelBarChart {...props} />
     }
 
     // Everything rendered after is a funnel in top-to-bottom mode.

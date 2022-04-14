@@ -194,7 +194,7 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            <div className="LemonTable__scroll" ref={scrollRef}>
+            <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>

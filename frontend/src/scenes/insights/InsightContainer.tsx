@@ -114,7 +114,7 @@ export function InsightContainer(
         ) {
             return (
                 <>
-                    <h2 style={{ margin: '1rem 0' }}>Funnel results</h2>
+                    <h2 style={{ margin: '1rem 0' }}>Detailed results</h2>
                     <FunnelStepsTable />
                 </>
             )
@@ -135,7 +135,7 @@ export function InsightContainer(
                 <>
                     {csvExportUrl && (
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
-                            <h2>Trend results</h2>
+                            <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <LemonButton
                                     type="secondary"

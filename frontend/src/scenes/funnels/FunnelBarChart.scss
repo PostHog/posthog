@@ -1,10 +1,11 @@
 .FunnelBarChart {
-    --bar-width: 0.5rem; // Placeholder
-    --bar-row-height: 18rem;
     position: relative;
     width: 100%;
+    height: 100%;
     overflow: hidden;
     table {
+        --bar-width: 0.5rem; // Placeholder
+        --bar-row-height: 18rem;
         width: 100%;
         > tbody {
             > tr {
@@ -22,18 +23,12 @@
     }
 }
 
-.FunnelBarChart__scroll {
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
 .FunnelBarChart__content {
     min-width: fit-content;
 }
 
 .StepBarLabels {
-    height: var(--bar-row-height);
+    height: calc(var(--bar-row-height) - 3rem);
     display: flex;
     flex-direction: column-reverse;
     align-items: flex-end;
@@ -61,7 +56,7 @@
     align-items: flex-end;
     gap: 0.125rem;
     border-bottom: 1px solid var(--border);
-    height: var(--bar-row-height);
+    height: calc(var(--bar-row-height) - 3rem);
     padding: 0 1rem;
     &.StepBars--beyond-first {
         border-left: 1px dashed var(--border);
@@ -129,14 +124,16 @@
 .StepLegend {
     border-left: 1px solid var(--border);
     .LemonRow {
-        min-height: 1.75rem;
+        min-height: 1.5rem;
         padding: 0 0.5rem;
         font-weight: 500;
+        margin-top: 0.25rem;
         &:first-child {
             font-weight: 600;
+            margin-top: 0;
         }
     }
     .funnel-inspect-button {
-        height: 1.75rem;
+        height: 1.5rem;
     }
 }

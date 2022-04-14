@@ -556,6 +556,12 @@ input::-ms-clear {
     }
 }
 
+.scrollable__inner {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+}
+
 // Form & input styles
 
 .input-set {
