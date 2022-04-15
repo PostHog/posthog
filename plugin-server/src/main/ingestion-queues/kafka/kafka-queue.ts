@@ -5,6 +5,11 @@ import { Hub, Queue } from '../../../types'
 import { status } from '../../../utils/status'
 import { groupIntoBatches, killGracefully } from '../../../utils/utils'
 
+type ConsumerManagementPayload = {
+    topic: string
+    partitions?: number[] | undefined
+}
+
 export abstract class KafkaQueue implements Queue {
     protected pluginsServer: Hub
     protected kafka: Kafka
@@ -22,60 +27,7 @@ export abstract class KafkaQueue implements Queue {
         this.topic = topic
     }
 
-    protected abstract eachMessage(message: KafkaMessage): Promise<void>
-
-    protected async eachBatch({
-        batch,
-        resolveOffset,
-        heartbeat,
-        commitOffsetsIfNecessary,
-        isRunning,
-        isStale,
-    }: EachBatchPayload): Promise<void> {
-        const batchStartTimer = new Date()
-
-        try {
-            const messageBatches = groupIntoBatches(
-                batch.messages,
-                this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER
-            )
-
-            for (const messageBatch of messageBatches) {
-                if (!isRunning() || isStale()) {
-                    status.info(
-                        '🚪',
-                        `${this.consumerName} consumer: Bailing out of a batch of ${batch.messages.length} events`,
-                        {
-                            isRunning: isRunning(),
-                            isStale: isStale(),
-                            msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                        }
-                    )
-                    return
-                }
-
-                await Promise.all(messageBatch.map((message) => this.eachMessage(message)))
-
-                // this if should never be false, but who can trust computers these days
-                if (messageBatch.length > 0) {
-                    resolveOffset(messageBatch[messageBatch.length - 1].offset)
-                }
-                await commitOffsetsIfNecessary()
-                await heartbeat()
-            }
-
-            status.info(
-                '🧩',
-                `${this.consumerName} consumer: Kafka batch of ${batch.messages.length} events completed in ${
-                    new Date().valueOf() - batchStartTimer.valueOf()
-                }ms`
-            )
-        } finally {
-            this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer, {
-                consumerName: this.consumerName,
-            })
-        }
-    }
+    protected abstract runConsumer(): Promise<void>
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
@@ -90,61 +42,41 @@ export abstract class KafkaQueue implements Queue {
                 topic: this.topic,
             })
 
-            // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
-            await this.consumer.run({
-                eachBatchAutoResolve: false,
-                autoCommitInterval: 1000, // autocommit every 1000 ms…
-                autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
-                partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                eachBatch: async (payload) => {
-                    try {
-                        await this.eachBatch(payload)
-                    } catch (error) {
-                        const eventCount = payload.batch.messages.length
-                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-                            consumerName: this.consumerName,
-                        })
-                        status.info('💀', `${this.consumerName} consumer: Kafka batch of ${eventCount} events failed!`)
-                        if (error.type === 'UNKNOWN_MEMBER_ID') {
-                            status.info(
-                                '💀',
-                                `${this.consumerName} consumer: Probably the batch took longer than the session and we couldn't commit the offset`
-                            )
-                        }
-                        if (
-                            error.message &&
-                            !error.message.includes('The group is rebalancing, so a rejoin is needed') &&
-                            !error.message.includes('Specified group generation id is not valid')
-                        ) {
-                            Sentry.captureException(error)
-                        }
-                        throw error
-                    }
-                },
-            })
+            await this.runConsumer()
         })
         return await startPromise
     }
 
-    async pause(): Promise<void> {
-        if (this.wasConsumerRan && !this.isPaused()) {
+    async pause(partition?: number): Promise<void> {
+        if (this.wasConsumerRan && !this.isPaused(partition)) {
+            const pausePayload: ConsumerManagementPayload = { topic: this.topic }
+            if (partition) {
+                pausePayload.partitions = [partition]
+            }
             status.info('⏳', `Pausing Kafka consumer ${this.consumerName}...`)
-            this.consumer.pause([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
+            this.consumer.pause([pausePayload])
             status.info('⏸', `Kafka consumer ${this.consumerName} paused!`)
         }
         return Promise.resolve()
     }
 
-    resume(): void {
-        if (this.wasConsumerRan && this.isPaused()) {
+    resume(partition?: number): void {
+        if (this.wasConsumerRan && this.isPaused(partition)) {
+            const resumePayload: ConsumerManagementPayload = { topic: this.topic }
+            if (partition) {
+                resumePayload.partitions = [partition]
+            }
             status.info('⏳', `Resuming Kafka consumer ${this.consumerName}...`)
-            this.consumer.resume([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
+            this.consumer.resume([resumePayload])
             status.info('▶️', `Kafka consumer ${this.consumerName} resumed!`)
         }
     }
 
-    isPaused(): boolean {
-        return this.consumer.paused().some(({ topic }) => topic === this.pluginsServer.KAFKA_CONSUMPTION_TOPIC)
+    isPaused(partition?: number): boolean {
+        // if we pass a partition, check that as well, else just return if the topic is paused
+        return this.consumer
+            .paused()
+            .some(({ topic, partitions }) => topic === this.topic && (!partition || partitions.includes(partition)))
     }
 
     async stop(): Promise<void> {
