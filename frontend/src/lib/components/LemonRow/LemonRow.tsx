@@ -40,8 +40,11 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends Le
     sideIcon?: React.ReactElement | null
 }
 
-/** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a presentation element. */
-function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
+/** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
+ *
+ * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
+ */
+export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     {
         children,
         icon,
@@ -111,8 +114,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         </>
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
-}
-export const LemonRow = React.forwardRef(LemonRowInternal)
+})
 
 export interface LemonSpacerProps {
     /** Twice the default amount of margin. */
