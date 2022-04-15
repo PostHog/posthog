@@ -13,7 +13,7 @@ from posthog.client import sync_execute
 from posthog.test.base import TestMixin
 
 
-def create_clickhouse_tables_in_parallel(tables: list):
+def run_clickhouse_statement_in_parallel(tables: list):
     jobs = []
     for item in tables:
         thread = threading.Thread(target=sync_execute, args=(item,))
@@ -82,8 +82,8 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP + SECOND_BATCH_OF_TABLES_TO_CREATE_DROP):
         return
 
-    create_clickhouse_tables_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
-    create_clickhouse_tables_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
+    run_clickhouse_statement_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
+    run_clickhouse_statement_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
 
 
 def reset_clickhouse_tables():
@@ -103,7 +103,7 @@ def reset_clickhouse_tables():
     from ee.clickhouse.sql.session_recording_events import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    FIRST_BATCH_OF_TABLES_TO_CREATE_DROP = [
+    TABLES_TO_CREATE_DROP = [
         TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -116,13 +116,8 @@ def reset_clickhouse_tables():
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
     ]
-    # Because the tables are created in parallel, any tables that depend on another
-    # table should be created in a second batch - to ensure the first table already
-    # exists. Tables for this second batch of table creation are defined here:
-    SECOND_BATCH_OF_TABLES_TO_CREATE_DROP = [DEAD_LETTER_QUEUE_TABLE_MV_SQL]
 
-    create_clickhouse_tables_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
-    create_clickhouse_tables_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
+    run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
 
 @pytest.fixture(scope="package")
