@@ -1,6 +1,6 @@
 import React from 'react'
 import './ProjectHomepage.scss'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
@@ -11,10 +11,20 @@ import { PersonType } from '~/types'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { projectHomepageLogic } from './projectHomepageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
+    const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)
+
     return (
-        <LemonButton fullWidth className="list-row" to={urls.person(person.distinct_ids[0])}>
+        <LemonButton
+            fullWidth
+            className="list-row"
+            to={urls.person(person.distinct_ids[0])}
+            onClick={() => {
+                reportPersonOpenedFromNewlySeenPersonsList()
+            }}
+        >
             <ProfilePicture name={asDisplay(person)} />
 
             <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>

@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import './ProjectHomepage.scss'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
@@ -10,14 +10,24 @@ import { InsightModel } from '~/types'
 
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { projectHomepageLogic } from './projectHomepageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface InsightRowProps {
     insight: InsightModel
 }
 
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
+    const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
+
     return (
-        <LemonButton fullWidth className="list-row" to={urls.insightView(insight.short_id)}>
+        <LemonButton
+            fullWidth
+            className="list-row"
+            to={urls.insightView(insight.short_id)}
+            onClick={() => {
+                reportInsightOpenedFromRecentInsightList()
+            }}
+        >
             <InsightIcon insight={insight} />
             <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
                 <p className="row-title link-text">{insight.name || insight.derived_name}</p>
@@ -29,7 +39,11 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
 
 export function RecentInsights(): JSX.Element {
     const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
+    const { loadRecentInsights } = useActions(projectHomepageLogic)
 
+    useEffect(() => {
+        loadRecentInsights()
+    }, [])
     return (
         <>
             <CompactList
