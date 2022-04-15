@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -28,6 +29,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.client import sync_execute
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Action, Cohort, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import Property
@@ -320,6 +322,44 @@ def performed_event_lifecycle_subquery(
         **period_filter_params,
         "team_id": team_id,
     }
+
+    return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
+
+
+def performed_event_sequence_subquery(
+    prop: Property, team_id: int, prepend: Union[int, str]
+) -> Tuple[str, Dict[str, Any]]:
+    if prop.event_type == "action":
+        action_id = prop.event
+        event_id = None
+    else:
+        event_id = prop.event
+        action_id = None
+
+    days = prop.time_value
+
+    date_query, date_params = get_date_query(days, None, None)
+
+    funnel_filter = Filter(
+        data={
+            "events": [
+                {"id": event_id, "type": "events", "order": 0},
+                {"id": "$pageview", "type": "events", "order": 1},
+            ],  # TODO: which params?
+            "actions": [],
+            "date_from": date_params["date_from"],
+            "date_to": date_params["date_to"],
+            "insight": INSIGHT_FUNNELS,
+            "limit": 0,  # TODO: this gets overridden?, fix
+            "offset": 0,
+            # TODO: get params for window size
+            "funnel_window_interval": 14,
+            "funnel_window_interval_unit": "day",
+        }
+    )
+    extract_person, params = ClickhouseFunnelActors(funnel_filter, team=Team.objects.get(pk=team_id)).actor_query()
+
+    is_negation = prop.negation
 
     return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
 
