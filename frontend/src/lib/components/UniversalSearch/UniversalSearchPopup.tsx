@@ -20,7 +20,7 @@ import {
 import { PluginSelectionType, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import clsx from 'clsx'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { IconMagnifier } from '../icons'
 import { Input } from 'antd'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -119,6 +119,10 @@ export function UniversalSearchPopup({
     style,
     fullWidth = true,
 }: UniversalSearchPopupProps): JSX.Element {
+    // Ensure some logics are mounted
+    useMountedLogic(experimentsLogic)
+    useMountedLogic(pluginsLogic)
+
     const [visible, setVisible] = useState(false)
 
     const { isSideBarShown } = useValues(navigationLogic)
@@ -146,10 +150,6 @@ export function UniversalSearchPopup({
             setVisible(!visible)
         }
     })
-
-    // Ensure some logics are mounted
-    useValues(experimentsLogic)
-    useValues(pluginsLogic)
 
     return (
         <div className="universal-search">
