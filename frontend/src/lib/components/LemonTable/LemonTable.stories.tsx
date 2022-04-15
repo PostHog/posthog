@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
 
 export default {
-    title: 'Lemon UI/Table',
+    title: 'Lemon UI/Lemon Table',
     component: LemonTable,
 } as ComponentMeta<typeof LemonTable>
 

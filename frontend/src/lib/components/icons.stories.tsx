@@ -25,7 +25,7 @@ export function Icons(): JSX.Element {
                     key: 'name',
                     dataIndex: 'name',
                     render: function RenderName(name) {
-                        return <code>{`<${name as string}/>`}</code>
+                        return <code>{`<${name as string} />`}</code>
                     },
                 },
                 {
@@ -39,8 +39,7 @@ export function Icons(): JSX.Element {
                                 style={{
                                     display: 'inline-flex',
                                     fontSize: '1.5rem',
-                                    border: '1px solid var(--primary)',
-                                    boxSizing: 'content-box',
+                                    outline: '1px solid var(--primary)',
                                 }}
                             >
                                 <Icon />
