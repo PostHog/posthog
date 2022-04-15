@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -268,7 +267,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: ``,
                 description: '',
                 tags: [],
                 filters: newInsightFilters,
@@ -414,7 +413,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New Experiment',
+                    name: experimentData?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],

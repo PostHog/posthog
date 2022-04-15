@@ -2,7 +2,7 @@ from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
@@ -92,6 +92,35 @@ created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events
+""".format(
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+)
+
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    extra_fields="",
+    materialized_columns="",
+)
+
+EVENTS_TABLE_JSON_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+_timestamp,
+_offset
+FROM {database}.kafka_events_json
 """.format(
     target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,

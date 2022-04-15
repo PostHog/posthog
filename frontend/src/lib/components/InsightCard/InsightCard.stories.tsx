@@ -378,6 +378,14 @@ export const InsightCard: Story = (args) => {
                 rename={() => {}}
                 duplicate={() => {}}
             />
+            <InsightCardComponent
+                insight={{
+                    ...EXAMPLE_TRENDS,
+                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
         </div>
     )
 }

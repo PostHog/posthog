@@ -109,6 +109,22 @@ export function getPlayerPositionFromPlayerTime(
     return null
 }
 
+// Gets the player position from an epoch-time without a window-id
+// Used to place backend events in a recording even though, they don't
+// have a window id
+export function guessPlayerPositionFromEpochTimeWithoutWindowId(
+    epochTime: number,
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>,
+    segments: RecordingSegment[]
+): PlayerPosition | null {
+    for (const segment of segments) {
+        if (epochTime >= segment.startTimeEpochMs && epochTime <= segment.endTimeEpochMs) {
+            return getPlayerPositionFromEpochTime(epochTime, segment.windowId, startAndEndTimesByWindowId)
+        }
+    }
+    return null
+}
+
 export function getPlayerPositionFromEpochTime(
     epochTime: number,
     windowId: string,

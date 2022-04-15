@@ -30,12 +30,13 @@ export const EMPTY_BREAKDOWN_VALUES = {
     isEmpty: true,
 }
 
-export function formatDisplayPercentage(percentage: number): string {
+export function formatDisplayPercentage(percentage: number, includePercentSign: boolean = false): string {
     if (Number.isNaN(percentage)) {
         percentage = 0
     }
     // Returns a formatted string properly rounded to ensure consistent results
-    return (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
+    const result = (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
+    return includePercentSign ? `${result}%` : result
 }
 
 export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {

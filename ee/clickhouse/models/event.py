@@ -24,7 +24,6 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
-    site_url: Optional[str] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
