@@ -182,7 +182,7 @@ class Property:
         if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
             raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
 
-        if not self.value:
+        if self.value is None:
             return Q()
 
         value = self._parse_value(self.value)
