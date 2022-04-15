@@ -572,7 +572,9 @@ export const insightLogic = kea<insightLogicType>({
             // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
             // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
             // right now
-            api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+            if (values.insight.id) {
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+            }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
