@@ -10,6 +10,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     Cohorts = 'Cohorts',
+    Cohort = 'Cohort',
     Events = 'Events',
     DataManagement = 'DataManagement',
     EventDefinitions = 'EventDefinitionsTable',

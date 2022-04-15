@@ -24,7 +24,7 @@ export interface PersonFilters {
 }
 
 export interface PersonLogicProps {
-    cohort?: number | 'new' | 'personsModalNew'
+    cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
 }

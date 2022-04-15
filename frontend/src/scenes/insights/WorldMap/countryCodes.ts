@@ -274,4 +274,9 @@ export const countryCodeToName = {
     SG: 'Singapore',
     TK: 'Tokelau',
     XK: 'Kosovo',
+    RE: 'Réunion',
+    MO: 'Macao',
+    MQ: 'Martinique',
+    AX: 'Åland Islands',
+    BQ: 'Caribbean Netherlands',
 }
