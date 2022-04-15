@@ -180,9 +180,9 @@ class QueryStatus:
     complete: bool = False
     error_message: str = ""
     results: Any = None
-    start_time: float = None
-    end_time: float = None
-    task_id: str = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    task_id: Optional[str] = None
 
 
 def generate_redis_results_key(query_id):
