@@ -20,6 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
+import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
 
 export function ProjectHomepage(): JSX.Element {
@@ -73,9 +74,12 @@ export function ProjectHomepage(): JSX.Element {
                     </div>
                     <div className="spacer" />
                     <div className="top-list">
-                        <RecentRecordings />
+                        <NewlySeenPersons />
                     </div>
                     <div className="spacer" />
+                    <div className="top-list">
+                        <RecentRecordings />
+                    </div>
                 </div>
             )}
             {currentTeam?.primary_dashboard ? (

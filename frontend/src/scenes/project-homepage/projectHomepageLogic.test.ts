@@ -15,6 +15,7 @@ describe('projectHomepageLogic', () => {
             get: {
                 '/api/projects/:team/dashboards/1/': dashboardJson,
                 '/api/projects/:team/insights/': { results: ['result from api'] },
+                '/api/person/': { results: ['result from api'] },
             },
         })
         initKeaTests()
@@ -24,5 +25,8 @@ describe('projectHomepageLogic', () => {
 
     it('loads recent insights onMount', async () => {
         await expectLogic(logic).toDispatchActions(['loadRecentInsights', 'loadRecentInsightsSuccess'])
+    })
+    it('loads persons onMount', async () => {
+        await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersonsSuccess'])
     })
 })
