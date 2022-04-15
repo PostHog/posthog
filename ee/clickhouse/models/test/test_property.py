@@ -14,7 +14,6 @@ from ee.clickhouse.models.property import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
@@ -22,6 +21,7 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
 from posthog.test.base import BaseTest, _create_event, _create_person
@@ -448,7 +448,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             person_query = PersonQuery(filter, self.team.pk)
             person_subquery, person_join_params = person_query.get_query()
             joins = f"""
-                INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON events.distinct_id = pdi.distinct_id
+                INNER JOIN ({get_team_distinct_ids_query(self.team.pk)}) AS pdi ON events.distinct_id = pdi.distinct_id
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
             params.update(person_join_params)
@@ -1031,7 +1031,7 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     uuids = list(
         sorted(
             [
-                uuid
+                str(uuid)
                 for (uuid,) in sync_execute(
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )

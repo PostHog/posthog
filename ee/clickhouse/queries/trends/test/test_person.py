@@ -52,7 +52,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1"},
-            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
         )
         _create_event(
             event="pageview",
@@ -60,7 +60,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=3),
             properties={"$session_id": "s1", "$window_id": "w1"},
-            uuid="206e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="206e5a5e-e001-4293-af81-ac73e194569d",
         )
         event = {
             "id": "pageview",
@@ -139,7 +139,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1", "$group_0": "bla"},
-            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
         )
 
         event = {
