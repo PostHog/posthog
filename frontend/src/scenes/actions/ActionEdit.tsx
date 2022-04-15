@@ -145,7 +145,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         onChange={(_, newTags) => onValueChange(newTags)}
                                         className="action-tags"
                                         saving={actionLoading}
-                                        paywall={!hasAvailableFeature(AvailableFeature.TAGGING)}
                                     />
                                 )}
                             </Field>
@@ -300,7 +299,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         data-attr="save-action-button"
                         type="primary"
                         htmlType="submit"
-                        disabled={!action.name}
                         loading={actionLoading}
                     >
                         Save

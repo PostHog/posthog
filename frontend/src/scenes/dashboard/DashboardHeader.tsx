@@ -233,7 +233,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
-                                        paywall={!hasAvailableFeature(AvailableFeature.TAGGING)}
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags

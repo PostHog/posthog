@@ -171,7 +171,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 tagsAvailable={[]}
                                 className="insight-metadata-tags"
                                 data-attr="insight-tags"
-                                paywall={!hasAvailableFeature(AvailableFeature.TAGGING)}
                             />
                         ) : insight.tags?.length ? (
                             <ObjectTags
