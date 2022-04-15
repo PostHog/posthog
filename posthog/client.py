@@ -4,6 +4,7 @@ import json
 import time
 import types
 from dataclasses import dataclass
+from enum import Enum
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -175,11 +176,12 @@ class QueryStatus:
     team_id: int
     num_rows: float = 0
     total_rows: float = 0
-    status: str = "submitted"
-    complete: bool = False
     error: bool = False
-    error_message: str = ""
+    complete: bool = False 
+    error_message: str = "" 
     results: Any = None
+    start_time: float = None
+    end_time: float = None
 
 
 def generate_redis_results_key(query_id):
@@ -215,6 +217,8 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
 
     timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
+    query_status = QueryStatus(team_id)
+
     try:
         progress = ch_client.execute_with_progress(
             prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
@@ -224,11 +228,11 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 team_id=team_id,
                 num_rows=num_rows,
                 total_rows=total_rows,
-                status="executing",
                 complete=False,
                 error=False,
                 error_message="",
                 results=None,
+                start_time=time.time()
             )
             redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
             time.sleep(update_freq)
@@ -238,9 +242,10 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 team_id=team_id,
                 num_rows=0,
                 total_rows=0,
-                status="complete",
                 complete=True,
                 error=False,
+                start_time=query_status.start_time,
+                end_time=time.time(),
                 error_message="",
                 results=rv,
             )
@@ -255,9 +260,10 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
             team_id=team_id,
             num_rows=0,
             total_rows=0,
-            status="errored",
             complete=False,
             error=True,
+            start_time=query_status.start_time,
+            end_time=time.time(), 
             error_message=str(err),
             results=None,
         )
@@ -277,9 +283,10 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
 
 
 def enqueue_execute_with_progress(
-    team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False
+    team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False, query_id=None, force=False
 ):
-    query_id = _query_hash(query, args)
+    if not query_id:
+        query_id = _query_hash(query, args)
     key = generate_redis_results_key(query_id)
     redis_client = redis.get_client()
 
@@ -289,7 +296,7 @@ def enqueue_execute_with_progress(
 
     # Immediately set status so we don't have race with celery
     redis_client = redis.get_client()
-    query_status = QueryStatus(team_id=team_id, status="submitted")
+    query_status = QueryStatus(team_id=team_id, start_time=time.time())
     redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
     if bypass_celery:
