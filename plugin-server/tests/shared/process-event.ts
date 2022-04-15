@@ -11,6 +11,7 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
+    PreIngestionEvent,
     PropertyType,
     PropertyUpdateOperation,
     Team,
@@ -136,7 +137,7 @@ export const createProcessEventTests = (
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<EventProcessingResult | void> {
+    ): Promise<PreIngestionEvent | null> {
         const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
