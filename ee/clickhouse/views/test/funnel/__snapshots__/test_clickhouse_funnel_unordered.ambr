@@ -45,13 +45,6 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
@@ -89,13 +82,6 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
@@ -153,13 +139,6 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'
@@ -198,13 +177,6 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= '2020-01-01 00:00:00'

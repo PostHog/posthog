@@ -1,15 +1,27 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import React from 'react'
 import { useMocks } from '~/mocks/jest'
-import { ActivityChange, ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityChange,
+    ActivityLogItem,
+    ActivityScope,
+    Describer,
+    humanize,
+    PersonMerge,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
+import {
+    featureFlagsActivityResponseJson,
+    personActivityResponseJson,
+} from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
+import React from 'react'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
 
@@ -17,13 +29,17 @@ describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
 
     describe('when not scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/activity/': { results: featureFlagsActivityResponseJson },
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/activity/`]: {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
+            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
@@ -33,27 +49,31 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
         })
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
+                nextPageLoading: false,
+                previousPageLoading: false,
             })
 
             // react fragments confuse equality check so,
             // stringify to confirm this value has the humanized version of the response
             // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
     })
     describe('when scoped by ID', () => {
-        beforeAll(() => {
+        beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': { results: featureFlagsActivityResponseJson },
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: {
+                        results: featureFlagsActivityResponseJson,
+                        next: 'a provided url',
+                    },
                 },
             })
             initKeaTests()
@@ -66,59 +86,201 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+    })
+
+    describe('when starting at page 4', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: (req) => {
+                        const isOnPageFour = req.url.searchParams.get('page') === '4'
+
+                        return [
+                            200,
+                            {
+                                results: isOnPageFour ? featureFlagsActivityResponseJson : [],
+                                next: 'a provided url',
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({
+                scope: ActivityScope.FEATURE_FLAG,
+                id: 7,
+                describer: flagActivityDescriber,
+                startingPage: 4,
+            })
+            logic.mount()
         })
 
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-            })
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/FeatureFlag/7')
+        })
 
-            // react fragments confuse equality check so,
-            // stringify to confirm this value has the humanized version of the response
-            // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.activity)).toEqual(
+        it('loads data from page 4 on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
         })
     })
 
-    describe('humanizing feature flags', () => {
-        const makeAPIItem = (
-            name: string,
-            activity: string,
-            changes: ActivityChange[] | null = null
-        ): ActivityLogItem => ({
+    describe('when scoped to person', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/person/7/activity': { results: personActivityResponseJson },
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({ scope: ActivityScope.PERSON, id: 7, describer: personActivityDescriber })
+            logic.mount()
+        })
+
+        it('sets a key', () => {
+            expect(logic.key).toEqual('activity/Person/7')
+        })
+
+        it('loads on mount', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+        })
+
+        it('can load a page of activity', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+
+            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
+                JSON.stringify(humanize(personActivityResponseJson, personActivityDescriber))
+            )
+        })
+    })
+
+    describe('humanzing', () => {
+        interface APIMockSetup {
+            name: string
+            activity: string
+            changes?: ActivityChange[] | null
+            scope: ActivityScope
+            merge?: PersonMerge | null
+        }
+
+        const makeAPIItem = ({
+            name,
+            activity,
+            changes = null,
+            scope,
+            merge = null,
+        }: APIMockSetup): ActivityLogItem => ({
             user: { first_name: 'peter', email: 'peter@posthog.com' },
             activity,
-            scope: ActivityScope.FEATURE_FLAG,
+            scope,
             item_id: '7',
             detail: {
-                changes: changes,
+                changes,
+                merge,
                 name,
             },
             created_at: '2022-02-05T16:28:39.594Z',
         })
 
-        async function testSetup(activityLogItem: ActivityLogItem): Promise<void> {
+        async function testSetup(
+            activityLogItem: ActivityLogItem,
+            scope: ActivityScope,
+            describer: Describer,
+            url: string
+        ): Promise<void> {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/7/activity/': {
+                    [url]: {
                         results: [activityLogItem],
                     },
                 },
             })
             initKeaTests()
             teamLogic.mount()
-            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, id: 7, describer: flagActivityDescriber })
+            logic = activityLogLogic({ scope, id: 7, describer })
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()
         }
 
-        it('can handle rollout percentage change', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
+        const makeTestSetup = (scope: ActivityScope, describer: Describer, url: string) => {
+            return async (name: string, activity: string, changes: ActivityChange[] | null, merge?: PersonMerge) => {
+                await testSetup(makeAPIItem({ scope, name, activity, changes, merge }), scope, describer, url)
+            }
+        }
+
+        describe('humanizing persons', () => {
+            const personTestSetup = makeTestSetup(
+                ActivityScope.PERSON,
+                personActivityDescriber,
+                '/api/person/7/activity/'
+            )
+            it('can handle addition of a property', async () => {
+                await personTestSetup('test person', 'updated', [
+                    {
+                        type: 'Person',
+                        action: 'changed',
+                        field: 'properties',
+                        before: {},
+                        after: { a: 'b' },
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'added property a with value: b'
+                )
+            })
+
+            it('can handle merging people', async () => {
+                await personTestSetup('test person', 'people_merged_into', null, {
+                    type: 'Person',
+                    source: [
+                        { distinct_ids: ['a'], properties: {} },
+                        { distinct_ids: ['c'], properties: {} },
+                    ],
+                    target: { distinct_ids: ['d'], properties: {} },
+                })
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'merged into this person: User A, and User C'
+                )
+            })
+
+            it('can handle splitting people', async () => {
+                await personTestSetup('test_person', 'split_person', [
+                    {
+                        type: 'Person',
+                        action: 'changed',
+                        field: undefined,
+                        before: {},
+                        after: { distinct_ids: ['a', 'b'] },
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'split this person into a, and b'
+                )
+            })
+        })
+
+        describe('humanizing feature flags', () => {
+            const featureFlagsTestSetup = makeTestSetup(
+                ActivityScope.FEATURE_FLAG,
+                flagActivityDescriber,
+                `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
+            )
+
+            it('can handle rollout percentage change', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -126,17 +288,16 @@ describe('the activity log logic', () => {
                         after: '36',
                     },
                 ])
-            )
-            const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
-        })
+                const actual = logic.values.humanizedActivity
 
-        it('can humanize more than one change', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed rollout percentage to 36% on test flag'
+                )
+            })
+
+            it('can humanize more than one change', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -150,20 +311,16 @@ describe('the activity log logic', () => {
                         after: 'strawberry',
                     },
                 ])
-            )
-            const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'changed rollout percentage to 36% on test flag'
-            )
-            expect(keaRender(<>{actual[1].description}</>).container).toHaveTextContent(
-                'changed the description to "strawberry" on test flag'
-            )
-        })
+                const actual = logic.values.humanizedActivity
 
-        it('can handle filter change - boolean value, no conditions', async () => {
-            await testSetup(
-                makeAPIItem('test flag', 'updated', [
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
+                )
+            })
+
+            it('can handle filter change - boolean value, no conditions', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -171,17 +328,16 @@ describe('the activity log logic', () => {
                         after: { groups: [{ properties: [], rollout_percentage: 99 }], multivariate: null },
                     },
                 ])
-            )
-            const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag test flag to apply to 99% of all users'
-            )
-        })
+                const actual = logic.values.humanizedActivity
 
-        it('can handle filter change with cohort', async () => {
-            await testSetup(
-                makeAPIItem('with cohort', 'updated', [
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the filter conditions to apply to 99% of all users on test flag'
+                )
+            })
+
+            it('can handle filter change with cohort', async () => {
+                await featureFlagsTestSetup('with cohort', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -215,17 +371,15 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-            )
-            const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with cohort to apply to 100% ofID 98, and 100% ofID 411'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
+                )
+            })
 
-        it('can describe a simple rollout percentage change', async () => {
-            await testSetup(
-                makeAPIItem('with simple rollout change', 'updated', [
+            it('can describe a simple rollout percentage change', async () => {
+                await featureFlagsTestSetup('with simple rollout change', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -250,17 +404,15 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-            )
-            const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with simple rollout change to apply to 77% of all users'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the filter conditions to apply to 77% of all users on with simple rollout change'
+                )
+            })
 
-        it('describes a null rollout percentage as 100%', async () => {
-            await testSetup(
-                makeAPIItem('with null rollout change', 'updated', [
+            it('describes a null rollout percentage as 100%', async () => {
+                await featureFlagsTestSetup('with null rollout change', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -310,17 +462,15 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-            )
-            const actual = logic.values.activity
+                const actual = logic.values.humanizedActivity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with null rollout change to apply to 100% ofemail = someone@somewhere.dev'
-            )
-        })
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
+                )
+            })
 
-        it('can describe two property changes', async () => {
-            await testSetup(
-                makeAPIItem('with two changes', 'updated', [
+            it('can describe two property changes', async () => {
+                await featureFlagsTestSetup('with two changes', 'updated', [
                     {
                         type: 'FeatureFlag',
                         action: 'changed',
@@ -381,12 +531,13 @@ describe('the activity log logic', () => {
                         },
                     },
                 ])
-            )
-            const actual = logic.values.activity
 
-            expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                'set the flag with two changes to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
-            )
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+                )
+            })
         })
     })
 })

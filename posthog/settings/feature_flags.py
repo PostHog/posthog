@@ -8,5 +8,4 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "invite-teammates-prompt",
     "insight-legends",
     "experiments-secondary-metrics",
-    "6619-query-events-by-date",
 ]

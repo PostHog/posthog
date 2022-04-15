@@ -69,7 +69,7 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
                                     rel="noopener"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    Learn more <ArrowRightOutlined />
+                                    Learn more
                                 </a>
                             </>
                         )}

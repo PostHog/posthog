@@ -14,7 +14,7 @@ import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOr
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
 import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
-import { PHCheckbox } from 'lib/components/PHCheckbox'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import {
     EmptyValue,
     getActionFilterFromFunnelStep,
@@ -68,7 +68,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         return renderGraphAndHeader(
                             rowIndex,
                             0,
-                            <PHCheckbox
+                            <LemonCheckbox
                                 color={color}
                                 checked={
                                     !hiddenLegendKeys[
@@ -80,18 +80,23 @@ export function FunnelStepTable(): JSX.Element | null {
                                 } // assume visible status from first step's visibility
                                 onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
                             />,
-                            <PHCheckbox
+                            <LemonCheckbox
                                 color={isOnlySeries ? 'var(--primary)' : undefined}
-                                checked={checked}
-                                indeterminate={flattenedBreakdowns?.some(
-                                    (b) =>
-                                        !hiddenLegendKeys[
-                                            getVisibilityIndex(
-                                                visibleStepsWithConversionMetrics?.[0],
-                                                b.breakdown_value
-                                            )
-                                        ]
-                                )}
+                                checked={
+                                    checked
+                                        ? true
+                                        : flattenedBreakdowns?.some(
+                                              (b) =>
+                                                  !hiddenLegendKeys[
+                                                      getVisibilityIndex(
+                                                          visibleStepsWithConversionMetrics?.[0],
+                                                          b.breakdown_value
+                                                      )
+                                                  ]
+                                          )
+                                        ? 'indeterminate'
+                                        : false
+                                }
                                 onChange={() => {
                                     // either toggle all data on or off
                                     setHiddenById(
@@ -381,9 +386,14 @@ export function FunnelStepTable(): JSX.Element | null {
                     // Breakdown parent
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
                         return (
-                            <PHCheckbox
-                                checked={!!step.nestedRowKeys?.every((rowKey) => !hiddenLegendKeys[rowKey])}
-                                indeterminate={step.nestedRowKeys?.some((rowKey) => !hiddenLegendKeys[rowKey])}
+                            <LemonCheckbox
+                                checked={
+                                    step.nestedRowKeys?.every((rowKey) => !hiddenLegendKeys[rowKey])
+                                        ? true
+                                        : step.nestedRowKeys?.some((rowKey) => !hiddenLegendKeys[rowKey])
+                                        ? 'indeterminate'
+                                        : false
+                                }
                                 onChange={() => {
                                     // either toggle all data on or off
                                     const currentState = !!step.nestedRowKeys?.every(
@@ -401,7 +411,7 @@ export function FunnelStepTable(): JSX.Element | null {
                     // Breakdown child
 
                     return (
-                        <PHCheckbox
+                        <LemonCheckbox
                             color={color}
                             checked={!hiddenLegendKeys[step.rowKey]}
                             onChange={() => {

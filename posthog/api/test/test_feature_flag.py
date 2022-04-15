@@ -712,6 +712,91 @@ class TestFeatureFlag(APIBaseTest):
             flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
         )
 
+    def test_paging_all_feature_flag_activity(self):
+        for x in range(15):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": f"feature flag {x}", "key": f"{x}"},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]], ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10",
+        )
+
+    def test_paging_specific_feature_flag_activity(self):
+        create_response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "ff", "key": "0"},)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        for x in range(1, 15):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}", {"key": str(x),}, format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag_id}/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
+            ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10",
+        )
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
         _, other_team, other_user = User.objects.bootstrap("Test", "team2@posthog.com", None)

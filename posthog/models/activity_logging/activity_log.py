@@ -1,9 +1,10 @@
 import dataclasses
 import datetime
 import json
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
+from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
@@ -77,6 +78,12 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
+field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
+    "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+}
+
+
 def changes_between(
     model_type: Literal["FeatureFlag", "Person"], previous: Optional[models.Model], current: Optional[models.Model]
 ) -> List[Change]:
@@ -92,7 +99,8 @@ def changes_between(
     if previous is not None:
         fields = current._meta.fields if current is not None else []
 
-        for field in [f.name for f in fields]:
+        filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
+        for field in filtered_fields:
             left = getattr(previous, field, None)
             right = getattr(current, field, None)
 
@@ -146,14 +154,38 @@ def log_activity(
         )
 
 
-def load_activity(scope: Literal["FeatureFlag", "Person"], team_id: int, item_id: Optional[int] = None):
-    # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
+@dataclasses.dataclass(frozen=True)
+class ActivityPage:
+    total_count: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+    results: List[ActivityLog]
+
+
+def load_activity(
+    scope: Literal["FeatureFlag", "Person"],
+    team_id: int,
+    item_id: Optional[int] = None,
+    limit: int = 10,
+    page: int = 1,
+) -> ActivityPage:
+    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
+
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
     if item_id is not None:
         activity_query = activity_query.filter(item_id=item_id)
-    activities = list(activity_query[:10])
 
-    return activities
+    paginator = Paginator(activity_query, limit)
+    activity_page = paginator.page(page)
+
+    return ActivityPage(
+        results=list(activity_page.object_list),
+        total_count=paginator.count,
+        limit=limit,
+        has_next=activity_page.has_next(),
+        has_previous=activity_page.has_previous(),
+    )
