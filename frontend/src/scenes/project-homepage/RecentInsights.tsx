@@ -17,13 +17,15 @@ interface InsightRowProps {
 }
 
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
+    const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
+
     return (
         <LemonButton
             fullWidth
             className="list-row"
             to={urls.insightView(insight.short_id)}
             onClick={() => {
-                eventUsageLogic.actions.reportInsightOpenedFromRecentInsightList()
+                reportInsightOpenedFromRecentInsightList()
             }}
         >
             <InsightIcon insight={insight} />

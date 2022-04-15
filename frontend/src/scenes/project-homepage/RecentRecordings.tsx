@@ -23,13 +23,15 @@ interface RecordingRowProps {
 function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
     const { openSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
+
     return (
         <LemonButton
             fullWidth
             className="list-row"
             onClick={() => {
                 openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
-                eventUsageLogic.actions.reportRecordingOpenedFromRecentRecordingList()
+                reportRecordingOpenedFromRecentRecordingList()
             }}
         >
             <ProfilePicture name={asDisplay(recording.person)} />
