@@ -1,57 +1,30 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
 
-import { PluginServerMode } from '../../types'
-import { Hub, Queue, WorkerMethods } from '../../types'
-import { status } from '../../utils/status'
-import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
-import { onEvent } from '../runner/on-event'
-import { ingestEvent } from './ingest-event'
+import { Hub, Queue } from '../../../types'
+import { status } from '../../../utils/status'
+import { groupIntoBatches, killGracefully } from '../../../utils/utils'
 
-export class KafkaQueue implements Queue {
-    private pluginsServer: Hub
-    private kafka: Kafka
-    private consumer: Consumer
-    private wasConsumerRan: boolean
-    private workerMethods: WorkerMethods
-    private pluginServerMode: PluginServerMode
+export abstract class KafkaQueue implements Queue {
+    protected pluginsServer: Hub
+    protected kafka: Kafka
+    protected consumer: Consumer
+    protected wasConsumerRan: boolean
+    protected consumerName: string
+    protected topic: string
 
-    constructor(
-        pluginsServer: Hub,
-        workerMethods: WorkerMethods,
-        pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
-    ) {
+    constructor(pluginsServer: Hub, consumer: Consumer, topic: string, consumerName = '') {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.pluginServerMode = pluginServerMode
-        this.consumer = KafkaQueue.buildConsumer(
-            this.kafka,
-            pluginServerMode === PluginServerMode.Runner ? 'runner-consumer' : undefined
-        )
+        this.consumer = consumer
         this.wasConsumerRan = false
-        this.workerMethods = workerMethods
+        this.consumerName = consumerName
+        this.topic = topic
     }
 
-    private async eachMessage(message: KafkaMessage): Promise<void> {
-        // Currently the else part is never triggered. The plugin server can only be
-        // in "ingestion" mode at the moment, and onEvent is triggered in ingestEvent
-        if (this.pluginServerMode === PluginServerMode.Ingestion) {
-            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-            const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
-            const event: PluginEvent = sanitizeEvent({
-                ...combinedEvent,
-                site_url: combinedEvent.site_url || null,
-                ip: combinedEvent.ip || null,
-            })
-            await ingestEvent(this.pluginsServer, this.workerMethods, event)
-        } else {
-            const event = JSON.parse(message.value!.toString())
-            await onEvent(this.pluginsServer, this.workerMethods, event)
-        }
-    }
+    protected abstract eachMessage(message: KafkaMessage): Promise<void>
 
-    private async eachBatch({
+    protected async eachBatch({
         batch,
         resolveOffset,
         heartbeat,
@@ -69,11 +42,15 @@ export class KafkaQueue implements Queue {
 
             for (const messageBatch of messageBatches) {
                 if (!isRunning() || isStale()) {
-                    status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events`, {
-                        isRunning: isRunning(),
-                        isStale: isStale(),
-                        msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                    })
+                    status.info(
+                        '🚪',
+                        `${this.consumerName} consumer: Bailing out of a batch of ${batch.messages.length} events`,
+                        {
+                            isRunning: isRunning(),
+                            isStale: isStale(),
+                            msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
+                        }
+                    )
                     return
                 }
 
@@ -89,12 +66,14 @@ export class KafkaQueue implements Queue {
 
             status.info(
                 '🧩',
-                `Kafka batch of ${batch.messages.length} events completed in ${
+                `${this.consumerName} consumer: Kafka batch of ${batch.messages.length} events completed in ${
                     new Date().valueOf() - batchStartTimer.valueOf()
                 }ms`
             )
         } finally {
-            this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
+            this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer, {
+                consumerName: this.consumerName,
+            })
         }
     }
 
@@ -104,15 +83,11 @@ export class KafkaQueue implements Queue {
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
-            status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
+            status.info('⏬', `Connecting Kafka consumer ${this.consumerName} to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
-            const topic =
-                this.pluginServerMode === PluginServerMode.Ingestion
-                    ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-                    : this.pluginsServer.KAFKA_RUNNER_TOPIC!
 
             await this.consumer.subscribe({
-                topic,
+                topic: this.topic,
             })
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
@@ -126,12 +101,14 @@ export class KafkaQueue implements Queue {
                         await this.eachBatch(payload)
                     } catch (error) {
                         const eventCount = payload.batch.messages.length
-                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount)
-                        status.info('💀', `Kafka batch of ${eventCount} events failed!`)
+                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
+                            consumerName: this.consumerName,
+                        })
+                        status.info('💀', `${this.consumerName} consumer: Kafka batch of ${eventCount} events failed!`)
                         if (error.type === 'UNKNOWN_MEMBER_ID') {
                             status.info(
                                 '💀',
-                                "Probably the batch took longer than the session and we couldn't commit the offset"
+                                `${this.consumerName} consumer: Probably the batch took longer than the session and we couldn't commit the offset`
                             )
                         }
                         if (
@@ -151,18 +128,18 @@ export class KafkaQueue implements Queue {
 
     async pause(): Promise<void> {
         if (this.wasConsumerRan && !this.isPaused()) {
-            status.info('⏳', 'Pausing Kafka consumer...')
+            status.info('⏳', `Pausing Kafka consumer ${this.consumerName}...`)
             this.consumer.pause([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
-            status.info('⏸', 'Kafka consumer paused!')
+            status.info('⏸', `Kafka consumer ${this.consumerName} paused!`)
         }
         return Promise.resolve()
     }
 
     resume(): void {
         if (this.wasConsumerRan && this.isPaused()) {
-            status.info('⏳', 'Resuming Kafka consumer...')
+            status.info('⏳', `Resuming Kafka consumer ${this.consumerName}...`)
             this.consumer.resume([{ topic: this.pluginsServer.KAFKA_CONSUMPTION_TOPIC! }])
-            status.info('▶️', 'Kafka consumer resumed!')
+            status.info('▶️', `Kafka consumer ${this.consumerName} resumed!`)
         }
     }
 
@@ -174,34 +151,34 @@ export class KafkaQueue implements Queue {
         status.info('⏳', 'Stopping Kafka queue...')
         try {
             await this.consumer.stop()
-            status.info('⏹', 'Kafka consumer stopped!')
+            status.info('⏹', `Kafka consumer ${this.consumerName} stopped!`)
         } catch (error) {
-            status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
+            status.error('⚠️', `An error occurred while stopping Kafka consumer ${this.consumerName}:\n`, error)
         }
         try {
             await this.consumer.disconnect()
         } catch {}
     }
 
-    private static buildConsumer(kafka: Kafka, groupId?: string): Consumer {
+    protected static buildConsumer(kafka: Kafka, consumerName: string, groupId?: string): Consumer {
         const consumer = kafka.consumer({
             groupId: groupId ?? 'clickhouse-ingestion',
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
-            status.info('✅', `Kafka consumer joined group ${groupId}!`)
+            status.info('✅', `Kafka consumer ${consumerName} joined group ${groupId}!`)
         })
         consumer.on(CRASH, ({ payload: { error, groupId } }) => {
-            status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
+            status.error('⚠️', `Kafka consumer ${consumerName} group ${groupId} crashed:\n`, error)
             Sentry.captureException(error)
             killGracefully()
         })
         consumer.on(CONNECT, () => {
-            status.info('✅', 'Kafka consumer connected!')
+            status.info('✅', `Kafka consumer ${consumerName} connected!`)
         })
         consumer.on(DISCONNECT, () => {
-            status.info('🛑', 'Kafka consumer disconnected!')
+            status.info('🛑', `Kafka consumer ${consumerName} disconnected!`)
         })
         return consumer
     }

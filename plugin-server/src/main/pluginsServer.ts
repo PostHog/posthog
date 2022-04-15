@@ -13,6 +13,7 @@ import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { BufferQueue } from './ingestion-queues/kafka/buffer-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -53,6 +54,7 @@ export async function startPluginsServer(
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
+    let bufferQueue: Queue | undefined
     let redisQueueForPluginJobs: Queue | undefined | null
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
@@ -77,6 +79,7 @@ export async function startPluginsServer(
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         await queue?.stop()
+        await bufferQueue?.stop()
         await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
@@ -156,9 +159,11 @@ export async function startPluginsServer(
         // Thus, if Kafka is disabled, we don't need to call anything on
         // redisQueueForPluginJobs, as that will also be the ingestion queue.
         queue = queues.ingestion
+        bufferQueue = queues.buffer
         redisQueueForPluginJobs = config.KAFKA_ENABLED ? queues.auxiliary : null
         piscina.on('drain', () => {
             void queue?.resume()
+            void bufferQueue?.resume()
             void redisQueueForPluginJobs?.resume()
             void jobQueueConsumer?.resume()
         })

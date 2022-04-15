@@ -2,17 +2,28 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
+import {
+    CeleryTriggeredJobOperation,
+    Hub,
+    KafkaConsumerName,
+    PluginConfig,
+    PreIngestionEvent,
+    Queue,
+    Team,
+    WorkerMethods,
+} from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
 import { CeleryQueue } from './celery-queue'
 import { ingestEvent } from './ingest-event'
-import { KafkaQueue } from './kafka-queue'
+import { BufferQueue } from './kafka/buffer-queue'
+import { IngestionQueue } from './kafka/ingestion-queue'
 
 interface Queues {
     ingestion: Queue
     auxiliary: Queue
+    buffer: Queue
 }
 
 export function pauseQueueIfWorkerFull(
@@ -56,6 +67,11 @@ export async function startQueues(
             server.lastActivityType = 'ingestEvent'
             return piscina.run({ task: 'ingestEvent', args: { event } })
         },
+        ingestBufferEvent: (event: PreIngestionEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'ingestBufferEvent'
+            return piscina.run({ task: 'ingestBufferEvent', args: { event } })
+        },
         ...workerMethods,
     }
 
@@ -64,9 +80,11 @@ export async function startQueues(
         const queues = {
             ingestion: redisQueue,
             auxiliary: redisQueue,
+            buffer: redisQueue,
         }
         if (server.KAFKA_ENABLED) {
             queues.ingestion = await startQueueKafka(server, mergedWorkerMethods)
+            queues.buffer = await startQueueKafka(server, mergedWorkerMethods, KafkaConsumerName.Buffer)
         }
         return queues
     } catch (error) {
@@ -144,8 +162,15 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
     return celeryQueue
 }
 
-async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<Queue> {
-    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
+async function startQueueKafka(
+    server: Hub,
+    workerMethods: WorkerMethods,
+    queueType: KafkaConsumerName = KafkaConsumerName.Ingestion
+): Promise<Queue> {
+    const kafkaQueue: Queue =
+        queueType === KafkaConsumerName.Ingestion
+            ? new IngestionQueue(server, workerMethods)
+            : new BufferQueue(server, workerMethods)
     await kafkaQueue.start()
 
     return kafkaQueue
