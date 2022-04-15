@@ -103,7 +103,7 @@ def reset_clickhouse_tables():
     from ee.clickhouse.sql.session_recording_events import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    TABLES_TO_CREATE_DROP = [
+    FIRST_BATCH_OF_TABLES_TO_CREATE_DROP = [
         TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -116,19 +116,13 @@ def reset_clickhouse_tables():
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
     ]
+    # Because the tables are created in parallel, any tables that depend on another
+    # table should be created in a second batch - to ensure the first table already
+    # exists. Tables for this second batch of table creation are defined here:
+    SECOND_BATCH_OF_TABLES_TO_CREATE_DROP = [DEAD_LETTER_QUEUE_TABLE_MV_SQL]
 
-    jobs = []
-    for item in TABLES_TO_CREATE_DROP:
-        thread = threading.Thread(target=sync_execute, args=(item,))
-        jobs.append(thread)
-
-    # Start the threads (i.e. calculate the random number lists)
-    for j in jobs:
-        j.start()
-
-    # Ensure all of the threads have finished
-    for j in jobs:
-        j.join()
+    create_clickhouse_tables_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
+    create_clickhouse_tables_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
 
 
 @pytest.fixture(scope="package")
