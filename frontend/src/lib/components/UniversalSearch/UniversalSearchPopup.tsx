@@ -17,7 +17,7 @@ import {
     InsightType,
     PersonType,
 } from '~/types'
-import { PluginSelectionType } from 'scenes/plugins/pluginsLogic'
+import { PluginSelectionType, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import clsx from 'clsx'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { useValues } from 'kea'
@@ -26,6 +26,7 @@ import { Input } from 'antd'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -145,6 +146,10 @@ export function UniversalSearchPopup({
             setVisible(!visible)
         }
     })
+
+    // Ensure some logics are mounted
+    useValues(experimentsLogic)
+    useValues(pluginsLogic)
 
     return (
         <div className="universal-search">
