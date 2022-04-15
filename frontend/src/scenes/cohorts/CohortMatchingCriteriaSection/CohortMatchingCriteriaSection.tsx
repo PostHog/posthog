@@ -14,7 +14,7 @@ export function CohortMatchingCriteriaSection({
     logic: BuiltLogic<cohortLogicType<CohortLogicProps>>
 }): JSX.Element {
     const { setCohort, onCriteriaChange } = useActions(logic)
-    const { cohort, submitted } = useValues(logic)
+    const { cohort } = useValues(logic)
     const onAddGroup = (): void => {
         setCohort({
             ...cohort,
@@ -53,7 +53,6 @@ export function CohortMatchingCriteriaSection({
                                 onCriteriaChange={(newGroup) => onCriteriaChange(newGroup, group.id)}
                                 onRemove={() => onRemoveGroup(index)}
                                 group={group}
-                                showErrors={submitted}
                             />
                             {index < cohort.groups.length - 1 && <div className="stateful-badge or mt mb">OR</div>}
                         </div>

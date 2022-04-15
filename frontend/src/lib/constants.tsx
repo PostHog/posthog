@@ -147,8 +147,10 @@ export enum FunnelLayout {
 export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
-export const COHORT_STATIC = 'static'
-export const COHORT_DYNAMIC = 'dynamic'
+export enum CohortTypeType {
+    Static = 'static',
+    Dynamic = 'dynamic',
+}
 
 /**
  * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.

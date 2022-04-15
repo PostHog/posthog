@@ -15,12 +15,10 @@ export function MatchCriteriaSelector({
     onCriteriaChange,
     group,
     onRemove,
-    showErrors,
 }: {
     onCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
     onRemove: () => void
-    showErrors?: boolean
 }): JSX.Element {
     const onMatchTypeChange = (input: MatchType): void => {
         onCriteriaChange({
@@ -35,9 +33,8 @@ export function MatchCriteriaSelector({
     }
 
     const errored =
-        showErrors &&
-        ((group.matchType === ENTITY_MATCH_TYPE && !group.properties?.length) ||
-            (group.matchType === PROPERTY_MATCH_TYPE && !(group.action_id || group.event_id)))
+        (group.matchType === ENTITY_MATCH_TYPE && !group.properties?.length) ||
+        (group.matchType === PROPERTY_MATCH_TYPE && !(group.action_id || group.event_id))
 
     return (
         <div
