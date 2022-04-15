@@ -114,6 +114,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CONVERSION_BUFFER_ENABLED: boolean
+    BUFFER_CONVERSION_SECONDS: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -888,5 +890,3 @@ export interface PreIngestionEvent {
     timestamp: DateTime | string
     elementsList: Element[]
 }
-
-//         await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)

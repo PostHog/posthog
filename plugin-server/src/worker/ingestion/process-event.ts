@@ -33,6 +33,7 @@ import {
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
+import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
@@ -714,6 +715,20 @@ export class EventsProcessor {
         }
 
         return [eventPayload, eventId, elements]
+    }
+
+    async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.queueMessage({
+                topic: KAFKA_BUFFER,
+                messages: [
+                    {
+                        key: bufferEvent.eventUuid,
+                        value: Buffer.from(JSON.stringify(bufferEvent)),
+                    },
+                ],
+            })
+        }
     }
 
     private async createSessionRecordingEvent(

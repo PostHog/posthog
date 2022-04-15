@@ -130,4 +130,71 @@ describe('ingestEvent', () => {
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
     })
+
+    describe('conversion buffer', () => {
+        beforeEach(() => {
+            hub.CONVERSION_BUFFER_ENABLED = true
+            hub.eventsProcessor.produceEventToBuffer = jest.fn()
+        })
+
+        afterEach(() => {
+            hub.CONVERSION_BUFFER_ENABLED = false
+            jest.clearAllMocks()
+        })
+
+        it('events from recently created persons are sent to the buffer', async () => {
+            // will create a new person
+            const event: PluginEvent = {
+                event: 'xyz',
+                properties: { foo: 'bar' },
+                timestamp: new Date().toISOString(),
+                now: new Date().toISOString(),
+                team_id: 2,
+                distinct_id: 'abc',
+                ip: null,
+                site_url: 'https://example.com',
+                uuid: new UUIDT().toString(),
+            }
+
+            await ingestEvent(hub, event)
+
+            expect(hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalled()
+        })
+
+        it('anonymous events are not sent to the buffer', async () => {
+            const event: PluginEvent = {
+                event: 'xyz',
+                properties: { foo: 'bar', $device_id: 'anonymous' },
+                timestamp: new Date().toISOString(),
+                now: new Date().toISOString(),
+                team_id: 2,
+                distinct_id: 'anonymous',
+                ip: null,
+                site_url: 'https://example.com',
+                uuid: new UUIDT().toString(),
+            }
+
+            await ingestEvent(hub, event)
+
+            expect(hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+        })
+    })
+
+    it('$identify events are not sent to the buffer', async () => {
+        const event: PluginEvent = {
+            event: '$identify',
+            properties: { foo: 'bar' },
+            timestamp: new Date().toISOString(),
+            now: new Date().toISOString(),
+            team_id: 2,
+            distinct_id: 'foo',
+            ip: null,
+            site_url: 'https://example.com',
+            uuid: new UUIDT().toString(),
+        }
+
+        await ingestEvent(hub, event)
+
+        expect(hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+    })
 })

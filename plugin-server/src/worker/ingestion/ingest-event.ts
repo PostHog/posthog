@@ -2,13 +2,11 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { Element,Hub, IngestEventResponse, Person, PreIngestionEvent } from '../../types'
+import { Element, Hub, IngestEventResponse, Person, PreIngestionEvent } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
 import { generateEventDeadLetterQueueMessage } from './utils'
-
-const BUFFER_CONVERSION_SECONDS = 60
 
 export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestEventResponse> {
     const timeout = timeoutGuard('Still ingesting event inside worker. Timeout warning after 30 sec!', {
@@ -31,13 +29,15 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 
         if (result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
-            const sendEventToBuffer = shouldSendEventToBuffer(result, person)
+
+            // even if the buffer is disabled we want to get metrics on how many events would have gone to it
+            const sendEventToBuffer = shouldSendEventToBuffer(hub, result, person) && hub.CONVERSION_BUFFER_ENABLED
             if (sendEventToBuffer) {
-                // will produce to the buffer topic
+                await hub.eventsProcessor.produceEventToBuffer(result)
+            } else {
+                const [, eventId, elements] = await hub.eventsProcessor.createEvent(result)
+                actionMatches = await handleActionMatches(hub, event, site_url, eventId, elements, person)
             }
-            // this will become an else
-            const [, eventId, elements] = await hub.eventsProcessor.createEvent(result)
-            actionMatches = await handleActionMatches(hub, event, site_url, eventId, elements, person)
         }
 
         // We don't want to return the inserted DB entry that `processEvent` returns.
@@ -92,10 +92,17 @@ async function handleActionMatches(
     return actionMatches
 }
 
-function shouldSendEventToBuffer(event: PreIngestionEvent, person?: Person) {
+// TODO: Handle new persons?
+function shouldSendEventToBuffer(hub: Hub, event: PreIngestionEvent, person?: Person) {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
-    const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds > BUFFER_CONVERSION_SECONDS
+    const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds < hub.BUFFER_CONVERSION_SECONDS
     const ingestEventDirectly = isAnonymousEvent || event.event === '$identify' || !isRecentPerson
-    return !ingestEventDirectly
+    const sendToBuffer = !ingestEventDirectly
+
+    if (sendToBuffer) {
+        hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.teamId.toString() })
+    }
+
+    return sendToBuffer
 }
