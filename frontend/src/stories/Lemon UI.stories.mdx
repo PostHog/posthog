@@ -1,0 +1,37 @@
+import { Meta } from '@storybook/addon-docs'
+
+<Meta title="Lemon UI/Overview" />
+
+# Lemon UI
+
+Lemon UI is a suite of building blocks powering PostHog's frontend. These components are abstract in nature so they
+can be used in any context, and are made to fit together. In this section you can find helpful samples, along with
+documentation of available parameters. All the other sections depend on this one.
+
+## Transition from Ant Design
+
+Lemon UI has grown as a replacement for [Ant Design](https://ant.design/), from which we've started transitioning away
+after onboarding our first product designer, Chris. The quality of our UI has been steadily going up since then,
+but the transition process is not complete yet.
+
+**Your** awareness is needed for us to transition sucessfully. Please **DO NOT** use the following Ant components when building new UI:
+
+- `Button` – instead go for `LemonButton`
+- `Select` – instead go for `LemonSelect`
+- `Input` – instead go for `LemonInput`
+- `Table` – instead go for `LemonTable`
+- `Checkbox` – instead go for `LemonCheckbox`
+- `Spin` – instead go for `Spinner`
+- `Alert` – instead go for `AlertMessage`
+- `Typography` – just use HTML elements
+- `Modal` – instead go for `LemonModal`
+- `Divider` – instead go for `LemonSpacer`
+- `Row` – instead go for `LemonRow` (for standard rows of content) or roll your own `display: flex` as needed (for general layout)
+- `Col` – roll your own `display: flex` as needed
+
+## Design principles
+
+- Layout is based on an 8px by 8px grid, so component dimensions/paddings/margins should be multiples of 8px (0.5rem)
+- Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions based
+- Icons are based on a 24px (1.5rem) square viewbox
+- Icons contents are 18px (1.125rem) or smaller
