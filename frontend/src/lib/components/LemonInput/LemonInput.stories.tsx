@@ -3,7 +3,7 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput, LemonInputProps } from './LemonInput'
 import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
 export default {
     title: 'Lemon UI/Lemon Input',
@@ -18,13 +18,20 @@ const Template: ComponentStory<typeof LemonInput> = (props: LemonInputProps) => 
     return <LemonInput {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Default = Template.bind({})
-Default.args = {}
+export const Basic = Template.bind({})
 
-export const Icons = Template.bind({})
-Icons.args = {
-    icon: <IconMagnifier style={{ fontSize: 18, color: 'var(--text-muted)' }} />,
-    sideIcon: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--text-muted)' }} />} />,
+export const WithSearchIconAndSideAction = Template.bind({})
+WithSearchIconAndSideAction.args = {
+    icon: <IconMagnifier />,
+    sideIcon: (
+        <LemonButtonWithPopup
+            popup={{
+                overlay: 'Surprise! 😱',
+            }}
+            type="tertiary"
+            icon={<IconArrowDropDown />}
+        />
+    ),
 }
 
 export const Disabled = Template.bind({})

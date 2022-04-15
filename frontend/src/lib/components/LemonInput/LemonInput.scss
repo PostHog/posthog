@@ -28,10 +28,8 @@
 
 .LemonRow__icon:first-child {
     .LemonInput & {
-        font-size: 18px;
         color: var(--text-muted);
     }
-
     .LemonInput.LemonInput--with-input & {
         color: var(--primary);
     }

@@ -6,11 +6,15 @@ import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 export default {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
-    args: {
-        label: 'Tick this',
-    },
 } as ComponentMeta<typeof LemonCheckbox>
 
-export function LemonCheckbox_(args: LemonCheckboxProps): JSX.Element {
+export function WithoutLabel(args: LemonCheckboxProps): JSX.Element {
     return <LemonCheckbox {...args} />
+}
+
+export function WithLabel(args: LemonCheckboxProps): JSX.Element {
+    return <LemonCheckbox {...args} />
+}
+WithLabel.args = {
+    label: 'Check this',
 }
