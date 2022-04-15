@@ -37,7 +37,7 @@ import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
-import { mergePersonProperties, updatePersonProperties, upsertGroup } from './properties-updater'
+import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
@@ -212,10 +212,6 @@ export class EventsProcessor {
         return now
     }
 
-    public isNewPersonPropertiesUpdateEnabled(teamId: number): boolean {
-        return this.pluginsServer.NEW_PERSON_PROPERTIES_UPDATE_ENABLED ?? false
-    }
-
     public clickhouseExternalSchemasEnabled(teamId: number): boolean {
         if (this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS) {
             return false
@@ -230,11 +226,7 @@ export class EventsProcessor {
         propertiesOnce: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
-            await updatePersonProperties(this.db, teamId, distinctId, properties, propertiesOnce, timestamp)
-        } else {
-            await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
-        }
+        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
     }
 
     private async updatePersonPropertiesDeprecated(
@@ -311,76 +303,7 @@ export class EventsProcessor {
         if (distinctId === previousDistinctId) {
             return
         }
-        if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
-            await this.mergeNew(distinctId, previousDistinctId, teamId, timestamp)
-        } else {
-            await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
-        }
-    }
-
-    private async mergeNew(
-        dId1: string,
-        dId2: string, // more optimal if this person has less properties compared to id1
-        teamId: number,
-        timestamp: DateTime,
-        retriesLeft = MAX_FAILED_PERSON_MERGE_ATTEMPTS
-    ): Promise<void> {
-        let kafkaMessages: ProducerRecord[] = []
-        try {
-            await this.db.postgresTransaction(async (client) => {
-                // iff person exists, then corresponding posthog_person & posthog_persondistinctid are locked for changes
-                let person1: Person | undefined = await this.db.fetchPerson(teamId, dId1, client, {
-                    forUpdate: true,
-                })
-                let person2: Person | undefined = await this.db.fetchPerson(teamId, dId2, client, {
-                    forUpdate: true,
-                })
-                if (person2 && !person1) {
-                    // swap variables as the logic is the same
-                    person1 = [person2, (person2 = person1)][0]
-                    dId1 = [dId2, (dId2 = dId1)][0]
-                }
-
-                if (person1 && person2) {
-                    // there are no races here as we locked both people and their corresponding distinctid mappings
-                    const moveDistinctIdMessages = await this.db.moveDistinctIds(person2, person1, client)
-                    const updatePropertiesMessages = await mergePersonProperties(
-                        this.db,
-                        client,
-                        person1,
-                        person2,
-                        timestamp
-                    )
-                    const deletePersonMessages = await this.db.deletePerson(person2, client)
-
-                    kafkaMessages = [...moveDistinctIdMessages, ...updatePropertiesMessages, ...deletePersonMessages]
-                } else if (person1 && !person2) {
-                    // race with secondary person being created
-                    kafkaMessages = await this.db.addDistinctIdPooled(person1, dId2, client)
-                } else {
-                    // race with either person being created
-                    // doesn't need to be in this transaction as we couldn't lock anything anyway
-                    // and kafka messages are handled in there
-                    await this.createPerson(timestamp, {}, {}, teamId, null, false, new UUIDT().toString(), [
-                        dId1,
-                        dId2,
-                    ])
-                }
-            })
-        } catch (error) {
-            if (!retriesLeft) {
-                throw error
-            }
-            console.debug(`Failed to merge ${dId1} and ${dId2}, error ${error}`)
-            await this.mergeNew(dId1, dId2, teamId, timestamp, retriesLeft - 1)
-            return
-        }
-
-        if (this.kafkaProducer) {
-            for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.queueMessage(kafkaMessage)
-            }
-        }
+        await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
     }
 
     private async aliasDeprecated(

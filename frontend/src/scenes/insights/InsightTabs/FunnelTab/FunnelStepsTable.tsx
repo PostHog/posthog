@@ -81,7 +81,11 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 } // assume visible status from first step's visibility
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
-                                rowProps={{ compact: true, style: { padding: 0, marginLeft: '-0.5rem' } }}
+                                rowProps={{
+                                    compact: true,
+                                    style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
+                                    title: label,
+                                }}
                             />
                         )
                     },
@@ -97,7 +101,7 @@ export function FunnelStepsTable(): JSX.Element | null {
         ...steps.map((step, stepIndex) => ({
             title: (
                 <LemonRow
-                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} double />}
                     style={{ font: 'inherit', padding: 0 }}
                     compact
                 >
@@ -185,7 +189,14 @@ export function FunnelStepsTable(): JSX.Element | null {
             dataSource={flattenedBreakdowns}
             columns={columnsGrouped}
             loading={insightLoading}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex, flattenedBreakdowns.length === 1)}
+            rowRibbonColor={(series) =>
+                getSeriesColor(
+                    series?.breakdownIndex,
+                    flattenedBreakdowns.length === 1,
+                    undefined,
+                    flattenedBreakdowns.length
+                )
+            }
             rowKey="breakdownIndex"
         />
     )

@@ -4,7 +4,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, InsightType, FunnelPathType, AvailableFeature, PropertyGroupFilter } from '~/types'
+import { PathType, FunnelPathType, AvailableFeature, PropertyGroupFilter } from '~/types'
 import './PathTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
@@ -13,8 +13,6 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { PersonsModal } from 'scenes/trends/PersonsModal'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,8 +33,6 @@ export function PathTab(): JSX.Element {
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -150,15 +146,6 @@ export function PathTab(): JSX.Element {
 
     return (
         <>
-            <PersonsModal
-                visible={showingPeople && !cohortModalVisible}
-                view={InsightType.PATHS}
-                filters={filter}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-                aggregationTargetLabel={{ singular: 'user', plural: 'users' }}
-            />
             <Row>
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>

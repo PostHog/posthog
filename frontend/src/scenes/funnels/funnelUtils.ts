@@ -70,12 +70,17 @@ export function humanizeOrder(order: number): number {
     return order + 1
 }
 
-export function getSeriesColor(index?: number, isSingleSeries: boolean = false, fallbackColor?: string): string {
+export function getSeriesColor(
+    index?: number,
+    isSingleSeries: boolean = false,
+    fallbackColor?: string,
+    numSeries?: number
+): string {
     if (isSingleSeries) {
         return 'var(--primary)'
     }
     if (typeof index === 'number' && index >= 0) {
-        return getChartColors('white')[index]
+        return getChartColors('white', numSeries)[index]
     }
     return fallbackColor ?? getChartColors('white')[0]
 }

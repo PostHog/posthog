@@ -52,7 +52,8 @@
     &:not(:disabled):active {
         background: var(--primary-active);
     }
-    .LemonRow__icon {
+    .LemonRow__icon,
+    .spinner {
         color: #fff;
     }
 }

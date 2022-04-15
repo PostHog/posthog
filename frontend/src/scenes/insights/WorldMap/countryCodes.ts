@@ -27,6 +27,12 @@ export const letterToRegionalIndicator = {
     Z: '🇿',
 }
 
+/**
+ * Returns country flag emoji for a given ISO 3166-1 alpha-2 country code.
+ *
+ * This is super simple because a country flag is in fact just the country's ISO code in _regional indicator_ form.
+ * See: https://en.wikipedia.org/wiki/Regional_indicator_symbol
+ */
 export function countryCodeToFlag(countryCode: string): string {
     return `${letterToRegionalIndicator[countryCode[0]]}${letterToRegionalIndicator[countryCode[1]]}`
 }
@@ -268,4 +274,9 @@ export const countryCodeToName = {
     SG: 'Singapore',
     TK: 'Tokelau',
     XK: 'Kosovo',
+    RE: 'Réunion',
+    MO: 'Macao',
+    MQ: 'Martinique',
+    AX: 'Åland Islands',
+    BQ: 'Caribbean Netherlands',
 }
