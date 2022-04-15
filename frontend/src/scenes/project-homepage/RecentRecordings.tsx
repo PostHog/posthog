@@ -10,7 +10,7 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
@@ -29,6 +29,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             className="list-row"
             onClick={() => {
                 openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
+                eventUsageLogic.actions.reportRecordingOpenedFromRecentRecordingList()
             }}
         >
             <ProfilePicture name={asDisplay(recording.person)} />

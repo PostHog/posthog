@@ -11,10 +11,18 @@ import { PersonType } from '~/types'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { projectHomepageLogic } from './projectHomepageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     return (
-        <LemonButton fullWidth className="list-row" to={urls.person(person.distinct_ids[0])}>
+        <LemonButton
+            fullWidth
+            className="list-row"
+            to={urls.person(person.distinct_ids[0])}
+            onClick={() => {
+                eventUsageLogic.actions.reportPersonOpenedFromNewlySeenPersonsList()
+            }}
+        >
             <ProfilePicture name={asDisplay(person)} />
 
             <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
