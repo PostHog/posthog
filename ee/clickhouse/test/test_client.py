@@ -112,7 +112,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Assert that we only called clickhouse once
         self.assertEqual(execute_sync_mock.call_count, 2)
-    
+
     @patch("posthog.client.execute_with_progress")
     def test_async_query_client_manual_query_uuid(self, execute_sync_mock):
         query = "SELECT 8 + 8"
@@ -128,7 +128,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Assert that we only called clickhouse once
         self.assertEqual(execute_sync_mock.call_count, 2)
-    
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.

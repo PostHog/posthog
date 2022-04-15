@@ -178,12 +178,12 @@ class QueryStatus:
     num_rows: float = 0
     total_rows: float = 0
     error: bool = False
-    complete: bool = False 
-    error_message: str = "" 
+    complete: bool = False
+    error_message: str = ""
     results: Any = None
     start_time: float = None
     end_time: float = None
-    task_id: str = None 
+    task_id: str = None
 
 
 def generate_redis_results_key(query_id):
@@ -192,7 +192,9 @@ def generate_redis_results_key(query_id):
     return key
 
 
-def execute_with_progress(team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2, task_id=None):
+def execute_with_progress(
+    team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2, task_id=None
+):
     """
     Kick off query with progress reporting
     Iterate over the progress status
@@ -267,7 +269,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
             complete=False,
             error=True,
             start_time=query_status.start_time,
-            end_time=time.time(), 
+            end_time=time.time(),
             error_message=str(err),
             results=None,
             task_id=task_id,
@@ -300,10 +302,10 @@ def enqueue_execute_with_progress(
         # 1) Get the current status from redis
         task_str = redis_client.get(key)
         if task_str:
-            # if the status exists in redis we need to tell celery to kill the job 
+            # if the status exists in redis we need to tell celery to kill the job
             task_str = task_str.decode("utf-8")
             query_task = QueryStatus.from_json(task_str)
-            # Instruct celery to revoke task and terminate if running 
+            # Instruct celery to revoke task and terminate if running
             revoke(query_task.task_id, terminate=True)
             # Then we need to make redis forget about this job entirely
             # and continue as normal. As if we never saw this query before
