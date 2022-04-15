@@ -10,7 +10,7 @@ from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_P
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
@@ -19,7 +19,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             if delete:
                 person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             else:
-                _create_event(distinct_ids=[f"user_{i}"], team=self.team)
+                _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
                 distinct_id=f"user_{i}",

@@ -367,14 +367,16 @@ def _create_event(**kwargs):
     return kwargs["event_uuid"]
 
 
-def _create_person(**kwargs):
+def _create_person(*args, **kwargs):
     """
     Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
     """
     kwargs["uuid"] = uuid.uuid4()
     # If we've done freeze_time just create straight away
-    if hasattr(now(), "__module__") and now().__module__ == "freezegun.api":  # type: ignore
+    if hasattr(now(), "__module__") and now().__module__ == "freezegun.api":
         return Person.objects.create(**kwargs)
+    if len(args) > 0:
+        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
 
     persons_cache_tests.append(kwargs)
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})

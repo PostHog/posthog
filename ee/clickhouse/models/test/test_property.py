@@ -1004,7 +1004,7 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
     uuids = list(
         sorted(
             [
-                uuid
+                str(uuid)
                 for (uuid,) in sync_execute(
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )

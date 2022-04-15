@@ -16,7 +16,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             if delete:
                 person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             else:
-                _create_event(distinct_ids=[f"user_{i}"], team=self.team)
+                _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
                 distinct_id=f"user_{i}",

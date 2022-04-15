@@ -8,7 +8,6 @@ from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
-from freezegun import freeze_time
 from rest_framework import serializers
 
 from ee.clickhouse.sql.person import (
@@ -51,6 +50,8 @@ if TEST:
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
+
+    from freezegun import freeze_time
 
     def bulk_create_persons(persons_list: List[Dict]):
         persons = []

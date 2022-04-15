@@ -56,12 +56,12 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
 
         with self.settings(USE_TZ=False):
             with freeze_time("2020-11-02"):
-                _create_person("old_user1", team=default_team)
-                _create_person("old_user2", team=default_team)
+                _create_person(distinct_ids=["old_user1"], team=default_team)
+                _create_person(distinct_ids=["old_user2"], team=default_team)
 
             with freeze_time("2020-11-11 00:30:00"):
-                _create_person("new_user1", team=default_team)
-                _create_person("new_user2", team=default_team)
+                _create_person(distinct_ids=["new_user1"], team=default_team)
+                _create_person(distinct_ids=["new_user2"], team=default_team)
                 _create_event(
                     distinct_id="new_user1",
                     event="$event1",
@@ -104,8 +104,8 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
 
                 # Create usage in a different org.
                 team_in_other_org = self.create_new_org_and_team(org_owner_email="other@example.com")
-                _create_person("new_user1", team=team_in_other_org)
-                _create_person("new_user2", team=team_in_other_org)
+                _create_person(distinct_ids=["new_user1"], team=team_in_other_org)
+                _create_person(distinct_ids=["new_user2"], team=team_in_other_org)
                 _create_event(
                     distinct_id="new_user1",
                     event="$event1",
@@ -149,7 +149,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 internal_metrics_team = self.create_new_org_and_team(
                     for_internal_metrics=True, org_owner_email="hey@posthog.com"
                 )
-                _create_person("new_user1", team=internal_metrics_team)
+                _create_person(distinct_ids=["new_user1"], team=internal_metrics_team)
                 _create_event(
                     distinct_id="new_user1",
                     event="$event1",
