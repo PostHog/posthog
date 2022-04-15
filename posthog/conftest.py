@@ -1,4 +1,5 @@
 import threading
+from typing import List
 
 import pytest
 from django.conf import settings
@@ -13,9 +14,9 @@ from posthog.client import sync_execute
 from posthog.test.base import TestMixin
 
 
-def run_clickhouse_statement_in_parallel(tables: list):
+def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    for item in tables:
+    for item in statements:
         thread = threading.Thread(target=sync_execute, args=(item,))
         jobs.append(thread)
 
