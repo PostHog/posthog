@@ -13,7 +13,7 @@ from posthog.client import sync_execute
 from posthog.test.base import TestMixin
 
 
-def create_clickhouse_tables_in_parallel(tables: list[str]):
+def create_clickhouse_tables_in_parallel(tables: list):
     jobs = []
     for item in tables:
         thread = threading.Thread(target=sync_execute, args=(item,))
