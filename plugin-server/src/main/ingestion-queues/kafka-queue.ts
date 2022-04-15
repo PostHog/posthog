@@ -1,13 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
-import { runInstrumentedFunction } from 'main/utils'
 
 import { PluginServerMode } from '../../types'
 import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
 import { onEvent } from '../runner/on-event'
+import { runInstrumentedFunction } from '../utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { ingestEvent } from './ingest-event'
 
