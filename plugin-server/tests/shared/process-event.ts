@@ -142,8 +142,10 @@ export const createProcessEventTests = (
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
         }
+        if (response) {
+            await eventsProcessor.createEvent(response)
+        }
 
-        await eventsProcessor.createEvent(response)
         return response
     }
 
