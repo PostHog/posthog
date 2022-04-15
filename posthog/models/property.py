@@ -71,6 +71,7 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "performed_event": ["event", "event_type", "time_value", "time_interval"],
     "performed_event_multiple": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
+    "restarted_performing_event": ["event", "event_type", "time_value"],
 }
 
 

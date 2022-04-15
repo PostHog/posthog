@@ -233,20 +233,21 @@ def get_periods(start_time, end_time, interval, interval_unit):
     # TODO: do start and end time need truncating?
     period_starts = []
     params = {}
-    period_start = start_time
-    period_end = start_time + timedelta(**{interval_unit: interval})
+    period_start = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+    # TODO: much hacking
+    period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
     counter = 0
     # TODO: handle complexities with incomplete periods
     # Perhaps we shape the query such that you only give us start_time or end_time, and periods
     # Did $pageview 10 times every week in the past month
     # What's implicit above^ is that we're talking only in terms of periods, and an end_time.
     # But its also ambigous, do 4 weeks, or 5 make up the past month? Depends on the month :$
-    while period_start < end_time:
+    while period_start < datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S"):
         period_starts.append(period_start)
         # TODO: timezone nonsense, also depends on interval_unit. Check always utc + aware
         params[f"period_{counter}"] = period_start.strftime("%Y-%m-%d")
         period_start = period_end
-        period_end = period_start + timedelta(**{interval_unit: interval})
+        period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
         counter += 1
 
     #  Final boundary
@@ -292,16 +293,16 @@ def performed_event_lifecycle_subquery(
     if prop.type == "performing_event_regularly":
         period_filter = "arrayAll(x->x > %(period_event_count)s, period_values)"
         # TODO: get correct value
-        period_filter_params["period_event_count"] = prop.period_event_count
+        period_filter_params["period_event_count"] = prop.operator_value
 
     elif prop.type == "stopped_performing_event":
         # TODO: if I'm checking everything else to be 0, don't need arrayFirstIndex, simply array[1].
         period_filter = "arrayFirstIndex(x-> if(x > %(period_event_count)s, 1, 0), period_values) = 1 AND arrayAll(x->x = 0, arrayPopFront(period_values))"
-        period_filter_params["period_event_count"] = prop.period_event_count
+        period_filter_params["period_event_count"] = prop.operator_value
 
     elif prop.type == "restarted_performing_event":
         period_filter = "arrayFirstIndex(x-> if(x > %(period_event_count)s, 1, 0), period_values) = %(total_periods)s AND arrayAll(x -> x = 0, arrayPopBack(period_values))"
-        period_filter_params["period_event_count"] = prop.period_event_count
+        period_filter_params["period_event_count"] = prop.operator_value
         period_filter_params["total_periods"] = period_count  #  as CH arrays are 1-indexed
 
     extract_person = GET_PERSON_ID_EVENT_LIFECYCLE.format(
