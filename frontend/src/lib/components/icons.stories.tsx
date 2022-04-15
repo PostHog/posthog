@@ -1,9 +1,14 @@
 import * as React from 'react'
 import * as icons from './icons'
 import { Meta } from '@storybook/react'
-import { Table } from 'antd'
+import { LemonTable } from './LemonTable'
 
-const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
+interface IconDefinition {
+    name: string
+    icon: (...args: any[]) => JSX.Element
+}
+
+const allIcons: IconDefinition[] = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
     title: 'Lemon UI/Icons',
@@ -12,23 +17,23 @@ export default {
 
 export function Icons(): JSX.Element {
     return (
-        <Table
-            pagination={false}
+        <LemonTable
             dataSource={allIcons}
             columns={[
                 {
                     title: 'Name',
                     key: 'name',
                     dataIndex: 'name',
-                    render: function RenderName(name: string) {
-                        return <code>{`<${name}/>`}</code>
+                    render: function RenderName(name) {
+                        return <code>{`<${name as string}/>`}</code>
                     },
                 },
                 {
                     title: 'Icon',
                     key: 'icon',
                     dataIndex: 'icon',
-                    render: function RenderIcon(Icon: () => JSX.Element) {
+                    render: function RenderIcon(Icon) {
+                        Icon = Icon as IconDefinition['icon']
                         return (
                             <span
                                 style={{
