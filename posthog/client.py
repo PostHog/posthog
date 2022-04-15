@@ -4,7 +4,6 @@ import json
 import time
 import types
 from dataclasses import dataclass
-from enum import Enum
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
