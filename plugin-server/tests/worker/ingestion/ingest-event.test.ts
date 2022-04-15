@@ -134,15 +134,15 @@ describe('ingestEvent', () => {
     describe('conversion buffer', () => {
         beforeEach(() => {
             hub.CONVERSION_BUFFER_ENABLED = true
-            hub.eventsProcessor.produceEventToBuffer = jest.fn()
         })
 
         afterEach(() => {
             hub.CONVERSION_BUFFER_ENABLED = false
-            jest.clearAllMocks()
         })
 
         it('events from recently created persons are sent to the buffer', async () => {
+            hub.eventsProcessor.produceEventToBuffer = jest.fn()
+
             // will create a new person
             const event: PluginEvent = {
                 event: 'xyz',
@@ -162,6 +162,8 @@ describe('ingestEvent', () => {
         })
 
         it('anonymous events are not sent to the buffer', async () => {
+            hub.eventsProcessor.produceEventToBuffer = jest.fn()
+
             const event: PluginEvent = {
                 event: 'xyz',
                 properties: { foo: 'bar', $device_id: 'anonymous' },
@@ -181,6 +183,8 @@ describe('ingestEvent', () => {
     })
 
     it('$identify events are not sent to the buffer', async () => {
+        hub.eventsProcessor.produceEventToBuffer = jest.fn()
+
         const event: PluginEvent = {
             event: '$identify',
             properties: { foo: 'bar' },
