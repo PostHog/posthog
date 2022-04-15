@@ -110,13 +110,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Try the same query again (for good measure!)
         client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
 
-        # Assert that we called clickhouse twice 
+        # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
     @patch("posthog.client.execute_with_progress")
     def test_async_query_client_manual_query_uuid(self, execute_sync_mock):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
-        # in redis. This tests to make sure it is treated as a unique run of that query 
+        # in redis. This tests to make sure it is treated as a unique run of that query
         query = "SELECT 8 + 8"
         team_id = 2
         query_id = "I'm so unique"
@@ -128,7 +128,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Try the same query again (for good measure!)
         client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True)
 
-        # Assert that we called clickhouse twice 
+        # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
     def test_client_strips_comments_from_request(self):
