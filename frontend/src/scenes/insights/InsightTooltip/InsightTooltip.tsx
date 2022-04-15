@@ -44,7 +44,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
+            <SeriesLetter className="mr-05" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
@@ -144,18 +144,6 @@ export function InsightTooltip({
         const columns: LemonTableColumn<SeriesDatum, keyof SeriesDatum | undefined>[] = []
         const isTruncated = dataSource?.length > rowCutoff
 
-        if (!hideColorCol) {
-            columns.push({
-                key: 'color',
-                className: 'color-column',
-                sticky: true,
-                width: 6,
-                render: function renderColor(_, datum) {
-                    return <div className="color-cell" style={{ backgroundColor: datum.color }} />
-                },
-            })
-        }
-
         columns.push({
             key: 'datum',
             className: 'datum-label-column',
@@ -198,6 +186,7 @@ export function InsightTooltip({
                     rowKey="id"
                     size="small"
                     uppercaseHeader={false}
+                    rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (

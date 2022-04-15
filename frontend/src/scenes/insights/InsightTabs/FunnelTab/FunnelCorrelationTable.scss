@@ -20,6 +20,7 @@
         border-top-left-radius: $radius;
         border-top-right-radius: $radius;
         padding-bottom: 5px;
+        overflow: auto;
 
         .table-header {
             font-style: normal;
