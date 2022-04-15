@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
 export default {
-    title: 'Components/Lemon Checkbox',
+    title: 'Lemon UI/Checkbox',
     component: LemonCheckbox,
     args: {
         label: 'Tick this',

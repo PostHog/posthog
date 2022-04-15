@@ -6,7 +6,7 @@ import { Table } from 'antd'
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
-    title: 'Layout/Icons',
+    title: 'Lemon UI/Icons',
     parameters: { options: { showPanel: false } },
 } as Meta
 

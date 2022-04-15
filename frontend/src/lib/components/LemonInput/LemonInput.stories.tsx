@@ -6,7 +6,7 @@ import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export default {
-    title: 'Components/Lemon Input',
+    title: 'Lemon UI/Input',
     component: LemonInput,
     argTypes: {
         value: { defaultValue: 'Foo' },

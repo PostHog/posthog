@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
 export default {
-    title: 'Components/Lemon Switch',
+    title: 'Lemon UI/Switch',
     component: LemonSwitch,
     argTypes: {
         loading: {
