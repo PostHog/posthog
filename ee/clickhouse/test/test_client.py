@@ -98,6 +98,37 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
 
+    @patch("posthog.client.execute_with_progress")
+    def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_sync_mock):
+        query = "SELECT 8 + 8"
+        team_id = 2
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+
+        # Try the same query again
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True, force=True)
+
+        # Try the same query again (for good measure!)
+        client.enqueue_execute_with_progress(team_id, query, bypass_celery=True)
+
+        # Assert that we only called clickhouse once
+        self.assertEqual(execute_sync_mock.call_count, 2)
+    
+    @patch("posthog.client.execute_with_progress")
+    def test_async_query_client_manual_query_uuid(self, execute_sync_mock):
+        query = "SELECT 8 + 8"
+        team_id = 2
+        query_id = "I'm so unique"
+        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True)
+
+        # Try the same query again
+        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True, force=True)
+
+        # Try the same query again (for good measure!)
+        client.enqueue_execute_with_progress(team_id, query, query_id=query_id, bypass_celery=True)
+
+        # Assert that we only called clickhouse once
+        self.assertEqual(execute_sync_mock.call_count, 2)
+    
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.

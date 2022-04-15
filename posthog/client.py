@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
+from celery.task.control import revoke
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
@@ -182,6 +183,7 @@ class QueryStatus:
     results: Any = None
     start_time: float = None
     end_time: float = None
+    task_id: str = None 
 
 
 def generate_redis_results_key(query_id):
@@ -190,7 +192,7 @@ def generate_redis_results_key(query_id):
     return key
 
 
-def execute_with_progress(team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2):
+def execute_with_progress(team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2, task_id=None):
     """
     Kick off query with progress reporting
     Iterate over the progress status
@@ -217,7 +219,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
 
     timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
-    query_status = QueryStatus(team_id)
+    query_status = QueryStatus(team_id, task_id=task_id)
 
     try:
         progress = ch_client.execute_with_progress(
@@ -232,7 +234,8 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 error=False,
                 error_message="",
                 results=None,
-                start_time=time.time()
+                start_time=time.time(),
+                task_id=task_id,
             )
             redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
             time.sleep(update_freq)
@@ -248,6 +251,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
                 end_time=time.time(),
                 error_message="",
                 results=rv,
+                task_id=task_id,
             )
             redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
@@ -266,6 +270,7 @@ def execute_with_progress(team_id, query_id, query, args=None, settings=None, wi
             end_time=time.time(), 
             error_message=str(err),
             results=None,
+            task_id=task_id,
         )
         redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
@@ -290,12 +295,25 @@ def enqueue_execute_with_progress(
     key = generate_redis_results_key(query_id)
     redis_client = redis.get_client()
 
+    if force:
+        # If we want to force rerun of this query we need to
+        # 1) Get the current status from redis
+        task_str = redis_client.get(key)
+        if task_str:
+            # if the status exists in redis we need to tell celery to kill the job 
+            task_str = task_str.decode("utf-8")
+            query_task = QueryStatus.from_json(task_str)
+            # Instruct celery to revoke task and terminate if running 
+            revoke(query_task.task_id, terminate=True)
+            # Then we need to make redis forget about this job entirely
+            # and continue as normal. As if we never saw this query before
+            redis_client.delete(key)
+
     if redis_client.get(key):
         # If we've seen this query before return the query_id and don't resubmit it.
         return query_id
 
     # Immediately set status so we don't have race with celery
-    redis_client = redis.get_client()
     query_status = QueryStatus(team_id=team_id, start_time=time.time())
     redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
 
