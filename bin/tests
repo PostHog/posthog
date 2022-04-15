@@ -28,5 +28,15 @@ PG_HOST="${PGHOST:=localhost}"
 PG_USER="${PGUSER:=posthog}"
 PG_PASSWORD="${PGPASSWORD:=posthog}"
 PG_PORT="${PGPORT:=5432}"
-psql posthog -d "postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}" -c "drop database if exists test_posthog"
-nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $* --snapshot-update; mypy posthog ee"
+PGOPTIONS='--client-min-messages=warning' psql posthog -d "postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}" -c "drop database if exists test_posthog" 1> /dev/null
+
+if [[ "$*" == *"migration"* ]]
+then
+    echo "Looks like you're testing a migration. Running all migrations first."
+    MIGRATIONS=""
+else
+    MIGRATIONS="--no-migrations"
+    export SKIP_TRIGRAM_INDEX_FOR_TESTS=1
+fi
+
+nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} -s $* --snapshot-update; mypy posthog ee"

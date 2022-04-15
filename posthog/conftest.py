@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
@@ -60,8 +62,18 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
 
+    jobs = []
     for item in TABLES_TO_CREATE_DROP:
-        sync_execute(item)
+        thread = threading.Thread(target=sync_execute, args=(item,))
+        jobs.append(thread)
+
+    # Start the threads (i.e. calculate the random number lists)
+    for j in jobs:
+        j.start()
+
+    # Ensure all of the threads have finished
+    for j in jobs:
+        j.join()
 
 
 def reset_clickhouse_tables():
@@ -95,8 +107,18 @@ def reset_clickhouse_tables():
         TRUNCATE_GROUPS_TABLE_SQL,
     ]
 
+    jobs = []
     for item in TABLES_TO_CREATE_DROP:
-        sync_execute(item)
+        thread = threading.Thread(target=sync_execute, args=(item,))
+        jobs.append(thread)
+
+    # Start the threads (i.e. calculate the random number lists)
+    for j in jobs:
+        j.start()
+
+    # Ensure all of the threads have finished
+    for j in jobs:
+        j.join()
 
 
 @pytest.fixture(scope="package")
