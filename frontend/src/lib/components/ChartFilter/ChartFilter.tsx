@@ -14,8 +14,6 @@ import {
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 
@@ -29,7 +27,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { insightProps } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
@@ -132,22 +129,18 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                       disabled: pieDisabled,
                   },
-                  ...(featureFlags[FEATURE_FLAGS.HEDGEHOGGER]
-                      ? [
-                            {
-                                value: ChartDisplayType.WorldMap,
-                                label: (
-                                    <Label
-                                        icon={<GlobalOutlined />}
-                                        tooltip="Visualize data by country. Only works with one series at a time."
-                                    >
-                                        Map
-                                    </Label>
-                                ),
-                                disabled: worldMapDisabled,
-                            },
-                        ]
-                      : []),
+                  {
+                      value: ChartDisplayType.WorldMap,
+                      label: (
+                          <Label
+                              icon={<GlobalOutlined />}
+                              tooltip="Visualize data by country. Only works with one series at a time."
+                          >
+                              World Map
+                          </Label>
+                      ),
+                      disabled: worldMapDisabled,
+                  },
               ]
     return (
         <Select
@@ -161,6 +154,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             bordered
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             dropdownMatchSelectWidth={false}
+            listHeight={288} // We want to avoid the scrollbar, which is an issue with the default max-height of 256 px
             data-attr="chart-filter"
             disabled={disabled}
             options={options}

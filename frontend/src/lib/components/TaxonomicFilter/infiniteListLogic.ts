@@ -163,7 +163,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count || (response.results || []).length,
+                        count:
+                            response.count ||
+                            (Array.isArray(response) ? response.length : 0) ||
+                            (response.results || []).length,
                         expandedCount: expandedCountResponse?.count,
                     }
                 },

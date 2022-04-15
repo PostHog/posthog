@@ -62,7 +62,13 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
+    "ActionsLineGraph",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPie",
+    "ActionsBar",
+    "ActionsBarValue",
+    "WorldMap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -225,5 +231,5 @@ class PropertyOperatorType(str, Enum):
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 BREAKDOWN_VALUES_LIMIT = 25
-BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 200
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
