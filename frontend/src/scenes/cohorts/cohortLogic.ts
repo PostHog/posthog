@@ -83,12 +83,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     }),
 
     reducers: () => ({
-        pollTimeout: [
-            null as NodeJS.Timeout | null,
-            {
-                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
-            },
-        ],
         cohort: [
             processCohortOnSet(NEW_COHORT) as CohortType,
             {
@@ -111,6 +105,12 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
             },
         ],
+        pollTimeout: [
+            null as NodeJS.Timeout | null,
+            {
+                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
+            },
+        ],
         lastSavedAt: [
             false as string | false,
             {
@@ -121,15 +121,22 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
 
     forms: ({ actions }) => ({
         cohort: {
-            defaults: processCohortOnSet(NEW_COHORT) as CohortType,
-            // validator: ({ name, csv, is_static, id, groups }) => ({
-            //     name: !name ? 'You need to set a name' : null,
-            //     csv: id==='new' && is_static && !csv ? "You need to upload a CSV file" : null,
-            //     groups: !groups ||
-            //         groups.length < 1 ||
-            //         groups.some(g => (g.matchType === ENTITY_MATCH_TYPE && !g.properties?.length) ||
-            //         (g.matchType === PROPERTY_MATCH_TYPE && !(g.action_id || g.event_id))) ? 'One of your matching groups is invalid' : null
-            // }),
+            defaults: processCohortOnSet(NEW_COHORT),
+            validator: ({ name, csv, is_static, id, groups }) => ({
+                name: !name ? 'You need to set a name' : undefined,
+                csv: {
+                    uid: id === 'new' && is_static && !csv ? 'You need to upload a CSV file' : undefined,
+                },
+                groups: groups?.map(({ matchType, properties, action_id, event_id }) => {
+                    if (
+                        (matchType === ENTITY_MATCH_TYPE && !properties?.length) ||
+                        (matchType === PROPERTY_MATCH_TYPE && !(action_id || event_id))
+                    ) {
+                        return { id: 'This matching group is invalid' }
+                    }
+                    return { id: undefined }
+                }),
+            }),
             submit: (cohort) => {
                 actions.saveCohort(cohort)
             },

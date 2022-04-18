@@ -1,15 +1,14 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Col, Divider, Row } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { AvailableFeature, CohortType } from '~/types'
 import { CohortTypeType } from 'lib/constants'
-import { CalculatorOutlined, InboxOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { CalculatorOutlined, LoadingOutlined, OrderedListOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
-import { UploadFile } from 'antd/lib/upload/interface'
 import { userLogic } from 'scenes/userLogic'
 import 'antd/lib/dropdown/style/index.css'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -21,6 +20,7 @@ import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { LemonTextArea } from 'lib/components/LemonTextArea'
+import { IconUploadFile } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -45,26 +45,17 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const pageKey = useMemo(() => uniqueMemoizedIndex++, [id])
     const logicProps = { pageKey, id }
     const logic = cohortLogic(logicProps)
-    const { setCohort, saveCohort, deleteCohort, cancelCohort } = useActions(logic)
+    const { deleteCohort, cancelCohort } = useActions(logic)
     const { cohort } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const [csvUploading, setCsvUploading] = useState<boolean>(false)
     const isNewCohort = cohort.id === 'new'
 
-    const staticCSVDraggerProps = {
-        name: 'file',
-        multiple: false,
-        fileList: cohort.csv ? [cohort.csv] : [],
-        beforeUpload(file: UploadFile) {
-            setCohort({ ...cohort, csv: file })
-
-            return false
-        },
-        accept: '.csv',
-    }
+    console.log('COHORT', cohort)
 
     return (
         <div className="cohort">
-            <VerticalForm logic={cohortLogic} formKey="cohort">
+            <VerticalForm logic={cohortLogic} props={logicProps} formKey="cohort">
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
@@ -93,14 +84,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                     Delete
                                 </LemonButton>
                             )}
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-cohort"
-                                htmlType="submit"
-                                onClick={() => {
-                                    saveCohort()
-                                }}
-                            >
+                            <LemonButton type="primary" data-attr="save-cohort" htmlType="submit">
                                 Save
                             </LemonButton>
                         </div>
@@ -119,7 +103,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 <LemonSelect
                                     options={COHORT_TYPE_OPTIONS}
                                     value={value ? CohortTypeType.Static : CohortTypeType.Dynamic}
-                                    onChange={onValueChange}
+                                    onChange={(cohortType) => {
+                                        onValueChange(cohortType === CohortTypeType.Static)
+                                    }}
                                     type="stealth"
                                     outlined
                                     style={{ width: '100%' }}
@@ -138,25 +124,59 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                     </Row>
                 )}
                 {cohort.id && !isNewCohort && <CohortDetailsRow cohort={cohort} />}
-                <Divider />
                 {cohort.is_static ? (
-                    <div>
-                        <h3 className="l3">Add Users</h3>
-                        <span>
-                            Drop a <pre style={{ display: 'inline' }}>.csv</pre> file here to add users to your cohort
-                        </span>
-                        <Dragger {...staticCSVDraggerProps} className="cohort-csv-dragger">
-                            <p className="ant-upload-drag-icon">
-                                <InboxOutlined />
-                            </p>
-                            <div>
-                                <p className="ant-upload-text">Click or drag file to this area to upload</p>
-                                <p className="ant-upload-hint">
-                                    The CSV file only requires a single column with the user’s distinct ID.
-                                </p>
-                            </div>
-                        </Dragger>
-                    </div>
+                    <Row gutter={24} className="mt">
+                        <Col span={24}>
+                            <Field name={['csv', 'uid']} label="Upload users">
+                                {({ onValueChange }) => (
+                                    <>
+                                        <span className="mb">
+                                            Upload a CSV file to add users to your cohort. The CSV file only requires a
+                                            single column with the user’s distinct ID.
+                                        </span>
+                                        <Dragger
+                                            name="file"
+                                            multiple={false}
+                                            fileList={cohort.csv ? [cohort.csv] : []}
+                                            accept=".csv"
+                                            showUploadList
+                                            onChange={({ file, fileList }) => {
+                                                console.log('ONCHANGE', file, fileList)
+                                                if (file.status === 'uploading') {
+                                                    setCsvUploading(true)
+                                                    return
+                                                }
+                                                if (file.status === 'done') {
+                                                    onValueChange(file)
+                                                    setCsvUploading(false)
+                                                }
+                                            }}
+                                            // onRemove={() => {
+                                            //     onValueChange({})
+                                            // }}
+                                            className="cohort-csv-dragger"
+                                        >
+                                            {csvUploading ? (
+                                                <>
+                                                    <LoadingOutlined style={{ fontSize: '3rem' }} />
+                                                    <div className="ant-upload-text">Uploading file...</div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <IconUploadFile
+                                                        style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                    />
+                                                    <div className="ant-upload-text">
+                                                        Drag a file here or click to browse for a file
+                                                    </div>
+                                                </>
+                                            )}
+                                        </Dragger>
+                                    </>
+                                )}
+                            </Field>
+                        </Col>
+                    </Row>
                 ) : (
                     <CohortMatchingCriteriaSection logic={logic} />
                 )}
