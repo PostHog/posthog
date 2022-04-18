@@ -22,29 +22,18 @@ export function PlatformPanel(): JSX.Element {
                         <img src={posthogLogo} style={{ width: 157, height: 30 }} />
                     </Row>
                     <div className="welcome-panel">
-                        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Welcome to PostHog</h1>
+                        <h1>Welcome to PostHog</h1>
                         <p className="fw-500">
                             Let's get you up and running with PostHog! What type of platform is your app? Migrating from
                             another analytics service? Try one of our plugins or integrations to ingest data.
                         </p>
                         <Col>
                             {platforms.map((platform) => (
-                                <LemonButton
-                                    key={platform}
-                                    fullWidth
-                                    center
-                                    type="primary"
-                                    style={{ marginBottom: 8, background: 'black' }}
-                                >
+                                <LemonButton key={platform} fullWidth center type="primary" className="platform-btn">
                                     {platform}
                                 </LemonButton>
                             ))}
-                            <LemonButton
-                                fullWidth
-                                center
-                                type="primary"
-                                style={{ marginBottom: 8, background: 'black' }}
-                            >
+                            <LemonButton fullWidth center type="primary" className="platform-btn">
                                 {IMPORT}
                             </LemonButton>
                             <LemonButton
