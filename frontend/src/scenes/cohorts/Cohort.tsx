@@ -1,12 +1,11 @@
-import React, { useMemo, useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
+import { Group, Field as KeaField } from 'kea-forms'
 import { Col, Divider, Row } from 'antd'
-import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
-import { AvailableFeature, CohortType } from '~/types'
-import { CohortTypeType } from 'lib/constants'
-import { CalculatorOutlined, LoadingOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
+import { CohortTypeType, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CalculatorOutlined, OrderedListOutlined, PlusOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -21,11 +20,13 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { LemonTextArea } from 'lib/components/LemonTextArea'
 import { IconUploadFile } from 'lib/components/icons'
+import { UploadFile } from 'antd/es/upload/interface'
+import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
 
 export const scene: SceneExport = {
     component: Cohort,
     logic: cohortLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new', pageKey: 0 }),
+    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
 }
 
 const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
@@ -39,19 +40,30 @@ const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
     },
 }
 
-let uniqueMemoizedIndex = 0
-
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
-    const pageKey = useMemo(() => uniqueMemoizedIndex++, [id])
-    const logicProps = { pageKey, id }
+    const logicProps = { id }
     const logic = cohortLogic(logicProps)
-    const { deleteCohort, cancelCohort } = useActions(logic)
+    const { deleteCohort, cancelCohort, setCohort, onCriteriaChange } = useActions(logic)
     const { cohort } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const [csvUploading, setCsvUploading] = useState<boolean>(false)
-    const isNewCohort = cohort.id === 'new'
+    const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
-    console.log('COHORT', cohort)
+    const onAddGroup = (): void => {
+        setCohort({
+            ...cohort,
+            groups: [
+                ...cohort.groups,
+                {
+                    id: Math.random().toString().substr(2, 5),
+                    matchType: PROPERTY_MATCH_TYPE,
+                    properties: [],
+                },
+            ],
+        })
+    }
+    const onRemoveGroup = (index: number): void => {
+        setCohort({ ...cohort, groups: cohort.groups.filter((_, i) => i !== index) })
+    }
 
     return (
         <div className="cohort">
@@ -101,6 +113,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         <Field name="is_static" label="Type">
                             {({ value, onValueChange }) => (
                                 <LemonSelect
+                                    disabled={!isNewCohort}
                                     options={COHORT_TYPE_OPTIONS}
                                     value={value ? CohortTypeType.Static : CohortTypeType.Dynamic}
                                     onChange={(cohortType) => {
@@ -123,11 +136,10 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         </Col>
                     </Row>
                 )}
-                {cohort.id && !isNewCohort && <CohortDetailsRow cohort={cohort} />}
                 {cohort.is_static ? (
                     <Row gutter={24} className="mt">
                         <Col span={24}>
-                            <Field name={['csv', 'uid']} label="Upload users">
+                            <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'}>
                                 {({ onValueChange }) => (
                                     <>
                                         <span className="mb">
@@ -139,27 +151,21 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             multiple={false}
                                             fileList={cohort.csv ? [cohort.csv] : []}
                                             accept=".csv"
-                                            showUploadList
-                                            onChange={({ file, fileList }) => {
-                                                console.log('ONCHANGE', file, fileList)
-                                                if (file.status === 'uploading') {
-                                                    setCsvUploading(true)
-                                                    return
-                                                }
-                                                if (file.status === 'done') {
-                                                    onValueChange(file)
-                                                    setCsvUploading(false)
-                                                }
+                                            showUploadList={false}
+                                            beforeUpload={(file: UploadFile) => {
+                                                onValueChange(file)
+                                                return false
                                             }}
-                                            // onRemove={() => {
-                                            //     onValueChange({})
-                                            // }}
                                             className="cohort-csv-dragger"
                                         >
-                                            {csvUploading ? (
+                                            {cohort.csv ? (
                                                 <>
-                                                    <LoadingOutlined style={{ fontSize: '3rem' }} />
-                                                    <div className="ant-upload-text">Uploading file...</div>
+                                                    <IconUploadFile
+                                                        style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                    />
+                                                    <div className="ant-upload-text">
+                                                        {cohort.csv?.name ?? 'File'} uploaded
+                                                    </div>
                                                 </>
                                             ) : (
                                                 <>
@@ -178,15 +184,102 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         </Col>
                     </Row>
                 ) : (
-                    <CohortMatchingCriteriaSection logic={logic} />
+                    <>
+                        <Divider />
+                        <Row gutter={24} className="mt">
+                            <Col span={24}>
+                                <>
+                                    <div
+                                        className="ant-row ant-form-item ant-form-item-label"
+                                        style={{ display: 'flex' }}
+                                    >
+                                        <label htmlFor="groups" title="Matching criteria">
+                                            Matching criteria
+                                        </label>
+                                        <span>
+                                            Actors who match the following criteria will be part of the cohort.
+                                            Continuously updated automatically.
+                                        </span>
+                                    </div>
+                                    {cohort.groups.map((group: CohortGroupType, index: number) => (
+                                        <Group key={index} name={['groups', index]}>
+                                            <div
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    width: '100%',
+                                                }}
+                                            >
+                                                <KeaField
+                                                    name="id"
+                                                    template={({ error, kids }) => {
+                                                        return (
+                                                            <div
+                                                                style={{
+                                                                    padding: 15,
+                                                                    border: error
+                                                                        ? '1px solid var(--danger)'
+                                                                        : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                    borderRadius: 4,
+                                                                    width: '100%',
+                                                                }}
+                                                            >
+                                                                {kids}
+                                                                <Row>
+                                                                    {error && (
+                                                                        <div
+                                                                            style={{
+                                                                                color: 'var(--danger)',
+                                                                                marginTop: 16,
+                                                                            }}
+                                                                        >
+                                                                            {group.matchType === ENTITY_MATCH_TYPE
+                                                                                ? 'Please select an event or action.'
+                                                                                : 'Please select at least one property or remove this match group.'}
+                                                                        </div>
+                                                                    )}
+                                                                </Row>
+                                                            </div>
+                                                        )
+                                                    }}
+                                                >
+                                                    <MatchCriteriaSelector
+                                                        onCriteriaChange={(newGroup) =>
+                                                            onCriteriaChange(newGroup, group.id)
+                                                        }
+                                                        onRemove={() => onRemoveGroup(index)}
+                                                        group={group}
+                                                    />
+                                                </KeaField>
+                                                {index < cohort.groups.length - 1 && (
+                                                    <div className="stateful-badge or mt mb">OR</div>
+                                                )}
+                                            </div>
+                                        </Group>
+                                    ))}
+                                </>
+                                <span id="add" />
+                                <div style={{ marginTop: 8, marginBottom: 8 }}>
+                                    <a
+                                        href="#add"
+                                        style={{ padding: 0 }}
+                                        onClick={() => onAddGroup()}
+                                        data-attr="add-match-criteria"
+                                    >
+                                        <PlusOutlined /> Add matching criteria
+                                    </a>
+                                </div>
+                            </Col>
+                        </Row>
+                    </>
                 )}
 
                 {!isNewCohort && (
                     <>
                         <Divider />
                         <div>
-                            <h3 className="l3">Matched Users</h3>
-                            <span>List of users that currently match the criteria defined</span>
+                            <h3 className="l3">Persons in this cohort</h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex-center">
                                     <Spinner size="sm" style={{ marginRight: 4 }} />

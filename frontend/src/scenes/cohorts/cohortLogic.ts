@@ -25,6 +25,21 @@ function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
 }
 
+function createCohortFormData(cohort: CohortType): FormData {
+    const rawCohort = {
+        ...cohort,
+        groups: JSON.stringify(
+            cohort.is_static ? [] : cohort.groups.map((group: CohortGroupType) => formatGroupPayload(group))
+        ),
+    }
+    // Must use FormData to encode file binary in request
+    const cohortFormData = new FormData()
+    for (const [itemKey, value] of Object.entries(rawCohort)) {
+        cohortFormData.append(itemKey, value as string | Blob)
+    }
+    return cohortFormData
+}
+
 function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
     return {
         matchType: determineMatchType(group),
@@ -59,13 +74,12 @@ function processCohortOnSet(cohort: CohortType): CohortType {
 }
 
 export interface CohortLogicProps {
-    pageKey: string | number
     id?: CohortType['id']
 }
 
 export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     props: {} as CohortLogicProps,
-    key: (props) => (props.id === 'new' ? `new-${props.pageKey}` : props.id) ?? 'new',
+    key: (props) => props.id || 'new',
     path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
     connect: [cohortsModel],
 
@@ -124,13 +138,12 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
             defaults: processCohortOnSet(NEW_COHORT),
             validator: ({ name, csv, is_static, id, groups }) => ({
                 name: !name ? 'You need to set a name' : undefined,
-                csv: {
-                    uid: id === 'new' && is_static && !csv ? 'You need to upload a CSV file' : undefined,
-                },
+                csv: id === 'new' && is_static && !csv ? 'You need to upload a CSV file' : (null as any),
                 groups: groups?.map(({ matchType, properties, action_id, event_id }) => {
                     if (
-                        (matchType === ENTITY_MATCH_TYPE && !properties?.length) ||
-                        (matchType === PROPERTY_MATCH_TYPE && !(action_id || event_id))
+                        !is_static &&
+                        ((matchType === PROPERTY_MATCH_TYPE && !properties?.length) ||
+                            (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)))
                     ) {
                         return { id: 'This matching group is invalid' }
                     }
@@ -151,12 +164,8 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     return processCohortOnSet(cohort)
                 },
                 saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
-                    let cohort = { ...values.cohort, ...cohortParams } as CohortType
-
-                    const cohortFormData = {
-                        ...cohort,
-                        groups: cohort.groups.map((group: CohortGroupType) => formatGroupPayload(group)),
-                    }
+                    let cohort = { ...values.cohort, ...cohortParams }
+                    const cohortFormData = createCohortFormData(cohort)
 
                     try {
                         if (cohort.id !== 'new') {
