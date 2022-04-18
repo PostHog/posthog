@@ -255,7 +255,7 @@ class CohortQuery(EnterpriseEventQuery):
             start_date_column = self._cohort_optimizer.get_date_column(event_period[1][0])
             end_date_column = self._cohort_optimizer.get_date_column(event_period[1][1])
             fields += [
-                f"if(timestamp > {start_date_column} and timestamp < {end_date_column}, 1, 0) as {self._cohort_optimizer.get_event_in_period_column(event_period)}"
+                f"countIf(timestamp > {start_date_column} and timestamp < {end_date_column}) as {self._cohort_optimizer.get_event_in_period_column(event_period)}"
             ]
 
         return ", ".join(fields)
