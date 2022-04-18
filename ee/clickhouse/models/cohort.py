@@ -8,7 +8,6 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -142,7 +141,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     count_operator = cohort_group.get("count_operator")
 
     date_query, date_params = get_date_query(days, start_time, end_time)
-    entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
+    entity_query, entity_params = get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
     if count is not None:
 
@@ -180,7 +179,7 @@ def performed_event_subquery(prop: Property, team_id: int, prepend: Union[int, s
     days = prop.time_value
 
     date_query, date_params = get_date_query(days, None, None)
-    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+    entity_query, entity_params = get_entity_query(event_id, action_id, team_id, prepend)
 
     if count is not None:
 
@@ -218,7 +217,7 @@ def performed_event_first_time_subquery(
     days = prop.time_value
 
     date_query, date_params = get_date_query(days, None, None)
-    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+    entity_query, entity_params = get_entity_query(event_id, action_id, team_id, prepend)
     pdi_query = get_team_distinct_ids_query(team_id)
     is_negation = prop.negation
 
@@ -271,7 +270,7 @@ def performed_event_lifecycle_subquery(
     days = prop.time_value
 
     date_query, date_params = get_date_query(days, None, None)
-    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+    entity_query, entity_params = get_entity_query(event_id, action_id, team_id, prepend)
     pdi_query = get_team_distinct_ids_query(team_id)
     is_negation = prop.negation
 
@@ -329,6 +328,8 @@ def performed_event_lifecycle_subquery(
 def performed_event_sequence_subquery(
     prop: Property, team_id: int, prepend: Union[int, str]
 ) -> Tuple[str, Dict[str, Any]]:
+    from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
+
     if prop.event_type == "action":
         action_id = prop.event
         event_id = None
@@ -375,7 +376,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
-def _get_entity_query(
+def get_entity_query(
     event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
