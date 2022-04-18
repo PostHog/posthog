@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import get_entity_query
+from ee.clickhouse.models.cohort import get_count_operator, get_entity_query
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.models import Filter, Team
 from posthog.models.action import Action
@@ -10,7 +10,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyName
+from posthog.models.property import Property, PropertyGroup, PropertyName
 from posthog.queries.column_optimizer import ColumnOptimizer
 
 Relative_Date = Tuple[int, str]
@@ -18,6 +18,7 @@ NOW: Relative_Date = (0, "now")
 
 Period = Tuple[Relative_Date, Relative_Date]
 Event = Tuple[str, Tuple[str, int]]
+Event_In_Period = Tuple[Event, Period]
 
 USES_PERIOD = ["performed_event", "performed_event_muliple", "stopped_performing_event", "restarted_performing_event"]
 
@@ -43,7 +44,7 @@ class CohortOptimizer(ColumnOptimizer):
         return self.dates_to_query_column_names[period]
 
     @cached_property
-    def events_in_period_to_query_column_names(self) -> Dict[Tuple[Event, Period], str]:
+    def events_in_period_to_query_column_names(self) -> Dict[Event_In_Period, str]:
         _events = {}
         for idx, prop in enumerate(self.filter.property_groups.flat):
             idx_label = idx * 2  # count by 2 because we can have up to 4 labels per step
@@ -57,7 +58,7 @@ class CohortOptimizer(ColumnOptimizer):
                     _start_date = (prop.time_value, prop.time_interval)
                     _end_date = NOW
                     _period = (_start_date, _end_date)
-                    _event = (prop.key, prop.event_type)
+                    _event = (prop.event_type, prop.key)
                     self.add_event_type(_event)
                     _events[
                         (_event, _period)
@@ -85,14 +86,14 @@ class CohortOptimizer(ColumnOptimizer):
 
         return _events
 
-    def events_in_period_to_query(self) -> List[Tuple[Event, Period]]:
+    def events_in_period_to_query(self) -> List[Event_In_Period]:
         return list(self.events_in_period_to_query_column_names.keys())
 
-    def get_event_in_period_column(self, event: Event) -> ColumnName:
-        return self.events_in_period_to_query_column_names[event]
+    def get_event_in_period_column(self, event_in_period: Event_In_Period) -> ColumnName:
+        return self.events_in_period_to_query_column_names[event_in_period]
 
     @cached_property
-    def first_time_activity_events_to_query_column_names(self) -> Dict[Tuple[Event, Period], str]:
+    def first_time_activity_events_to_query_column_names(self) -> Dict[Event_In_Period, str]:
         _first_time_activity = {}
         for idx, prop in enumerate(self.filter.property_groups.flat):
             idx_label = idx
@@ -112,14 +113,14 @@ class CohortOptimizer(ColumnOptimizer):
 
         return _first_time_activity
 
-    def first_time_activity_events_to_query(self) -> List[Tuple[Event, Period]]:
+    def first_time_activity_events_to_query(self) -> List[Event_In_Period]:
         return list(self.first_time_activity_events_to_query_column_names.keys())
 
-    def get_first_time_activity_event_in_period_column(self, event_period: Tuple[Event, Period]) -> ColumnName:
+    def get_first_time_activity_event_in_period_column(self, event_period: Event_In_Period) -> ColumnName:
         return self.first_time_activity_events_to_query_column_names[(event_period)]
 
     @cached_property
-    def sequences_to_query_column_names(self) -> Dict[Tuple[Event, Event, Relative_Date], str]:
+    def sequences_to_query_column_names(self) -> Dict[Tuple[Event_In_Period, Event, Relative_Date], str]:
         _sequences = {}
         for idx, prop in enumerate(self.filter.property_groups.flat):
             idx_label = idx
@@ -127,23 +128,26 @@ class CohortOptimizer(ColumnOptimizer):
                 prop.type == "performed_event_sequence"
                 and prop.key is not None
                 and prop.event_type is not None
+                and prop.time_interval is not None
+                and prop.time_value is not None
                 and prop.seq_event is not None
                 and prop.seq_event_type is not None
                 and prop.seq_time_interval is not None
                 and prop.seq_time_value is not None
             ):
                 _event = (prop.event_type, prop.key)
+                _event_period = ((prop.time_value, prop.time_interval), NOW)
+                _seq_event = (prop.seq_event_type, prop.seq_event)
+                _seq_event_period = (prop.seq_time_value, prop.seq_time_interval)
                 self.add_event_type(_event)
-                _sequences[
-                    (_event, (prop.seq_event, prop.seq_event_type), (prop.seq_time_value, prop.seq_time_interval),)
-                ] = f"sequence_{idx_label}"
+                _sequences[((_event, _event_period), _seq_event, _seq_event_period)] = f"sequence_{idx_label}"
 
         return _sequences
 
-    def get_sequence_column(self, sequence: Tuple[Event, Event, Relative_Date]) -> ColumnName:
+    def get_sequence_column(self, sequence: Tuple[Event_In_Period, Event, Relative_Date]) -> ColumnName:
         return self.sequences_to_query_column_names[sequence]
 
-    def sequences_to_query(self) -> List[Tuple[Event, Event, Relative_Date]]:
+    def sequences_to_query(self) -> List[Tuple[Event_In_Period, Event, Relative_Date]]:
         return list(self.sequences_to_query_column_names.keys())
 
     def person_columns_to_query(self) -> Set[ColumnName]:
@@ -267,7 +271,92 @@ class CohortQuery(EnterpriseEventQuery):
 
     # TODO: Build conditions based on property group
     def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
-        return "", {}
+        def build_conditions(prop: Union[PropertyGroup, Property]):
+            if isinstance(prop, PropertyGroup):
+                return f" {prop.type} ".join(build_conditions(p) for p in prop.values)
+            else:
+                return self._get_condition_for_property(prop)
+
+        return build_conditions(self._filter.property_groups), {}
+
+    def _get_condition_for_property(self, prop: Property) -> str:
+        if prop.type == "performed_event":
+            return self.get_performed_event_condition(prop)
+        elif prop.type == "performed_event_muliple":
+            return self.get_performed_event_multiple(prop)
+        elif prop.type == "stopped_performing_event":
+            return self.get_stopped_performing_event(prop)
+        elif prop.type == "restarted_performing_event":
+            return self.get_restarted_performing_event(prop)
+        elif prop.type == "performed_event_first_time":
+            return self.get_performed_event_first_time(prop)
+        else:
+            return ""
+
+    def get_performed_event_condition(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
+
+        return f"{column_name} > 0"
+
+    def get_performed_event_multiple(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        count = prop.operator_value
+
+        column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
+
+        return f"{column_name} {get_count_operator(prop.operator)} %(operator_value)s"
+
+    def get_stopped_performing_event(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        second_period = ((prop.seq_time_value, prop.seq_time_interval), period)
+
+        first_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
+        second_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, second_period))
+
+        return f"{first_period_column_name} = 0 AND {second_period_column_name} > 0"
+
+    def get_restarted_performing_event(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        second_period = ((prop.seq_time_value, prop.seq_time_interval), period)
+
+        first_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
+        second_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, second_period))
+
+        return f"{first_period_column_name} > 0 AND {second_period_column_name} = 0"
+
+    def get_performed_event_first_time(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        column_name = self._cohort_optimizer.get_first_time_activity_event_in_period_column((event, period))
+
+        return f"{column_name} = 1"
+
+    def get_performed_event_sequence(self, prop: Property) -> str:
+        event = (prop.event_type, prop.key)
+        start_date = (prop.time_value, prop.time_interval)
+        end_date = NOW
+        period = (start_date, end_date)
+        seq_event = (prop.seq_event_type, prop.seq_event)
+        seq_date_value = (prop.seq_time_value, prop.seq_time_interval)
+
+        column_name = self._cohort_optimizer.get_sequence_column(((event, period), seq_event, seq_date_value))
+
+        return f"{column_name} = 2"
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
@@ -328,14 +417,16 @@ class CohortQuery(EnterpriseEventQuery):
 
         for sequence in sequences:
             # TODO: handle indexing of event params
-            event = sequence[0]
+            event_period = sequence[0]
+            event = event_period[0]
+            period = event_period[1]
             entity_query, entity_params = self._get_entity(event)
             seq_event = sequence[1]
             seq_entity_query, seq_entity_params = self._get_entity(seq_event)
             relative_date = sequence[2]
 
             fields += [
-                f"""windowFunnel({relative_date_to_seconds(relative_date)})(toDateTime(timestamp), {entity_query}, {seq_entity_query}) as {self._cohort_optimizer.get_sequence_column(sequence)}"""
+                f"""windowFunnel({relative_date_to_seconds(relative_date)})(toDateTime(timestamp), {entity_query} AND now() - INTERVAL {period[0]} {period[1]}, {seq_entity_query}) as {self._cohort_optimizer.get_sequence_column(sequence)}"""
             ]
 
         return fields

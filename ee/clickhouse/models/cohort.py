@@ -149,7 +149,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
             count_operator == "eq" or count_operator == "lte"
         ) and count == 0  # = 0 means all people who never performed the event
 
-        count_operator = _get_count_operator(count_operator)
+        count_operator = get_count_operator(count_operator)
         pdi_query = get_team_distinct_ids_query(cohort.team_id)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
@@ -187,7 +187,7 @@ def performed_event_subquery(prop: Property, team_id: int, prepend: Union[int, s
             (count_operator == "exact" or count_operator == "lt") and count == 0
         )  # = 0 means all people who never performed the event
 
-        count_operator = _get_count_operator(count_operator)
+        count_operator = get_count_operator(count_operator)
         pdi_query = get_team_distinct_ids_query(team_id)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
@@ -365,7 +365,7 @@ def performed_event_sequence_subquery(
     return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
 
 
-def _get_count_operator(count_operator: Optional[str]) -> str:
+def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
     elif count_operator == "lte":
