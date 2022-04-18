@@ -83,8 +83,10 @@ export class KafkaQueue implements Queue {
         const promises = []
         let consumerSleep = 0
         for (const message of batch.messages) {
-            const processAt = new Date().getTime() + this.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
-            const delayUntilTimeToProcess = processAt - new Date(message.timestamp).getTime()
+            // kafka timestamps are unix timestamps in string format
+            const processAt = Number(message.timestamp) + this.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
+            const delayUntilTimeToProcess = processAt - new Date().getTime()
+
             if (delayUntilTimeToProcess < 0) {
                 promises.push(this.eachMessageBuffer(message, resolveOffset))
             } else {
