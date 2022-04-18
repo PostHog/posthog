@@ -22,6 +22,8 @@ from ee.clickhouse.models.cohort import (
     format_precalculated_cohort_query,
     format_static_cohort_query,
     performed_event_first_time_subquery,
+    performed_event_lifecycle_subquery,
+    performed_event_sequence_subquery,
     performed_event_subquery,
 )
 from ee.clickhouse.models.util import is_json
@@ -273,13 +275,15 @@ def parse_prop_clauses(
             final.append(subquery)
             params.update(subquery_params)
 
-        elif prop.type in ("stopped_performing_event", "performing_event_regularly", "restarted_performing event"):
-            # TODO: implement lifecycle query here
-            pass
+        elif prop.type in ("stopped_performing_event", "performing_event_regularly", "restarted_performing_event"):
+            subquery, subquery_params = performed_event_lifecycle_subquery(prop=prop, team_id=team_id, prepend=prepend)
+            final.append(subquery)
+            params.update(subquery_params)
 
         elif prop.type in ("performed_event_sequence"):
-            # TODO: implement sequence query here
-            pass
+            subquery, subquery_params = performed_event_sequence_subquery(prop=prop, team_id=team_id, prepend=prepend)
+            final.append(subquery)
+            params.update(subquery_params)
 
         elif prop.type in ("performed_event_first_time"):
             subquery, subquery_params = performed_event_first_time_subquery(prop=prop, team_id=team_id, prepend=prepend)
