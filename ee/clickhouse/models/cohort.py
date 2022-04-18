@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -15,6 +16,7 @@ from ee.clickhouse.sql.cohort import (
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_PERSON_ID_EVENT_LIFECYCLE,
     GET_PERSON_ID_FIRST_TIME_EVENT,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
@@ -27,6 +29,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.client import sync_execute
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Action, Cohort, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import Property
@@ -224,6 +227,139 @@ def performed_event_first_time_subquery(
     )
 
     params: Dict[str, Union[str, int]] = {**entity_params, **date_params, "team_id": team_id}
+
+    return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
+
+
+def get_periods(start_time, end_time, interval, interval_unit):
+    # TODO: do start and end time need truncating?
+    period_starts = []
+    params = {}
+    period_start = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+    # TODO: much hacking
+    period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
+    counter = 0
+    # TODO: handle complexities with incomplete periods
+    # Perhaps we shape the query such that you only give us start_time or end_time, and periods
+    # Did $pageview 10 times every week in the past month
+    # What's implicit above^ is that we're talking only in terms of periods, and an end_time.
+    # But its also ambigous, do 4 weeks, or 5 make up the past month? Depends on the month :$
+    while period_start < datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S"):
+        period_starts.append(period_start)
+        # TODO: timezone nonsense, also depends on interval_unit. Check always utc + aware
+        params[f"period_{counter}"] = period_start.strftime("%Y-%m-%d")
+        period_start = period_end
+        period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
+        counter += 1
+
+    #  Final boundary
+    params[f"period_{counter}"] = period_start.strftime("%Y-%m-%d")
+    # TODO: also pretty sure there's few edge cases I'm missing. Just getting shape out, test later
+    return len(period_starts), params
+
+
+def performed_event_lifecycle_subquery(
+    prop: Property, team_id: int, prepend: Union[int, str]
+) -> Tuple[str, Dict[str, Any]]:
+    if prop.event_type == "action":
+        action_id = prop.event
+        event_id = None
+    else:
+        event_id = prop.event
+        action_id = None
+
+    days = prop.time_value
+
+    date_query, date_params = get_date_query(days, None, None)
+    entity_query, entity_params = _get_entity_query(event_id, action_id, team_id, prepend)
+    pdi_query = get_team_distinct_ids_query(team_id)
+    is_negation = prop.negation
+
+    # TODO: which parameters determine period?
+    interval = 7
+    interval_unit = "day"
+    start_time = date_params["date_from"]  # TODO: confirm it always exists
+    end_time = date_params["date_to"]
+    period_count, period_params = get_periods(start_time, end_time, interval, interval_unit)
+    period_inclusions = [
+        f"countIf(dateTrunc('{interval_unit}', timestamp) >= %(period_{i})s AND dateTrunc('{interval_unit}', timestamp) < %(period_{i+1})s)"
+        for i in range(period_count)
+    ]
+
+    period_values = f"[{','.join(period_inclusions)}] AS period_values"
+
+    # TODO: determine kind of lifecycle
+    period_filter = "1=1"
+    period_filter_params = {}
+
+    if prop.type == "performing_event_regularly":
+        period_filter = "arrayAll(x->x > %(period_event_count)s, period_values)"
+        # TODO: get correct value
+        period_filter_params["period_event_count"] = prop.operator_value
+
+    elif prop.type == "stopped_performing_event":
+        # TODO: if I'm checking everything else to be 0, don't need arrayFirstIndex, simply array[1].
+        period_filter = "arrayFirstIndex(x-> if(x > %(period_event_count)s, 1, 0), period_values) = 1 AND arrayAll(x->x = 0, arrayPopFront(period_values))"
+        period_filter_params["period_event_count"] = prop.operator_value
+
+    elif prop.type == "restarted_performing_event":
+        period_filter = "arrayFirstIndex(x-> if(x > %(period_event_count)s, 1, 0), period_values) = %(total_periods)s AND arrayAll(x -> x = 0, arrayPopBack(period_values))"
+        period_filter_params["period_event_count"] = prop.operator_value
+        period_filter_params["total_periods"] = period_count  #  as CH arrays are 1-indexed
+
+    extract_person = GET_PERSON_ID_EVENT_LIFECYCLE.format(
+        entity_query=entity_query,
+        date_query=date_query,
+        GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
+        period_values=period_values,
+        period_filter=period_filter,
+    )
+
+    params: Dict[str, Union[str, int]] = {
+        **entity_params,
+        **date_params,
+        **period_params,
+        **period_filter_params,
+        "team_id": team_id,
+    }
+
+    return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
+
+
+def performed_event_sequence_subquery(
+    prop: Property, team_id: int, prepend: Union[int, str]
+) -> Tuple[str, Dict[str, Any]]:
+    if prop.event_type == "action":
+        action_id = prop.event
+        event_id = None
+    else:
+        event_id = prop.event
+        action_id = None
+
+    days = prop.time_value
+
+    date_query, date_params = get_date_query(days, None, None)
+
+    funnel_filter = Filter(
+        data={
+            "events": [
+                {"id": event_id, "type": "events", "order": 0},
+                {"id": "$pageview", "type": "events", "order": 1},
+            ],  # TODO: which params?
+            "actions": [],
+            "date_from": date_params["date_from"],
+            "date_to": date_params["date_to"],
+            "insight": INSIGHT_FUNNELS,
+            "limit": 0,  # TODO: this gets overridden?, fix
+            "offset": 0,
+            # TODO: get params for window size
+            "funnel_window_interval": 14,
+            "funnel_window_interval_unit": "day",
+        }
+    )
+    extract_person, params = ClickhouseFunnelActors(funnel_filter, team=Team.objects.get(pk=team_id)).actor_query()
+
+    is_negation = prop.negation
 
     return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
 

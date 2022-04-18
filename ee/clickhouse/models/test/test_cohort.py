@@ -1,10 +1,14 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
+from ee.clickhouse.models.cohort import (
+    format_filter_query,
+    get_person_ids_by_cohort_id,
+    performed_event_lifecycle_subquery,
+)
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
@@ -16,6 +20,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
+from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
@@ -752,3 +757,71 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+
+class TestCohortBehaviouralFilters(ClickhouseTestMixin, BaseTest):
+    @snapshot_clickhouse_queries
+    def test_subquery_generator(self):
+        property = Property(
+            **{
+                "key": "x",
+                "value": "y",
+                "type": "restarted_performing_event",
+                "event": "$pageview",
+                "event_type": "event",
+                "operator_value": 1,
+                "time_value": "18",
+            }
+        )
+        query, params = performed_event_lifecycle_subquery(prop=property, team_id=self.team.pk, prepend="")
+
+        _create_person(team_id=self.team.pk, distinct_ids=["1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["3"])
+
+        _create_event(team=self.team, distinct_id="1", event="$pageview", timestamp=datetime.now() - timedelta(days=10))
+        _create_event(team=self.team, distinct_id="1", event="$pageview", timestamp=datetime.now() - timedelta(days=17))
+
+        _create_event(team=self.team, distinct_id="2", event="$pageview", timestamp=datetime.now() - timedelta(days=1))
+        _create_event(team=self.team, distinct_id="2", event="$pageview", timestamp=datetime.now() - timedelta(days=17))
+
+        _create_event(team=self.team, distinct_id="3", event="$pageview", timestamp=datetime.now() - timedelta(days=1))
+        _create_event(team=self.team, distinct_id="3", event="$pageview", timestamp=datetime.now() - timedelta(days=1))
+
+        final_query = "SELECT id as person_id FROM person WHERE team_id = %(team_id)s AND {}".format(query)
+
+        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(result), 1)
+
+    # @snapshot_clickhouse_queries
+    # def test_prop_cohort_basic(self):
+
+    #     _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+
+    #     _create_person(
+    #         distinct_ids=["some_id"],
+    #         team_id=self.team.pk,
+    #         properties={"$some_prop": "something", "$another_prop": "something"},
+    #     )
+    #     _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
+    #     _create_event(
+    #         event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
+    #     )
+
+    #     _create_event(
+    #         event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"},
+    #     )
+
+    #     cohort1 = Cohort.objects.create(
+    #         team=self.team,
+    #         groups=[{"properties": [{"type": "restarted_performing_event", "event": "$pageview", "event_type": "event", "period_event_count": 1}]}],
+    #         name="cohort1",
+    #     )
+
+    #     filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+    #     query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+    #     final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+
+    #     with self.settings(SHELL_PLUS_PRINT_SQL=True):
+    #         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+    #         self.assertEqual(len(result), 1)
