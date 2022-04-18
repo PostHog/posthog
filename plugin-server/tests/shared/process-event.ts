@@ -139,11 +139,11 @@ export const createProcessEventTests = (
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
-        }
         if (response) {
             await eventsProcessor.createEvent(response)
+        }
+        if (database === 'clickhouse') {
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
         }
 
         return response
