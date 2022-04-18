@@ -250,6 +250,9 @@ class CohortQuery(EnterpriseEventQuery):
         return query, {"team_id": self._team_id, "events": events}
 
     def _get_person_query(self) -> Tuple[str, Dict]:
+        """
+        FULL OUTER JOIN because the query needs to account for all people if there are or groups
+        """
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
             return (
@@ -338,6 +341,7 @@ class CohortQuery(EnterpriseEventQuery):
         return fields
 
     def _get_entity(self, event: Event) -> Tuple[str, Dict[str, Any]]:
+        # TODO: handle indexing of event params
         if event[0] == "action":
             return get_entity_query(None, int(event[1]), self._team_id, "test")
         elif event[0] == "event":
