@@ -114,6 +114,7 @@ export const FEATURE_FLAGS = {
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
+    ONBOARDING_1: 'onboarding-1', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
