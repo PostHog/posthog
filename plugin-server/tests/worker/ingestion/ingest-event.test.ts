@@ -13,8 +13,8 @@ import { insertRow, resetTestDatabase } from '../../helpers/sql'
 describe('ingestEvent', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
-    let actionMatcher: ActionMatcher
     let actionCounter: number
+    let actionMatcher: ActionMatcher
 
     beforeEach(async () => {
         await resetTestDatabase()
