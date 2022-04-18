@@ -54,8 +54,10 @@ OperatorType = Literal[
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]
+MatchGroupOperator = Literal["AND", "OR"]
 GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
+PropertyIdentifierWithMatchGroup = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex], MatchGroupOperator]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
@@ -69,20 +71,18 @@ VALIDATE_PROP_TYPES = {
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
-    "performed_event": ["event", "event_type", "time_value", "time_interval"],
-    "performed_event_multiple": ["event", "event_type", "time_value", "time_interval", "operator", "operator_value"],
+    "performed_event": ["key", "event_type", "time_value", "time_interval"],
+    "performed_event_multiple": ["key", "event_type", "time_value", "time_interval", "operator", "operator_value"],
 }
 
 
 class Property:
-    key: Optional[str]
+    key: Union[str, int]
     operator: Optional[OperatorType]
     value: Optional[ValueT]
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
-
     event_type: Optional[str]
-    event: Optional[Union[str, int]]
     operator_value: Optional[int]
     operator_interval: Optional[OperatorInterval]
     time_value: Optional[int]
@@ -96,14 +96,13 @@ class Property:
 
     def __init__(
         self,
-        key: Optional[str],
-        value: Optional[ValueT],
+        key: Union[str, int],
+        value: Optional[ValueT] = None,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
         event_type: Optional[str] = None,
-        event: Optional[Union[str, int]] = None,
         operator_value: Optional[int] = None,
         operator_interval: Optional[OperatorInterval] = None,
         time_value: Optional[int] = None,
@@ -121,7 +120,6 @@ class Property:
         self.type = type if type else "event"
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
-        self.event = event
         self.operator_value = operator_value
         self.operator_interval = operator_interval
         self.time_value = time_value
@@ -139,7 +137,6 @@ class Property:
             "type": self.type,
             "group_type_index": self.group_type_index,
             "event_type": self.event_type,
-            "event": self.event,
             "operator_value": self.operator_value,
             "operator_interval": self.operator_interval,
             "time_value": self.time_value,

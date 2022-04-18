@@ -33,10 +33,12 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,
+    MatchGroupOperator,
     OperatorType,
     Property,
     PropertyGroup,
     PropertyIdentifier,
+    PropertyIdentifierWithMatchGroup,
     PropertyName,
 )
 from posthog.models.utils import PersonPropertiesMode
@@ -670,3 +672,17 @@ def build_selector_regex(selector: Selector) -> str:
 
 def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
     return Counter((prop.key, prop.type, prop.group_type_index) for prop in props if prop.key)
+
+
+def extract_tables_and_properties_with_operator(
+    prop: Union[PropertyGroup, Property], op: Optional[MatchGroupOperator]
+) -> Counter[PropertyIdentifierWithMatchGroup]:
+    counter: Counter[PropertyIdentifierWithMatchGroup] = Counter()
+
+    if isinstance(prop, PropertyGroup):
+        for p in prop.values:
+            counter += extract_tables_and_properties_with_operator(p, None)
+    elif isinstance(prop, Property):
+        counter[(prop.key, prop.type, prop.group_type_index, op)] += 1
+
+    return counter
