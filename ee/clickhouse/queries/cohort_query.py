@@ -231,7 +231,7 @@ class CohortQuery(EnterpriseEventQuery):
         return True
 
     def _determine_should_join_persons(self) -> None:
-        return self._cohort_optimizer.is_using_person_properties_in_or
+        return self._cohort_optimizer.is_using_person_properties
 
     def _get_date_fields(self) -> str:
         fields = []
