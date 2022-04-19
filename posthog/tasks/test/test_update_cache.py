@@ -378,7 +378,11 @@ class TestUpdateCache(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @skip(
-        "this makes an assumption that the insight's filters_hash can be set without knowledge of the dashboard context but that is no longer true, need a different solution to this"
+        """
+        This makes an assumption that the insight's filters_hash can be set without knowledge of the dashboard context
+        but that is no longer true,
+        will need a different solution to this
+        """
     )
     def test_insights_old_filter(self) -> None:
         # Some filters hashes are wrong (likely due to changes in our filters models) and previously we would not save changes to those insights and constantly retry them.
