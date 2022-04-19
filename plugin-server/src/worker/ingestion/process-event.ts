@@ -16,6 +16,7 @@ import {
     PostgresSessionRecordingEvent,
     PropertyUpdateOperation,
     SessionRecordingEvent,
+    Team,
     TeamId,
     TimestampFormat,
 } from '../../types'
@@ -139,28 +140,35 @@ export class EventsProcessor {
                 clearTimeout(timeout1)
             }
 
+            const team = await this.teamManager.fetchTeam(teamId)
+            if (!team) {
+                throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
+            }
+
             if (data['event'] === '$snapshot') {
-                const timeout2 = timeoutGuard(
-                    'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
-                    { eventUuid }
-                )
-                try {
-                    await this.createSessionRecordingEvent(
-                        eventUuid,
-                        teamId,
-                        distinctId,
-                        properties['$session_id'],
-                        properties['$window_id'],
-                        ts,
-                        properties['$snapshot_data'],
-                        personUuid
+                if (team.session_recording_opt_in) {
+                    const timeout2 = timeoutGuard(
+                        'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
+                        { eventUuid }
                     )
-                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
-                        team_id: teamId.toString(),
-                    })
-                    // No return value in case of snapshot events as we don't do action matching on them
-                } finally {
-                    clearTimeout(timeout2)
+                    try {
+                        await this.createSessionRecordingEvent(
+                            eventUuid,
+                            teamId,
+                            distinctId,
+                            properties['$session_id'],
+                            properties['$window_id'],
+                            ts,
+                            properties['$snapshot_data'],
+                            personUuid
+                        )
+                        this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
+                            team_id: teamId.toString(),
+                        })
+                        // No return value in case of snapshot events as we don't do action matching on them
+                    } finally {
+                        clearTimeout(timeout2)
+                    }
                 }
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
@@ -169,7 +177,7 @@ export class EventsProcessor {
                         eventUuid,
                         personUuid,
                         ip,
-                        teamId,
+                        team,
                         data['event'],
                         distinctId,
                         properties,
@@ -506,7 +514,7 @@ export class EventsProcessor {
         eventUuid: string,
         personUuid: string,
         ip: string | null,
-        teamId: number,
+        team: Team,
         event: string,
         distinctId: string,
         properties: Properties,
@@ -519,12 +527,6 @@ export class EventsProcessor {
         if (elements && elements.length) {
             delete properties['$elements']
             elementsList = extractElements(elements)
-        }
-
-        const team = await this.teamManager.fetchTeam(teamId)
-
-        if (!team) {
-            throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
         }
 
         if (ip && !team.anonymize_ips && !('$ip' in properties)) {

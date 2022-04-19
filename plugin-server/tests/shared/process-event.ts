@@ -1241,6 +1241,29 @@ export const createProcessEventTests = (
         expect(persons.length).toEqual(1)
     })
 
+    it('snapshot event not stored if session recording disabled', async () => {
+        await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [true], 'false')
+        await eventsProcessor.processEvent(
+            'some-id',
+            '',
+            {
+                event: '$snapshot',
+                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+
+        const events = await hub.db.fetchEvents()
+        expect(events.length).toEqual(0)
+
+        const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
+        expect(sessionRecordingEvents.length).toBe(0)
+    })
+
     test('identify set', async () => {
         await createPerson(hub, team, ['distinct_id1'])
         const ts_before = now
