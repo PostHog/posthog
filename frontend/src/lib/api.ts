@@ -568,7 +568,7 @@ const api = {
     async create(url: string, data?: any): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
-        const isFormData = false // data instanceof FormData
+        const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'POST',
