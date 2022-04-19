@@ -164,7 +164,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             },
         ],
         updatedInstanceConfigCount: [
-            null as number | null,
+            null as number | null, // Number of config items that have been updated; `null` means no update is in progress
             {
                 setUpdatedInstanceConfigCount: (_, { count }) => count,
                 loadInstanceSettings: () => null,
