@@ -341,7 +341,7 @@ export const eventUsageLogic = kea<
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
             filters,
-            delay,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
             propertiesTable,
         }),
         reportCorrelationInteraction: (
