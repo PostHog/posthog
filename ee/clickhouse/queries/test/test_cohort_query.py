@@ -1,5 +1,6 @@
 from ee.clickhouse.queries.cohort_query import CohortQuery
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.filter import Filter
@@ -47,3 +48,4 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        sync_execute(q, params)
