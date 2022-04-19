@@ -110,6 +110,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
     HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron

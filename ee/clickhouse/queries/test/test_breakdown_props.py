@@ -62,7 +62,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 }
             )
             res = get_breakdown_prop_values(
-                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team.pk
+                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team
             )
             self.assertEqual(res, ["test"])
 
@@ -115,7 +115,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk)
+                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
                 self.assertEqual(res, ["test"])
 
     @snapshot_clickhouse_queries
@@ -183,7 +183,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk))
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
                 self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries
@@ -227,7 +227,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
 
         filter = Filter(
@@ -247,5 +247,5 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
