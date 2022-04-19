@@ -375,19 +375,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["count"], 1)
 
     def test_dashboard_item_layout(self):
-        dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            {"filters": {"hello": "test"}, "dashboards": [dashboard.pk], "name": "another"},
-            format="json",
-        ).json()
+        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
 
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/layouts/",
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"},
+        )
+
+        # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {
-                "items": [
+                "tile_layouts": [
                     {
-                        "id": response["id"],
+                        "id": insight_id,
                         "layouts": {
                             "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
                             "sm": {"w": "7", "h": "5", "x": "0", "y": "0", "moved": "False", "static": "False",},
@@ -399,8 +399,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
             format="json",
         )
-        items_response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-        self.assertTrue("lg" in items_response["layouts"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
+        ).json()
+        first_tile_layouts = dashboard_json["items"][0]["layouts"]
+        self.assertTrue("lg" in first_tile_layouts)
 
     def test_dashboard_from_template(self):
         response = self.client.post(

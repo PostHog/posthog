@@ -545,8 +545,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
                 return
             }
-            await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
-                items:
+            if (!values.dashboard) {
+                // what are we saving layouts against?!
+                return
+            }
+            await api.update(`api/projects/${values.currentTeamId}/dashboards/${values.dashboard.id}`, {
+                tile_layouts:
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
                         Object.entries(item.layouts).forEach(([layoutKey, layout]) => {

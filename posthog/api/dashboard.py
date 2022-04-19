@@ -165,6 +165,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         # TODO
         instance = super().update(instance, validated_data)
 
+        tile_layouts = self.initial_data.pop("tile_layouts", [])
+        for tile_layout in tile_layouts:
+            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(tile_layout["id"])).update(
+                layouts=tile_layout["layouts"]
+            )
+
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 

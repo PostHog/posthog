@@ -301,6 +301,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                 )
         return queryset
 
+    # TODO deprecate/remove this endpoint
     @action(methods=["patch"], detail=False)
     def layouts(self, request, **kwargs):
         """Dashboard item layouts."""
