@@ -83,7 +83,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,
-        mobileLayout: (window) => window.innerWidth < 992,
+        mobileLayout: (window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     }),
     selectors: {
         /** `bareNav` whether the current scene should display a sidebar at all */
