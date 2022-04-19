@@ -320,10 +320,11 @@ class CohortQuery(EnterpriseEventQuery):
                 conditions = []
                 for idx, p in enumerate(prop.values):
                     q, q_params = build_conditions(p, f"{prepend}_level", idx)
-                    conditions.append(q)
-                    params.update(q_params)
+                    if q != "":
+                        conditions.append(q)
+                        params.update(q_params)
 
-                return f" {prop.type} ".join(conditions), params
+                return f"({f' {prop.type} '.join(conditions)})", params
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
@@ -353,9 +354,12 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle if props are pushed down in PersonQuery
-        return prop_filter_json_extract(
-            prop, idx, prepend, prop_var="person_props", allow_denormalized_props=False, property_operator=""
-        )
+        if "person_props" in self._person_query.fields:
+            return prop_filter_json_extract(
+                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=False, property_operator=""
+            )
+        else:
+            return "", {}
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -387,7 +391,7 @@ class CohortQuery(EnterpriseEventQuery):
         first_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
         second_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, second_period))
 
-        return f"{first_period_column_name} = 0 AND {second_period_column_name} > 0", {}
+        return f"({first_period_column_name} = 0 AND {second_period_column_name} > 0)", {}
 
     def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -399,7 +403,7 @@ class CohortQuery(EnterpriseEventQuery):
         first_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, period))
         second_period_column_name = self._cohort_optimizer.get_event_in_period_column((event, second_period))
 
-        return f"{first_period_column_name} > 0 AND {second_period_column_name} = 0", {}
+        return f"({first_period_column_name} > 0 AND {second_period_column_name} = 0)", {}
 
     def get_performed_event_first_time(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
