@@ -534,14 +534,14 @@ export class EventsProcessor {
         }
 
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
-            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
+            await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         }
 
         properties = personInitialAndUTMProperties(properties)
-        properties = await addGroupProperties(teamId, properties, this.groupTypeManager)
+        properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         const createdNewPersonWithProperties = await this.createPersonIfDistinctIdIsNew(
-            teamId,
+            team.id,
             distinctId,
             timestamp,
             personUuid,
@@ -550,10 +550,10 @@ export class EventsProcessor {
         )
 
         if (event === '$groupidentify') {
-            await this.upsertGroup(teamId, properties, timestamp)
+            await this.upsertGroup(team.id, properties, timestamp)
         } else if (!createdNewPersonWithProperties && (properties['$set'] || properties['$set_once'])) {
             await this.updatePersonProperties(
-                teamId,
+                team.id,
                 distinctId,
                 properties['$set'] || {},
                 properties['$set_once'] || {},
@@ -561,7 +561,7 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(eventUuid, event, teamId, distinctId, properties, timestamp, elementsList)
+        return await this.createEvent(eventUuid, event, team.id, distinctId, properties, timestamp, elementsList)
     }
 
     private async createEvent(
