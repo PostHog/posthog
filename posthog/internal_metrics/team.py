@@ -407,8 +407,8 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
         )
 
         for index, item in enumerate(definition["items"]):
-            layouts = item.pop("layouts")
-            color = item.pop("color")
+            layouts = item.pop("layouts", {})
+            color = item.pop("color", None)
             insight = Insight.objects.create(team_id=team_id, order=index, **item)
             DashboardTile.objects.create(dashboard=dashboard, insight=insight, layouts=layouts, color=color)
 
