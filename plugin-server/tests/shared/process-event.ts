@@ -1242,7 +1242,7 @@ export const createProcessEventTests = (
     })
 
     it('snapshot event not stored if session recording disabled', async () => {
-        await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [true], 'false')
+        await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
         await eventsProcessor.processEvent(
             'some-id',
             '',
