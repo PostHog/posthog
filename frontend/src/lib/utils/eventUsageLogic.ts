@@ -56,7 +56,7 @@ export enum InsightEventSource {
 }
 
 export enum RecordingWatchedSource {
-    Direct = 'direct',
+    Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list',
     ProjectHomepage = 'project_homepage',
