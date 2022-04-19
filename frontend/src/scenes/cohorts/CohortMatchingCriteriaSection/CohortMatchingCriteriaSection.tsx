@@ -6,8 +6,13 @@ import { PlusOutlined } from '@ant-design/icons'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { cohortLogicType } from '../cohortLogicType'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 
-export function CohortMatchingCriteriaSection({ logic }: { logic: BuiltLogic<cohortLogicType> }): JSX.Element {
+export function CohortMatchingCriteriaSection({
+    logic,
+}: {
+    logic: BuiltLogic<cohortLogicType<CohortLogicProps>>
+}): JSX.Element {
     const { setCohort, onCriteriaChange } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
     const onAddGroup = (): void => {

@@ -86,6 +86,7 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -562,6 +563,19 @@ export const insightLogic = kea<insightLogicType>({
                 actions.loadResults()
             }
         },
+        reportInsightViewedForRecentInsights: async () => {
+            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
+
+            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
+            // because there are some issues with `reportInsightViewed` not being called when the
+            // insightLogic is already loaded.
+            // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
+            // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
+            // right now
+            if (values.insight.id) {
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+            }
+        },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isViewedOnDashboard) {
@@ -583,9 +597,6 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     changedKeysObj
                 )
-
-                // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
-                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
 
                 actions.setNotFirstLoad()
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish

@@ -30,7 +30,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr=success-toast]').contains('Cohort saved').should('exist')
 
         // back to cohorts
-        cy.get('.ant-drawer-close').click({ force: true })
+        cy.get('[data-attr=breadcrumb-2]').click()
         cy.get('tbody').contains('Test Cohort')
 
         it('Cohorts new and list', () => {

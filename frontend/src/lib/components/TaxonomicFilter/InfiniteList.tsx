@@ -129,8 +129,8 @@ const renderItemContents = ({
                 <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
             ) : (
                 <>
-                    {icon}
-                    {item.name ?? ''}
+                    {group.getIcon ? icon : null}
+                    {group.getName(item) || item.name || ''}
                 </>
             )}
         </div>
