@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
+    ONBOARDING_1: 'onboarding-1', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
