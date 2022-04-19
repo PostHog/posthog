@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Col, Row } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { IMPORT, platforms } from 'scenes/ingestion/constants'
+import { APP, platforms } from 'scenes/ingestion/constants'
 import { PlatformType } from 'scenes/ingestion/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import posthogLogo from 'public/posthog-logo.png'
@@ -17,7 +17,7 @@ export function PlatformPanel(): JSX.Element {
     return (
         <>
             {onboarding1 ? (
-                <div style={{ width: '30vw' }}>
+                <div style={{ minWidth: 300, width: '30vw' }}>
                     <Row justify="center">
                         <img src={posthogLogo} style={{ width: 157, height: 30 }} />
                     </Row>
@@ -34,7 +34,7 @@ export function PlatformPanel(): JSX.Element {
                                 </LemonButton>
                             ))}
                             <LemonButton fullWidth center type="primary" className="platform-btn">
-                                {IMPORT}
+                                {APP}
                             </LemonButton>
                             <LemonButton
                                 type="secondary"
