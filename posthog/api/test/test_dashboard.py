@@ -565,6 +565,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"filters": {"date_from": "-24h"}},
             format="json",
         ).json()
+        # TODO - the save is firing and updating the insight filter hash
+        #  but the patch returns the dashboard and its items
+        #  the item is showing its original filters_hash
+        #  and so returning cached results from before the change
         self.assertEqual(patch_response["items"][0]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
