@@ -110,3 +110,27 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_performed_event(self):
+        pass
+
+    def test_performed_event_multiple(self):
+        pass
+
+    def test_stopped_performing_event(self):
+        pass
+
+    def test_restarted_performing_event(self):
+        pass
+
+    def test_performed_event_first_time(self):
+        pass
+
+    def test_performed_event_sequence(self):
+        pass
+
+    def test_performed_event_regularly(self):
+        pass
+
+    def test_person_props(self):
+        pass
