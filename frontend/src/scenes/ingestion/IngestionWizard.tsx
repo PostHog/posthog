@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,6 +14,7 @@ import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { BookmarkletPanel } from './panels/BookmarkletPanel'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -71,6 +72,14 @@ export function IngestionWizard(): JSX.Element {
         return (
             <IngestionContainer>
                 <FrameworkPanel />
+            </IngestionContainer>
+        )
+    }
+
+    if (platform === BOOKMARKLET) {
+        return (
+            <IngestionContainer>
+                <BookmarkletPanel />
             </IngestionContainer>
         )
     }

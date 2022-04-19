@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Col, Row } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { APP, platforms } from 'scenes/ingestion/constants'
+import { APP, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
 import { PlatformType } from 'scenes/ingestion/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import posthogLogo from 'public/posthog-logo.png'
@@ -29,20 +29,34 @@ export function PlatformPanel(): JSX.Element {
                         </p>
                         <Col>
                             {platforms.map((platform) => (
-                                <LemonButton key={platform} fullWidth center type="primary" className="platform-btn">
+                                <LemonButton
+                                    key={platform}
+                                    fullWidth
+                                    center
+                                    type="primary"
+                                    className="platform-btn"
+                                    onClick={() => setPlatform(platform)}
+                                >
                                     {platform}
                                 </LemonButton>
                             ))}
-                            <LemonButton fullWidth center type="primary" className="platform-btn">
+                            <LemonButton
+                                onClick={() => setPlatform(APP)}
+                                fullWidth
+                                center
+                                type="primary"
+                                className="platform-btn"
+                            >
                                 {APP}
                             </LemonButton>
                             <LemonButton
                                 type="secondary"
                                 fullWidth
                                 center
+                                onClick={() => setPlatform(BOOKMARKLET)}
                                 style={{ color: 'black', borderColor: 'black' }}
                             >
-                                Just exploring?
+                                {BOOKMARKLET}
                             </LemonButton>
                         </Col>
                         <Row justify="center" className="visit-support">
