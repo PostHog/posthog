@@ -3,8 +3,8 @@ import { Tabs, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
-import { useActions, useValues, BindLogic } from 'kea'
-import { PersonLogicProps, personsLogic } from './personsLogic'
+import { useActions, useValues } from 'kea'
+import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -31,7 +31,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params }) => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
+    paramsToProps: ({ params }): typeof personsLogic['props'] => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
@@ -80,12 +80,9 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
-    const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
     const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
-        useValues(personsLogic(personsLogicProps))
-    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
-        personsLogic(personsLogicProps)
-    )
+        useValues(personsLogic)
+    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -102,7 +99,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     }
 
     return (
-        <BindLogic logic={personsLogic} props={personsLogicProps}>
+        <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
@@ -214,6 +211,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
             </Tabs>
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </BindLogic>
+        </>
     )
 }

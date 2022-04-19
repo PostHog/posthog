@@ -11,7 +11,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
-    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -51,8 +50,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
+export function Experiment_(): JSX.Element {
     const {
+        experimentId,
         newExperimentData,
         experimentData,
         experimentInsightId,
@@ -76,7 +76,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         secondaryMetricResults,
         experimentDataLoading,
         secondaryMetricResultsLoading,
-    } = useValues(experimentLogic({ experimentId: id }))
+    } = useValues(experimentLogic)
     const {
         setNewExperimentData,
         createExperiment,
@@ -91,7 +91,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic({ experimentId: id }))
+    } = useActions(experimentLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -158,7 +158,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
     return (
         <>
-            {id === 'new' || editingExistingExperiment ? (
+            {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"

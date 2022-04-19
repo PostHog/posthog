@@ -23,7 +23,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 export const scene: SceneExport = {
     component: Cohort,
     logic: cohortLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new', pageKey: 0 }),
+    paramsToProps: ({ params: { id } }): typeof cohortLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+        pageKey: 0,
+    }),
 }
 
 let uniqueMemoizedIndex = 0
@@ -188,7 +191,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                             </div>
                         ) : (
                             <div style={{ marginTop: 15 }}>
-                                <Persons cohort={cohort} />
+                                <Persons cohort={cohort.id} />
                             </div>
                         )}
                     </div>

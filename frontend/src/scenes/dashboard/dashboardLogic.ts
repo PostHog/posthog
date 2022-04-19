@@ -316,24 +316,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
     }),
-    selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
+    selectors: () => ({
+        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
-            () => [selectors.allItemsLoading, selectors.refreshStatus],
+            (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
-        isRefreshing: [
-            () => [selectors.refreshStatus],
-            (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading,
-        ],
+        isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            () => [selectors.items],
+            (s) => [s.items],
             (items) => {
                 if (!items || !items.length) {
                     return null
@@ -352,9 +350,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboard, dashboardsModel.selectors.nameSortedDashboards],
-            (sharedDashboard, dashboards): DashboardType | null => {
-                return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
+            () => [
+                dashboardsModel.selectors.sharedDashboard,
+                dashboardsModel.selectors.nameSortedDashboards,
+                (_, { shareToken }) => shareToken,
+                (_, { id }) => id,
+            ],
+            (sharedDashboard, dashboards, shareToken, id): DashboardType | null => {
+                return shareToken ? sharedDashboard : dashboards.find((d) => d.id === id) || null
             },
         ],
         canEditDashboard: [
