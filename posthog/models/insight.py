@@ -10,7 +10,7 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters.utils import get_filter  # noqa: F401
+from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
 
 
@@ -139,7 +139,8 @@ class InsightViewed(models.Model):
 
 
 @receiver(pre_save, sender=Insight)
-def insight_saved(sender, instance: Insight, **kwargs):
-    if instance.filters and instance.filters != {}:
+def insight_saving(sender, instance: Insight, **kwargs):
+    # ensure there's a filters hash
+    if instance.filters != {} and instance.filters_hash is None:
         filter = get_filter(data=instance.filters, team=instance.team)
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))

@@ -533,28 +533,48 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_return_cached_results_dashboard_has_filters(self):
         # Regression test, we were
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+
+        # create a dashboard with no filters
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "date_from": "-7d",
         }
-        filter = Filter(data=filter_dict)
 
-        item = Insight.objects.create(filters=filter_dict, team=self.team,)
-        DashboardTile.objects.create(insight=item, dashboard=dashboard)
-        item2 = Insight.objects.create(filters=filter.to_dict(), team=self.team,)
-        DashboardTile.objects.create(insight=item2, dashboard=dashboard)
-        self.client.get(
+        # create two insights with a -7d date from filter
+        insight_one_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+        insight_two_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+
+        insight_one_original_filter_hash = self._get_insight(insight_one_id)["filters_hash"]
+        insight_two_original_filter_hash = self._get_insight(insight_two_id)["filters_hash"]
+
+        self.assertEqual(insight_one_original_filter_hash, insight_two_original_filter_hash)
+
+        # cache insight results for trends with a -7d date from
+        response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
+        self.assertEqual(response.status_code, 200)
+
+        # set a filter on the dashboard
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk,
             {"filters": {"date_from": "-24h"}},
             format="json",
         ).json()
         self.assertEqual(patch_response["items"][0]["result"], None)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {"date_from": "-24h"})
+
+        # updating the dashboard saves the insights with new filters_hash
+        insight_one_updated_filter_hash = self._get_insight(insight_one_id)["filters_hash"]
+        insight_two_updated_filter_hash = self._get_insight(insight_two_id)["filters_hash"]
+
+        self.assertEqual(insight_one_updated_filter_hash, insight_two_updated_filter_hash)
+        self.assertNotEqual(insight_one_original_filter_hash, insight_one_updated_filter_hash)
 
         # cache results
         response = self.client.get(
@@ -562,7 +582,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
-        item = Insight.objects.get(pk=item.pk)
+
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
@@ -600,6 +620,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_json = response.json()
         return response_json["id"], response_json
+
+    def _get_insight(
+        self, insight_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+    ) -> Dict[str, Any]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}")
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED

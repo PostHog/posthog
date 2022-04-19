@@ -26,7 +26,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.1
@@ -188,7 +189,8 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard.6
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT ("posthog_dashboardtile"."dashboard_id") AS "_prefetch_related_val_dashboard_id",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -214,8 +216,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
-         AND "posthog_dashboarditem"."dashboard_id" IN (1,
+         AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
                                                         3,
                                                         4,
@@ -225,7 +228,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard.7
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -250,10 +258,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE (NOT "posthog_dashboarditem"."deleted"
-         AND "posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
@@ -492,7 +499,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.16
@@ -518,7 +526,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.18
@@ -594,7 +603,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.20
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -619,9 +633,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
@@ -811,7 +825,8 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.28
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT ("posthog_dashboardtile"."dashboard_id") AS "_prefetch_related_val_dashboard_id",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -837,8 +852,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
-         AND "posthog_dashboarditem"."dashboard_id" IN (1,
+         AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
                                                         3,
                                                         4,
@@ -911,7 +927,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.5
@@ -937,7 +954,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.7
@@ -986,7 +1004,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.9
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1011,9 +1034,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
@@ -1265,7 +1288,8 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.17
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT ("posthog_dashboardtile"."dashboard_id") AS "_prefetch_related_val_dashboard_id",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1291,8 +1315,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
-         AND "posthog_dashboarditem"."dashboard_id" IN (1,
+         AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
                                                         3,
                                                         4,
@@ -1481,7 +1506,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.23
@@ -1507,7 +1533,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.25
@@ -1556,7 +1583,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.27
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1581,9 +1613,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
@@ -1797,7 +1829,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.34
@@ -1823,7 +1856,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.36
@@ -1872,7 +1906,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.38
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1897,9 +1936,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
@@ -1950,7 +1989,8 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.40
@@ -2120,7 +2160,8 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.46
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT ("posthog_dashboardtile"."dashboard_id") AS "_prefetch_related_val_dashboard_id",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2146,8 +2187,9 @@
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
-         AND "posthog_dashboarditem"."dashboard_id" IN (1,
+         AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
                                                         3,
                                                         4,
@@ -2178,7 +2220,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."dashboard_id" = 2
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.7
@@ -2227,7 +2270,12 @@
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.9
   '
-  SELECT "posthog_dashboarditem"."id",
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2252,9 +2300,9 @@
          "posthog_dashboarditem"."last_modified_by_id",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
-  FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."dashboard_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted")
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2
   ORDER BY "posthog_dashboarditem"."order" ASC
   '
 ---
