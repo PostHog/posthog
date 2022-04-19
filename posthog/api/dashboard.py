@@ -183,7 +183,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        tiles = DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order")
+        tiles = (
+            DashboardTile.objects.filter(dashboard=dashboard)
+            .select_related("insight", "insight__created_by", "insight__last_modified_by", "insight__team")
+            .order_by("insight__order")
+        )
         insights = []
         for tile in tiles:
             if tile.insight:
