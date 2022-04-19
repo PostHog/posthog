@@ -17,7 +17,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         filter = Filter(
             data={
                 "properties": {
-                    "type": "AND",
+                    "type": "OR",
                     "values": [
                         {
                             "key": "$pageview",
@@ -40,6 +40,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_interval": "week",
                             "type": "performed_event_first_time",
                         },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
                     ],
                 },
             }
