@@ -223,12 +223,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             query_counts.append(count)
             queries.append(qs)
 
-        # add an insight to a different dashboard
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_two_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_two_id)
-        query_counts.append(count)
-        queries.append(qs)
-
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
         # then the same no matter how many insights there are
