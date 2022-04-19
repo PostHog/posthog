@@ -86,3 +86,4 @@ class RevenueDataGenerator(DataGenerator):
             short_id="TEST1234",
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash

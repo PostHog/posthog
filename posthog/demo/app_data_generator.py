@@ -66,6 +66,7 @@ class AppDataGenerator(DataGenerator):
             },
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash
 
     def populate_person_events(self, person: Person, distinct_id: str, _index: int):
         start_day = random.randint(1, self.n_days)
