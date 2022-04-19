@@ -11,14 +11,14 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import Property, PropertyGroup, PropertyName
+from posthog.models.property import OperatorInterval, Property, PropertyGroup, PropertyName
 from posthog.queries.column_optimizer import ColumnOptimizer
 
-Relative_Date = Tuple[int, str]
+Relative_Date = Tuple[int, OperatorInterval]
 NOW: Relative_Date = (0, "now")
 
 Period = Tuple[Relative_Date, Relative_Date]
-Event = Tuple[str, Tuple[str, int]]
+Event = Tuple[str, Union[str, int]]
 Event_In_Period = Tuple[Event, Period]
 
 USES_PERIOD = ["performed_event", "performed_event_muliple", "stopped_performing_event", "restarted_performing_event"]
@@ -40,11 +40,11 @@ def relative_date_is_greater(date_1: Relative_Date, date_2: Relative_Date) -> bo
 
 
 class CohortOptimizer(ColumnOptimizer):
-    _events = []
+    _events: List[str] = []
     earliest_date: Relative_Date = NOW
 
     @cached_property
-    def dates_to_query_column_names(self) -> Dict[Relative_Date, Tuple[str, str]]:
+    def dates_to_query_column_names(self) -> Dict[Relative_Date, ColumnName]:
         _dates = {NOW: "now"}
         for idx, prop in enumerate(self.filter.property_groups.flat):
             idx_label = idx * 2  # count by 2 because we can have up to 4 labels per step
@@ -79,10 +79,10 @@ class CohortOptimizer(ColumnOptimizer):
                     and prop.time_interval is not None
                     and prop.time_value is not None
                 ):
-                    _start_date = (prop.time_value, prop.time_interval)
-                    _end_date = NOW
-                    _period = (_start_date, _end_date)
-                    _event = (prop.event_type, prop.key)
+                    _start_date: Relative_Date = (prop.time_value, prop.time_interval)
+                    _end_date: Relative_Date = NOW
+                    _period: Period = (_start_date, _end_date)
+                    _event: Event = (prop.event_type, prop.key)
                     self.add_event_type(_event)
                     _events[
                         (_event, _period)
@@ -174,6 +174,7 @@ class CohortOptimizer(ColumnOptimizer):
     def sequences_to_query(self) -> List[Tuple[Event_In_Period, Event, Relative_Date]]:
         return list(self.sequences_to_query_column_names.keys())
 
+    @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
         return set(
             property_name for property_name, _, _, _ in self._used_properties_with_type_and_operator("person", "OR")
@@ -181,7 +182,7 @@ class CohortOptimizer(ColumnOptimizer):
 
     @cached_property
     def is_using_person_properties_in_or(self) -> bool:
-        return len(self.person_columns_to_query()) > 0
+        return len(self.person_columns_to_query) > 0
 
     def add_event_type(self, event: Event) -> None:
         if event[0] == "action":
@@ -189,7 +190,7 @@ class CohortOptimizer(ColumnOptimizer):
             for step in action.steps.all():
                 self._events.append(step.event)
         else:
-            self._events.append(event[1])
+            self._events.append(str(event[1]))
 
     def get_events_to_query(self) -> List[str]:
         return list(set(self._events))
@@ -346,11 +347,11 @@ class CohortQuery(EnterpriseEventQuery):
             return self.get_performed_event_sequence(prop, prepend, idx)
         elif prop.type == "performed_event_regularly":
             # TODO: implement
-            return ""
+            return "", {}
         elif prop.type == "person":
             return self.get_person_condition(prop, prepend, idx)
         else:
-            return ""
+            return "", {}
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle if props are pushed down in PersonQuery
@@ -432,10 +433,10 @@ class CohortQuery(EnterpriseEventQuery):
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = self._cohort_optimizer.is_using_person_properties
 
-    def _get_date_fields(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_date_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         fields = []
         dates = self._cohort_optimizer.dates_to_query()
-        _params = {}
+        _params: Dict[str, Any] = {}
         for idx, date in enumerate(dates):
             if date == NOW:
                 fields += [f"now() as {self._cohort_optimizer.get_date_column(date)}"]
@@ -448,10 +449,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         return fields, _params
 
-    def _get_event_in_period_fields(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_event_in_period_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         fields = []
         event_periods = self._cohort_optimizer.events_in_period_to_query()
-        _params = {}
+        _params: Dict[str, Any] = {}
 
         for event_period in event_periods:
             # TODO: handle indexing of event params
@@ -468,10 +469,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         return fields, _params
 
-    def _get_first_time_fields(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_first_time_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         fields = []
         first_times = self._cohort_optimizer.first_time_activity_events_to_query()
-        _params = {}
+        _params: Dict[str, Any] = {}
 
         for first_time_event_period in first_times:
             # TODO: handle indexing of event params
@@ -487,10 +488,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         return fields, _params
 
-    def _get_sequence_fields(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_sequence_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         fields = []
         sequences = self._cohort_optimizer.sequences_to_query()
-        _params = {}
+        _params: Dict[str, Any] = {}
         for idx, sequence in enumerate(sequences):
             # TODO: handle indexing of event params
             event_period = sequence[0]
@@ -537,7 +538,7 @@ def relative_date_to_seconds(date: Relative_Date):
         return date[0] * INTERVAL_TO_SECONDS[date[1]]
 
 
-def validate_interval(interval: str) -> None:
+def validate_interval(interval: str) -> str:
     if interval not in INTERVAL_TO_SECONDS.keys():
         raise ValueError(f"Invalid interval: {interval}")
     else:
