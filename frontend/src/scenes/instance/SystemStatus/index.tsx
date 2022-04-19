@@ -119,7 +119,7 @@ export function SystemStatus(): JSX.Element {
                         <StaffUsersTab />
                     </Tabs.TabPane>
                 )}
-                {user?.is_staff && (true || featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR]) && (
+                {user?.is_staff && featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR] && (
                     <Tabs.TabPane
                         tab={
                             <>
