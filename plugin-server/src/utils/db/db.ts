@@ -126,7 +126,7 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-type PersonInfo = {
+type PersonData = {
     uuid: string
     created_at: DateTime
     properties: Properties
@@ -482,14 +482,14 @@ export class DB {
         }
     }
 
-    public async getPersonIdThroughCache(teamId: number, distinctId: string): Promise<number | null> {
+    public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
             return null
         }
         const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
         if (personId) {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
-            return personId as number
+            return Number(personId)
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
         // Query from postgres and update cache
@@ -499,14 +499,14 @@ export class DB {
             'fetchPersonId'
         )
         if (result.rows.length > 0) {
-            const personId = result.rows[0].person_id as number
+            const personId = Number(result.rows[0].person_id)
             await this.updatePersonIdCache(teamId, distinctId, personId)
             return personId
         }
         return null
     }
 
-    public async getPersonInfoThroughCache(teamId: number, personId: number): Promise<PersonInfo | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<PersonData | null> {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
             return null
         }
@@ -519,9 +519,9 @@ export class DB {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
 
             return {
-                uuid: personUuid as string,
-                created_at: personCreatedAt as DateTime,
-                properties: personProperties as Properties,
+                uuid: String(personUuid),
+                created_at: DateTime.fromISO(String(personCreatedAt)).toUTC(),
+                properties: JSON.parse(String(personProperties)),
             }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
@@ -532,9 +532,9 @@ export class DB {
             'fetchPersonProperties'
         )
         if (result.rows.length !== 0) {
-            const personUuid = result.rows[0].uuid as string
-            const personCreatedAt = result.rows[0].created_at as DateTime
-            const personProperties = result.rows[0].properties as Properties
+            const personUuid = String(result.rows[0].uuid)
+            const personCreatedAt = DateTime.fromISO(result.rows[0].created_at).toUTC()
+            const personProperties: Properties = { ...result.rows[0].properties }
             await Promise.all([
                 this.updatePersonUuidCache(teamId, personId, personUuid),
                 this.updatePersonCreatedAtCache(teamId, personId, personCreatedAt),
@@ -549,13 +549,10 @@ export class DB {
         return null
     }
 
-    public async getPersonInfoThroughCacheFromDistinctId(
-        teamId: number,
-        distinctId: string
-    ): Promise<PersonInfo | null> {
-        const personId = await this.getPersonIdThroughCache(teamId, distinctId)
-        if (personId !== null) {
-            return await this.getPersonInfoThroughCache(teamId, personId)
+    public async getPersonData(teamId: number, distinctId: string): Promise<PersonData | null> {
+        const personId = await this.getPersonId(teamId, distinctId)
+        if (personId) {
+            return await this.getPersonDataByPersonId(teamId, personId)
         }
         return null
     }
