@@ -126,6 +126,12 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
+type PersonInfo = {
+    uuid: string
+    created_at: DateTime
+    properties: Properties
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -492,7 +498,7 @@ export class DB {
             [teamId, distinctId],
             'fetchPersonId'
         )
-        if (result.rows.length !== 0) {
+        if (result.rows.length > 0) {
             const personId = result.rows[0].person_id as number
             await this.updatePersonIdCache(teamId, distinctId, personId)
             return personId
@@ -500,12 +506,9 @@ export class DB {
         return null
     }
 
-    public async getPersonInfoThroughCache(
-        teamId: number,
-        personId: number
-    ): Promise<[string | null, DateTime | null, Properties | null]> {
+    public async getPersonInfoThroughCache(teamId: number, personId: number): Promise<PersonInfo | null> {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
-            return [null, null, null]
+            return null
         }
         const [personUuid, personCreatedAt, personProperties] = await Promise.all([
             this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
@@ -514,7 +517,12 @@ export class DB {
         ])
         if (personUuid !== null && personCreatedAt !== null && personProperties !== null) {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
-            return [personUuid as string, personCreatedAt as DateTime, personProperties as Properties]
+
+            return {
+                uuid: personUuid as string,
+                created_at: personCreatedAt as DateTime,
+                properties: personProperties as Properties,
+            }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
         // Query from postgres and update cache
@@ -532,20 +540,24 @@ export class DB {
                 this.updatePersonCreatedAtCache(teamId, personId, personCreatedAt),
                 this.updatePersonPropertiesCache(teamId, personId, personProperties),
             ])
-            return [personUuid, personCreatedAt, personProperties]
+            return {
+                uuid: personUuid as string,
+                created_at: personCreatedAt as DateTime,
+                properties: personProperties as Properties,
+            }
         }
-        return [null, null, null]
+        return null
     }
 
     public async getPersonInfoThroughCacheFromDistinctId(
         teamId: number,
         distinctId: string
-    ): Promise<[string | null, DateTime | null, Properties | null]> {
+    ): Promise<PersonInfo | null> {
         const personId = await this.getPersonIdThroughCache(teamId, distinctId)
         if (personId !== null) {
             return await this.getPersonInfoThroughCache(teamId, personId)
         }
-        return [null, null, null]
+        return null
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>

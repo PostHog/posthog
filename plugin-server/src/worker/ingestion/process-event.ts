@@ -579,10 +579,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         // TODO: don't parse back and forth with json
-        const [personUuid, _, personProperties] = await this.db.getPersonInfoThroughCacheFromDistinctId(
-            teamId,
-            distinctId
-        )
+        const personInfo = await this.db.getPersonInfoThroughCacheFromDistinctId(teamId, distinctId)
 
         const eventPayload: IEvent = {
             uuid,
@@ -599,13 +596,14 @@ export class EventsProcessor {
 
         if (this.kafkaProducer) {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+            // proto ingestion is deprecated and we won't support new additions to the schema
             const message = useExternalSchemas
                 ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
                 : Buffer.from(
                       JSON.stringify({
                           ...eventPayload,
-                          person_id: personUuid,
-                          person_properties: JSON.stringify(personProperties),
+                          person_id: personInfo?.uuid,
+                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
                       })
                   )
 
