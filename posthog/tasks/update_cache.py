@@ -24,7 +24,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, Filter, Insight, Team
+from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
@@ -109,30 +109,26 @@ def update_cached_items() -> None:
 
     tasks = []
     items = (
-        Insight.objects.filter(
-            Q(
-                Q(dashboards__is_shared=True)
-                | Q(dashboards__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
-            )
+        DashboardTile.objects.filter(
+            Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
-        .exclude(dashboards__deleted=True)
-        .exclude(refreshing=True)
-        .exclude(deleted=True)
-        .exclude(refresh_attempt__gt=2)
-        .exclude(filters={})
-        .order_by(F("last_refresh").asc(nulls_first=True))
+        .exclude(dashboard__deleted=True)
+        .exclude(insight__refreshing=True)
+        .exclude(insight__deleted=True)
+        .exclude(insight__refresh_attempt__gt=2)
+        .exclude(insight__filters={})
+        .select_related("insight")
+        .order_by(F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for item in items[0:PARALLEL_INSIGHT_CACHE]:
+    for dashboard_tile in items[0:PARALLEL_INSIGHT_CACHE]:
+        insight = dashboard_tile.insight
         try:
-            cache_key, cache_type, payload = insight_update_task_params(item)
-            if item.filters_hash != cache_key:
-                # TODO this assumes the filters hash changes when an insight is saved, does this move to the DashboardTile?
-                item.save()  # force update if the saved key is different from the cache key
+            cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
-            item.refresh_attempt = (item.refresh_attempt or 0) + 1
-            item.save()
+            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
+            insight.save()
             capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))

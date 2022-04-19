@@ -140,6 +140,11 @@ class InsightViewed(models.Model):
 
 @receiver(pre_save, sender=Insight)
 def insight_saving(sender, instance: Insight, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if frozenset({"filters_hash"}) == update_fields:
+        # Don't update the filters_hash if signalled that only the filters_hash was changed
+        return
+
     # ensure there's a filters hash
     if instance.filters and instance.filters != {}:
         filter = get_filter(data=instance.dashboard_filters(dashboard=None), team=instance.team)

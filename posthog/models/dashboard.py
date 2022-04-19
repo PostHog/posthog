@@ -128,4 +128,4 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
         generated_filter = get_filter(data=filter_context, team=instance.team).toJSON()
         dashboard_included_cache_key = generate_cache_key("{}_{}".format(generated_filter, instance.team_id))
         insight.filters_hash = dashboard_included_cache_key
-        insight.save()
+        insight.save(update_fields=["filters_hash"])
