@@ -329,13 +329,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["results"]), 1)
 
     def test_dashboard_items(self):
-        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
-        self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard.pk], "name": "some_item"},
-            format="json",
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/").json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
@@ -349,6 +348,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
+        insight_id, _ = self._create_insight({"filters": {"hello": "test", "date_from": "-7d"}, "name": "some_item"})
+
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+
+        # add the insight to the dashboard
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_id]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
+        self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
+
+        # which doesn't change the insight's filter
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
+        self.assertEqual(response["filters"]["date_from"], "-7d")
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)

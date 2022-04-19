@@ -139,7 +139,7 @@ class InsightViewed(models.Model):
 
 
 @receiver(pre_save, sender=Insight)
-def insight_saved(sender, instance: Insight, dashboard=None, **kwargs):
+def insight_saved(sender, instance: Insight, **kwargs):
     if instance.filters and instance.filters != {}:
         filter = get_filter(data=instance.filters, team=instance.team)
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
