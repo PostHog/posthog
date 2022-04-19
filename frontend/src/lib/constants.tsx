@@ -148,7 +148,7 @@ export enum FunnelLayout {
 export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
-export enum CohortTypeType {
+export enum CohortTypeEnum {
     Static = 'static',
     Dynamic = 'dynamic',
 }

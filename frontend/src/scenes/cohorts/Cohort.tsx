@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Group, Field as KeaField } from 'kea-forms'
 import { Col, Divider, Row } from 'antd'
 import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
-import { CohortTypeType, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CohortTypeEnum, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { CalculatorOutlined, OrderedListOutlined, PlusOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { Persons } from 'scenes/persons/Persons'
@@ -30,11 +30,11 @@ export const scene: SceneExport = {
 }
 
 const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
-    [CohortTypeType.Static]: {
+    [CohortTypeEnum.Static]: {
         label: 'Static · Updated manually',
         icon: <OrderedListOutlined />,
     },
-    [CohortTypeType.Dynamic]: {
+    [CohortTypeEnum.Dynamic]: {
         label: 'Dynamic · Updates automatically',
         icon: <CalculatorOutlined />,
     },
@@ -115,9 +115,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 <LemonSelect
                                     disabled={!isNewCohort}
                                     options={COHORT_TYPE_OPTIONS}
-                                    value={value ? CohortTypeType.Static : CohortTypeType.Dynamic}
+                                    value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
                                     onChange={(cohortType) => {
-                                        onValueChange(cohortType === CohortTypeType.Static)
+                                        onValueChange(cohortType === CohortTypeEnum.Static)
                                     }}
                                     type="stealth"
                                     outlined
