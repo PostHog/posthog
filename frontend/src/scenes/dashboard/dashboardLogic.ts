@@ -90,8 +90,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
-        reportDashboardViewed: true,
-        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }),
+        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
     },
 
     loaders: ({ actions, props }) => ({
