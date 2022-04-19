@@ -10,6 +10,7 @@ from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
@@ -182,6 +183,7 @@ class Team(UUIDClassicModel):
                 return None
             return requesting_parent_membership.level
 
+    @cached_property
     def timezone_for_charts(self) -> str:
         """
         Stopgap function for rolling this feature out

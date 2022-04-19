@@ -35,16 +35,16 @@ class ClickhouseLifecycle:
         return (
             LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
             event_params,
-            self._parse_result(filter, entity),
+            self._parse_result(filter, entity, team),
         )
 
-    def _parse_result(self, filter: Filter, entity: Entity) -> Callable:
+    def _parse_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             res = []
             for val in result:
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
-                parsed_result = parse_response(val, filter, additional_values)
+                parsed_result = parse_response(val, filter, team, additional_values=additional_values)
                 res.append(parsed_result)
 
             return res

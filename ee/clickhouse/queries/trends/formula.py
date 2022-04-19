@@ -82,7 +82,7 @@ class ClickhouseTrendsFormula:
                 if filter.display == TRENDS_CUMULATIVE:
                     additional_values["data"] = list(accumulate(additional_values["data"]))
             additional_values["count"] = float(sum(additional_values["data"]))
-            response.append(parse_response(item, filter, additional_values))
+            response.append(parse_response(item, filter, team, additional_values=additional_values))
         return response
 
     def _label(self, filter: Filter, item: List) -> str:

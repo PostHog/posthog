@@ -41,7 +41,7 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts()}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
@@ -88,15 +88,15 @@ class ClickhouseTrendsTotalVolume:
                 smoothing_operation=smoothing_operation,
                 aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
             )
-            return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
+            return final_query, params, self._parse_total_volume_result(filter, entity, team)
 
-    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
+    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):
-                parsed_result = parse_response(stats, filter)
+                parsed_result = parse_response(stats, filter, team)
                 parsed_result.update(
-                    {"persons_urls": self._get_persons_url(filter, entity, team_id, parsed_result["days"])}
+                    {"persons_urls": self._get_persons_url(filter, entity, team.pk, parsed_result["days"])}
                 )
                 parsed_results.append(parsed_result)
 

@@ -1,6 +1,7 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import pytz
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.property import get_property_string_expr
@@ -54,11 +55,21 @@ def process_math(
     return aggregate_operation, join_condition, params
 
 
-def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
+def parse_response(stats: Dict, filter: Filter, team: Team, additional_values: Dict = {}) -> Dict[str, Any]:
+    def _timezone(item: datetime) -> datetime:
+        if filter.interval == "hour":
+            return item.replace(tzinfo=pytz.UTC).astimezone(pytz.timezone(team.timezone_for_charts))
+        return item
+
     counts = stats[1]
-    dates = [item.strftime("%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
-    labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
-    days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
+    labels = [
+        _timezone(item).strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else ""))
+        for item in stats[0]
+    ]
+    days = [
+        _timezone(item).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else ""))
+        for item in stats[0]
+    ]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),

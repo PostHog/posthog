@@ -1262,6 +1262,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
             )
 
+        # Shouldn't be included anywhere
+        with freeze_time("2020-01-06T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
         #  volume
         with freeze_time("2020-01-05T13:01:01Z"):
             response = ClickhouseTrends().run(
@@ -1283,6 +1292,21 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "5-Jan-2020",
             ],
         )
+
+        # Hour interval
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "dStart",
+                        "interval": "hour",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertEqual(response[0]["labels"][-1], "5-Jan-2020 05:00")
 
         # DAU
         with freeze_time("2020-01-05T13:01:01Z"):

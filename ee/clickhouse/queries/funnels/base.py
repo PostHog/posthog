@@ -52,7 +52,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
-            "timezone": self._team.timezone_for_charts(),
+            "timezone": self._team.timezone_for_charts,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
