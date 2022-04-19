@@ -214,7 +214,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
             insight.last_refresh = None
-            insight.save()
+            insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:

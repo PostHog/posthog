@@ -141,8 +141,8 @@ class InsightViewed(models.Model):
 @receiver(pre_save, sender=Insight)
 def insight_saving(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
-    if frozenset({"filters_hash"}) == update_fields:
-        # Don't update the filters_hash if signalled that only the filters_hash was changed
+    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
+        # Don't always update the filters_hash
         return
 
     # ensure there's a filters hash

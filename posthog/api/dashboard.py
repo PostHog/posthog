@@ -192,7 +192,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 # Make sure all items have an insight set
                 if not insight.filters.get("insight"):
                     insight.filters["insight"] = INSIGHT_TRENDS
-                    insight.save()
+                    insight.save(update_fields=["filters"])
 
                 insight_data = InsightSerializer(insight, many=False, context=self.context).data
                 insight_data["layouts"] = tile.layouts
