@@ -29,7 +29,7 @@ export interface MetricRow {
     value?: boolean | string | number | null
 }
 
-export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 
 /**
  * We whitelist the specific instance settings that can be edited via the /instance/status page.
@@ -112,7 +112,10 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         tab: [
             'overview' as InstanceStatusTabName,
             {
-                setTab: (_, { tab }) => tab,
+                setTab: (_, { tab }) => {
+                    console.log(tab)
+                    return tab
+                },
             },
         ],
         error: [
@@ -164,7 +167,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             },
         ],
         updatedInstanceConfigCount: [
-            null as number | null, // Number of config items that have been updated; `null` means no update is in progress
+            null as number | null,
             {
                 setUpdatedInstanceConfigCount: (_, { count }) => count,
                 loadInstanceSettings: () => null,
@@ -247,7 +250,8 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
 
     urlToAction: ({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab = tab && ['metrics', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
+            const currentTab =
+                tab && ['metrics', 'settings', 'staff_users', 'kafka_inspector'].includes(tab) ? tab : 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

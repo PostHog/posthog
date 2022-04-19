@@ -130,7 +130,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
         setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
-        switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
+        switchToDataPoint: (seriesId: number) => ({ seriesId }),
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),

@@ -90,8 +90,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
-        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
-        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        reportDashboardViewed: true,
+        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -130,8 +130,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         receivedErrorsFromAPI: [
             false,
             {
-                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
-                    receivedErrors,
+                setReceivedErrorsFromAPI: (
+                    _: boolean,
+                    {
+                        receivedErrors,
+                    }: {
+                        receivedErrors: boolean
+                    }
+                ) => receivedErrors,
             },
         ],
         filters: [
@@ -308,7 +314,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         shouldReportOnAPILoad: [
             /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
             We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
-            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard) 
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard)
             */
             false,
             {

@@ -39,7 +39,7 @@ export interface SavedInsightFilters {
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
-        order: values.order || '-last_modified_at', // Sync with `sorting` selector
+        order: values.order || '-last_modified_at',
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
