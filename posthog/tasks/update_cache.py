@@ -127,6 +127,7 @@ def update_cached_items() -> None:
         try:
             cache_key, cache_type, payload = insight_update_task_params(item)
             if item.filters_hash != cache_key:
+                # TODO this assumes the filters hash changes when an insight is saved, does this move to the DashboardTile?
                 item.save()  # force update if the saved key is different from the cache key
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
