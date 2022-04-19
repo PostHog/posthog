@@ -112,10 +112,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         tab: [
             'overview' as InstanceStatusTabName,
             {
-                setTab: (_, { tab }) => {
-                    console.log(tab)
-                    return tab
-                },
+                setTab: (_, { tab }) => tab,
             },
         ],
         error: [
