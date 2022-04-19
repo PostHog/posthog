@@ -202,13 +202,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "insight": "TRENDS",
         }
-        filter = Filter(data=filter_dict)
 
         query_counts: List[int] = []
         queries: List[List[Dict[str, str]]] = []
@@ -217,33 +216,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         query_counts.append(count)
         queries.append(qs)
 
-        # add insights to the dashboard and count how manh queries to read the dashboard afterwards
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        # add insights to the dashboard and count how many queries to read the dashboard afterwards
+        for i in range(5):
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            count, qs = self._get_dashboard_counting_queries(dashboard_id)
+            query_counts.append(count)
+            queries.append(qs)
+
+        # add an insight to a different dashboard
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_two_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_two_id)
         query_counts.append(count)
         queries.append(qs)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
-        query_counts.append(count)
-        queries.append(qs)
-
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
-        query_counts.append(count)
-        queries.append(qs)
-
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
-        query_counts.append(count)
-        queries.append(qs)
-
-        # regression test
-        # getting a dashboard was originally n plus 1,
-        # with number of queries growing as the number of insights on the dashboard grew
-        # now a stable 9 queries no matter how many insights are on the dashboard
+        # fewer queries when loading dashboard with no insights
+        self.assertLess(query_counts[0], query_counts[1])
+        # then the same no matter how many insights there are
         self.assertTrue(
-            all(x == query_counts[0] for x in query_counts), f"received: {query_counts} for queries: \n\n {queries}"
+            all(x == query_counts[1] for x in query_counts[2:]), f"received: {query_counts} for queries: \n\n {queries}"
         )
 
     def test_no_cache_available(self):

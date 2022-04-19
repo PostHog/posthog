@@ -1,10 +1,13 @@
 import json
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytz
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -16,7 +19,6 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
     Cohort,
     Dashboard,
-    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -268,24 +270,41 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
-    def test_insights_does_not_nplus1(self):
+    def test_listing_insights_does_not_nplus1(self):
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        query_counts: List[int] = []
+        queries = []
+
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
             OrganizationMembership.objects.create(user=user, organization=self.organization)
             dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
-            item = Insight.objects.create(
-                filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
-                team=self.team,
-                short_id=f"insight{i}",
-                created_by=user,
-            )
-            DashboardTile.objects.create(dashboard=dashboard, insight=item)
 
-        # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users + organization + tag
-        with self.assertNumQueries(12):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 20)
+            self._create_insight(
+                data={
+                    "short_id": f"insight{i}",
+                    "dashboards": [dashboard.pk],
+                    "filters": {"events": [{"id": "$pageview"}]},
+                }
+            )
+
+            self.assertEqual(Insight.objects.count(), i + 1)
+
+            with CaptureQueriesContext(db_connection) as capture_query_context:
+                response = self.client.get(f"/api/projects/{self.team.id}/insights")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), i + 1)
+
+            query_count_for_create_and_read = len(capture_query_context.captured_queries)
+            queries.append(capture_query_context.captured_queries)
+            query_counts.append(query_count_for_create_and_read)
+
+        # adding more insights doesn't change the query count
+        self.assertTrue(
+            all(x == query_counts[0] for x in query_counts),
+            f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
+        )
 
     def test_create_insight_items(self):
         # Make sure the endpoint works with and without the trailing slash
@@ -927,3 +946,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # Insights are ordered by most recently viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response_data["results"]), 0)
+
+    def _create_insight(
+        self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
