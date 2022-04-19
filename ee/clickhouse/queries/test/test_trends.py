@@ -376,7 +376,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             response = ClickhouseTrends().run(
                 Filter(
                     data={
-                        "date_from": "-14d",
+                        "date_from": "-7d",
                         "breakdown": "$current_url",
                         "events": [
                             {
@@ -1240,3 +1240,145 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                     Filter(data={"events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],}),
                     self.team,
                 )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones(self, patch_feature_enabled):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        with freeze_time("2020-01-03T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2020-01-04T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        #  volume
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up",},],}, team=self.team),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+        self.assertEqual(
+            response[0]["labels"],
+            [
+                "29-Dec-2019",
+                "30-Dec-2019",
+                "31-Dec-2019",
+                "1-Jan-2020",
+                "2-Jan-2020",
+                "3-Jan-2020",
+                "4-Jan-2020",
+                "5-Jan-2020",
+            ],
+        )
+
+        # DAU
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={"date_from": "-14d", "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],},
+                    team=self.team,
+                ),
+                self.team,
+            )
+        self.assertEqual(
+            response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        )
+        self.assertEqual(
+            response[0]["labels"],
+            [
+                "22-Dec-2019",
+                "23-Dec-2019",
+                "24-Dec-2019",
+                "25-Dec-2019",
+                "26-Dec-2019",
+                "27-Dec-2019",
+                "28-Dec-2019",
+                "29-Dec-2019",
+                "30-Dec-2019",
+                "31-Dec-2019",
+                "1-Jan-2020",
+                "2-Jan-2020",
+                "3-Jan-2020",
+                "4-Jan-2020",
+                "5-Jan-2020",
+            ],
+        )
+
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "weekly_active"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+        self.assertEqual(
+            response[0]["labels"],
+            [
+                "29-Dec-2019",
+                "30-Dec-2019",
+                "31-Dec-2019",
+                "1-Jan-2020",
+                "2-Jan-2020",
+                "3-Jan-2020",
+                "4-Jan-2020",
+                "5-Jan-2020",
+            ],
+        )
+
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up", "breakdown": "$os"},],},
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+        self.assertEqual(
+            response[0]["labels"],
+            [
+                "29-Dec-2019",
+                "30-Dec-2019",
+                "31-Dec-2019",
+                "1-Jan-2020",
+                "2-Jan-2020",
+                "3-Jan-2020",
+                "4-Jan-2020",
+                "5-Jan-2020",
+            ],
+        )
+
+        #  breakdown + DAU
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "breakdown": "$os",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])

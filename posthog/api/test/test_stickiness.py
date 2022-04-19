@@ -19,7 +19,7 @@ def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
 
 def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
     response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
     return response.json()
 
 
