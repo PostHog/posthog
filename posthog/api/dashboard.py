@@ -174,7 +174,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if self.context["view"].action == "list":
             return None
 
-        tiles = DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").prefetch_related("insight")
+        tiles = DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order")
         insights = []
         for tile in tiles:
             if tile.insight:
