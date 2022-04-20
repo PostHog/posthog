@@ -5,6 +5,7 @@
     flex-direction: column;
     height: 100%;
 }
+
 .console-log {
     flex: 1;
     border: 1px solid $border;
@@ -20,11 +21,13 @@
 
     .log-text {
         margin: 0px;
+        min-height: 18px;
     }
 
     .trace-string {
         float: right;
         margin-left: $default_spacing/4;
+
         a {
             text-decoration: underline;
         }
@@ -34,6 +37,7 @@
         background: rgb(252, 241, 240);
         color: red;
     }
+
     &.level-warn {
         background: rgb(254, 251, 231);
     }
@@ -42,10 +46,12 @@
         background: rgba(83, 117, 255, 0.1);
     }
 }
+
 .more-logs-available {
     text-align: center;
     margin: $default_spacing/2;
 }
+
 .console-feedback-container {
     border: 1px solid $border;
     border-radius: $radius;

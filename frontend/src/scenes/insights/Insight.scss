@@ -260,13 +260,14 @@ $funnel_canvas_background: #fff;
 .funnel-insights-container {
     padding: 24px;
     background-color: $funnel_canvas_background;
+    border-radius: 0 0 var(--radius) var(--radius);
 
     &.no-padding {
         padding: 0;
     }
 
     &.non-empty-state {
-        min-height: 400px;
+        min-height: 26rem;
         position: relative;
         margin-bottom: 0;
     }

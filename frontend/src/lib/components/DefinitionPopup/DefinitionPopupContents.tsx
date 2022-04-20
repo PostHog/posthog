@@ -56,7 +56,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
                     data-attr="taxonomy-learn-more"
                     style={{ fontWeight: 600, marginTop: 8 }}
                 >
-                    Learn more about Taxonomy
+                    Learn more about Data Management
                     <IconOpenInNew style={{ marginLeft: 8 }} />
                 </Link>
             </DefinitionPopup.Section>

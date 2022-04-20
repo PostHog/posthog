@@ -1,0 +1,29 @@
+@import '~/vars';
+
+.welcome-panel {
+    padding: 40px;
+    background-color: white;
+    margin-top: 2rem;
+    box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
+
+    h1 {
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: $default_spacing / 2;
+    }
+
+    .platform-btn {
+        margin-bottom: $default_spacing / 2;
+        background-color: black;
+        &:hover {
+            background-color: black;
+            opacity: 0.8;
+        }
+    }
+}
+
+.visit-support {
+    border-top: 2px dashed $border;
+    margin-top: $default_spacing * 2;
+    padding-top: $default_spacing * 2;
+}
