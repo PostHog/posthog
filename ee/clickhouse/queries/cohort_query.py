@@ -73,6 +73,7 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
+        # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()
         self.params.update(condition_params)
 
