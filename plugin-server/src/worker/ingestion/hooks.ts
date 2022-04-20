@@ -81,11 +81,21 @@ export function getValueOfToken(
     let markdown = ''
 
     if (tokenParts[0] === 'user') {
+        // user.foo is DEPRECATED, person.foo should be used instead
         if (tokenParts[1] === 'name') {
             ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
+            text = stringify(property)
+            markdown = text
+        }
+    } else if (tokenParts[0] === 'person') {
+        if (tokenParts[1] === 'name') {
+            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
+            const propertyName = tokenParts[2]
+            const property = person?.properties?.[propertyName]
             text = stringify(property)
             markdown = text
         }
@@ -115,7 +125,7 @@ export function getFormattedMessage(
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    const messageFormat = action.slack_message_format || '[action.name] was triggered by [user.name]'
+    const messageFormat = action.slack_message_format || '[action.name] was triggered by [person.name]'
     let messageText: string
     let messageMarkdown: string
 

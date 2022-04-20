@@ -101,9 +101,41 @@ describe('hooks', () => {
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
         const event = { distinct_id: 2, properties: { $browser: 'Chrome' } } as unknown as PluginEvent
-        const person = {} as Person
+        const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
 
-        test('user name', () => {
+        test('person name', () => {
+            const tokenUserName = ['person', 'name']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                person,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('2')
+            expect(markdown).toBe('[2](http://localhost:8000/person/2)')
+        })
+
+        test('person prop', () => {
+            const tokenUserPropString = ['person', 'properties', 'enjoys_broccoli_on_pizza']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                person,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserPropString
+            )
+
+            expect(text).toBe('false')
+            expect(markdown).toBe('false')
+        })
+
+        test('user name (alias for person name)', () => {
             const tokenUserName = ['user', 'name']
 
             const [text, markdown] = getValueOfToken(
@@ -119,7 +151,7 @@ describe('hooks', () => {
             expect(markdown).toBe('[2](http://localhost:8000/person/2)')
         })
 
-        test('user prop', () => {
+        test('user prop (actually event prop)', () => {
             const tokenUserPropString = ['user', 'browser']
 
             const [text, markdown] = getValueOfToken(
