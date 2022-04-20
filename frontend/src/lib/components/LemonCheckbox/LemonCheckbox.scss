@@ -8,8 +8,8 @@
         height: 0;
     }
     label {
-        display: flex;
-        align-items: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
         cursor: pointer;
     }
 }

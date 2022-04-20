@@ -59,6 +59,9 @@ class TestKafkaConsumer:
     def seek_to_end(self):
         return
 
+    def subscribe(self, _):
+        return
+
 
 class _KafkaSecurityProtocol(str, Enum):
     PLAINTEXT = "PLAINTEXT"
@@ -132,23 +135,38 @@ KafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
 def build_kafka_consumer(
-    topic: str, value_deserializer=lambda v: json.loads(v.decode("utf-8")), auto_offset_reset="latest", test=TEST
+    topic: Optional[str],
+    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+    auto_offset_reset="latest",
+    test=TEST,
+    group_id=None,
+    consumer_timeout_ms=float("inf"),
 ):
     if test:
-        consumer = TestKafkaConsumer(topic=topic, auto_offset_reset=auto_offset_reset, max=10)
+        consumer = TestKafkaConsumer(
+            topic=topic, auto_offset_reset=auto_offset_reset, max=10, consumer_timeout_ms=consumer_timeout_ms
+        )
     elif KAFKA_BASE64_KEYS:
         consumer = helper.get_kafka_consumer(
-            topic=topic, auto_offset_reset=auto_offset_reset, value_deserializer=value_deserializer
+            topic=topic,
+            auto_offset_reset=auto_offset_reset,
+            value_deserializer=value_deserializer,
+            group_id=group_id,
+            consumer_timeout_ms=consumer_timeout_ms,
         )
     else:
         consumer = KC(
-            topic,
             bootstrap_servers=KAFKA_HOSTS,
             auto_offset_reset=auto_offset_reset,
             value_deserializer=value_deserializer,
+            group_id=group_id,
+            consumer_timeout_ms=consumer_timeout_ms,
             security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
             **_sasl_params(),
         )
+        if topic:
+            consumer.subscribe([topic])
+
     return consumer
 
 

@@ -1845,6 +1845,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "bjornj12",
+      "name": "Björn Ólafur Jóhannsson",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2598477?v=4",
+      "profile": "https://github.com/bjornj12",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
