@@ -93,4 +93,4 @@ class TestLicenseAPI(APILicensedTest):
         first_valid = License.objects.first_valid()
 
         self.assertIsInstance(first_valid, License)
-        self.assertEqual(first_valid.plan, "enterprise")
+        self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
