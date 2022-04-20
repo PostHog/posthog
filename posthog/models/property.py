@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import (
     Any,
     Dict,
@@ -27,14 +28,20 @@ PropertyType = Literal[
     "precalculated-cohort",
     "group",
     "recording",
-    "performed_event",
-    "performed_event_multiple",
-    "performed_event_first_time",
-    "performed_event_sequence",
-    "performed_event_regularly",
-    "stopped_performing_event",
-    "restarted_performing_event",
+    "behavioural",
 ]
+
+
+class BehaviouralPropertyType(str, Enum):
+    PERFORMED_EVENT = "performed_event"
+    PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
+    PERFORMED_EVENT_FIRST_TIME = "performed_event_first_time"
+    PERFORMED_EVENT_SEQUENCE = "performed_event_sequence"
+    PERFORMED_EVENT_REGULARLY = "performed_event_regularly"
+    STOPPED_PERFORMING_EVENT = "stopped_performing_event"
+    RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
+
+
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
@@ -69,9 +76,20 @@ VALIDATE_PROP_TYPES = {
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
-    "performed_event": ["key", "event_type", "time_value", "time_interval"],
-    "performed_event_multiple": ["key", "event_type", "time_value", "time_interval", "operator", "operator_value"],
-    "restarted_performing_event": ["key", "event_type", "time_value"],
+    "behavioural": ["key", "value"],
+}
+
+VALIDATE_BEHAVIOURAL_PROP_TYPES = {
+    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "event_type", "time_value", "time_interval"],
+    BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE: [
+        "key",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "operator",
+        "operator_value",
+    ],
+    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: ["key", "event_type", "time_value"],
 }
 
 
@@ -153,6 +171,11 @@ class Property:
         for key in VALIDATE_PROP_TYPES[self.type]:
             if key not in self._data or self._data[key] is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
+
+        if self.type == "behavioural":
+            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[self.value]:
+                if key not in self._data or self._data[key] is None:
+                    raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

@@ -112,8 +112,9 @@ class Cohort(models.Model):
                             [
                                 Property(
                                     key=group.get("action_id"),
+                                    type="performed_event_multiple",
                                     event_type="action",
-                                    time_interval="days",
+                                    time_interval="day",
                                     time_value=group.get("days"),
                                     operator=group.get("count_operator"),
                                     operator_value=group.get("count"),
@@ -128,8 +129,9 @@ class Cohort(models.Model):
                             [
                                 Property(
                                     key=group.get("event_id"),
+                                    type="performed_event_multiple",
                                     event_type="event",
-                                    time_interval="days",
+                                    time_interval="day",
                                     time_value=group.get("days"),
                                     operator=group.get("count_operator"),
                                     operator_value=group.get("count"),

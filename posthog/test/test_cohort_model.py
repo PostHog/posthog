@@ -91,3 +91,48 @@ class TestCohort(BaseTest):
         self.assertEqual(CohortPeople.objects.count(), 2)
         batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
         self.assertEqual(CohortPeople.objects.count(), 0)
+
+    def test_group_to_property_conversion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "$some_prop", "value": "something", "type": "person", "operator": "contains"},
+                        {"key": "other_prop", "value": "other_value", "type": "person"},
+                    ]
+                },
+                {"days": "4", "count": "3", "label": "$pageview", "event_id": "$pageview", "count_operator": "eq"},
+            ],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
+                            {"key": "other_prop", "type": "person", "value": "other_value"},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "performed_event_multiple",
+                                "event_type": "event",
+                                "operator": "eq",
+                                "operator_value": "3",
+                                "time_interval": "day",
+                                "time_value": "4",
+                            }
+                        ],
+                    },
+                ],
+            },
+        )

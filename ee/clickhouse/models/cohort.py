@@ -48,6 +48,7 @@ def format_person_query(
 
     or_queries = []
     groups = cohort.groups
+    # TODO: replace with new cohort query class
 
     if not groups:
         # No person can match a cohort that has no match groups
