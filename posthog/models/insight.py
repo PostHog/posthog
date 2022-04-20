@@ -25,13 +25,6 @@ class Insight(models.Model):
     reports or part of a dashboard.
     """
 
-    # TODO: move deprecated fields to the end of the file before this PR is merged.
-    # Keeping them in-place to avoid noise in snapshot tests
-
-    # DEPRECATED: using the new "dashboards" relation instead
-    dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
-    )
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -42,10 +35,6 @@ class Insight(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, auto_now_add=True)
-    # DEPRECATED: on dashboard_insight now
-    layouts: models.JSONField = models.JSONField(default=dict)
-    # DEPRECATED: on dashboard_insight now
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -62,6 +51,14 @@ class Insight(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
+    # DEPRECATED: using the new "dashboards" relation instead
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
+    )
+    # DEPRECATED: on dashboard_insight now
+    layouts: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: on dashboard_insight now
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: dive dashboards were never shipped
     dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
