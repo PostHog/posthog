@@ -15,10 +15,26 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import is_valid_regex
+from posthog.utils import is_valid_regex, str_to_bool
 
 ValueT = Union[str, int, List[str]]
-PropertyType = Literal["event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group"]
+PropertyType = Literal[
+    "event",
+    "person",
+    "cohort",
+    "element",
+    "static-cohort",
+    "precalculated-cohort",
+    "group",
+    "recording",
+    "performed_event",
+    "performed_event_multiple",
+    "performed_event_first_time",
+    "performed_event_sequence",
+    "performed_event_regularly",
+    "stopped_performing_event",
+    "restarted_performing_event",
+]
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
@@ -37,28 +53,66 @@ OperatorType = Literal[
     "is_date_before",
 ]
 
+OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
+VALIDATE_PROP_TYPES = {
+    "event": ["key", "value"],
+    "person": ["key", "value"],
+    "cohort": ["key", "value"],
+    "element": ["key", "value"],
+    "static-cohort": ["key", "value"],
+    "precalculated-cohort": ["key", "value"],
+    "group": ["key", "value", "group_type_index"],
+    "recording": ["key", "value"],
+    "performed_event": ["key", "event_type", "time_value", "time_interval"],
+    "performed_event_multiple": ["key", "event_type", "time_value", "time_interval", "operator", "operator_value"],
+    "restarted_performing_event": ["key", "event_type", "time_value"],
+}
+
 
 class Property:
-    key: str
+    key: Union[str, int]
     operator: Optional[OperatorType]
-    value: ValueT
+    value: Optional[ValueT]
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
 
+    event_type: Optional[str]
+    event: Optional[Union[str, int]]
+    operator_value: Optional[int]
+    operator_interval: Optional[OperatorInterval]
+    time_value: Optional[int]
+    time_interval: Optional[OperatorInterval]
+    seq_event_type: Optional[str]
+    seq_event: Optional[Union[str, int]]
+    seq_time_value: Optional[int]
+    seq_time_interval: Optional[OperatorInterval]
+    negation: Optional[bool] = False
+    _data: Dict
+
     def __init__(
         self,
-        key: str,
-        value: ValueT,
+        key: Union[str, int],
+        value: Optional[ValueT] = None,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
+        event_type: Optional[str] = None,
+        operator_value: Optional[int] = None,
+        operator_interval: Optional[OperatorInterval] = None,
+        time_value: Optional[int] = None,
+        time_interval: Optional[OperatorInterval] = None,
+        seq_event_type: Optional[str] = None,
+        seq_event: Optional[Union[str, int]] = None,
+        seq_time_value: Optional[int] = None,
+        seq_time_interval: Optional[OperatorInterval] = None,
+        negation: Optional[bool] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -66,18 +120,45 @@ class Property:
         self.operator = operator
         self.type = type if type else "event"
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
+        self.event_type = event_type
+        self.operator_value = operator_value
+        self.operator_interval = operator_interval
+        self.time_value = time_value
+        self.time_interval = time_interval
+        self.seq_event_type = seq_event_type
+        self.seq_event = seq_event
+        self.seq_time_value = seq_time_value
+        self.seq_time_interval = seq_time_interval
+        self.negation = None if negation is None else str_to_bool(negation)
+
+        self._data = {
+            "key": self.key,
+            "value": self.value,
+            "operator": self.operator,
+            "type": self.type,
+            "group_type_index": self.group_type_index,
+            "event_type": self.event_type,
+            "operator_value": self.operator_value,
+            "operator_interval": self.operator_interval,
+            "time_value": self.time_value,
+            "time_interval": self.time_interval,
+            "seq_event_type": self.seq_event_type,
+            "seq_event": self.seq_event,
+            "seq_time_value": self.seq_time_value,
+            "seq_time_interval": self.seq_time_interval,
+            "negation": self.negation,
+        }
+
+        for key in VALIDATE_PROP_TYPES[self.type]:
+            if key not in self._data or self._data[key] is None:
+                raise ValueError(f"Missing required key {key} for property type {self.type}")
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
         return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {"key": self.key, "value": self.value, "operator": self.operator, "type": self.type}
-
-        if self.group_type_index is not None:
-            result["group_type_index"] = self.group_type_index
-
-        return result
+        return {k: v for k, v in self._data.items() if v is not None}
 
     def _parse_value(self, value: ValueT) -> Any:
         if isinstance(value, list):
@@ -98,6 +179,9 @@ class Property:
 
         if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
             raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
+
+        if self.value is None:
+            return Q()
 
         value = self._parse_value(self.value)
         if self.type == "cohort":

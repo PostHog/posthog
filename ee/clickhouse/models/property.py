@@ -286,6 +286,9 @@ def prop_filter_json_extract(
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
+    if not prop.key:
+        return "", {}
+
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
@@ -646,4 +649,4 @@ def build_selector_regex(selector: Selector) -> str:
 
 
 def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
-    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
+    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props if prop.key)
