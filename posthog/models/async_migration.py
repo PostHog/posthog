@@ -1,3 +1,5 @@
+from typing import List
+
 from django.db import models
 
 
@@ -52,6 +54,10 @@ def get_all_completed_async_migrations():
 
 def get_all_running_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.Running)
+
+
+def get_async_migrations_by_status(target_statuses: List[int]):
+    return AsyncMigration.objects.filter(status__in=target_statuses)
 
 
 # allow for splitting code paths
