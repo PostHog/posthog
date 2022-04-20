@@ -643,14 +643,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 ],
                 "funnel_window_days": 14,
             },
-        ).json()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        response_json = response.json()
         # clickhouse funnels don't have a loading system
-        self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "user signed up")
-        self.assertEqual(response["result"][0]["count"], 1)
-        self.assertEqual(response["result"][1]["name"], "user did things")
-        self.assertEqual(response["result"][1]["count"], 1)
+        self.assertEqual(len(response_json["result"]), 2)
+        self.assertEqual(response_json["result"][0]["name"], "user signed up")
+        self.assertEqual(response_json["result"][0]["count"], 1)
+        self.assertEqual(response_json["result"][1]["name"], "user did things")
+        self.assertEqual(response_json["result"][1]["count"], 1)
 
     # Tests backwards-compatibility when we changed GET to POST | GET
     def test_insight_funnels_basic_get(self):
@@ -795,16 +797,26 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Breakdown with ints in funnels
+        cohort_one_id = self._create_one_person_cohort({"prop": 5})
+        cohort_two_id = self._create_one_person_cohort({"prop": 6})
+
         events = [
             {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
             {"id": "$pageview"},
         ]
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
-            {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
+            {"events": events, "breakdown": [cohort_one_id, cohort_two_id], "breakdown_type": "cohort"},
         )
-        # self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+    def _create_one_person_cohort(self, properties: Dict[str, Any]) -> int:
+        Person.objects.create(team=self.team, properties=properties)
+        cohort_one_id = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": properties}]},
+        ).json()["id"]
+        return cohort_one_id
 
     @freeze_time("2022-03-22T00:00:00.000Z")
     def test_create_insight_viewed(self):
@@ -1108,10 +1120,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight_id: int,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Dict[str, Any] = {},
+        query_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
+
+        if query_params is None:
+            query_params = {}
 
         response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}", query_params)
         self.assertEqual(response.status_code, expected_status)
