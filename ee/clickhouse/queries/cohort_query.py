@@ -303,23 +303,36 @@ class CohortQuery(EnterpriseEventQuery):
 
         column_name = f"performed_event_regularly_{prepend}_{idx}"
 
-        time_value = validate_positive_integer(prop.time_value, "time_value")
-        operator_value = validate_positive_integer(prop.operator_value, "operator_value")
-        min_periods = validate_positive_integer(prop.min_periods, "min_periods")
         date_interval = validate_interval(prop.time_interval)
+
+        time_value_param = f"{prepend}_time_value_{idx}"
+        time_value = validate_positive_integer(prop.time_value, "time_value")
+
+        operator_value_param = f"{prepend}_operator_value_{idx}"
+        operator_value = validate_positive_integer(prop.operator_value, "operator_value")
+
+        min_periods_param = f"{prepend}_min_periods_{idx}"
+        min_periods = validate_positive_integer(prop.min_periods, "min_periods")
+
+        params = {
+            time_value_param: time_value,
+            operator_value_param: operator_value,
+            min_periods_param: min_periods,
+        }
         periods = []
         for period in range(prop.total_periods):
-            start_time_value = time_value * period
-            end_time_value = time_value * (period + 1)
+            start_time_value = f"%({time_value_param})s * {period}"
+            end_time_value = f"%({time_value_param})s * ({period} + 1)"
+            # Clause that returns 1 if the event was performed the expected number of times in the given time interval, otherwise 0
             periods.append(
-                f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} {operator_value}, 1, 0)"
+                f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} %({operator_value_param})s, 1, 0)"
             )
 
-        field = "+".join(periods) + f">= {min_periods}" + f" as {column_name}"
+        field = "+".join(periods) + f">= %({min_periods_param})s" + f" as {column_name}"
 
         self._fields.append(field)
 
-        return column_name, {**entity_params}
+        return column_name, {**entity_params, **params}
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
