@@ -48,7 +48,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -56,6 +57,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const screens = useBreakpoint()
+
+    useEffect(() => {
+        reportInsightViewedForRecentInsights()
+    }, [insightId])
 
     const isSmallScreen = !screens.xl
 
