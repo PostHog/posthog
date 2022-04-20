@@ -151,20 +151,19 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
-        if not validated_data.get("dashboard", None):
+        if validated_data.get("dashboard", None):
+            raise serializers.ValidationError("dashboard is deprecated, use dashboards")
+        else:
             insight = Insight.objects.create(
                 team=team, created_by=created_by, last_modified_by=request.user, **validated_data
             )
-        elif validated_data["dashboard"].team == team:
-            insight = Insight.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
-            )
-        else:
-            raise serializers.ValidationError("Dashboard not found")
 
         if dashboards is not None:
-            for dashboard in Dashboard.objects.filter(team=insight.team, id__in=[d.id for d in dashboards]).all():
+            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+                if dashboard.team != insight.team:
+                    raise serializers.ValidationError("Dashboard not found")
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
