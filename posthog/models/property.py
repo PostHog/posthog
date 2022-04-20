@@ -29,7 +29,7 @@ class BehaviouralPropertyType(str, Enum):
     RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
 
 
-ValueT = Union[str, int, List[str], BehaviouralPropertyType]
+ValueT = Union[BehaviouralPropertyType, str, int, List[str]]
 PropertyType = Literal[
     "event",
     "person",
@@ -95,18 +95,27 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
 
 
 class Property:
-    key: Union[str, int]
+    key: str
     operator: Optional[OperatorType]
     value: ValueT
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
 
-    event_type: Optional[str]
-    event: Optional[Union[str, int]]
+    # Type of `key`
+    event_type: Optional[Literal["events", "actions"]]
+    # Query people who did event '$pageview' 20 times in the last 30 days
+    # translates into:
+    #  operator_value = 30, operator_interval = day
+    # time_value = 30, time_interval = day ??
     operator_value: Optional[int]
     operator_interval: Optional[OperatorInterval]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
+    # Query people who did event '$pageview' in last week, but not in the past 30 days
+    # translates into:
+    #
+    #
+    #
     seq_event_type: Optional[str]
     seq_event: Optional[Union[str, int]]
     seq_time_value: Optional[int]
@@ -116,14 +125,14 @@ class Property:
 
     def __init__(
         self,
-        key: Union[str, int],
+        key: str,
         value: ValueT,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
         # Only set for `type` == `behavioural`
-        event_type: Optional[str] = None,
+        event_type: Optional[Literal["events", "actions"]] = None,
         operator_value: Optional[int] = None,
         operator_interval: Optional[OperatorInterval] = None,
         time_value: Optional[int] = None,
@@ -152,7 +161,7 @@ class Property:
         self.negation = None if negation is None else str_to_bool(negation)
 
         for key in VALIDATE_PROP_TYPES[self.type]:
-            if key not in self._data or self._data[key] is None:
+            if getattr(self, key, None) is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
         if self.type == "behavioural":
