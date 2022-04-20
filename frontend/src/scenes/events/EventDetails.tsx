@@ -27,6 +27,11 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
             displayedEventProperties[key] = event.properties[key]
         }
     }
+    const personData: Properties = {}
+    if (event.person !== null) {
+        // TODO: figure out how to get the hedgehog icon in front of it && this placement
+        personData['$person_properties'] = event.person?.properties
+    }
 
     return (
         <Tabs
@@ -39,6 +44,7 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
                 <PropertiesTable
                     properties={{
                         $timestamp: dayjs(event.timestamp).toISOString(),
+                        ...personData,
                         ...displayedEventProperties,
                         ...visibleHiddenProperties,
                     }}

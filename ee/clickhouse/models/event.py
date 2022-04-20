@@ -123,6 +123,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
+            # TODO: we should take properties from the event instead, but what should we even send regarding the bloat problem
             "properties": {
                 key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
             },
