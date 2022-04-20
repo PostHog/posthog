@@ -162,7 +162,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
 
-        # TODO
         instance = super().update(instance, validated_data)
 
         tile_layouts = self.initial_data.pop("tile_layouts", [])
