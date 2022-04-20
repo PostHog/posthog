@@ -42,6 +42,7 @@ import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { router } from 'kea-router'
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -110,6 +111,7 @@ function Pages(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { currentLocation } = useValues(router)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -228,7 +230,11 @@ function Pages(): JSX.Element {
                             key={frontendPlugin.id}
                             icon={<IconComment />}
                             title={frontendPlugin.scene?.title || 'Title'}
-                            identifier={Scene.FrontendPlugin}
+                            identifier={
+                                currentLocation.pathname === urls.frontendPlugin(frontendPlugin.id)
+                                    ? Scene.FrontendPlugin
+                                    : 'nope'
+                            }
                             to={urls.frontendPlugin(frontendPlugin.id)}
                         />
                     ))}
