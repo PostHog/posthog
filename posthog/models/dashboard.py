@@ -124,8 +124,9 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
         # the filters_hash on an insight is only useful for looking it up from the cache when loading it on a dashboard
         # or when updating the cache for shared or active dashboards
         # TODO NB this can't work once an insight is on more than one dashboard
-        filter_context = insight.dashboard_filters(dashboard=instance)
-        generated_filter = get_filter(data=filter_context, team=instance.team).toJSON()
-        dashboard_included_cache_key = generate_cache_key("{}_{}".format(generated_filter, instance.team_id))
-        insight.filters_hash = dashboard_included_cache_key
-        insight.save(update_fields=["filters_hash"])
+        if insight.filters != {} or instance.filters != {}:
+            filter_context = insight.dashboard_filters(dashboard=instance)
+            generated_filter = get_filter(data=filter_context, team=instance.team).toJSON()
+            dashboard_included_cache_key = generate_cache_key("{}_{}".format(generated_filter, instance.team_id))
+            insight.filters_hash = dashboard_included_cache_key
+            insight.save(update_fields=["filters_hash"])

@@ -99,9 +99,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # Updating fields that don't change the substance of the insight should affect updated_at
         # BUT NOT last_modified_at or last_modified_by
         with freeze_time("2021-09-20T12:00:00Z"):
-            response_2 = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight_id}", {"color": "blue", "favorited": True}
-            )
+            response_2 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"favorited": True})
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
             self.assertDictContainsSubset(
                 {
@@ -210,6 +208,32 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
+
+    def test_get_insight_in_dashboard_context(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
+
+        blue_insight_id, _ = self._create_insight(
+            {"filter": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"colors": [{"id": blue_insight_id, "color": "blue"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        blue_insight_in_isolation = self._get_insight(blue_insight_id)
+        self.assertEqual(blue_insight_in_isolation["name"], "blue insight")
+        self.assertEqual(blue_insight_in_isolation.get("color", None), None)
+
+        blue_insight_on_dashboard = self._get_insight(blue_insight_id, query_params={"from_dashboard": dashboard_id})
+        self.assertEqual(blue_insight_on_dashboard["name"], "blue insight")
+        self.assertEqual(blue_insight_on_dashboard.get("color", None), "blue")
 
     def test_get_insight_by_short_id(self):
         filter_dict = {
@@ -957,3 +981,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         response_json = response.json()
         return response_json.get("id", None), response_json
+
+    def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+        response = self.client.post(f"/api/projects/{team_id}/dashboards/", data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_json = response.json()
+        return response_json["id"], response_json
+
+    def _get_insight(
+        self,
+        insight_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Dict[str, Any] = {},
+    ) -> Dict[str, Any]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}", query_params)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json

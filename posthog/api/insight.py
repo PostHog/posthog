@@ -4,7 +4,7 @@ from typing import Any, Dict, Type
 import structlog
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, QueryDict
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
@@ -300,6 +300,31 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
         return queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serialized_data = self.get_serializer(instance).data
+
+        serialized_data = self._enrich_with_dashboard_context(instance.id, request.query_params, serialized_data)
+
+        return Response(serialized_data)
+
+    @staticmethod
+    def _enrich_with_dashboard_context(
+        insight_id: int, query_params: QueryDict, serialized_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        dashboard_id = query_params.get("from_dashboard", None)
+        if dashboard_id is not None:
+            dashboard_tile = (
+                DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=insight_id)
+                .values("color", "layouts")
+                .first()
+            )
+            if dashboard_tile is not None:
+                serialized_data["color"] = dashboard_tile["color"]
+                serialized_data["layouts"] = dashboard_tile["layouts"]
+
+        return serialized_data
 
     # TODO deprecate/remove this endpoint
     @action(methods=["patch"], detail=False)
