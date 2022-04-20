@@ -233,10 +233,8 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 const cohort = await api.cohorts.get(Number(props.id))
                 actions.setCohort(cohort)
             }
-            console.log('MOUNT', props)
         },
         beforeUnmount: () => {
-            console.log('UNMOUNT', props)
             if (values.pollTimeout) {
                 clearTimeout(values.pollTimeout)
             }

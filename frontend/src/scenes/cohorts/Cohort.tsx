@@ -136,16 +136,16 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                     </Col>
                 </Row>
                 {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                    <Row gutter={[16, 24]} className="mt" style={{ maxWidth: 640 }}>
+                    <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
                         <Col span={24}>
-                            <Field name="description" label="Description">
+                            <Field name="description" label="Description" data-attr="cohort-name">
                                 {({ value, onValueChange }) => <LemonTextArea value={value} onChange={onValueChange} />}
                             </Field>
                         </Col>
                     </Row>
                 )}
                 {cohort.is_static ? (
-                    <Row gutter={24} className="mt">
+                    <Row gutter={24} className="mt ph-ignore-input">
                         <Col span={24}>
                             <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'}>
                                 {({ onValueChange }) => (
