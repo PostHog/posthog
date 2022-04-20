@@ -458,7 +458,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
+        /** filters for data that's being displayed, might not be same as savedInsight. filters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         derivedName: [
@@ -680,7 +680,7 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, layouts, color, dashboards, tags } = values.insight
+            const { name, description, favorited, filters, deleted, color, dashboards, tags } = values.insight
             let savedInsight: InsightModel
 
             try {
@@ -704,7 +704,6 @@ export const insightLogic = kea<insightLogicType>({
                     filters,
                     deleted,
                     saved: true,
-                    layouts,
                     color,
                     dashboards,
                     tags,
