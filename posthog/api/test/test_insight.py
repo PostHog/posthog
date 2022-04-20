@@ -971,21 +971,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response_data["results"]), 0)
 
-    def test_cannot_create_insight_with_deprecated_dashboard_relation(self):
-        dashboard_id, _ = self._create_dashboard({})
-
-        self._create_insight(
-            data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboard": dashboard_id,
-            },
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
         another_team = Team.objects.create(organization=self.organization)

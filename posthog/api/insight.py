@@ -151,12 +151,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
-        if validated_data.get("dashboard", None):
-            raise serializers.ValidationError("dashboard is deprecated, use dashboards")
-        else:
-            insight = Insight.objects.create(
-                team=team, created_by=created_by, last_modified_by=request.user, **validated_data
-            )
+        insight = Insight.objects.create(
+            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+        )
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():

@@ -97,7 +97,7 @@ class Insight(models.Model):
         dashboards = list(self.dashboards.all())
         if not dashboards:
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        # TODO: verify
+
         restrictions = [d.effective_restriction_level for d in dashboards]
         restriction_set_to_only_collaborators = next(
             (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
@@ -112,7 +112,6 @@ class Insight(models.Model):
         if not dashboards:
             return Dashboard.PrivilegeLevel.CAN_EDIT
 
-        # TODO: verify
         edit_permissions = [d.can_user_edit(user_id) for d in dashboards]
         if any(edit_permissions):
             return Dashboard.PrivilegeLevel.CAN_EDIT
