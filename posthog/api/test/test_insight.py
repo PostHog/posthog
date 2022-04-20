@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from typing import Any, Dict
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -751,17 +752,26 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Breakdown with ints in funnels
+        cohort_one_id = self._create_one_person_cohort({"prop": 5})
+        cohort_two_id = self._create_one_person_cohort({"prop": 6})
+
         events = [
             {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
             {"id": "$pageview"},
         ]
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
-            {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
+            {"events": events, "breakdown": [cohort_one_id, cohort_two_id], "breakdown_type": "cohort"},
         )
-        self.assertEqual(response.status_code, 500)
-        # the exception is thrown after the block that calls capture exception
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+    def _create_one_person_cohort(self, properties: Dict[str, Any]) -> int:
+        Person.objects.create(team=self.team, properties=properties)
+        cohort_one_id = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": properties}]},
+        ).json()["id"]
+        return cohort_one_id
 
     @freeze_time("2022-03-22T00:00:00.000Z")
     def test_create_insight_viewed(self):
