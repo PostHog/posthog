@@ -99,7 +99,10 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     dashboards = serializers.PrimaryKeyRelatedField(
-        many=True, required=False, queryset=Dashboard.objects.filter(deleted=False)
+        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        many=True,
+        required=False,
+        queryset=Dashboard.objects.filter(deleted=False),
     )
 
     class Meta:
