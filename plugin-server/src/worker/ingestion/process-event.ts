@@ -577,7 +577,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         // TODO: don't parse back and forth with json
-        const personInfo = await this.db.getPersonDataByPersonId(teamId, distinctId)
+        const personInfo = await this.db.getPersonData(teamId, distinctId)
 
         const eventPayload: IEvent = {
             uuid,
