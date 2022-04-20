@@ -57,6 +57,7 @@ export function PluginSource(): JSX.Element {
             form.setFieldsValue({
                 name: editingPlugin.name || 'Untitled Plugin',
                 source: newPlugin ? defaultSource : editingPlugin.source,
+                frontend: newPlugin ? '' : editingPlugin.frontend,
                 configSchema: JSON.stringify(newPlugin ? defaultConfig : editingPlugin.config_schema, null, 2),
             })
         } else {
@@ -126,6 +127,16 @@ export function PluginSource(): JSX.Element {
                         <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
                             <MonacoEditor
                                 language="typescript"
+                                theme="vs-dark"
+                                height={400}
+                                options={{
+                                    minimap: { enabled: false },
+                                }}
+                            />
+                        </Form.Item>
+                        <Form.Item label="Compiled Frontend JS" name="frontend">
+                            <MonacoEditor
+                                language="javascript"
                                 theme="vs-dark"
                                 height={400}
                                 options={{

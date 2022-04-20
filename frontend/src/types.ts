@@ -22,6 +22,7 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
+import { LogicWrapper } from 'kea'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -806,8 +807,10 @@ export interface PluginType {
 
 export interface FrontendPlugin {
     id: number
-    sidebar?: {
+    error?: any
+    scene?: {
         title?: string
+        logic?: LogicWrapper
         component?: (...args: any[]) => JSX.Element
     }
 }

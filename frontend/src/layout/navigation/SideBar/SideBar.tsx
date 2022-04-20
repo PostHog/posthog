@@ -227,8 +227,8 @@ function Pages(): JSX.Element {
                         <PageButton
                             key={frontendPlugin.id}
                             icon={<IconComment />}
-                            title={frontendPlugin.sidebar?.title || 'Title'}
-                            identifier={`frontend-${frontendPlugin.id}`}
+                            title={frontendPlugin.scene?.title || 'Title'}
+                            identifier={Scene.FrontendPlugin}
                             to={urls.frontendPlugin(frontendPlugin.id)}
                         />
                     ))}

@@ -65,6 +65,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
         initFrontendPlugin: (frontendPlugin: FrontendPlugin) => ({ frontendPlugin }),
+        stopFrontendPlugin: (frontendPlugin: FrontendPlugin) => ({ frontendPlugin }),
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
@@ -75,8 +76,13 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
-        editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
-            values,
+        editPluginSource: (values: {
+            id: number
+            name: string
+            source: string
+            frontend: string
+            configSchema: Record<string, any>
+        }) => values,
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
             checkAll,
             initialUpdateStatus,
@@ -137,11 +143,12 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
-                editPluginSource: async ({ id, name, source, configSchema }) => {
+                editPluginSource: async ({ id, name, source, frontend, configSchema }) => {
                     const { plugins } = values
                     const response = await api.update(`api/organizations/@current/plugins/${id}`, {
                         name,
                         source,
+                        frontend,
                         config_schema: configSchema,
                     })
                     capturePluginEvent(`plugin source edited`, response)
@@ -451,6 +458,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             [] as FrontendPlugin[],
             {
                 initFrontendPlugin: (state, { frontendPlugin }) => [...state, frontendPlugin],
+                stopFrontendPlugin: (state, { frontendPlugin }) => state.filter((p) => p.id !== frontendPlugin.id),
             },
         ],
     },
@@ -505,6 +513,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         pluginConfig: { ...plugin.pluginConfig, order: index + 1 },
                         hasMoved: movedPlugins[plugin.id],
                     })) as PluginTypeWithConfig[],
+        ],
+        enabledFrontendPlugins: [
+            (s) => [s.enabledPlugins],
+            (enabledPlugins) => enabledPlugins.filter((p) => p.frontend),
         ],
         nextPluginOrder: [
             (s) => [s.enabledPlugins],
@@ -708,32 +720,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     actions.setPluginTab(PluginTab.Repository)
                 }
             }
-
-            for (const plugin of Object.values(values.plugins)) {
-                if (plugin.frontend) {
-                    try {
-                        const exports: FrontendPlugin = {
-                            id: plugin.id,
-                        }
-                        // @ts-ignore
-                        // eslint-disable-next-line
-                        const require = (module: string): any => {
-                            if (module === 'react') {
-                                return React
-                            } else if (module === 'kea') {
-                                return allKea
-                            } else {
-                                throw new Error(`Can not import from unknown module "${module}"`)
-                            }
-                        }
-                        // TODO: less YOLO
-                        eval(`${plugin.frontend}`)
-                        actions.initFrontendPlugin(exports)
-                    } catch (e) {
-                        console.error('Can not load frontend for plugin', plugin)
-                    }
-                }
-            }
         },
         initFrontendPlugin: ({ frontendPlugin }) => {
             console.log('initFrontendPlugin', { frontendPlugin })
@@ -785,6 +771,42 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             actions.loadPluginConfigs()
             if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
                 actions.loadRepository()
+            }
+        },
+    }),
+
+    subscriptions: ({ actions, values }: pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>) => ({
+        enabledFrontendPlugins: (enabledFrontendPlugins: PluginTypeWithConfig[]) => {
+            for (const plugin of enabledFrontendPlugins) {
+                if (!values.frontendPlugins.find((p) => p.id === plugin.id)) {
+                    const exports: FrontendPlugin = {
+                        id: plugin.id,
+                    }
+                    try {
+                        // @ts-ignore
+                        // eslint-disable-next-line
+                        const require = (module: string): any => {
+                            if (module === 'react') {
+                                return React
+                            } else if (module === 'kea') {
+                                return allKea
+                            } else {
+                                throw new Error(`Can not import from unknown module "${module}"`)
+                            }
+                        }
+                        // TODO: less YOLO
+                        eval(`${plugin.frontend}`)
+                        actions.initFrontendPlugin(exports)
+                    } catch (e) {
+                        actions.initFrontendPlugin({ ...exports, error: e })
+                        console.error('Can not load frontend for plugin', plugin)
+                    }
+                }
+            }
+            for (const plugin of values.frontendPlugins) {
+                if (!enabledFrontendPlugins.find((p) => p.id === plugin.id)) {
+                    actions.stopFrontendPlugin(plugin)
+                }
             }
         },
     }),
