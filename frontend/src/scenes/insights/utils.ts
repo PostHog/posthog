@@ -85,7 +85,7 @@ export function extractObjectDiffKeys(
 }
 
 export function findInsightFromMountedLogic(
-    insightShortId: InsightShortId,
+    insightShortId: InsightShortId | string,
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
     if (dashboardId) {

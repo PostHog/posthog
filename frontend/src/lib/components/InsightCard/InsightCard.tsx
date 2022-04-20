@@ -421,7 +421,7 @@ interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' |
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({
+export function InsightViz({
     insight,
     loading,
     setAreDetailsShown,

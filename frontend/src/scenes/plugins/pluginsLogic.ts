@@ -17,6 +17,9 @@ import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
+import { AdHocInsight } from 'scenes/insights/AdHocInsight'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonRow } from 'lib/components/LemonRow'
 
 type PluginForm = FormInstance
 
@@ -790,6 +793,8 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                                 return React
                             } else if (module === 'kea') {
                                 return allKea
+                            } else if (module === '@posthog/apps-common') {
+                                return { AdHocInsight: AdHocInsight, LemonButton: LemonButton, LemonRow: LemonRow }
                             } else {
                                 throw new Error(`Can not import from unknown module "${module}"`)
                             }

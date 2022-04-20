@@ -148,7 +148,7 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
+            props.cachedInsight ?? createEmptyInsight((props.dashboardItemId as any) || 'new'),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -814,7 +814,11 @@ export const insightLogic = kea<insightLogicType>({
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (props.dashboardItemId && props.dashboardItemId !== 'new') {
+                if (
+                    props.dashboardItemId &&
+                    props.dashboardItemId !== 'new' &&
+                    !props.dashboardItemId.startsWith('new-')
+                ) {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId,
                         router.values.hashParams.fromDashboard
@@ -832,8 +836,12 @@ export const insightLogic = kea<insightLogicType>({
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                        actions.loadInsight(props.dashboardItemId)
+                    } else if (
+                        props.dashboardItemId &&
+                        props.dashboardItemId !== 'new' &&
+                        !props.dashboardItemId.startsWith('new-')
+                    ) {
+                        actions.loadInsight(props.dashboardItemId as any)
                     }
                 }
             }

@@ -1216,7 +1216,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | 'new' | null
+    dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
