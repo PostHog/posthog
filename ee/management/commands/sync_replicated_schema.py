@@ -6,6 +6,7 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
 from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, get_table_name
 from posthog.client import sync_execute
 
@@ -25,11 +26,22 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if not settings.CLICKHOUSE_REPLICATION or settings.MULTI_TENANCY:
-            logger.info("✅ Skipping non-replicated or cloud setup")
+
+        if not settings.CLICKHOUSE_REPLICATION:
+            logger.info("✅ Skipping sync_replicated_schema because CLICKHOUSE_REPLICATION=False")
             return
 
-        host_tables, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
+        if settings.MULTI_TENANCY:
+            logger.info("✅ Skipping sync_replicated_schema because MULTI_TENANCY=True")
+            return
+
+        if not clickhouse_is_replicated():
+            logger.info(
+                "✅ Skipping sync_replicated_schema because async migration '0004_replicated_schema' has not been run yet."
+            )
+            return
+
+        _, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
 
         if len(out_of_sync_hosts) > 0:
             logger.info("Schema out of sync on some clickhouse nodes!", out_of_sync_hosts=out_of_sync_hosts)
