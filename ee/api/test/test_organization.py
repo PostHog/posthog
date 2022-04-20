@@ -1,6 +1,6 @@
 import datetime as dt
 import random
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, patch
 
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -193,13 +193,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertTrue(organization.name, "Meow")
 
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.models.license.requests.post")
-    def test_feature_available_self_hosted_has_license(self, patch_post):
+    def test_feature_available_self_hosted_has_license(self):
         with self.settings(MULTI_TENANCY=False):
-            mock = Mock()
-            mock.json.return_value = {"plan": "enterprise", "valid_until": dt.datetime.now() + dt.timedelta(days=1)}
-            patch_post.return_value = mock
-            License.objects.create(key="key")
+            License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
             # Still only old, empty available_features field value known
             self.assertFalse(self.organization.is_feature_available("whatever"))

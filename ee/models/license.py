@@ -1,6 +1,5 @@
-from typing import Any, List, Optional, cast
+from typing import List, Optional
 
-import requests
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.db.models.signals import post_save
@@ -28,19 +27,13 @@ class LicenseError(exceptions.APIException):
 
 
 class LicenseManager(models.Manager):
-    def create(self, *args: Any, **kwargs: Any) -> "License":
-        validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
-        resp = validate.json()
-        if not validate.ok:
-            raise LicenseError(resp["code"], resp["detail"])
-
-        kwargs["valid_until"] = resp["valid_until"]
-        kwargs["plan"] = resp["plan"]
-        kwargs["max_users"] = resp.get("max_users", 0)
-        return cast(License, super().create(*args, **kwargs))
-
     def first_valid(self) -> Optional["License"]:
-        return cast(Optional[License], (self.filter(valid_until__gte=timezone.now()).first()))
+        """Return the most recently activated valid license.
+
+        We take the most recent one to support the case where someone who already had a license for a lower plan
+        upgrades to a higher one.
+        """
+        return self.filter(valid_until__gte=timezone.now()).order_by("-created_at").first()
 
 
 class License(models.Model):

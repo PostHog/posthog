@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 import pytz
 from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -77,3 +78,19 @@ class TestLicenseAPI(APILicensedTest):
         )
 
         self.assertEqual(License.objects.count(), count)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_most_recently_activated_license_is_used(self):
+        with freeze_time("2022-06-01T12:00:00.000Z"):
+            License.objects.create(
+                key="old", plan="scale", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+        with freeze_time("2022-06-03T12:00:00.000Z"):
+            License.objects.create(
+                key="new", plan="enterprise", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+
+        first_valid = License.objects.first_valid()
+
+        self.assertIsInstance(first_valid, License)
+        self.assertEqual(first_valid.plan, "enterprise")
