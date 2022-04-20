@@ -302,6 +302,14 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
+        """
+        When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
+
+        e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
+
+        Insights can be added ot more than one dashboard, this allows the insight to be loaded in the correct context.
+        Using the correct cache, and enriching the response with dashboard specific config (e.g. layouts, or colors)
+        """
         instance = self.get_object()
         serialized_data = self.get_serializer(instance).data
 
@@ -333,7 +341,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     # /projects/:id/insights/retention
     # /projects/:id/insights/path
     #
-    # Request parameteres and caching are handled here and passed onto respective .queries classes
+    # Request parameters and caching are handled here and passed onto respective .queries classes
     # ******************************************
 
     # ******************************************
