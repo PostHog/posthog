@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -11,13 +11,14 @@ import {
     FunnelCorrelationResultsType,
     ActorType,
     GraphDataset,
+    ChartDisplayType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
@@ -64,7 +65,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     // casting here is not the best
     if (filters.insight === InsightType.STICKINESS) {
         params.stickiness_days = date_from as number
-    } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
+    } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
         params.date_to = date_from as string
     } else if (filters.insight === InsightType.LIFECYCLE) {
         params.date_from = filters.date_from
@@ -250,7 +251,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
-                    return pluralize(result?.count || 0, 'person', undefined, false)
+                    return 'persons'
                 }
             },
         ],
@@ -520,19 +521,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             }
         },
     }),
-    actionToUrl: ({ values }) => ({
-        loadPeople: () => {
-            return [
-                router.values.location.pathname,
-                router.values.searchParams,
-                { ...router.values.hashParams, personModal: values.peopleParams },
-            ]
-        },
-        hidePeople: () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { personModal: _discard, ...otherHashParams } = router.values.hashParams
-            return [router.values.location.pathname, router.values.searchParams, otherHashParams]
-        },
+    actionToUrl: () => ({
         openRecordingModal: ({ sessionRecordingId }) => {
             return [
                 router.values.location.pathname,
@@ -543,16 +532,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         closeRecordingModal: () => {
             delete router.values.hashParams.sessionRecordingId
             return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, {}, { personModal }) => {
-            if (personModal && !values.showingPeople) {
-                actions.loadPeople(personModal)
-            }
-            if (!personModal && values.showingPeople) {
-                actions.hidePeople()
-            }
         },
     }),
 })

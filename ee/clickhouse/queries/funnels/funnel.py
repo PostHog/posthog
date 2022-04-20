@@ -88,9 +88,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})

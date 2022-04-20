@@ -73,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PERSISTED_FEATURE_FLAGS",
-                    "value": "0"
-                },
-                {
                     "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
                     "value": "2"
                 },
@@ -95,6 +91,10 @@
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "1"
+                },
+                {
+                    "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
+                    "value": "True"
                 }
             ],
             "secrets": [

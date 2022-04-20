@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, Optional, cast
+from typing import Dict, List, Optional, cast
 
 import structlog
 from clickhouse_driver.errors import ServerException
@@ -9,14 +9,15 @@ from constance import config
 from django.conf import settings
 from django.utils.timezone import now
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.errors import lookup_error_code
+from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
+from posthog.client import sync_execute
+from posthog.errors import lookup_error_code
 from posthog.utils import flatten
 
 logger = structlog.get_logger(__name__)
@@ -24,8 +25,7 @@ logger = structlog.get_logger(__name__)
 """
 Migration summary:
 
-Schema change to migrate tables to support replication and more than
-one shard.
+Schema change to migrate tables to support replication and more than one shard.
 
 This allows for higher scalability as more hosts can be added under ClickHouse.
 
@@ -37,7 +37,7 @@ The migration strategy:
         b. temporarily stopping ingestion to the table by dropping the kafka table
         c. using `ALTER TABLE ATTACH/DROP PARTITIONS` to move data to the new table.
         d. rename tables
-    3. Once all tables are updated, we create needed distributed tables and re-enable ingestion
+    3. Once all tables are updated, we create the required distributed tables and re-enable ingestion
 
 We use ATTACH/DROP tables to do the table migration instead of a normal INSERT. This method allows
 moving data without increasing disk usage between identical schemas.
@@ -66,8 +66,8 @@ Constraints:
 class TableMigrationData:
     name: str
     new_table_engine: MergeTreeEngine
-    kafka_table_name: Optional[str]
-    create_kafka_table: Optional[str]
+    kafka_table_names: List[str]
+    create_kafka_tables: List[str]
 
     @property
     def renamed_table_name(self):
@@ -86,8 +86,8 @@ class TableMigrationData:
 class ShardedTableMigrationData(TableMigrationData):
     rename_to: str
     extra_tables: Dict[str, str]
-    materialized_view_name: str
-    create_materialized_view: str
+    materialized_view_names: List[str]
+    create_materialized_views: List[str]
 
     @property
     def renamed_table_name(self):
@@ -151,9 +151,9 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DROP TABLE IF EXISTS {table.tmp_table_name}",
         )
 
-        if table.kafka_table_name is not None:
+        for kafka_table_name, create_kafka_table in zip(table.kafka_table_names, table.create_kafka_tables):
             yield AsyncMigrationOperationSQL(
-                sql=f"DROP TABLE IF EXISTS {table.kafka_table_name}", rollback=cast(str, table.create_kafka_table)
+                sql=f"DROP TABLE IF EXISTS {kafka_table_name}", rollback=create_kafka_table
             )
 
         yield AsyncMigrationOperation(
@@ -173,23 +173,25 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def finalize_table_operations(self, table: TableMigrationData):
+
         # NOTE: Relies on IF NOT EXISTS on the query
         if isinstance(table, ShardedTableMigrationData):
             for table_name, create_table_query in table.extra_tables.items():
                 yield AsyncMigrationOperationSQL(sql=create_table_query, rollback=f"DROP TABLE IF EXISTS {table_name}")
 
-        if isinstance(table, ShardedTableMigrationData) and table.materialized_view_name is not None:
-            yield AsyncMigrationOperationSQL(sql=f"DROP TABLE IF EXISTS {table.materialized_view_name}", rollback=None)
+            for mv_name in table.materialized_view_names:
+                yield AsyncMigrationOperationSQL(sql=f"DROP TABLE IF EXISTS {mv_name}", rollback=None)
 
-        if table.kafka_table_name is not None:
+        for kafka_table_name, create_kafka_table in zip(table.kafka_table_names, table.create_kafka_tables):
             yield AsyncMigrationOperationSQL(
-                sql=cast(str, table.create_kafka_table), rollback=f"DROP TABLE IF EXISTS {table.kafka_table_name}"
+                sql=create_kafka_table, rollback=f"DROP TABLE IF EXISTS {kafka_table_name}"
             )
 
-        if isinstance(table, ShardedTableMigrationData) and table.materialized_view_name is not None:
-            yield AsyncMigrationOperationSQL(
-                sql=table.create_materialized_view, rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
-            )
+        if isinstance(table, ShardedTableMigrationData):
+            for mv_name, create_mv in zip(table.materialized_view_names, table.create_materialized_views):
+                yield AsyncMigrationOperationSQL(
+                    sql=create_mv, rollback=f"DROP TABLE IF EXISTS {mv_name}",
+                )
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(
@@ -319,21 +321,21 @@ class Migration(AsyncMigrationDefinition):
             ShardedTableMigrationData(
                 name="events",
                 new_table_engine=EVENTS_DATA_TABLE_ENGINE(),
-                materialized_view_name="events_mv",
+                materialized_view_names=["events_mv", "events_json_mv"],
                 rename_to="sharded_events",
-                kafka_table_name="kafka_events",
-                create_kafka_table=KAFKA_EVENTS_TABLE_SQL(),
-                create_materialized_view=EVENTS_TABLE_MV_SQL(),
+                kafka_table_names=["kafka_events", "kafka_events_json"],
+                create_kafka_tables=[KAFKA_EVENTS_TABLE_SQL(), KAFKA_EVENTS_TABLE_JSON_SQL()],
+                create_materialized_views=[EVENTS_TABLE_MV_SQL(), EVENTS_TABLE_JSON_MV_SQL()],
                 extra_tables={"writable_events": WRITABLE_EVENTS_TABLE_SQL(), "events": DISTRIBUTED_EVENTS_TABLE_SQL()},
             ),
             ShardedTableMigrationData(
                 name="session_recording_events",
                 new_table_engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
-                kafka_table_name="kafka_session_recording_events",
-                create_kafka_table=KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                materialized_view_name="session_recording_events_mv",
+                kafka_table_names=["kafka_session_recording_events"],
+                create_kafka_tables=[KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()],
+                materialized_view_names=["session_recording_events_mv"],
                 rename_to="sharded_session_recording_events",
-                create_materialized_view=SESSION_RECORDING_EVENTS_TABLE_MV_SQL(),
+                create_materialized_views=[SESSION_RECORDING_EVENTS_TABLE_MV_SQL()],
                 extra_tables={
                     "writable_session_recording_events": WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                     "session_recording_events": DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
@@ -342,43 +344,43 @@ class Migration(AsyncMigrationDefinition):
             TableMigrationData(
                 name="events_dead_letter_queue",
                 new_table_engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
-                kafka_table_name="kafka_events_dead_letter_queue",
-                create_kafka_table=KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(),
+                kafka_table_names=["kafka_events_dead_letter_queue"],
+                create_kafka_tables=[KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL()],
             ),
             TableMigrationData(
                 name="groups",
                 new_table_engine=GROUPS_TABLE_ENGINE(),
-                kafka_table_name="kafka_groups",
-                create_kafka_table=KAFKA_GROUPS_TABLE_SQL(),
+                kafka_table_names=["kafka_groups"],
+                create_kafka_tables=[KAFKA_GROUPS_TABLE_SQL()],
             ),
             TableMigrationData(
                 name="person",
                 new_table_engine=PERSONS_TABLE_ENGINE(),
-                kafka_table_name="kafka_person",
-                create_kafka_table=KAFKA_PERSONS_TABLE_SQL(),
+                kafka_table_names=["kafka_person"],
+                create_kafka_tables=[KAFKA_PERSONS_TABLE_SQL()],
             ),
             TableMigrationData(
                 name="person_distinct_id2",
                 new_table_engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
-                kafka_table_name="kafka_person_distinct_id2",
-                create_kafka_table=KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL(),
+                kafka_table_names=["kafka_person_distinct_id2"],
+                create_kafka_tables=[KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL()],
             ),
             TableMigrationData(
                 name="plugin_log_entries",
                 new_table_engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
-                kafka_table_name="kafka_plugin_log_entries",
-                create_kafka_table=KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL(),
+                kafka_table_names=["kafka_plugin_log_entries"],
+                create_kafka_tables=[KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL()],
             ),
             TableMigrationData(
                 name="cohortpeople",
                 new_table_engine=COHORTPEOPLE_TABLE_ENGINE(),
-                kafka_table_name=None,
-                create_kafka_table=None,
+                kafka_table_names=[],
+                create_kafka_tables=[],
             ),
             TableMigrationData(
                 name="person_static_cohort",
                 new_table_engine=PERSON_STATIC_COHORT_TABLE_ENGINE(),
-                kafka_table_name=None,
-                create_kafka_table=None,
+                kafka_table_names=[],
+                create_kafka_tables=[],
             ),
         ]

@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
 import { Skeleton, Typography } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
 
 export interface ShareModalProps {
@@ -51,27 +51,27 @@ export function PrimaryDashboardModal(): JSX.Element {
                 <div className="dashboard-list">
                     {nameSortedDashboards.map((dashboard: DashboardType) => {
                         const isPrimary = dashboard.id === primaryDashboardId
-                        const rowContents = [
-                            <div key={1} className="dashboard-label-container">
-                                <strong>{dashboard.name}</strong>
-                                <Typography.Paragraph
-                                    ellipsis={{ rows: 1 }}
-                                    className="text-small dashboard-description"
-                                >
-                                    {dashboard.description}
-                                </Typography.Paragraph>
-                            </div>,
-                            <div key={2}>
+                        const rowContents = (
+                            <>
+                                <div className="dashboard-label-container">
+                                    <strong>{dashboard.name}</strong>
+                                    <Typography.Paragraph
+                                        ellipsis={{ rows: 1 }}
+                                        className="text-small dashboard-description"
+                                    >
+                                        {dashboard.description}
+                                    </Typography.Paragraph>
+                                </div>
                                 {isPrimary ? (
                                     <div className="default-indicator">
-                                        <HomeIcon className="mr-05" style={{ width: 18 }} />
+                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <span>Default</span>
                                     </div>
                                 ) : (
                                     <strong className="set-default-text">Set as default</strong>
                                 )}
-                            </div>,
-                        ]
+                            </>
+                        )
                         if (isPrimary) {
                             return (
                                 <LemonRow key={dashboard.id} fullWidth status="muted" className="dashboard-row">

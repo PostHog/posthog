@@ -5,6 +5,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
+import { duplicateActionErrorToast } from 'scenes/actions/ActionEdit'
 
 type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
@@ -25,7 +26,6 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     props: {} as ActionEditLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
-        saveAction: true,
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
@@ -35,13 +35,6 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     }),
 
     reducers: () => ({
-        errorActionId: [
-            null as number | null,
-            {
-                saveAction: () => null,
-                actionAlreadyExists: (_, { actionId }) => actionId,
-            },
-        ],
         createNew: [
             false,
             {
@@ -50,20 +43,31 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
         ],
     }),
 
-    loaders: ({ props, values, actions }) => ({
+    forms: ({ actions, props }) => ({
+        action: {
+            defaults: { ...props.action } as ActionEditType,
+            validator: ({ name }) => ({
+                name: !name ? 'You need to set a name' : null,
+            }),
+            submit: (action) => {
+                actions.saveAction(action)
+            },
+        },
+    }),
+
+    loaders: ({ props, values }) => ({
         actionCount: {
             loadActionCount: async () => {
                 return props.id ? await api.actions.getCount(props.id) : 0
             },
         },
         action: [
-            props.action as ActionEditType,
+            { ...props.action } as ActionEditType,
             {
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
-                saveAction: async () => {
-                    // TODO: don't nix tags once tags are also added to actions
-                    let action = Object.assign({}, values.action, { tags: undefined }) as ActionType
+                saveAction: async (updatedAction: ActionEditType, breakpoint) => {
+                    let action = { ...updatedAction }
 
                     action.steps = action.steps
                         ? action.steps.filter((step) => {
@@ -71,31 +75,34 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                               return step.event
                           })
                         : []
+
                     try {
                         if (action.id) {
                             action = await api.actions.update(action.id, action, props.temporaryToken)
                         } else {
                             action = await api.actions.create(action, props.temporaryToken)
                         }
-                    } catch (response) {
+                        breakpoint()
+                    } catch (response: any) {
                         if (response.code === 'unique') {
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`
-                            actions.actionAlreadyExists(response.detail.split(' ').pop())
+                            const dupeId = response.detail.split(' ').pop()
+                            duplicateActionErrorToast(dupeId)
                             return action
-                        } else {
-                            throw response
                         }
+                        throw response
                     }
 
                     lemonToast.success('Action saved')
-                    props.onSave(action)
+                    props.onSave(action as ActionType)
                     actionsModel.actions.loadActions() // reload actions so they are immediately available
                     return action
                 },
             },
         ],
     }),
+
     events: ({ actions, props }) => ({
         afterMount: async () => {
             if (props.id) {

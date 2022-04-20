@@ -6,15 +6,10 @@ from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
-from ee.clickhouse.queries.util import (
-    format_ch_timestamp,
-    get_earliest_timestamp,
-    get_interval_func_ch,
-    get_trunc_func_ch,
-)
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp, get_interval_func_ch, get_trunc_func_ch
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -83,7 +78,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(timestamp) AS entrance_period_start,
+                {trunc_func}(toDateTime(timestamp, %(timezone)s)) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {event_select_clause}
                 {breakdown_clause}
@@ -138,7 +133,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s) + {interval_func}(number)) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number)) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}

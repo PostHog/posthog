@@ -2,11 +2,11 @@ import math
 from itertools import accumulate
 from typing import Any, Dict, List
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
+from posthog.client import sync_execute
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -28,7 +28,7 @@ class ClickhouseTrendsFormula:
             if filter.breakdown_type == "cohort"
             else f", {trim_quotes_expr('sub_A.breakdown_value')}"
         )
-        is_aggregate = filter.display in TRENDS_DISPLAY_BY_VALUE
+        is_aggregate = filter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
         sql = """SELECT
             {date_select}

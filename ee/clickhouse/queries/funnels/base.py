@@ -6,19 +6,17 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import (
     box_value,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
     FUNNEL_WINDOW_INTERVAL_UNIT,
@@ -27,7 +25,9 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
+from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
+from posthog.models.utils import PersonPropertiesMode
 from posthog.utils import relative_date_parse
 
 
@@ -52,6 +52,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
+            "timezone": self._team.timezone_for_charts(),
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
@@ -180,9 +181,7 @@ class ClickhouseFunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
@@ -644,11 +643,10 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team, extra_params={"offset": 0}
             )
 
         return None

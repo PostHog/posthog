@@ -1,7 +1,9 @@
 import json
+from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil import parser
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection, connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -182,14 +184,66 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(13):
-            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
-            # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
-            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
-            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+    def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        with CaptureQueriesContext(db_connection) as capture_query_context:
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            query_count = len(capture_query_context.captured_queries)
+            return query_count, capture_query_context.captured_queries
+
+    def test_adding_insights_is_not_nplus1_for_gets(self):
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+        filter = Filter(data=filter_dict)
+
+        query_counts: List[int] = []
+        queries: List[List[Dict[str, str]]] = []
+
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
+        # add insights to the dashboard and count how manh queries to read the dashboard afterwards
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        count, qs = self._get_dashboard_counting_queries(dashboard_id)
+        query_counts.append(count)
+        queries.append(qs)
+
+        # regression test
+        # getting a dashboard was originally n plus 1,
+        # with number of queries growing as the number of insights on the dashboard grew
+        # now a stable 9 queries no matter how many insights are on the dashboard
+        self.assertTrue(
+            all(x == query_counts[0] for x in query_counts), f"received: {query_counts} for queries: \n\n {queries}"
+        )
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -222,6 +276,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 ).to_dict(),
                 team=self.team,
                 last_refresh=now(),
+                order=0,
             )
             item_trends: Insight = Insight.objects.create(
                 dashboard=dashboard,
@@ -237,6 +292,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 ).to_dict(),
                 team=self.team,
                 last_refresh=now(),
+                order=1,
             )
 
         with freeze_time("2020-01-20T13:00:01Z"):
@@ -534,3 +590,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+    def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+        response = self.client.post(f"/api/projects/{team_id}/dashboards/", data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_json = response.json()
+        return response_json["id"], response_json
+
+    def _create_insight(
+        self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json

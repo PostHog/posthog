@@ -10,8 +10,6 @@ import {
     DashboardType,
     PersonType,
     DashboardMode,
-    HotKeys,
-    GlobalHotKeys,
     EntityType,
     InsightModel,
     InsightType,
@@ -60,7 +58,8 @@ export enum InsightEventSource {
 export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
-    RecordingsList = 'recordings_list', // New recordings list page
+    RecordingsList = 'recordings_list',
+    ProjectHomepage = 'project_homepage',
 }
 
 export enum GraphSeriesAddedSource {
@@ -180,7 +179,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together
+        properties_all: properties_global.concat(properties_local),
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
@@ -217,7 +216,7 @@ export const eventUsageLogic = kea<
             insightMode,
             isFirstLoad,
             fromDashboard,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay,
             changedFilters,
         }),
         reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
@@ -285,7 +284,6 @@ export const eventUsageLogic = kea<
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
         reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -430,6 +428,9 @@ export const eventUsageLogic = kea<
             loadTime,
             error,
         }),
+        reportInsightOpenedFromRecentInsightList: true,
+        reportRecordingOpenedFromRecentRecordingList: true,
+        reportPersonOpenedFromNewlySeenPersonsList: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -488,14 +489,15 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight })
         },
-        reportInsightViewed: async (
-            { insightModel, filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
-            breakpoint
-        ) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-            }
-
+        reportInsightViewed: ({
+            insightModel,
+            filters,
+            insightMode,
+            isFirstLoad,
+            fromDashboard,
+            delay,
+            changedFilters,
+        }) => {
             const { insight } = filters
 
             const properties: Record<string, any> = {
@@ -713,9 +715,6 @@ export const eventUsageLogic = kea<
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
-        reportHotkeyNavigation: async (payload) => {
-            posthog.capture('hotkey navigation', payload)
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -811,8 +810,8 @@ export const eventUsageLogic = kea<
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
-                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: recordingData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,
@@ -897,6 +896,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
@@ -905,6 +905,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -913,6 +914,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 launch_date: launchDate.toISOString(),
             })
         },
@@ -922,6 +924,7 @@ export const eventUsageLogic = kea<
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
@@ -992,6 +995,15 @@ export const eventUsageLogic = kea<
                 load_time: loadTime,
                 error,
             })
+        },
+        reportInsightOpenedFromRecentInsightList: () => {
+            posthog.capture('insight opened from recent insight list')
+        },
+        reportRecordingOpenedFromRecentRecordingList: () => {
+            posthog.capture('recording opened from recent recording list')
+        },
+        reportPersonOpenedFromNewlySeenPersonsList: () => {
+            posthog.capture('person opened from newly seen persons list')
         },
     }),
 })

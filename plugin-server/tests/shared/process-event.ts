@@ -21,17 +21,9 @@ import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { updatePersonProperties } from '../../src/worker/ingestion/properties-updater'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
-jest.mock('../../src/worker/ingestion/properties-updater', () => {
-    const original = jest.requireActual('../../src/worker/ingestion/properties-updater')
-    return {
-        ...original,
-        updatePersonProperties: jest.fn(original.updatePersonProperties),
-    }
-})
 jest.setTimeout(600000) // 600 sec timeout.
 
 export async function delayUntilEventIngested(
@@ -312,14 +304,6 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
-        // Based on gating only one function should be used
-        const personUpdateFnSpy = includeNewPropertiesUpdatesTests
-            ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePersonDeprecated')
-        const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
-            ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePersonDeprecated')
-
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -361,7 +345,6 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
-        expect(personUpdateFnSpy).not.toHaveBeenCalled()
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
         expect(persons[0].version).toEqual(0)
@@ -434,7 +417,6 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
-        expect(personUpdateFnSpy).toHaveBeenCalledTimes(1)
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
@@ -513,7 +495,6 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
-        expect(personUpdateFnShouldntbeUsedSpy).not.toHaveBeenCalled()
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(3)
@@ -1211,6 +1192,29 @@ export const createProcessEventTests = (
             const elements = await hub.db.fetchElements(event)
             expect(hashElements(elements)).toEqual('a89021a60b3497d24e93ae181fba01aa')
         }
+    })
+
+    it('snapshot event not stored if session recording disabled', async () => {
+        await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
+        await eventsProcessor.processEvent(
+            'some-id',
+            '',
+            {
+                event: '$snapshot',
+                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+
+        const events = await hub.db.fetchEvents()
+        expect(events.length).toEqual(0)
+
+        const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
+        expect(sessionRecordingEvents.length).toBe(0)
     })
 
     test('snapshot event stored as session_recording_event', async () => {
@@ -2528,14 +2532,6 @@ export const createProcessEventTests = (
                 await ingest3()
                 await verifyPersonPropertiesSetCorrectly()
             })
-        }
-    })
-
-    test('new person properties update gating', () => {
-        if (includeNewPropertiesUpdatesTests) {
-            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeTruthy()
-        } else {
-            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeFalsy()
         }
     })
 

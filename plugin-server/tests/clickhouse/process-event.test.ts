@@ -21,12 +21,5 @@ describe('process event (clickhouse)', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
     })
 
-    describe('with old update properties', () => {
-        createProcessEventTests('clickhouse', false, extraServerConfig)
-    })
-
-    describe.skip('with new update properties', () => {
-        const serverConf = { ...extraServerConfig, ...{ NEW_PERSON_PROPERTIES_UPDATE_ENABLED: true } }
-        createProcessEventTests('clickhouse', true, serverConf)
-    })
+    createProcessEventTests('clickhouse', false, extraServerConfig)
 })

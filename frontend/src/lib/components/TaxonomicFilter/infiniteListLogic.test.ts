@@ -6,8 +6,6 @@ import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
 import { AppContext, PropertyDefinition } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useMocks } from '~/mocks/jest'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
@@ -204,9 +202,6 @@ describe('infiniteListLogic', () => {
 
     describe('expandable list of event properties', () => {
         beforeEach(() => {
-            const flag = FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
             logic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.EventProperties,

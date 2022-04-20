@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
-from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
     complete_migration,
     execute_op,
@@ -14,16 +14,15 @@ from posthog.async_migrations.utils import (
 )
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
-from posthog.test.base import BaseTest
 
 DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeout_seconds=10)
 
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
-class TestUtils(BaseTest):
+class TestUtils(AsyncMigrationBaseTest):
     @pytest.mark.ee
-    @patch("ee.clickhouse.client.sync_execute")
+    @patch("posthog.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")
 

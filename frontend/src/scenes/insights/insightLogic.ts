@@ -86,6 +86,7 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -125,9 +126,11 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: true,
+        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsightSuccess: true,
+        saveInsightFailure: true,
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
@@ -142,7 +145,6 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
-        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -281,7 +283,7 @@ export const insightLogic = kea<insightLogicType>({
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.name === 'AbortError') {
                             actions.abortQuery(queryId, insight, scene, e)
                         }
@@ -446,10 +448,12 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
-        sourceDashboardId: [
-            null as number | null,
+        insightSaving: [
+            false,
             {
-                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
+                saveInsight: () => true,
+                saveInsightSuccess: () => false,
+                saveInsightFailure: () => false,
             },
         ],
     }),
@@ -483,9 +487,7 @@ export const insightLogic = kea<insightLogicType>({
                 (insight.name || '') !== (savedInsight.name || '') ||
                 (insight.description || '') !== (savedInsight.description || '') ||
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                (!!filters &&
-                    !!savedInsight.filters &&
-                    !objectsEqual(cleanFilters(savedInsight.filters), cleanFilters(filters))),
+                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
         isViewedOnDashboard: [
             () => [router.selectors.location],
@@ -561,7 +563,21 @@ export const insightLogic = kea<insightLogicType>({
                 actions.loadResults()
             }
         },
+        reportInsightViewedForRecentInsights: async () => {
+            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
+
+            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
+            // because there are some issues with `reportInsightViewed` not being called when the
+            // insightLogic is already loaded.
+            // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
+            // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
+            // right now
+            if (values.insight.id) {
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+            }
+        },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
+            await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isViewedOnDashboard) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
@@ -581,6 +597,7 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     changedKeysObj
                 )
+
                 actions.setNotFirstLoad()
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
@@ -663,37 +680,47 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-
-            if (insightNumericId && emptyFilters(values.insight.filters)) {
-                const error = new Error('Will not override empty filters in saveInsight.')
-                Sentry.captureException(error, {
-                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
-                })
-                throw error
-            }
-
-            // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
             const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
-            const insightRequest: Partial<InsightModel> = {
-                name,
-                derived_name: values.derivedName,
-                description,
-                favorited,
-                filters,
-                deleted,
-                saved: true,
-                layouts,
-                color,
-                dashboard,
-                tags,
-            }
+            let savedInsight: InsightModel
 
-            const savedInsight: InsightModel = insightNumericId
-                ? await api.update(
-                      `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
-                      insightRequest
-                  )
-                : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+            try {
+                if (insightNumericId && emptyFilters(values.insight.filters)) {
+                    const error = new Error('Will not override empty filters in saveInsight.')
+                    Sentry.captureException(error, {
+                        extra: {
+                            filters: JSON.stringify(values.insight.filters),
+                            insight: JSON.stringify(values.insight),
+                        },
+                    })
+                    throw error
+                }
+
+                // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
+                const insightRequest: Partial<InsightModel> = {
+                    name,
+                    derived_name: values.derivedName,
+                    description,
+                    favorited,
+                    filters,
+                    deleted,
+                    saved: true,
+                    layouts,
+                    color,
+                    dashboard,
+                    tags,
+                }
+
+                savedInsight = insightNumericId
+                    ? await api.update(
+                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                          insightRequest
+                      )
+                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                actions.saveInsightSuccess()
+            } catch (e) {
+                actions.saveInsightFailure()
+                throw e
+            }
 
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
@@ -709,13 +736,13 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
+                const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+                mountedInsightSceneLogic?.actions.syncInsightChanged(false)
                 if (!insightNumericId && dashboard) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
                 } else if (insightNumericId) {
-                    insightSceneLogic
-                        .findMounted()
-                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
@@ -775,10 +802,12 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
         },
-        cancelChanges: () => {
+        cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})
-            insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-            eventUsageLogic.actions.reportInsightsTabReset()
+            if (goToViewMode) {
+                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                eventUsageLogic.actions.reportInsightsTabReset()
+            }
         },
     }),
 

@@ -2,12 +2,24 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-
 import { cohortLogicType } from './cohortLogicType'
-import { CohortGroupType, CohortType, MatchType } from '~/types'
+import { Breadcrumb, CohortGroupType, CohortType, MatchType } from '~/types'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+
+export const NEW_COHORT: CohortType = {
+    id: 'new',
+    groups: [
+        {
+            id: Math.random().toString().substr(2, 5),
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [],
+        },
+    ],
+}
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -46,17 +58,21 @@ function processCohortOnSet(cohort: CohortType): CohortType {
     return cohort
 }
 
-export const cohortLogic = kea<cohortLogicType>({
-    props: {} as {
-        cohort: CohortType
-    },
-    key: (props) => props.cohort.id || 'new',
+export interface CohortLogicProps {
+    pageKey: string | number
+    id?: CohortType['id']
+}
+
+export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
+    props: {} as CohortLogicProps,
+    key: (props) => (props.id === 'new' ? `new-${props.pageKey}` : props.id) ?? 'new',
     path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
     connect: [cohortsModel],
 
     actions: () => ({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
+        deleteCohort: true,
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         fetchCohort: (cohort: CohortType) => ({ cohort }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
@@ -65,7 +81,7 @@ export const cohortLogic = kea<cohortLogicType>({
         setSubmitted: (submitted: boolean) => ({ submitted }),
     }),
 
-    reducers: ({ props }) => ({
+    reducers: () => ({
         pollTimeout: [
             null as NodeJS.Timeout | null,
             {
@@ -73,7 +89,7 @@ export const cohortLogic = kea<cohortLogicType>({
             },
         ],
         cohort: [
-            processCohortOnSet(props.cohort),
+            processCohortOnSet(NEW_COHORT),
             {
                 setCohort: (_, { cohort }) => {
                     return processCohortOnSet(cohort)
@@ -84,7 +100,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     if (newGroup.matchType) {
                         cohort.groups[index] = {
                             id: cohort.groups[index].id,
-                            matchType: ENTITY_MATCH_TYPE, // default
+                            matchType: ENTITY_MATCH_TYPE,
                             ...newGroup,
                         }
                     } else {
@@ -111,6 +127,19 @@ export const cohortLogic = kea<cohortLogicType>({
             },
         ],
     }),
+
+    selectors: {
+        breadcrumbs: [
+            (s) => [s.cohort],
+            (cohort): Breadcrumb[] => [
+                {
+                    name: 'Cohorts',
+                    path: urls.cohorts(),
+                },
+                ...(cohort ? [{ name: cohort.name || 'Untitled' }] : []),
+            ],
+        ],
+    },
 
     listeners: ({ actions, values, key }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
@@ -161,7 +190,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
                     cohortsModel.actions.cohortCreated(cohort)
                 }
-            } catch (error) {
+            } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save cohort')
                 return
             }
@@ -175,6 +204,10 @@ export const cohortLogic = kea<cohortLogicType>({
                 toastId: `cohort-saved-${key}`,
             })
             actions.checkIfFinishedCalculating(cohort)
+        },
+        deleteCohort: () => {
+            cohortsModel.actions.deleteCohort(values.cohort)
+            router.actions.push(urls.cohorts())
         },
         fetchCohort: async ({ cohort }, breakpoint) => {
             cohort = await api.cohorts.get(cohort.id)
@@ -200,8 +233,11 @@ export const cohortLogic = kea<cohortLogicType>({
 
     events: ({ values, actions, props }) => ({
         afterMount: async () => {
-            if (!props.cohort.id) {
-                actions.setCohort({ groups: [], id: 'new' })
+            if (!props.id || props.id === 'new') {
+                actions.setCohort(NEW_COHORT)
+            } else {
+                const cohort = await api.cohorts.get(Number(props.id))
+                actions.setCohort(cohort)
             }
         },
         beforeUnmount: () => {

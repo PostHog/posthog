@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { BinCountAuto } from 'lib/constants'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 import { InputNumber, Select } from 'antd'
 import { BinCountValue } from '~/types'
 import { BarChartOutlined } from '@ant-design/icons'
@@ -22,7 +22,7 @@ const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 const options: BinOption[] = [
     {
         label: 'Auto bins',
-        value: BinCountAuto,
+        value: BIN_COUNT_AUTO,
         display: true,
     },
     ...Array.from(Array.from(Array(MAX + 1).keys()), (v) => ({
@@ -47,8 +47,8 @@ export function FunnelBinsPicker({ disabled }: { disabled?: boolean }): JSX.Elem
             id="funnel-bin-filter"
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
-            defaultValue={BinCountAuto}
-            value={filters.bin_count || BinCountAuto}
+            defaultValue={BIN_COUNT_AUTO}
+            value={filters.bin_count || BIN_COUNT_AUTO}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (

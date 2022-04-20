@@ -3,6 +3,12 @@
 $funnel_canvas_background: #fff;
 
 .insights-page {
+    h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
     .top-bar {
         width: 100%;
         .ant-tabs,
@@ -155,9 +161,9 @@ $funnel_canvas_background: #fff;
             }
 
             .insights-graph-container-row-right {
-                width: 100%;
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;
+                width: fit-content;
                 padding: 0 $default_spacing $default_spacing 0;
                 display: flex;
                 align-items: center;
@@ -254,13 +260,14 @@ $funnel_canvas_background: #fff;
 .funnel-insights-container {
     padding: 24px;
     background-color: $funnel_canvas_background;
+    border-radius: 0 0 var(--radius) var(--radius);
 
     &.no-padding {
         padding: 0;
     }
 
     &.non-empty-state {
-        min-height: 400px;
+        min-height: 26rem;
         position: relative;
         margin-bottom: 0;
     }

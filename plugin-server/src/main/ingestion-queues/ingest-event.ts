@@ -1,10 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 
 import { Hub, WorkerMethods } from '../../types'
-import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { onEvent } from '../runner/on-event'
+import { runInstrumentedFunction } from '../utils'
 import { Action } from './../../types'
+import { processEvent } from './process-event'
 
 export async function ingestEvent(
     server: Hub,
@@ -15,22 +16,11 @@ export async function ingestEvent(
     const eachEventStartTimer = new Date()
     const isSnapshot = event.event === '$snapshot'
 
-    let processedEvent: PluginEvent | null = event
-
     checkAndPause?.()
 
     server.statsd?.increment('kafka_queue_ingest_event_hit')
 
-    // run processEvent on all events that are not $snapshot
-    if (!isSnapshot) {
-        processedEvent = await runInstrumentedFunction({
-            server,
-            event,
-            func: (event) => workerMethods.processEvent(event),
-            statsKey: 'kafka_queue.single_event',
-            timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
-        })
-    }
+    const processedEvent = await processEvent(server, workerMethods, event)
 
     checkAndPause?.()
 
@@ -47,13 +37,7 @@ export async function ingestEvent(
                 statsKey: 'kafka_queue.single_ingestion',
                 timeoutMessage: 'After 30 seconds still ingesting event',
             }),
-            runInstrumentedFunction({
-                server,
-                event: processedEvent,
-                func: (event) => workerMethods[isSnapshot ? 'onSnapshot' : 'onEvent'](event),
-                statsKey: `kafka_queue.single_${isSnapshot ? 'on_snapshot' : 'on_event'}`,
-                timeoutMessage: `After 30 seconds still running ${isSnapshot ? 'onSnapshot' : 'onEvent'}`,
-            }),
+            onEvent(server, workerMethods, processedEvent),
         ])
 
         server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
@@ -84,36 +68,6 @@ export async function ingestEvent(
     server.internalMetrics?.incr('$$plugin_server_events_processed')
 
     countAndLogEvents()
-}
-
-async function runInstrumentedFunction({
-    server,
-    timeoutMessage,
-    event,
-    func,
-    statsKey,
-}: {
-    server: Hub
-    event: PluginEvent
-    timeoutMessage: string
-    statsKey: string
-    func: (event: PluginEvent) => Promise<any>
-}): Promise<any> {
-    const timeout = timeoutGuard(timeoutMessage, {
-        event: JSON.stringify(event),
-    })
-    const timer = new Date()
-    try {
-        return await func(event)
-    } catch (error) {
-        status.info('🔔', error)
-        Sentry.captureException(error)
-        throw error
-    } finally {
-        server.statsd?.increment(`${statsKey}_total`)
-        server.statsd?.timing(statsKey, timer)
-        clearTimeout(timeout)
-    }
 }
 
 let messageCounter = 0

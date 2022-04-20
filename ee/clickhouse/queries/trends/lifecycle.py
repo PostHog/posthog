@@ -4,18 +4,18 @@ from typing import Callable, Dict, List, Tuple
 from django.db.models.query import Prefetch
 from rest_framework.request import Request
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
+from posthog.client import sync_execute
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import parse_timestamps
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -80,7 +80,7 @@ class ClickhouseLifecycle:
         return PersonSerializer(people, many=True).data
 
 
-class LifecycleEventQuery(ClickhouseEventQuery):
+class LifecycleEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self):
@@ -106,8 +106,8 @@ class LifecycleEventQuery(ClickhouseEventQuery):
             f"""
             SELECT DISTINCT
                 person_id,
-                toDateTime(dateTrunc(%(interval)s, events.timestamp)) AS period,
-                person.created_at AS created_at
+                dateTrunc(%(interval)s, toDateTime(events.timestamp, %(timezone)s)) AS period,
+                toDateTime(person.created_at, %(timezone)s) AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -122,7 +122,7 @@ class LifecycleEventQuery(ClickhouseEventQuery):
 
     @cached_property
     def _person_query(self):
-        return ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
+        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
 
     def _get_date_filter(self):
         _, _, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)

@@ -4,10 +4,8 @@ import { featureFlagsLogic } from './featureFlagsLogic'
 import { Input, Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
-import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -162,14 +160,9 @@ function OverViewTab(): JSX.Element {
                 />
                 {!showActivityLog && (
                     <div className="mb float-right">
-                        <LinkButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            icon={<PlusOutlined />}
-                        >
-                            New Feature Flag
-                        </LinkButton>
+                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                            New feature flag
+                        </LemonButton>
                     </div>
                 )}
             </div>
@@ -190,6 +183,10 @@ function OverViewTab(): JSX.Element {
 export function FeatureFlags(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
+
+    const { activeTab } = useValues(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
+
     return (
         <div className="feature_flags">
             <PageHeader
@@ -201,25 +198,20 @@ export function FeatureFlags(): JSX.Element {
                 }
                 buttons={
                     showActivityLog ? (
-                        <LinkButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            icon={<PlusOutlined />}
-                        >
-                            New Feature Flag
-                        </LinkButton>
+                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                            New feature flag
+                        </LemonButton>
                     ) : (
                         false
                     )
                 }
             />
             {showActivityLog ? (
-                <Tabs defaultActiveKey="overview" destroyInactiveTabPane>
+                <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
                     <Tabs.TabPane tab="Overview" key="overview">
                         <OverViewTab />
                     </Tabs.TabPane>
-                    <Tabs.TabPane tab="Activity" key="activity">
+                    <Tabs.TabPane tab="History" key="history">
                         <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
                     </Tabs.TabPane>
                 </Tabs>
