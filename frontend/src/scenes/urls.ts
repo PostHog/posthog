@@ -48,6 +48,7 @@ export const urls = {
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
+    frontendPlugin: (id: string | number) => `/p/${id}`,
     projectCreateFirst: () => '/project/create',
     projectHomepage: () => '/home',
     projectSettings: () => '/project/settings',

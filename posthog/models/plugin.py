@@ -56,6 +56,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["config_schema"] = json.get("config", [])
         validated_data["public_jobs"] = json.get("publicJobs", {})
         validated_data["source"] = None
+        validated_data["frontend"] = None
         posthog_version = json.get("posthogVersion", None)
         validated_data["is_stateless"] = json.get("stateless", False)
     else:
@@ -72,6 +73,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             validated_data["source"] = None
+            validated_data["frontend"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
             validated_data["is_stateless"] = plugin_json.get("stateless", False)
 
@@ -139,6 +141,7 @@ class Plugin(models.Model):
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     source: models.TextField = models.TextField(blank=True, null=True)
+    frontend: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)

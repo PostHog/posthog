@@ -1,7 +1,9 @@
+import React from 'react'
 import { kea } from 'kea'
+import * as allKea from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { FrontendPlugin, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -62,6 +64,7 @@ async function loadPaginatedResults(
 export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
+        initFrontendPlugin: (frontendPlugin: FrontendPlugin) => ({ frontendPlugin }),
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
@@ -444,6 +447,12 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
+        frontendPlugins: [
+            [] as FrontendPlugin[],
+            {
+                initFrontendPlugin: (state, { frontendPlugin }) => [...state, frontendPlugin],
+            },
+        ],
     },
 
     selectors: {
@@ -699,6 +708,35 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     actions.setPluginTab(PluginTab.Repository)
                 }
             }
+
+            for (const plugin of Object.values(values.plugins)) {
+                if (plugin.frontend) {
+                    try {
+                        const exports: FrontendPlugin = {
+                            id: plugin.id,
+                        }
+                        // @ts-ignore
+                        // eslint-disable-next-line
+                        const require = (module: string): any => {
+                            if (module === 'react') {
+                                return React
+                            } else if (module === 'kea') {
+                                return allKea
+                            } else {
+                                throw new Error(`Can not import from unknown module "${module}"`)
+                            }
+                        }
+                        // TODO: less YOLO
+                        eval(`${plugin.frontend}`)
+                        actions.initFrontendPlugin(exports)
+                    } catch (e) {
+                        console.error('Can not load frontend for plugin', plugin)
+                    }
+                }
+            }
+        },
+        initFrontendPlugin: ({ frontendPlugin }) => {
+            console.log('initFrontendPlugin', { frontendPlugin })
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values

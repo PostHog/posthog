@@ -40,6 +40,7 @@ export enum Scene {
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
+    FrontendPlugin = 'FrontendPlugin',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',

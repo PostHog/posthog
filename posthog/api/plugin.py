@@ -107,6 +107,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "config_schema",
             "tag",
             "source",
+            "frontend",
             "latest_tag",
             "is_global",
             "organization_id",

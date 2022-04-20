@@ -794,6 +794,7 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
+    frontend?: string
     maintainer?: string
     is_global: boolean
     organization_id: string
@@ -801,6 +802,14 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
     public_jobs?: Record<string, JobSpec>
+}
+
+export interface FrontendPlugin {
+    id: number
+    sidebar?: {
+        title?: string
+        component?: (...args: any[]) => JSX.Element
+    }
 }
 
 export interface JobPayloadFieldOptions {

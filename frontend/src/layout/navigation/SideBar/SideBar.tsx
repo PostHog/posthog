@@ -41,6 +41,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -102,6 +103,7 @@ function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
+    const { frontendPlugins } = useValues(pluginsLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -221,6 +223,15 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     <LemonSpacer />
+                    {frontendPlugins.map((frontendPlugin) => (
+                        <PageButton
+                            key={frontendPlugin.id}
+                            icon={<IconComment />}
+                            title={frontendPlugin.sidebar?.title || 'Title'}
+                            identifier={`frontend-${frontendPlugin.id}`}
+                            to={urls.frontendPlugin(frontendPlugin.id)}
+                        />
+                    ))}
                     {canViewPlugins(currentOrganization) && (
                         <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
                     )}
