@@ -1242,6 +1242,93 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones_hourly(self, patch_fe):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        with freeze_time("2020-01-05T06:01:01Z"):  # Previous day in pacific time, don't include
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+        with freeze_time("2020-01-05T15:01:01Z"):  # 07:01 in pacific time
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+        with freeze_time("2020-01-05T16:01:01Z"):  # 08:01 in pacific time
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2020-01-05T18:01:01Z"):  # 10:01 in pacific time
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "dStart",
+                        "interval": "hour",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertEqual(
+                response[0]["labels"],
+                [
+                    "5-Jan-2020 00:00",
+                    "5-Jan-2020 01:00",
+                    "5-Jan-2020 02:00",
+                    "5-Jan-2020 03:00",
+                    "5-Jan-2020 04:00",
+                    "5-Jan-2020 05:00",
+                    "5-Jan-2020 06:00",
+                    "5-Jan-2020 07:00",
+                    "5-Jan-2020 08:00",
+                    "5-Jan-2020 09:00",
+                    "5-Jan-2020 10:00",
+                ],
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "dStart",
+                        "interval": "hour",
+                        "events": [{"id": "sign up", "name": "sign up"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+            self.assertEqual(
+                response[0]["labels"],
+                [
+                    "5-Jan-2020 00:00",
+                    "5-Jan-2020 01:00",
+                    "5-Jan-2020 02:00",
+                    "5-Jan-2020 03:00",
+                    "5-Jan-2020 04:00",
+                    "5-Jan-2020 05:00",
+                    "5-Jan-2020 06:00",
+                    "5-Jan-2020 07:00",
+                    "5-Jan-2020 08:00",
+                    "5-Jan-2020 09:00",
+                    "5-Jan-2020 10:00",
+                ],
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         self.team.timezone = "US/Pacific"
         self.team.save()
@@ -1292,21 +1379,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "5-Jan-2020",
             ],
         )
-
-        # Hour interval
-        with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
-                Filter(
-                    data={
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
-                    },
-                    team=self.team,
-                ),
-                self.team,
-            )
-            self.assertEqual(response[0]["labels"][-1], "5-Jan-2020 05:00")
 
         # DAU
         with freeze_time("2020-01-05T13:01:01Z"):

@@ -2,12 +2,14 @@ import json
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.team import Team
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.types import FilterType
@@ -15,17 +17,17 @@ from posthog.types import FilterType
 EARLIEST_TIMESTAMP = "2015-01-01"
 
 
-def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
+def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}
     if filter.date_from:
 
         date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
-        params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
+        params.update({"date_from": format_ch_timestamp(filter.date_from, filter, timezone=team.timezone_for_charts)})
     else:
         try:
-            earliest_date = get_earliest_timestamp(team_id)
+            earliest_date = get_earliest_timestamp(team.pk)
         except IndexError:
             date_from = ""
         else:
@@ -40,11 +42,20 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
+def format_ch_timestamp(
+    timestamp: datetime, filter, default_hour_min: str = " 00:00:00", timezone: Optional[str] = None
+):
+    if timezone:
+        # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
+        # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
+        # Then we convert it back to UTC (08:00 in UTC)
+        timestamp = pytz.timezone(timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
+
     is_hour = (
         (filter.interval and filter.interval.lower() == "hour")
         or (filter._date_from == "-24h")
         or (filter._date_from == "-48h")
+        or timezone
     )
     return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour else default_hour_min))
 
@@ -120,7 +131,10 @@ def get_interval_func_ch(period: Optional[str]) -> str:
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
     if round_interval:
-        return "AND {interval}(toDateTime(timestamp, %(timezone)s)) >= {interval}(toDateTime(%(date_from)s, %(timezone)s))".format(
+        if interval_annotation == "toStartOfWeek":
+            return "AND timestamp >= toStartOfWeek(toDateTime(%(date_from)s), 0, %(timezone)s)"
+
+        return "AND timestamp >= {interval}(toDateTime(%(date_from)s), %(timezone)s)".format(
             interval=interval_annotation
         )
     else:

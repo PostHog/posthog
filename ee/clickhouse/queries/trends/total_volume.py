@@ -61,11 +61,23 @@ class ClickhouseTrendsTotalVolume:
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
-                content_sql = VOLUME_SQL.format(event_query=cumulative_sql, **content_sql_params)
+                content_sql = VOLUME_SQL.format(
+                    event_query=cumulative_sql,
+                    start_of_week_fix="0," if filter.interval == "week" else "",
+                    **content_sql_params,
+                )
             else:
-                content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = VOLUME_SQL.format(
+                    event_query=event_query,
+                    start_of_week_fix="0," if filter.interval == "week" else "",
+                    **content_sql_params,
+                )
 
-            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
+            null_sql = NULL_SQL.format(
+                trunc_func=trunc_func,
+                interval_func=interval_func,
+                start_of_week_fix="0," if filter.interval == "week" else "",
+            )
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to
@@ -94,7 +106,7 @@ class ClickhouseTrendsTotalVolume:
         def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):
-                parsed_result = parse_response(stats, filter, team)
+                parsed_result = parse_response(stats, filter)
                 parsed_result.update(
                     {"persons_urls": self._get_persons_url(filter, entity, team.pk, parsed_result["days"])}
                 )

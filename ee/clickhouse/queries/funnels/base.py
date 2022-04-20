@@ -622,7 +622,7 @@ class ClickhouseFunnelBase(ABC):
         return ""
 
     def _get_cohort_breakdown_join(self) -> str:
-        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
         self.params.update({"breakdown_values": ids})
         self.params.update(cohort_params)
         return f"""

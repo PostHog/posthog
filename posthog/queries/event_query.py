@@ -50,6 +50,7 @@ class EventQuery(metaclass=ABCMeta):
     ) -> None:
         self._filter = filter
         self._team_id = team.pk
+        self._team = team
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
@@ -151,7 +152,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
 
         query = f"""
         {parsed_date_from}
