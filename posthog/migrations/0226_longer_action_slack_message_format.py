@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="action",
             name="slack_message_format",
-            field=models.CharField(blank=True, default="", max_length=500),
+            field=models.CharField(blank=True, default="", max_length=600),
         ),
     ]
