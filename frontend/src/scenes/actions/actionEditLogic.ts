@@ -105,11 +105,15 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
 
     events: ({ actions, props }) => ({
         afterMount: async () => {
+            console.log('MOUNT')
             if (props.id) {
                 actions.loadActionCount()
             } else {
                 actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
             }
+        },
+        beforeUnmount: () => {
+            console.log('UNMOUNT')
         },
     }),
 })

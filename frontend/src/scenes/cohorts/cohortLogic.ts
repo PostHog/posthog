@@ -3,33 +3,20 @@ import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { cohortLogicType } from './cohortLogicType'
-import { Breadcrumb, CohortGroupType, CohortType, MatchType } from '~/types'
+import { Breadcrumb, CohortGroupType, CohortType } from '~/types'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 
-export const NEW_COHORT: CohortType = {
-    id: 'new',
-    groups: [
-        {
-            id: Math.random().toString().substr(2, 5),
-            matchType: PROPERTY_MATCH_TYPE,
-            properties: [],
-        },
-    ],
-}
-
-function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
-    return { ...group, id: undefined, matchType: undefined }
-}
-
 function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
         ...cohort,
         groups: JSON.stringify(
-            cohort.is_static ? [] : cohort.groups.map((group: CohortGroupType) => formatGroupPayload(group))
+            cohort.is_static
+                ? []
+                : cohort.groups.map((group: CohortGroupType) => ({ ...group, id: undefined, matchType: undefined }))
         ),
     }
     // Must use FormData to encode file binary in request
@@ -41,18 +28,12 @@ function createCohortFormData(cohort: CohortType): FormData {
 }
 
 function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
+    const matchType = group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE
+
     return {
-        matchType: determineMatchType(group),
+        matchType,
         id: Math.random().toString().substr(2, 5),
         ...group,
-    }
-}
-
-function determineMatchType(group: Partial<CohortGroupType>): MatchType {
-    if (group.action_id || group.event_id) {
-        return ENTITY_MATCH_TYPE
-    } else {
-        return PROPERTY_MATCH_TYPE
     }
 }
 
@@ -73,6 +54,17 @@ function processCohortOnSet(cohort: CohortType): CohortType {
     return cohort
 }
 
+export const NEW_COHORT: CohortType = processCohortOnSet({
+    id: 'new',
+    groups: [
+        {
+            id: Math.random().toString().substr(2, 5),
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [],
+        },
+    ],
+})
+
 export interface CohortLogicProps {
     id?: CohortType['id']
 }
@@ -81,24 +73,19 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     props: {} as CohortLogicProps,
     key: (props) => props.id || 'new',
     path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
-    connect: [cohortsModel],
 
     actions: () => ({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
-        cancelCohort: true,
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
-        fetchCohort: (cohort: CohortType) => ({ cohort }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
-        setLastSavedAt: (lastSavedAt: string | false) => ({ lastSavedAt }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
-        setSubmitted: (submitted: boolean) => ({ submitted }),
     }),
 
     reducers: () => ({
         cohort: [
-            processCohortOnSet(NEW_COHORT) as CohortType,
+            NEW_COHORT as CohortType,
             {
                 onCriteriaChange: (state, { newGroup, id }) => {
                     const cohort = { ...state }
@@ -125,32 +112,34 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
-        lastSavedAt: [
-            false as string | false,
-            {
-                setLastSavedAt: (_, { lastSavedAt }) => lastSavedAt,
-            },
-        ],
     }),
 
     forms: ({ actions }) => ({
         cohort: {
-            defaults: processCohortOnSet(NEW_COHORT),
-            validator: ({ name, csv, is_static, id, groups }) => ({
+            defaults: NEW_COHORT,
+            validator: ({ name, csv, is_static, groups }) => ({
                 name: !name ? 'You need to set a name' : undefined,
-                csv: id === 'new' && is_static && !csv ? 'You need to upload a CSV file' : (null as any),
-                groups: groups?.map(({ matchType, properties, action_id, event_id }) => {
-                    if (
-                        !is_static &&
-                        ((matchType === PROPERTY_MATCH_TYPE && !properties?.length) ||
-                            (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)))
-                    ) {
-                        return { id: 'This matching group is invalid' }
-                    }
-                    return { id: undefined }
-                }),
+                csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
+                // Return type of validator[groups](...) must be the shape of groups. Returning the error message
+                // for groups as a value for id is a hacky stopgap.
+                groups:
+                    !groups || groups.length < 1
+                        ? [{ id: 'You need at least one matching group' }]
+                        : groups?.map(({ matchType, properties, action_id, event_id }) => {
+                              if (is_static) {
+                                  return { id: undefined }
+                              }
+                              if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
+                                  return { id: 'Please select at least one property or remove this match group.' }
+                              }
+                              if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
+                                  return { id: 'Please select an event or action.' }
+                              }
+                              return { id: undefined }
+                          }),
             }),
             submit: (cohort) => {
+                console.log('COHORT', cohort)
                 actions.saveCohort(cohort)
             },
         },
@@ -158,7 +147,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
 
     loaders: ({ actions, values, key }) => ({
         cohort: [
-            processCohortOnSet(NEW_COHORT) as CohortType,
+            NEW_COHORT as CohortType,
             {
                 setCohort: ({ cohort }) => {
                     return processCohortOnSet(cohort)
@@ -184,7 +173,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         return values.cohort
                     }
 
-                    actions.setSubmitted(false)
                     cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
                     breakpoint()
                     delete cohort['csv']
@@ -214,23 +202,19 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
 
     listeners: ({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.actions.deleteCohort(values.cohort)
+            cohortsModel.findMounted()?.actions.deleteCohort(values.cohort)
             router.actions.push(urls.cohorts())
-        },
-        cancelCohort: () => {
-            router.actions.push(urls.cohorts())
-        },
-        fetchCohort: async ({ cohort }, breakpoint) => {
-            cohort = await api.cohorts.get(cohort.id)
-            breakpoint()
-            actions.checkIfFinishedCalculating(cohort)
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            breakpoint()
             if (cohort.is_calculating) {
-                actions.setPollTimeout(setTimeout(() => actions.fetchCohort(cohort), 1000))
+                actions.setPollTimeout(
+                    setTimeout(async () => {
+                        const newCohort = await api.cohorts.get(cohort.id)
+                        breakpoint()
+                        actions.checkIfFinishedCalculating(newCohort)
+                    }, 1000)
+                )
             } else {
-                actions.setLastSavedAt(new Date().toISOString())
                 actions.setCohort(cohort)
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
@@ -250,8 +234,10 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 const cohort = await api.cohorts.get(Number(props.id))
                 actions.setCohort(cohort)
             }
+            console.log('MOUNT', props)
         },
         beforeUnmount: () => {
+            console.log('UNMOUNT', props)
             if (values.pollTimeout) {
                 clearTimeout(values.pollTimeout)
             }

@@ -15,10 +15,12 @@ export function MatchCriteriaSelector({
     onCriteriaChange,
     group,
     onRemove,
+    hideRemove = false,
 }: {
     onCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
     onRemove: () => void
+    hideRemove?: boolean
 }): JSX.Element {
     const onMatchTypeChange = (input: MatchType): void => {
         onCriteriaChange({
@@ -47,7 +49,7 @@ export function MatchCriteriaSelector({
                         <Option value={ENTITY_MATCH_TYPE}>performed action or event</Option>
                     </Select>
                 </div>
-                <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />
+                {!hideRemove && <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />}
             </Row>
             <Row align="middle">
                 {group.matchType === ENTITY_MATCH_TYPE ? (

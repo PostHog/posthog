@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { Group, Field as KeaField } from 'kea-forms'
 import { Col, Divider, Row } from 'antd'
 import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
-import { CohortTypeEnum, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { CalculatorOutlined, OrderedListOutlined, PlusOutlined } from '@ant-design/icons'
+import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PlusOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
@@ -14,36 +14,36 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput } from 'lib/components/LemonInput'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
-import { LemonTextArea } from 'lib/components/LemonTextArea'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { IconUploadFile } from 'lib/components/icons'
 import { UploadFile } from 'antd/es/upload/interface'
 import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
+import { Tooltip } from 'lib/components/Tooltip'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Cohort,
-    logic: cohortLogic,
     paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
 }
 
 const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
     [CohortTypeEnum.Static]: {
         label: 'Static · Updated manually',
-        icon: <OrderedListOutlined />,
     },
     [CohortTypeEnum.Dynamic]: {
         label: 'Dynamic · Updates automatically',
-        icon: <CalculatorOutlined />,
     },
 }
 
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const logicProps = { id }
     const logic = cohortLogic(logicProps)
-    const { deleteCohort, cancelCohort, setCohort, onCriteriaChange } = useActions(logic)
+    const { deleteCohort, setCohort, onCriteriaChange } = useActions(logic)
     const { cohort } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
@@ -77,7 +77,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                     data-attr="cancel-cohort"
                                     type="secondary"
                                     onClick={() => {
-                                        cancelCohort()
+                                        router.actions.push(urls.cohorts())
                                     }}
                                     style={{ marginRight: 8 }}
                                 >
@@ -112,17 +112,25 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                     <Col xs={24} sm={12}>
                         <Field name="is_static" label="Type">
                             {({ value, onValueChange }) => (
-                                <LemonSelect
-                                    disabled={!isNewCohort}
-                                    options={COHORT_TYPE_OPTIONS}
-                                    value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                    onChange={(cohortType) => {
-                                        onValueChange(cohortType === CohortTypeEnum.Static)
-                                    }}
-                                    type="stealth"
-                                    outlined
-                                    style={{ width: '100%' }}
-                                />
+                                <Tooltip
+                                    title={
+                                        isNewCohort ? null : 'Create a new cohort to use a different type of cohort.'
+                                    }
+                                >
+                                    <div>
+                                        <LemonSelect
+                                            disabled={!isNewCohort}
+                                            options={COHORT_TYPE_OPTIONS}
+                                            value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                            onChange={(cohortType) => {
+                                                onValueChange(cohortType === CohortTypeEnum.Static)
+                                            }}
+                                            type="stealth"
+                                            outlined
+                                            style={{ width: '100%' }}
+                                        />
+                                    </div>
+                                </Tooltip>
                             )}
                         </Field>
                     </Col>
@@ -234,9 +242,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                                 marginTop: 16,
                                                                             }}
                                                                         >
-                                                                            {group.matchType === ENTITY_MATCH_TYPE
-                                                                                ? 'Please select an event or action.'
-                                                                                : 'Please select at least one property or remove this match group.'}
+                                                                            {error}
                                                                         </div>
                                                                     )}
                                                                 </Row>
@@ -250,6 +256,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                         }
                                                         onRemove={() => onRemoveGroup(index)}
                                                         group={group}
+                                                        hideRemove={cohort.groups.length === 1}
                                                     />
                                                 </KeaField>
                                                 {index < cohort.groups.length - 1 && (
