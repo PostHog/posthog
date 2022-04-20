@@ -2,13 +2,12 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
@@ -29,6 +28,10 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport } from 'lib/components/icons'
+import { FunnelStepsTable } from './InsightTabs/FunnelTab/FunnelStepsTable'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -56,6 +59,7 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
+        csvExportUrl,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -66,11 +70,11 @@ export function InsightContainer(
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
-                    {
-                        filters.display !== ACTIONS_TABLE && (
+                    {filters.display !== ChartDisplayType.ActionsTable &&
+                        filters.display !== ChartDisplayType.WorldMap && (
+                            /* Tables and world map don't need this padding, but graphs do for sizing */
                             <div className="trends-insights-container" />
-                        ) /* Tables don't need this padding, but graphs do for sizing */
-                    }
+                        )}
                     <Loading />
                 </>
             )
@@ -106,32 +110,54 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            filters?.layout === FunnelLayout.horizontal &&
-            !disableTable
+            !disableTable &&
+            (featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable />
+            return (
+                <>
+                    <h2 style={{ margin: '1rem 0' }}>Detailed results</h2>
+                    <FunnelStepsTable />
+                </>
+            )
         }
+
+        // InsightsTable is loaded for all trend views (except below), plus the sessions view.
+        // Exclusions:
+        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             (!filters.display ||
-                (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
+                (filters?.display !== ChartDisplayType.ActionsTable &&
+                    filters?.display !== ChartDisplayType.ActionsBarValue)) &&
             activeView === InsightType.TRENDS &&
             !disableTable
         ) {
-            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    Exclusions:
-        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        2. Bar value chart. Because this view displays data in completely different dimensions.
-    */
             return (
-                <BindLogic logic={trendsLogic} props={insightProps}>
-                    <InsightsTable
-                        isLegend
-                        showTotalCount
-                        filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                        canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        canCheckUncheckSeries={!canEditInsight}
-                    />
-                </BindLogic>
+                <>
+                    {csvExportUrl && (
+                        <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
+                            <h2>Detailed results</h2>
+                            <Tooltip title="Export this table in CSV format" placement="left">
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                                    href={csvExportUrl}
+                                >
+                                    Export
+                                </LemonButton>
+                            </Tooltip>
+                        </div>
+                    )}
+                    <BindLogic logic={trendsLogic} props={insightProps}>
+                        <InsightsTable
+                            isLegend
+                            showTotalCount
+                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                            canCheckUncheckSeries={canEditInsight}
+                        />
+                    </BindLogic>
+                </>
             )
         }
 

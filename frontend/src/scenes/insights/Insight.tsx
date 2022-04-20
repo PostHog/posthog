@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -28,10 +28,11 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode } = useActions(insightSceneLogic)
+    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -44,9 +45,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insight,
         insightChanged,
         tagLoading,
+        insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -55,10 +58,20 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { mathDefinitions } = useValues(mathsLogic)
     const screens = useBreakpoint()
 
+    useEffect(() => {
+        reportInsightViewedForRecentInsights()
+    }, [insightId])
+
     const isSmallScreen = !screens.xl
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+
+    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
+
+    useEffect(() => {
+        syncInsightChanged(insightChanged)
+    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -102,7 +115,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 buttons={
                     <div className="insights-tab-actions">
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={cancelChanges}>
+                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
                             </LemonButton>
                         )}
@@ -124,6 +137,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboard && !insight.id}
+                                insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
                         )}
@@ -154,25 +168,24 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 }
                             />
                         )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            (canEditInsight ? (
-                                <ObjectTags
-                                    tags={insight.tags ?? []}
-                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                    saving={tagLoading}
-                                    tagsAvailable={[]}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                />
-                            ) : insight.tags?.length ? (
-                                <ObjectTags
-                                    tags={insight.tags}
-                                    saving={tagLoading}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                    staticOnly
-                                />
-                            ) : null)}
+                        {canEditInsight ? (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        ) : insight.tags?.length ? (
+                            <ObjectTags
+                                tags={insight.tags}
+                                saving={tagLoading}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                                staticOnly
+                            />
+                        ) : null}
                         <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }
@@ -192,7 +205,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     >
                         <div
                             style={{
-                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
                                 marginRight: verticalLayout ? '1rem' : 0,
                             }}
                         >
@@ -210,7 +223,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <div
                             style={{
                                 flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
                             }}
                         >
                             <InsightContainer />

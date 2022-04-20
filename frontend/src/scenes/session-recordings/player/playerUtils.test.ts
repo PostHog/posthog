@@ -10,6 +10,7 @@ import {
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
+    guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
 
 const metadata = parseMetadataResponse(recordingMetaJson['session_recording'])
@@ -143,6 +144,28 @@ describe('getPlayerPositionFromEpochTime', () => {
                 1739102187000,
                 'b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b',
                 metadata.startAndEndTimesByWindowId ?? {}
+            )
+        ).toEqual(null)
+    })
+})
+
+describe('guessPlayerPositionFromEpochTimeWithoutWindowId', () => {
+    it('calculates the player time based on the epoch time', () => {
+        expect(
+            guessPlayerPositionFromEpochTimeWithoutWindowId(
+                1639078847000,
+                metadata.startAndEndTimesByWindowId,
+                metadata.segments
+            )
+        ).toEqual({ windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f', time: 227777 })
+    })
+
+    it('returns null if the epoch time is outside the segment timebounds', () => {
+        expect(
+            guessPlayerPositionFromEpochTimeWithoutWindowId(
+                1739102187000,
+                metadata.startAndEndTimesByWindowId,
+                metadata.segments
             )
         ).toEqual(null)
     })

@@ -10,4 +10,8 @@
     color: #5f3366;
     background: rgba(#6b355f, 0.25);
     user-select: none;
+    &.Lettermark--gray {
+        color: var(--text-default);
+        background: var(--border-light);
+    }
 }

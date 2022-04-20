@@ -4,21 +4,47 @@
     .homepage-dashboard-header {
         justify-content: space-between;
         align-items: center;
+
         .dashboard-title-container {
             display: flex;
             flex-direction: row;
             align-items: center;
+
             .dashboard-name {
                 margin: 0;
             }
+
             .ant-skeleton {
                 width: 300px;
+
                 h3 {
                     margin: 0;
                 }
             }
         }
     }
+
+    .top-list-container-horizontal {
+        display: flex;
+
+        .top-list {
+            margin-bottom: $default_spacing * 1.5;
+            width: 33%;
+        }
+
+        .spacer {
+            width: $default_spacing;
+        }
+    }
+
+    .top-list-container-vertical {
+        margin-bottom: $default_spacing * 1.5;
+
+        .spacer {
+            height: $default_spacing;
+        }
+    }
+
     .empty-state-container {
         background-color: $bg_side;
         width: 100%;
@@ -27,5 +53,37 @@
         padding: $default_spacing * 4;
         display: flex;
         flex-direction: column;
+    }
+}
+
+.list-row {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: $default_spacing/4;
+    color: $text_default;
+    font-weight: 400; // Overrides font-weight from LemonButton
+
+    .row-text-container {
+        flex: 1;
+        margin: 0 $default_spacing/2;
+        overflow: hidden;
+
+        p {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin: 0;
+
+            &.row-title {
+                font-weight: 600;
+            }
+
+            &.link-text {
+                color: $primary;
+            }
+        }
     }
 }

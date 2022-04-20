@@ -106,7 +106,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
@@ -114,6 +113,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    PERSON_INFO_TO_REDIS_TEAMS: string
+    PERSON_INFO_CACHE_TTL: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -872,4 +873,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
 }

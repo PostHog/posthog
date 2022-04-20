@@ -1,6 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties } from 'react'
-import { ArrowUpOutlined } from '@ant-design/icons'
 import './icons.scss'
 
 export function IconJavascript({ style }: { style?: CSSProperties }): JSX.Element {
@@ -751,21 +750,36 @@ export function IconBill(): JSX.Element {
     )
 }
 
-// AntD arrows rotated at convenient angles
-
-export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+/** Material Design Trending Flat icon. */
+export function IconTrendingFlat(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <span className="anticon anticon-wraper-arrow bottomRight">
-            <ArrowUpOutlined style={style} />
-        </span>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m20 12-4-4v3h-12v2h12v3z" fill="currentColor" />
+        </svg>
     )
 }
 
-export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+/** Material Design Trending Flat icon, rotated to indicate dropoff. This is different from Trending Down. */
+export function IconTrendingFlatDown(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <span className="anticon anticon-wraper-arrow topRight">
-            <ArrowUpOutlined style={style} />
-        </span>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m17.6567 17.6558v-5.6568l-2.1214 2.1213-8.48523-8.48531-1.41422 1.41422 8.48525 8.48529-2.1213 2.1213z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Schedule (clock) icon. */
+export function IconSchedule(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11.992 4c-4.416 0-7.992 3.584-7.992 8s3.576 8 7.992 8c4.424 0 8.008-3.584 8.008-8s-3.584-8-8.008-8zm.008 14.4c-3.536 0-6.4-2.864-6.4-6.4s2.864-6.4 6.4-6.4 6.4 2.864 6.4 6.4-2.864 6.4-6.4 6.4zm.4-10.4h-1.2v4.8l4.2 2.52.6-.984-3.6-2.136z"
+                fill="currentColor"
+            />{' '}
+        </svg>
     )
 }
 
@@ -1379,6 +1393,17 @@ export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
             <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconPlayCircle(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M9.99988 0C4.47988 0 -0.00012207 4.48 -0.00012207 10C-0.00012207 15.52 4.47988 20 9.99988 20C15.5199 20 19.9999 15.52 19.9999 10C19.9999 4.48 15.5199 0 9.99988 0ZM9.99988 18C5.58988 18 1.99988 14.41 1.99988 10C1.99988 5.59 5.58988 2 9.99988 2C14.4099 2 17.9999 5.59 17.9999 10C17.9999 14.41 14.4099 18 9.99988 18ZM7.49988 14.5L14.4999 10L7.49988 5.5V14.5Z"
+                fill="currentColor"
+            />
         </svg>
     )
 }
