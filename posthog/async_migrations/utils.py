@@ -13,6 +13,7 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.user import User
 from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 from posthog.utils import get_machine_id
 
@@ -20,11 +21,15 @@ logger = structlog.get_logger(__name__)
 
 
 def send_analytics_to_posthog(event, data):
-    try:
-        posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.capture(get_machine_id(), event, data, groups={"instance": settings.SITE_URL})
-    except Exception as e:
-        logger.error(f"Async Migrations: Failed to send {event} to posthog error: {e}")
+    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+    user = User.objects.filter(is_active=True).first()
+    groups = {"instance": settings.SITE_URL}
+    if user and user.current_organization:
+        data["organization_name"] = user.current_organization.name
+        groups["organization"] = str(user.current_organization.id)
+    posthoganalytics.capture(
+        get_machine_id(), event, data, groups=groups,
+    )
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -159,7 +164,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             finished_at=finished_at,
             progress=100,
         )
-        send_analytics_to_posthog("Async migrations completed", {"name": {migration_instance.name}})
+        send_analytics_to_posthog("Async migration completed", {"name": {migration_instance.name}})
 
         if email and async_migrations_emails_enabled():
             from posthog.tasks.email import send_async_migration_complete_email
