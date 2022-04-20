@@ -541,9 +541,9 @@ export class DB {
                 this.updatePersonPropertiesCache(teamId, personId, personProperties),
             ])
             return {
-                uuid: personUuid as string,
-                created_at: personCreatedAt as DateTime,
-                properties: personProperties as Properties,
+                uuid: personUuid,
+                created_at: personCreatedAt,
+                properties: personProperties,
             }
         }
         return null
