@@ -33,7 +33,11 @@ class LicenseManager(models.Manager):
         We take the most recent one to support the case where someone who already had a license for a lower plan
         upgrades to a higher one.
         """
-        return self.filter(valid_until__gte=timezone.now()).order_by("-created_at").first()
+        valid_licenses = list(self.filter(valid_until__gte=timezone.now()))
+        if not valid_licenses:
+            return None
+        valid_licenses.sort(key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0), reverse=True)
+        return valid_licenses[0]
 
 
 class License(models.Model):
@@ -68,6 +72,7 @@ class License(models.Model):
         AvailableFeature.SSO_ENFORCEMENT,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
+    PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}  # The higher the plan, the higher its sorting value
 
     @property
     def available_features(self) -> List[AvailableFeature]:
