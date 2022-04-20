@@ -212,7 +212,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.models.license.requests.post")
+    @patch("ee.api.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_features()  # This is normally ran every hour

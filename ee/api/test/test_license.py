@@ -30,10 +30,9 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
 
-    @patch("ee.models.license.requests.post")
+    @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_can_create_license(self, patch_post):
-
         valid_until = timezone.now() + datetime.timedelta(days=10)
         mock = Mock()
         mock.json.return_value = {
@@ -56,7 +55,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(license.key, "newer_license_1")
         self.assertEqual(license.valid_until, valid_until)
 
-    @patch("ee.models.license.requests.post")
+    @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_friendly_error_when_license_key_is_invalid(self, patch_post):
         mock = Mock()
