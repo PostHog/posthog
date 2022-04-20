@@ -71,8 +71,8 @@ class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    filters: models.JSONField = models.JSONField(null=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -88,6 +88,9 @@ class Cohort(models.Model):
     is_static: models.BooleanField = models.BooleanField(default=False)
 
     objects = CohortManager()
+
+    # deprecated
+    groups: models.JSONField = models.JSONField(default=list)
 
     def get_analytics_metadata(self):
         action_groups_count: int = 0
