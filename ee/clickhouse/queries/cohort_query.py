@@ -170,8 +170,7 @@ class CohortQuery(EnterpriseEventQuery):
         elif prop.type == "performed_event_sequence":
             return self.get_performed_event_sequence(prop, prepend, idx)
         elif prop.type == "performed_event_regularly":
-            # TODO: implement
-            return "", {}
+            return self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
             return self.get_person_condition(prop, prepend, idx)
         else:
@@ -303,7 +302,28 @@ class CohortQuery(EnterpriseEventQuery):
         return f"{column_name} = 2", {f"{date_param}": date_value, **entity_params, **seq_entity_params}
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        pass
+        event = (prop.event_type, prop.key)
+        entity_query, entity_params = self._get_entity(event, prepend, idx)
+
+        column_name = f"performed_event_regularly_{prepend}_{idx}"
+
+        time_value = validate_positive_integer(prop.time_value, "time_value")
+        operator_value = validate_positive_integer(prop.operator_value, "operator_value")
+        min_periods = validate_positive_integer(prop.min_periods, "min_periods")
+        date_interval = validate_interval(prop.time_interval)
+        periods = []
+        for period in range(prop.total_periods):
+            start_time_value = time_value * period
+            end_time_value = time_value * (period + 1)
+            periods.append(
+                f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} {operator_value}, 1, 0)"
+            )
+
+        field = "+".join(periods) + f">= {min_periods}" + f" as {column_name}"
+
+        self._fields.append(field)
+
+        return column_name, {**entity_params}
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
@@ -352,3 +372,13 @@ def validate_interval(interval: str) -> str:
         raise ValueError(f"Invalid interval: {interval}")
     else:
         return interval
+
+
+def validate_positive_integer(value: Union[str, int], value_name: str) -> int:
+    try:
+        parsed_value = int(value)
+    except ValueError:
+        raise ValueError(f"{value_name} must be an integer, got {value}")
+    if parsed_value < 0:
+        raise ValueError(f"{value_name} must be greater than 0, got {value}")
+    return parsed_value

@@ -90,6 +90,16 @@ VALIDATE_PROP_TYPES = {
         "seq_time_interval",
     ],
     "performed_event_first_time": ["key", "event_type", "time_interval", "time_value"],
+    "performed_event_regularly": [
+        "key",
+        "event_type",
+        "operator",
+        "operator_value",
+        "time_interval",
+        "time_value",
+        "total_periods",
+        "min_periods",
+    ],
 }
 
 
@@ -104,6 +114,8 @@ class Property:
     operator_interval: Optional[OperatorInterval]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
+    total_periods: Optional[int]
+    min_periods: Optional[int]
     seq_event_type: Optional[str]
     seq_event: Optional[Union[str, int]]
     seq_time_value: Optional[int]
@@ -124,6 +136,8 @@ class Property:
         operator_interval: Optional[OperatorInterval] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
+        total_periods: Optional[int] = None,
+        min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
         seq_event: Optional[Union[str, int]] = None,
         seq_time_value: Optional[int] = None,
@@ -141,6 +155,8 @@ class Property:
         self.operator_interval = operator_interval
         self.time_value = time_value
         self.time_interval = time_interval
+        self.total_periods = total_periods
+        self.min_periods = min_periods
         self.seq_event_type = seq_event_type
         self.seq_event = seq_event
         self.seq_time_value = seq_time_value
@@ -158,6 +174,8 @@ class Property:
             "operator_interval": self.operator_interval,
             "time_value": self.time_value,
             "time_interval": self.time_interval,
+            "total_periods": self.total_periods,
+            "min_periods": self.min_periods,
             "seq_event_type": self.seq_event_type,
             "seq_event": self.seq_event,
             "seq_time_value": self.seq_time_value,
