@@ -188,6 +188,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             .select_related("insight", "insight__created_by", "insight__last_modified_by", "insight__team")
             .order_by("insight__order")
         )
+        # TODO using dashboard.insights.through.objects.filter() instead of tiles explodes by ten instead
+
         insights = []
         for tile in tiles:
             if tile.insight:
@@ -253,10 +255,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
         queryset = (
             queryset.select_related("team__organization", "created_by")
             .defer(*deferred_fields)
-            .prefetch_related(
-                Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")),
-                # Prefetch("tiles", queryset=DashboardTile.objects.all()),
-            )
+            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")),)
         )
         return queryset
 
