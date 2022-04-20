@@ -10,6 +10,10 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
+from posthog.constants import PropertyOperatorType
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import sane_repr
 
 from .person import Person
@@ -92,7 +96,60 @@ class Cohort(models.Model):
     # deprecated
     groups: models.JSONField = models.JSONField(default=list)
 
+    @cached_property
+    def properties(self):
+        # convert deprecated groups to properties
+        if self.groups:
+            property_groups = []
+            for group in self.groups:
+                if group.get("properties"):
+                    property_groups.append(Filter(data=group, team=self.team).property_groups)
+                elif group.get("action_id"):
+                    # TODO: check with Eric and figure out what these params mean!
+                    property_groups.append(
+                        PropertyGroup(
+                            PropertyOperatorType.AND,
+                            [
+                                Property(
+                                    key=group.get("action_id"),
+                                    event_type="action",
+                                    time_interval="days",
+                                    time_value=group.get("days"),
+                                    operator=group.get("count_operator"),
+                                    operator_value=group.get("count"),
+                                ),
+                            ],
+                        )
+                    )
+                elif group.get("event_id"):
+                    property_groups.append(
+                        PropertyGroup(
+                            PropertyOperatorType.AND,
+                            [
+                                Property(
+                                    key=group.get("event_id"),
+                                    event_type="event",
+                                    time_interval="days",
+                                    time_value=group.get("days"),
+                                    operator=group.get("count_operator"),
+                                    operator_value=group.get("count"),
+                                ),
+                            ],
+                        )
+                    )
+                else:
+                    # invalid state
+                    raise ValueError("Cohort group needs properties or action_id or event_id")
+
+            return PropertyGroup(PropertyOperatorType.OR, property_groups)
+
+        if self.filters:
+            return Filter(data=self.filters.get("properties"), team=self.team).property_groups
+
+        raise ValueError("Cohort has no properties")
+
     def get_analytics_metadata(self):
+        # TODO: add analytics for new cohort prop types
         action_groups_count: int = 0
         properties_groups_count: int = 0
         for group in self.groups:

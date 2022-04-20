@@ -127,6 +127,10 @@ class EventQuery(metaclass=ABCMeta):
         for group in cohort.groups:
             if group.get("properties"):
                 return True
+        # TODO: check for new query format whether we need this at all
+        for property in cohort.properties.flat:
+            if property.type == "person":
+                return True
         return False
 
     @cached_property

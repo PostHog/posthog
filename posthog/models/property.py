@@ -103,6 +103,7 @@ class Property:
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
+        # Only set for `type` == `behavioural`
         event_type: Optional[str] = None,
         operator_value: Optional[int] = None,
         operator_interval: Optional[OperatorInterval] = None,
