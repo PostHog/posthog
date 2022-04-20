@@ -321,7 +321,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "created_at": "2012-01-14T03:21:34Z",
                     "scope": "Insight",
                     "item_id": str(response_data["id"]),
-                    "detail": {"changes": None, "name": "a created dashboard", "short_id": response_data["short_id"]},
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": response_data["short_id"],
+                    },
                 }
             ],
         )
@@ -337,7 +342,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             insight_id = create_response.json()["id"]
             short_id = create_response.json()["short_id"]
 
-            frozen_time.tick(delta=datetime.timedelta(minutes=10))
+            frozen_time.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -384,6 +389,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "after": "2012-01-14T03:31:34+00:00",
                             },
                         ],
+                        "merge": None,
                         "name": "insight new name",
                         "short_id": short_id,
                     },
@@ -394,7 +400,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "created_at": "2012-01-14T03:21:34Z",
                     "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                    "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
                 },
             ],
         )
@@ -410,7 +416,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             insight_id = create_response.json()["id"]
             short_id = create_response.json()["short_id"]
 
-            frozen_time.tick(delta=datetime.timedelta(minutes=10))
+            frozen_time.tick(delta=timedelta(minutes=10))
 
             response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -427,7 +433,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "created_at": "2012-01-14T03:31:34Z",
                     "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                    "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
@@ -435,7 +441,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "created_at": "2012-01-14T03:21:34Z",
                     "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                    "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
                 },
             ],
         )

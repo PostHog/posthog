@@ -81,9 +81,10 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
-field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
     "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+    "Insight": [],
 }
 
 
@@ -169,7 +170,7 @@ class ActivityPage:
 
 
 def load_activity(
-    scope: Literal["FeatureFlag", "Person"],
+    scope: Literal["FeatureFlag", "Person", "Insight"],
     team_id: int,
     item_id: Optional[int] = None,
     limit: int = 10,
