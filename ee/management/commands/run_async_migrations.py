@@ -9,6 +9,7 @@ from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
     MigrationStatus,
+    get_all_running_or_starting_async_migrations,
     is_async_migration_complete,
 )
 
@@ -53,6 +54,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+
+        if options["check"]:
+            running_migrations = get_all_running_or_starting_async_migrations()
+            if len(running_migrations) > 0:
+                print(
+                    f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding."
+                )
+                exit(1)
 
         setup_async_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()

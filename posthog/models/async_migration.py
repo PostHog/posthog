@@ -54,6 +54,10 @@ def get_all_running_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.Running)
 
 
+def get_all_running_or_starting_async_migrations():
+    return AsyncMigration.objects.filter(status__in=[MigrationStatus.Running, MigrationStatus.Starting])
+
+
 # allow for splitting code paths
 def is_async_migration_complete(migration_name: str) -> bool:
     migration_instance = AsyncMigration.objects.filter(
