@@ -23,7 +23,11 @@ import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/playerUtils'
+import {
+    getPlayerPositionFromEpochTime,
+    getPlayerTimeFromPlayerPosition,
+    guessPlayerPositionFromEpochTimeWithoutWindowId,
+} from './player/playerUtils'
 import { lemonToast } from 'lib/components/lemonToast'
 import equal from 'fast-deep-equal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -333,19 +337,38 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     const eventsWithPlayerData: RecordingEventType[] = []
                     const events = response.results ?? []
                     events.forEach((event: EventType) => {
-                        // Try to place the event 1 second before it happens, so the user actually sees it happen after clicking on it
-                        let eventPlayerPosition = getPlayerPositionFromEpochTime(
-                            +dayjs(event.timestamp) - 1000,
-                            event.properties?.$window_id ?? '', // If there is no window_id on the event to match the recording metadata
-                            values.sessionPlayerData.metadata.startAndEndTimesByWindowId
-                        )
-                        // If 1 seconds before the event is before the start of the recording, then use the actual timestamp
-                        if (eventPlayerPosition === null) {
-                            eventPlayerPosition = getPlayerPositionFromEpochTime(
-                                +dayjs(event.timestamp),
-                                event.properties?.$window_id ?? '', // If there is no window_id on the event to match the recording metadata
-                                values.sessionPlayerData.metadata.startAndEndTimesByWindowId
-                            )
+                        // If possible, place the event 1s before the actual event
+                        const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
+                        let eventPlayerPosition = null
+                        let isOutOfBandEvent = false
+                        for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
+                            if (
+                                !event.properties.$window_id &&
+                                !values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId['']
+                            ) {
+                                // Handle the case where the event is 'out of band' for the recording (it has no window_id and
+                                // the recording has window_ids). This is the case where the event came from
+                                // outside the recording (e.g. a server side event) But it happens to overlap in time with the recording
+                                eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
+                                    eventEpochTimeToAttempt,
+                                    values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
+                                    values.sessionPlayerData?.metadata?.segments
+                                )
+                                if (eventPlayerPosition) {
+                                    isOutOfBandEvent = true
+                                    break
+                                }
+                            } else {
+                                // Handle the normal events that fit within the recording
+                                eventPlayerPosition = getPlayerPositionFromEpochTime(
+                                    eventEpochTimeToAttempt,
+                                    event.properties?.$window_id ?? '', // If there is no window_id on the event to match the recording metadata
+                                    values.sessionPlayerData.metadata.startAndEndTimesByWindowId
+                                )
+                            }
+                            if (eventPlayerPosition !== null) {
+                                break
+                            }
                         }
                         if (eventPlayerPosition !== null) {
                             const eventPlayerTime = getPlayerTimeFromPlayerPosition(
@@ -357,6 +380,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
+                                    isOutOfBandEvent: isOutOfBandEvent,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs
@@ -434,8 +458,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                             const { level, payload, trace } = snapshot.data.payload as RRWebRecordingConsoleLogPayload
 
                             const parsedPayload = payload
-                                ?.map?.((item: string) =>
-                                    item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
+                                ?.map?.((item) =>
+                                    item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
                                 )
                                 .join(' ')
 
@@ -522,6 +546,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
 
         return {
             '/recordings': urlToAction,
+            '/home': urlToAction,
             '/person/*': urlToAction,
             '/insights/*': urlToAction,
             [urls.webPerformanceWaterfall('*')]: urlToAction,

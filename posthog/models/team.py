@@ -1,6 +1,7 @@
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+import posthoganalytics
 import pytz
 from constance import config
 from django.contrib.postgres.fields import ArrayField
@@ -180,6 +181,17 @@ class Team(UUIDClassicModel):
             if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
                 return None
             return requesting_parent_membership.level
+
+    def timezone_for_charts(self) -> str:
+        """
+        Stopgap function for rolling this feature out
+        """
+        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
+        if posthoganalytics.feature_enabled(
+            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
+        ):
+            return self.timezone
+        return "UTC"
 
     def __str__(self):
         if self.name:

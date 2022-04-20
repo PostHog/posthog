@@ -1,14 +1,14 @@
 import json
 from typing import Any, Dict, Type
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -51,6 +51,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import InsightViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -229,11 +230,22 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            if order == "-my_last_viewed_at":
+                queryset = self._annotate_with_my_last_viewed_at(queryset).order_by("-my_last_viewed_at")
+            else:
+                queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("order")
 
         return queryset
+
+    def _annotate_with_my_last_viewed_at(self, queryset: QuerySet) -> QuerySet:
+        if self.request.user.is_authenticated:
+            insight_viewed = InsightViewed.objects.filter(
+                team=self.team, user=self.request.user, insight_id=OuterRef("id")
+            )
+            return queryset.annotate(my_last_viewed_at=Subquery(insight_viewed.values("last_viewed_at")[:1]))
+        raise exceptions.NotAuthenticated()
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -244,6 +256,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
+
+            elif key == "my_last_viewed":
+                if str_to_bool(request.GET["my_last_viewed"]):
+                    queryset = self._annotate_with_my_last_viewed_at(queryset).filter(my_last_viewed_at__isnull=False)
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
@@ -455,6 +471,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+    # ******************************************
+    # /projects/:id/insights/:short_id/viewed
+    # Creates or updates an InsightViewed object for the user/insight combo
+    # ******************************************
+    @action(methods=["POST"], detail=True)
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class LegacyInsightViewSet(InsightViewSet):

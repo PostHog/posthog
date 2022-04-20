@@ -62,6 +62,14 @@ export enum TaxonomicFilterGroupType {
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
+    // Types for searching
+    Persons = 'persons',
+    FeatureFlags = 'feature_flags',
+    Insights = 'insights',
+    Experiments = 'experiments',
+    Plugins = 'plugins',
+    Dashboards = 'dashboards',
+    GroupNamesPrefix = 'name_groups',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

@@ -52,6 +52,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
+            "timezone": self._team.timezone_for_charts(),
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
@@ -180,9 +181,7 @@ class ClickhouseFunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
@@ -644,11 +643,10 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team, extra_params={"offset": 0}
             )
 
         return None

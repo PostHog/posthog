@@ -58,7 +58,8 @@ export enum InsightEventSource {
 export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
-    RecordingsList = 'recordings_list', // New recordings list page
+    RecordingsList = 'recordings_list',
+    ProjectHomepage = 'project_homepage',
 }
 
 export enum GraphSeriesAddedSource {
@@ -178,7 +179,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together
+        properties_all: properties_global.concat(properties_local),
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
@@ -215,7 +216,7 @@ export const eventUsageLogic = kea<
             insightMode,
             isFirstLoad,
             fromDashboard,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay,
             changedFilters,
         }),
         reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
@@ -427,6 +428,9 @@ export const eventUsageLogic = kea<
             loadTime,
             error,
         }),
+        reportInsightOpenedFromRecentInsightList: true,
+        reportRecordingOpenedFromRecentRecordingList: true,
+        reportPersonOpenedFromNewlySeenPersonsList: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -485,14 +489,15 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight })
         },
-        reportInsightViewed: async (
-            { insightModel, filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
-            breakpoint
-        ) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-            }
-
+        reportInsightViewed: ({
+            insightModel,
+            filters,
+            insightMode,
+            isFirstLoad,
+            fromDashboard,
+            delay,
+            changedFilters,
+        }) => {
             const { insight } = filters
 
             const properties: Record<string, any> = {
@@ -990,6 +995,15 @@ export const eventUsageLogic = kea<
                 load_time: loadTime,
                 error,
             })
+        },
+        reportInsightOpenedFromRecentInsightList: () => {
+            posthog.capture('insight opened from recent insight list')
+        },
+        reportRecordingOpenedFromRecentRecordingList: () => {
+            posthog.capture('recording opened from recent recording list')
+        },
+        reportPersonOpenedFromNewlySeenPersonsList: () => {
+            posthog.capture('person opened from newly seen persons list')
         },
     }),
 })

@@ -1,5 +1,5 @@
 import { BuiltLogic, kea } from 'kea'
-import { Breadcrumb, FilterType, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
+import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
 import { insightSceneLogicType } from './insightSceneLogicType'
@@ -7,7 +7,29 @@ import { urls } from 'scenes/urls'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+
+/** Return null if there are no changes to be discarded, false if user confirmed discarding, and true if rejected. */
+export function preventDiscardingInsightChanges(): boolean | null {
+    let shouldPreventNavigatingAway: boolean | null = null
+    let shouldCancelChanges: boolean = false
+    const mountedInsightSceneLogic = insightSceneLogic.findMounted()
+    if (mountedInsightSceneLogic?.values.syncedInsightChanged) {
+        // Cancel changes automatically if not in edit mode
+        shouldCancelChanges = mountedInsightSceneLogic?.values.insightMode !== ItemMode.Edit
+        if (!shouldCancelChanges) {
+            // If in edit mode, make sure cancelling changes is OK, and prevent navigation if it isn't
+            shouldCancelChanges = confirm('Leave insight? Changes you made will be discarded.')
+            shouldPreventNavigatingAway = !shouldCancelChanges
+        }
+        if (shouldCancelChanges) {
+            mountedInsightSceneLogic?.values.insightCache?.logic.actions.cancelChanges()
+        }
+    }
+    return shouldPreventNavigatingAway
+}
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
@@ -21,15 +43,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             insightId,
             insightMode,
         }),
-        setInsightLogic: (
-            logic: BuiltLogic<insightLogicType> | null,
-            selector: ((state: any, props: any) => Partial<InsightModel>) | null,
-            unmount: null | (() => void)
-        ) => ({
+        setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
-            selector,
             unmount,
         }),
+        syncInsightChanged: (syncedInsightChanged: boolean) => ({ syncedInsightChanged }),
     },
     reducers: {
         insightId: [
@@ -46,6 +64,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
+        syncedInsightChanged: [
+            // Connecting `insightChanged` via `insightCache.logic.selectors` sometimes gives stale values,
+            // so instead saving the up-to-date value right in this logic with a `useEffect` in the `Insight` component
+            false,
+            {
+                syncInsightChanged: (_, { syncedInsightChanged }) => syncedInsightChanged,
+            },
+        ],
         lastInsightModeSource: [
             null as InsightEventSource | null,
             {
@@ -55,17 +81,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         insightCache: [
             null as null | {
                 logic: BuiltLogic<insightLogicType>
-                selector: (state: any, props: any) => Partial<InsightModel> | null
                 unmount: () => void
             },
             {
-                setInsightLogic: (_, { logic, selector, unmount }) =>
-                    logic && selector && unmount ? { logic, selector, unmount } : null,
+                setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
     },
     selectors: () => ({
-        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.selector],
+        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [s.insight],
@@ -94,10 +118,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 if (insightId) {
                     const logic = insightLogic.build({ dashboardItemId: insightId }, false)
                     const unmount = logic.mount()
-                    const selector = logic.selectors.insight
-                    actions.setInsightLogic(logic, selector, unmount)
+                    actions.setInsightLogic(logic, unmount)
                 } else {
-                    actions.setInsightLogic(null, null, null)
+                    actions.setInsightLogic(null, null)
                 }
                 if (oldCache) {
                     oldCache.unmount()
@@ -114,6 +137,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         ) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
+
+            // If navigating from an unsaved insight to a different insight within the scene, prompt the user
+            if (
+                sceneLogic.findMounted()?.values.scene === Scene.Insight &&
+                method === 'PUSH' &&
+                (values.insightId === 'new' || insightId !== values.insightId) &&
+                preventDiscardingInsightChanges()
+            ) {
+                return
+            }
 
             // this makes sure we have "values.insightCache?.logic" below
             if (insightId !== values.insightId || insightMode !== values.insightMode) {

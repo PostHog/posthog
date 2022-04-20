@@ -11,7 +11,7 @@ from ee.clickhouse.sql.trends.volume import (
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -41,10 +41,10 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts()}
         params = {**params, **math_params, **event_query_params}
 
-        if filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))

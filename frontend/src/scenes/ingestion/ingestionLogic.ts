@@ -85,6 +85,13 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 return platform === WEB ? 3 : 4 // (mobile & backend)
             },
         ],
+        onboarding1: [
+            () => [],
+            (): boolean => {
+                const featFlags = featureFlagLogic.values.featureFlags
+                return !!featFlags[FEATURE_FLAGS.ONBOARDING_1]
+            },
+        ],
     },
 
     actionToUrl: ({ values }) => ({

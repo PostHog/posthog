@@ -127,9 +127,10 @@
         }
 
         .feature-flag-variant {
-            flex-direction: row;
-            align-items: baseline;
-            padding: 12px 8px;
+            display: flex;
+            align-items: center;
+            height: 3.5rem;
+            padding: 0 0.5rem;
             background: #ffffff;
             border-width: 1px;
             border-color: $border;
@@ -183,15 +184,6 @@
     .draft-header {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
-    }
-
-    .stop-experiment {
-        background-color: $danger;
-        color: white;
-    }
-
-    .archive-experiment {
-        color: $danger;
     }
 
     .exp-description {
