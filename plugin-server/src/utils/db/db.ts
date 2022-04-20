@@ -534,7 +534,7 @@ export class DB {
         if (result.rows.length !== 0) {
             const personUuid = String(result.rows[0].uuid)
             const personCreatedAt = DateTime.fromISO(result.rows[0].created_at).toUTC()
-            const personProperties: Properties = { ...result.rows[0].properties }
+            const personProperties: Properties = result.rows[0].properties
             await Promise.all([
                 this.updatePersonUuidCache(teamId, personId, personUuid),
                 this.updatePersonCreatedAtCache(teamId, personId, personCreatedAt),
