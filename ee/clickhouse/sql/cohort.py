@@ -75,28 +75,6 @@ WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id {count_condition}
 """
 
-GET_PERSON_ID_FIRST_TIME_EVENT = """
-SELECT person_id FROM (
-    SELECT person_id, min(timestamp) as timestamp FROM events
-    INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
-    ON events.distinct_id = pdi.distinct_id
-    WHERE team_id = %(team_id)s AND {entity_query}
-    GROUP BY person_id HAVING {date_query}
-)
-"""
-
-
-GET_PERSON_ID_EVENT_LIFECYCLE = """
-SELECT person_id FROM (
-    SELECT person_id, {period_values} FROM events
-    INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
-    ON events.distinct_id = pdi.distinct_id
-    WHERE team_id = %(team_id)s {date_query} AND {entity_query}
-    GROUP BY person_id
-)
-WHERE {period_filter}
-"""
-
 GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """
