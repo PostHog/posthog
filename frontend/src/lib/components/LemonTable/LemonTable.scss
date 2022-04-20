@@ -47,13 +47,13 @@
         font-size: 0.75rem;
         letter-spacing: 0.03125rem;
         > tr {
-            &:first-of-type:not(:last-of-type) {
-                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
-            }
             > th {
                 font-weight: 700;
                 text-align: left;
                 white-space: pre-wrap;
+            }
+            &.LemonTable__th--groups {
+                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
             }
             &.LemonTable__loader {
                 transition: height 200ms ease, top 200ms ease;
