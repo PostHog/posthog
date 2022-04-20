@@ -43,7 +43,9 @@ export function DashboardItems(): JSX.Element {
                 margin={[16, 16]}
                 containerPadding={[0, 0]}
                 onLayoutChange={(_, newLayouts) => {
-                    updateLayouts(newLayouts)
+                    if (dashboardMode === DashboardMode.Edit) {
+                        updateLayouts(newLayouts)
+                    }
                 }}
                 onWidthChange={(containerWidth, _, newCols) => {
                     updateContainerWidth(containerWidth, newCols)
