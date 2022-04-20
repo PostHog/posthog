@@ -139,7 +139,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                           }),
             }),
             submit: (cohort) => {
-                console.log('COHORT', cohort)
                 actions.saveCohort(cohort)
             },
         },
