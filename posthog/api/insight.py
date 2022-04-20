@@ -326,16 +326,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         return serialized_data
 
-    # TODO deprecate/remove this endpoint
-    @action(methods=["patch"], detail=False)
-    def layouts(self, request, **kwargs):
-        """Dashboard item layouts."""
-        queryset = self.get_queryset()
-        for data in request.data["items"]:
-            queryset.filter(pk=data["id"]).update(layouts=data["layouts"])
-        serializer = self.get_serializer(queryset.all(), many=True)
-        return Response(serializer.data)
-
     # ******************************************
     # Calculated Insight Endpoints
     # /projects/:id/insights/trend
