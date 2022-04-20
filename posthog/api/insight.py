@@ -307,8 +307,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
 
-        Insights can be added ot more than one dashboard, this allows the insight to be loaded in the correct context.
-        Using the correct cache, and enriching the response with dashboard specific config (e.g. layouts, or colors)
+        Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
+
+        Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
         """
         instance = self.get_object()
         serialized_data = self.get_serializer(instance).data
