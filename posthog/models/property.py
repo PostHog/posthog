@@ -54,10 +54,8 @@ OperatorType = Literal[
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]
-MatchGroupOperator = Literal["AND", "OR"]
 GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
-PropertyIdentifierWithMatchGroup = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex], MatchGroupOperator]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]

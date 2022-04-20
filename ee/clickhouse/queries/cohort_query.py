@@ -13,11 +13,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import OperatorInterval, Property, PropertyGroup, PropertyName
 
 Relative_Date = Tuple[int, OperatorInterval]
-NOW: Relative_Date = (0, "now")
-
-Period = Tuple[Relative_Date, Relative_Date]
 Event = Tuple[str, Union[str, int]]
-Event_In_Period = Tuple[Event, Period]
 
 
 INTERVAL_TO_DAYS = {
@@ -361,10 +357,7 @@ INTERVAL_TO_SECONDS = {
 
 
 def relative_date_to_seconds(date: Relative_Date):
-    if date == NOW:
-        return 0
-    else:
-        return date[0] * INTERVAL_TO_SECONDS[date[1]]
+    return date[0] * INTERVAL_TO_SECONDS[date[1]]
 
 
 def validate_interval(interval: str) -> str:
