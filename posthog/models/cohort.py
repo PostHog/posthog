@@ -112,7 +112,8 @@ class Cohort(models.Model):
                             [
                                 Property(
                                     key=group.get("action_id"),
-                                    type="performed_event_multiple",
+                                    type="behavioural",
+                                    value="performed_event_multiple",
                                     event_type="action",
                                     time_interval="day",
                                     time_value=group.get("days"),
@@ -129,7 +130,8 @@ class Cohort(models.Model):
                             [
                                 Property(
                                     key=group.get("event_id"),
-                                    type="performed_event_multiple",
+                                    type="behavioural",
+                                    value="performed_event_multiple",
                                     event_type="event",
                                     time_interval="day",
                                     time_value=group.get("days"),
