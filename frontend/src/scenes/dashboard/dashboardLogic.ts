@@ -562,7 +562,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: async ({ insightNumericId, color }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightNumericId}`, { color })
+            if (!values.dashboard) {
+                // what are we saving colors against?!
+                return
+            }
+
+            return api.update(`api/projects/${values.currentTeamId}/dashboards/${values.dashboard.id}`, {
+                colors: [{ id: insightNumericId, color }],
+            })
         },
         removeItem: async ({ insight }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
