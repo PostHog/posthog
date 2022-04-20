@@ -108,11 +108,10 @@ class Insight(models.Model):
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        dashboards = list(self.dashboards.all())
-        if not dashboards:
+        if self.dashboards.count() == 0:
             return Dashboard.PrivilegeLevel.CAN_EDIT
 
-        edit_permissions = [d.can_user_edit(user_id) for d in dashboards]
+        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
         if any(edit_permissions):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:

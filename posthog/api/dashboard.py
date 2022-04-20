@@ -20,9 +20,8 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team
+from posthog.models import Dashboard, DashboardTile, Insight, Team
 from posthog.models.user import User
-from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -186,7 +185,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tiles = (
             DashboardTile.objects.filter(dashboard=dashboard)
-            .select_related("insight", "insight__created_by", "insight__last_modified_by", "insight__team")
+            .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
+            .prefetch_related("insight__dashboards")
             .order_by("insight__order")
         )
         # TODO using dashboard.insights.through.objects.filter() instead of tiles explodes by ten instead
@@ -195,6 +195,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         for tile in tiles:
             if tile.insight:
                 insight = tile.insight
+                layouts = tile.layouts
+                color = tile.color
 
                 # Make sure all items have an insight set
                 if not insight.filters.get("insight"):
@@ -202,8 +204,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     insight.save(update_fields=["filters"])
 
                 insight_data = InsightSerializer(insight, many=False, context=self.context).data
-                insight_data["layouts"] = tile.layouts
-                insight_data["color"] = tile.color
+                insight_data["layouts"] = layouts
+                insight_data["color"] = color
                 insights.append(insight_data)
 
         return insights
@@ -246,17 +248,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        deferred_fields = set.union(
-            get_deferred_field_set_for_model(
-                Organization, fields_not_deferred={"available_features"}, field_prefix="team__organization__"
-            ),
-            get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
-        )
-
-        queryset = (
-            queryset.select_related("team__organization", "created_by")
-            .defer(*deferred_fields)
-            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")),)
+        queryset = queryset.select_related("team__organization", "created_by").prefetch_related(
+            Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"),),
         )
         return queryset
 
