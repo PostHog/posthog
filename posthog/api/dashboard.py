@@ -186,10 +186,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         tiles = (
             DashboardTile.objects.filter(dashboard=dashboard)
             .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
-            .prefetch_related("insight__dashboards")
+            .prefetch_related("insight__dashboards__team__organization")
             .order_by("insight__order")
         )
-        # TODO using dashboard.insights.through.objects.filter() instead of tiles explodes by ten instead
 
         insights = []
         for tile in tiles:

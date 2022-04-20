@@ -1,6 +1,5 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
-from unittest import skip
 
 from dateutil import parser
 from django.db import DEFAULT_DB_ALIAS, connection, connections
@@ -201,14 +200,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             query_count = len(capture_query_context.captured_queries)
             return query_count, capture_query_context.captured_queries
 
-    @skip(
-        """
-        Because it is nplus1 for gets...
-
-        Currently each additional insight on the dashboard adds 7 new queries
-            to the number of queries needed to load it
-    """
-    )
+    @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
         dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
@@ -234,9 +226,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then the same no matter how many insights there are
+        # then only climbs by one query for each additional insight
         self.assertTrue(
-            all(x == query_counts[1] for x in query_counts[2:]), f"received: {query_counts} for queries: \n\n {queries}"
+            all(j - i == 1 for i, j in zip(query_counts[2:], query_counts[3:])),
+            f"received: {query_counts} for queries: \n\n {queries}",
         )
 
     def test_no_cache_available(self):
