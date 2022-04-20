@@ -28,11 +28,7 @@ class LicenseError(exceptions.APIException):
 
 class LicenseManager(models.Manager):
     def first_valid(self) -> Optional["License"]:
-        """Return the most recently activated valid license.
-
-        We take the most recent one to support the case where someone who already had a license for a lower plan
-        upgrades to a higher one.
-        """
+        """Return the highest valid license."""
         valid_licenses = list(self.filter(valid_until__gte=timezone.now()))
         if not valid_licenses:
             return None
