@@ -81,7 +81,7 @@ export function getValueOfToken(
     let markdown = ''
 
     if (tokenParts[0] === 'user') {
-        // user.foo is DEPRECATED, person.foo should be used instead
+        // user.foo is DEPRECATED as it was odd, person.name OR event.properties.foo should be used instead
         if (tokenParts[1] === 'name') {
             ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
         } else {
