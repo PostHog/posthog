@@ -91,11 +91,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 from posthog.api.insight import InsightSerializer
 
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .select_related("insight")
-                    .prefetch_related("insight")
-                )
+                existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
                     new_data = {
                         **InsightSerializer(existing_tile.insight, context=self.context,).data,
