@@ -106,6 +106,8 @@ export function getValueOfToken(
     } else if (tokenParts[0] === 'event') {
         if (tokenParts[1] === 'name') {
             text = stringify(event.event)
+        } else if (tokenParts[1] === 'distinct_id') {
+            text = stringify(event.distinct_id)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.properties?.[propertyName]
