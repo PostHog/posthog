@@ -106,7 +106,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                 <Row gutter={[16, 24]} style={{ maxWidth: 640 }}>
                     <Col xs={24} sm={12}>
                         <Field name="name" label="Name">
-                            {({ value, onValueChange }) => <LemonInput value={value} onChange={onValueChange} />}
+                            {({ value, onValueChange }) => (
+                                <LemonInput value={value} onChange={onValueChange} data-attr="cohort-name" />
+                            )}
                         </Field>
                     </Col>
                     <Col xs={24} sm={12}>
@@ -128,6 +130,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             type="stealth"
                                             outlined
                                             style={{ width: '100%' }}
+                                            data-attr="cohort-type"
                                         />
                                     </div>
                                 </Tooltip>
@@ -138,7 +141,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                 {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                     <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
                         <Col span={24}>
-                            <Field name="description" label="Description" data-attr="cohort-name">
+                            <Field name="description" label="Description" data-attr="cohort-description">
                                 {({ value, onValueChange }) => <LemonTextArea value={value} onChange={onValueChange} />}
                             </Field>
                         </Col>
@@ -147,7 +150,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                 {cohort.is_static ? (
                     <Row gutter={24} className="mt ph-ignore-input">
                         <Col span={24}>
-                            <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'}>
+                            <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
                                 {({ onValueChange }) => (
                                     <>
                                         <span className="mb">
