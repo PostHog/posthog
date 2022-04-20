@@ -14,8 +14,8 @@ from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_E
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
-from posthog.client import sync_execute
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
+from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 

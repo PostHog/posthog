@@ -43,7 +43,7 @@ def start_async_migration(
     6. The migration's healthcheck passes
     7. The migration's dependency has been completed
     """
-    send_analytics_to_posthog("Async migrations start", {"name": {migration_name}})
+    send_analytics_to_posthog("Async migration start", {"name": migration_name})
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS

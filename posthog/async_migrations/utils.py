@@ -78,15 +78,13 @@ def process_error(
         finished_at=now(),
     )
     send_analytics_to_posthog(
-        "Async migrations error",
+        "Async migration error",
         {
-            "name": {migration_instance.name},
-            "error": {error},
-            "current_operation_index": {
-                migration_instance.current_operation_index
-                if current_operation_index is None
-                else current_operation_index
-            },
+            "name": migration_instance.name,
+            "error": error,
+            "current_operation_index": migration_instance.current_operation_index
+            if current_operation_index is None
+            else current_operation_index,
         },
     )
 
@@ -164,7 +162,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             finished_at=finished_at,
             progress=100,
         )
-        send_analytics_to_posthog("Async migration completed", {"name": {migration_instance.name}})
+        send_analytics_to_posthog("Async migration completed", {"name": migration_instance.name})
 
         if email and async_migrations_emails_enabled():
             from posthog.tasks.email import send_async_migration_complete_email
