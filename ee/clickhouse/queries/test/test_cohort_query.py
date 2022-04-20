@@ -268,7 +268,43 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         pass
 
     def test_performed_event_regularly(self):
-        pass
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=3 * i, hours=1),
+            )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "event",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_interval": "day",
+                            "time_value": 3,
+                            "total_periods": 11,
+                            "min_periods": 10,
+                            "type": "performed_event_regularly",
+                        }
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
 
     def test_person_props(self):
         pass
