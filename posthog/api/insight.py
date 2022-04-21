@@ -197,7 +197,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if not insight.filters:
             return None
         if should_refresh(self.context["request"]):
-            return update_insight_cache(insight, None)
+            dashboard = self.context.get("dashboard", None)
+            return update_insight_cache(insight, dashboard)
 
         result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):

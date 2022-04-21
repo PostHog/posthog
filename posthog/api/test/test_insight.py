@@ -449,13 +449,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @patch("posthog.api.insight.update_insight_cache", wraps=update_insight_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
+
         with freeze_time("2012-01-14T03:21:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             _create_event(team=self.team, event="$pageview", distinct_id="2")
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/insights", data={"filters": {"events": [{"id": "$pageview"}]}}
+                f"/api/projects/{self.team.id}/insights",
+                data={"filters": {"events": [{"id": "$pageview"}]}, "dashboards": [dashboard_id]},
             ).json()
             self.assertEqual(response["last_refresh"], None)
 
@@ -473,9 +476,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
+        with freeze_time("2012-01-16T05:01:34.000Z"):
+            # load it in the context of the dashboard, so has last 14 days as filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
+            ).json()
+            self.assertEqual(spy_update_insight_cache.call_count, 3)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 1.0, 0.0],
+            )
+            self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-            self.assertEqual(spy_update_insight_cache.call_count, 2)
+            self.assertEqual(spy_update_insight_cache.call_count, 3)
             self.assertEqual(response["last_refresh"], None)
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
