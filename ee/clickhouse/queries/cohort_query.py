@@ -6,30 +6,53 @@ from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.models import Filter, Team
 from posthog.models.action import Action
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import OperatorInterval, Property, PropertyGroup, PropertyName
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
 
 
-INTERVAL_TO_DAYS = {
-    "now": 0,
-    "day": 1,
-    "week": 7,
-    "month": 31,
-    "year": 365,
+INTERVAL_TO_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+    "year": 31536000,
 }
+
+
+def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
+    if date[0] is None or date[1] is None:
+        raise ValueError("Time value and time interval must be specified")
+
+    return date[0] * INTERVAL_TO_SECONDS[date[1]]
+
+
+def validate_interval(interval: Optional[OperatorInterval]) -> str:
+    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
+        raise ValueError(f"Invalid interval: {interval}")
+    else:
+        return interval
+
+
+def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
+    if value is None:
+        raise ValueError(f"{value_name} cannot be None")
+    try:
+        parsed_value = int(value)
+    except ValueError:
+        raise ValueError(f"{value_name} must be an integer, got {value}")
+    if parsed_value < 0:
+        raise ValueError(f"{value_name} must be greater than 0, got {value}")
+    return parsed_value
 
 
 def relative_date_is_greater(date_1: Relative_Date, date_2: Relative_Date) -> bool:
     if date_1[1] == date_2[1]:
         return date_1[0] > date_2[0]
 
-    return date_1[0] * INTERVAL_TO_DAYS[date_1[1]] > date_2[0] * INTERVAL_TO_DAYS[date_2[1]]
+    return relative_date_to_seconds(date_1) > relative_date_to_seconds(date_2)
 
 
 class CohortQuery(EnterpriseEventQuery):
@@ -40,7 +63,7 @@ class CohortQuery(EnterpriseEventQuery):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter],
+        filter: Filter,
         team: Team,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -67,7 +90,16 @@ class CohortQuery(EnterpriseEventQuery):
             **kwargs,
         )
 
+        property_groups = self._column_optimizer.property_optimizer.parse_property_groups(self._filter.property_groups)
+        self._inner_property_groups = property_groups.inner
+        self._outer_property_groups = property_groups.outer
+
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        if not self._outer_property_groups:
+            # everything is pushed down, no behavioural stuff to do
+            # thus, use personQuery directly
+            return self._person_query.get_query()
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()
@@ -114,18 +146,27 @@ class CohortQuery(EnterpriseEventQuery):
         )
 
     def _get_person_query(self) -> Tuple[str, Dict]:
-        #
-        # FULL OUTER JOIN because the query needs to account for all people if there are or groups
-        #
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
-            return (
-                f"""
-            FULL OUTER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
-            ON {self.PERSON_TABLE_ALIAS}.id = {self.BEHAVIOR_QUERY_ALIAS}.person_id
-            """,
-                params,
-            )
+
+            if "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]:
+                # No outer group properties relate to persons, so inner join is sufficient
+                return (
+                    f"""
+                    INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
+                    ON {self.PERSON_TABLE_ALIAS}.id = {self.BEHAVIOR_QUERY_ALIAS}.person_id
+                    """,
+                    params,
+                )
+            else:
+                # FULL OUTER JOIN because the query needs to account for all people if there are or groups
+                return (
+                    f"""
+                FULL OUTER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
+                ON {self.PERSON_TABLE_ALIAS}.id = {self.BEHAVIOR_QUERY_ALIAS}.person_id
+                """,
+                    params,
+                )
         else:
             return "", {}
 
@@ -135,7 +176,10 @@ class CohortQuery(EnterpriseEventQuery):
 
     # TODO: Build conditions based on property group
     def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
-        def build_conditions(prop: Union[PropertyGroup, Property], prepend="level", num=0):
+        def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
+            if not prop:
+                return "", {}
+
             if isinstance(prop, PropertyGroup):
                 params = {}
                 conditions = []
@@ -149,29 +193,33 @@ class CohortQuery(EnterpriseEventQuery):
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
-        conditions, params = build_conditions(self._filter.property_groups, prepend="level", num=0)
+        conditions, params = build_conditions(self._outer_property_groups, prepend="level", num=0)
         return f"AND ({conditions})" if conditions else "", params
 
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
 
         res: str = ""
         params: Dict[str, Any] = {}
-        if prop.value == "performed_event":
-            res, params = self.get_performed_event_condition(prop, prepend, idx)
-        elif prop.value == "performed_event_multiple":
-            res, params = self.get_performed_event_multiple(prop, prepend, idx)
-        elif prop.value == "stopped_performing_event":
-            res, params = self.get_stopped_performing_event(prop, prepend, idx)
-        elif prop.value == "restarted_performing_event":
-            res, params = self.get_restarted_performing_event(prop, prepend, idx)
-        elif prop.value == "performed_event_first_time":
-            res, params = self.get_performed_event_first_time(prop, prepend, idx)
-        elif prop.value == "performed_event_sequence":
-            res, params = self.get_performed_event_sequence(prop, prepend, idx)
-        elif prop.value == "performed_event_regularly":
-            res, params = self.get_performed_event_regularly(prop, prepend, idx)
-        elif prop.value == "person":
+
+        if prop.type == "behavioural":
+            if prop.value == "performed_event":
+                res, params = self.get_performed_event_condition(prop, prepend, idx)
+            elif prop.value == "performed_event_multiple":
+                res, params = self.get_performed_event_multiple(prop, prepend, idx)
+            elif prop.value == "stopped_performing_event":
+                res, params = self.get_stopped_performing_event(prop, prepend, idx)
+            elif prop.value == "restarted_performing_event":
+                res, params = self.get_restarted_performing_event(prop, prepend, idx)
+            elif prop.value == "performed_event_first_time":
+                res, params = self.get_performed_event_first_time(prop, prepend, idx)
+            elif prop.value == "performed_event_sequence":
+                res, params = self.get_performed_event_sequence(prop, prepend, idx)
+            elif prop.value == "performed_event_regularly":
+                res, params = self.get_performed_event_regularly(prop, prepend, idx)
+        elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
+        else:
+            raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
         return res, params
 
@@ -294,7 +342,7 @@ class CohortQuery(EnterpriseEventQuery):
         seq_entity_query, seq_entity_params = self._get_entity(seq_event, f"{prepend}_seq", idx)
         seq_date_value = (prop.seq_time_value, prop.seq_time_interval)
 
-        field = f"""windowFunnel({relative_date_to_seconds(seq_date_value)})(toDateTime(timestamp), {entity_query} AND now() - INTERVAL %({date_value})s {date_interval}, {seq_entity_query}) AS {column_name}"""
+        field = f"""windowFunnel({relative_date_to_seconds(seq_date_value)})(toDateTime(timestamp), {entity_query} AND timestamp >= now() - INTERVAL %({date_value})s {date_interval}, {seq_entity_query}) AS {column_name}"""
 
         self._fields.append(field)
 
@@ -373,39 +421,3 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _add_event(self, event_id: str) -> None:
         self._events.append(event_id)
-
-
-INTERVAL_TO_SECONDS = {
-    "minute": 60,
-    "hour": 3600,
-    "day": 86400,
-    "week": 604800,
-    "month": 2592000,
-    "year": 31536000,
-}
-
-
-def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
-    if date[0] is None or date[1] is None:
-        raise ValueError("Time value and time interval must be specified")
-
-    return date[0] * INTERVAL_TO_SECONDS[date[1]]
-
-
-def validate_interval(interval: Optional[OperatorInterval]) -> str:
-    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
-        raise ValueError(f"Invalid interval: {interval}")
-    else:
-        return interval
-
-
-def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
-    if value is None:
-        raise ValueError(f"{value_name} cannot be None")
-    try:
-        parsed_value = int(value)
-    except ValueError:
-        raise ValueError(f"{value_name} must be an integer, got {value}")
-    if parsed_value < 0:
-        raise ValueError(f"{value_name} must be greater than 0, got {value}")
-    return parsed_value

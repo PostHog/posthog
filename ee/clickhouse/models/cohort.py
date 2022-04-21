@@ -163,33 +163,6 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
 
 
-def get_periods(start_time, end_time, interval, interval_unit):
-    # TODO: do start and end time need truncating?
-    period_starts = []
-    params = {}
-    period_start = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-    # TODO: much hacking
-    period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
-    counter = 0
-    # TODO: handle complexities with incomplete periods
-    # Perhaps we shape the query such that you only give us start_time or end_time, and periods
-    # Did $pageview 10 times every week in the past month
-    # What's implicit above^ is that we're talking only in terms of periods, and an end_time.
-    # But its also ambigous, do 4 weeks, or 5 make up the past month? Depends on the month :$
-    while period_start < datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S"):
-        period_starts.append(period_start)
-        # TODO: timezone nonsense, also depends on interval_unit. Check always utc + aware
-        params[f"period_{counter}"] = period_start.strftime("%Y-%m-%d")
-        period_start = period_end
-        period_end = period_start + timedelta(**{f"{interval_unit}s": interval})
-        counter += 1
-
-    #  Final boundary
-    params[f"period_{counter}"] = period_start.strftime("%Y-%m-%d")
-    # TODO: also pretty sure there's few edge cases I'm missing. Just getting shape out, test later
-    return len(period_starts), params
-
-
 def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="

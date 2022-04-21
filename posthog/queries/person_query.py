@@ -83,7 +83,7 @@ class PersonQuery:
             HAVING max(is_deleted) = 0 {person_filters} {search_clause}
             {limit_offset}
         """,
-            {**params, **cohort_params, **limit_params, **search_params},
+            {**params, **cohort_params, **limit_params, **search_params, "team_id": self._team_id},
         )
 
     @property

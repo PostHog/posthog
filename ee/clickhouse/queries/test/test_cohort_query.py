@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.cohort_query import CohortQuery
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -31,6 +31,7 @@ def _make_event_sequence(team, distinct_id, interval_days, period_event_counts):
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
+    @snapshot_clickhouse_queries
     def test_basic_query(self):
 
         action1 = Action.objects.create(team=self.team, name="action1")
@@ -123,6 +124,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
+
+        # Since all props should be pushed down here, there should be no full outer join!
+        self.assertTrue("FULL OUTER JOIN" not in q)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -391,5 +395,159 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
         self.assertEqual(set([p1.uuid, p2.uuid]), set([r[0] for r in res]))
 
-    def test_person_props(self):
-        pass
+    @snapshot_clickhouse_queries
+    def test_person_props_only(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test1@posthog.com"}
+        )
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test2@posthog.com"}
+        )
+        p3 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test3", "email": "test3@posthog.com"}
+        )
+        # doesn't match
+        p4 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "test3", "email": "test4@posthog.com"}
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "value": "test1@posthog.com", "type": "person"},
+                                {"key": "email", "value": "test2@posthog.com", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "name", "value": "test3", "type": "person"},
+                                {"key": "email", "value": "test3@posthog.com", "type": "person"},
+                            ],
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        # Since all props should be pushed down here, there should be no full outer join!
+        self.assertTrue("FULL OUTER JOIN" not in q)
+
+        self.assertCountEqual([p1.uuid, p2.uuid, p3.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_person_properties_with_pushdowns(self):
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+        )
+
+        # satiesfies all conditions
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # doesn't satisfy action
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(weeks=3),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # satisfies special condition (not pushed down person property in OR group)
+        p3 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "special", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "day",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
+                                },
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
+                                },
+                                {"key": "name", "value": "special", "type": "person"},  # this is NOT pushed down
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": action1.pk,
+                                    "event_type": "actions",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event_first_time",
+                                    "type": "behavioural",
+                                },
+                                {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
+                            ],
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
