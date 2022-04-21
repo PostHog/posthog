@@ -53,11 +53,7 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
                             step={1}
                             onChange={(event) => {
                                 const newValue = parseFloat(event.target.value)
-                                if (!isNaN(newValue)) {
-                                    setTimeValue(newValue)
-                                } else {
-                                    setTimeValue('')
-                                }
+                                setTimeValue(newValue)
                             }}
                         />
                     </Space>
