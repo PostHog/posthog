@@ -183,17 +183,21 @@ class Team(UUIDClassicModel):
                 return None
             return requesting_parent_membership.level
 
-    @cached_property
+    @property
     def timezone_for_charts(self) -> str:
         """
         Stopgap function for rolling this feature out
         """
-        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
-        if posthoganalytics.feature_enabled(
-            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
-        ):
+        if self._timezone_feature_flag_enabled:
             return self.timezone
         return "UTC"
+
+    @cached_property
+    def _timezone_feature_flag_enabled(self) -> bool:
+        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
+        return posthoganalytics.feature_enabled(
+            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
+        )
 
     def __str__(self):
         if self.name:
