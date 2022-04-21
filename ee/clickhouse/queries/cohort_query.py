@@ -112,7 +112,7 @@ class CohortQuery(EnterpriseEventQuery):
         self.params.update(person_params)
 
         final_query = f"""
-        SELECT person_id FROM
+        SELECT person_id as id FROM
         ({behavior_subquery}) {self.BEHAVIOR_QUERY_ALIAS}
         {person_query}
         WHERE 1 = 1
