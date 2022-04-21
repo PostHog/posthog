@@ -4,6 +4,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { ComponentMeta } from '@storybook/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export default {
     title: 'Components/ActivityLog',
@@ -32,13 +33,13 @@ export default {
 } as ComponentMeta<typeof ActivityLog>
 
 export function WithData(): JSX.Element {
-    return <ActivityLog scope={'FeatureFlag'} id={7} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} describer={flagActivityDescriber} />
 }
 
 export function WithCaption(): JSX.Element {
     return (
         <ActivityLog
-            scope={'FeatureFlag'}
+            scope={ActivityScope.FEATURE_FLAG}
             id={7}
             describer={flagActivityDescriber}
             caption={
@@ -53,9 +54,9 @@ export function WithCaption(): JSX.Element {
 }
 
 export function WithNoData(): JSX.Element {
-    return <ActivityLog scope={'FeatureFlag'} id={6} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} describer={flagActivityDescriber} />
 }
 
 export function Timeout(): JSX.Element {
-    return <ActivityLog scope={'FeatureFlag'} id={5} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={5} describer={flagActivityDescriber} />
 }

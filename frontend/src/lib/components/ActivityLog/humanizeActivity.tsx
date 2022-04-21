@@ -19,7 +19,7 @@ export interface ActivityLogDetail {
     merge: PersonMerge | null
     changes: ActivityChange[] | null
     name: string
-    short_id: InsightShortId | null
+    short_id?: InsightShortId | null
 }
 
 export interface ActivityUser {

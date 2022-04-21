@@ -1,14 +1,13 @@
 import React from 'react'
-import { Tabs, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Button, Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
-import { useActions, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PersonLogicProps, personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { DownOutlined } from '@ant-design/icons'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -25,6 +24,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 const { TabPane } = Tabs
 
@@ -196,7 +196,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                 {!!featureFlags[FEATURE_FLAGS.PERSON_ACTIVITY_LOG] && (
                     <TabPane tab="History" key="history">
                         <ActivityLog
-                            scope="Person"
+                            scope={ActivityScope.PERSON}
                             id={person.id}
                             describer={personActivityDescriber}
                             caption={
