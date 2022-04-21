@@ -188,7 +188,7 @@ class Team(UUIDClassicModel):
         """
         Stopgap function for rolling this feature out
         """
-        if self._timezone_feature_flag_enabled:
+        if self.timezone != "UTC" and self._timezone_feature_flag_enabled:
             return self.timezone
         return "UTC"
 

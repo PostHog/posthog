@@ -67,7 +67,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
         )
 
-    @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups(self):
         self._create_groups()
 
