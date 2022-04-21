@@ -21,7 +21,7 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
     key: (props) => props.pageKey || 'global',
     props: {} as DurationFilterProps,
     actions: {
-        setTimeValue: (timeValue: number) => ({ timeValue }),
+        setTimeValue: (timeValue: number | '') => ({ timeValue }),
         setUnit: (unit: TimeUnit) => ({ unit }),
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setOperator: (operator: PropertyOperator) => ({ operator }),
@@ -64,7 +64,12 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
                 } else {
                     durationString += '< '
                 }
-                durationString += timeValue
+
+                if (timeValue === '') {
+                    durationString += '0'
+                } else {
+                    durationString += timeValue
+                }
                 if (timeValue === 1) {
                     durationString += ' ' + unit.slice(0, -1)
                 } else {

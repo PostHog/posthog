@@ -227,7 +227,9 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         <DurationFilter
                             onChange={(newFilter) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
-                                setDurationFilter(newFilter)
+                                if (!isNaN(newFilter.value)) {
+                                    setDurationFilter(newFilter)
+                                }
                             }}
                             initialFilter={durationFilter}
                             pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
