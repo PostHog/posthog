@@ -63,6 +63,10 @@ export function PathTab(): JSX.Element {
     const onClickPathtype = (pathType: PathType): void => {
         if (filter.include_event_types) {
             if (filter.include_event_types.includes(pathType)) {
+                if (filter.include_event_types.length === 1) {
+                    // if only one path type is selected, do nothing
+                    return
+                }
                 setFilter({
                     include_event_types: filter.include_event_types.filter((types) => types !== pathType),
                 })
