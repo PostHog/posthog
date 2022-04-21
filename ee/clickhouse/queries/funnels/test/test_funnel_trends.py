@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pytz
 from freezegun.api import freeze_time
@@ -1209,3 +1210,54 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         result = funnel_trends.run()
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones_trends(self, patch_feature_enabled):
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 9)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 10)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 4, 3)},
+                ],
+                "user_eight": [],
+            },
+            self.team,
+        )
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-04-30 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        results_pacific = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+
+        saturday = results[1]  # 5/1
+        self.assertEqual(1, saturday["reached_to_step_count"])
+        self.assertEqual(1, saturday["reached_from_step_count"])
+        self.assertEqual(100.0, saturday["conversion_rate"])
+
+        friday_pacific = results_pacific[0]
+        self.assertEqual(1, friday_pacific["reached_to_step_count"])
+        self.assertEqual(1, friday_pacific["reached_from_step_count"])
+        self.assertEqual(100.0, friday_pacific["conversion_rate"])

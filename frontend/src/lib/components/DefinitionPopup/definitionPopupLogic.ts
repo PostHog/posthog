@@ -141,7 +141,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         ],
         hasTaxonomyFeatures: [
             (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
+            (hasAvailableFeature) =>
+                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
+                hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
             (s) => [s.type],

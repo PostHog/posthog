@@ -808,3 +808,100 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_get_recently_viewed_insights(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
+        )
+        response_data = response.json()
+
+        # No results if no insights have been viewed
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["id"], insight.id)
+
+    def test_get_recently_viewed_insights_when_no_insights_viewed(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
+        )
+        response_data = response.json()
+        # No results if no insights have been viewed
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 0)
+
+    def test_recently_viewed_insights_ordered_by_view_date(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        insight_1 = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+        insight_2 = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="98765432",
+        )
+
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2.id}/viewed")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
+        )
+        response_data = response.json()
+
+        # Insights are ordered by most recently viewed
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(response_data["results"][0]["id"], insight_2.id)
+        self.assertEqual(response_data["results"][1]["id"], insight_1.id)
+
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
+        )
+        response_data = response.json()
+
+        # Order updates when an insight is viewed again
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(response_data["results"][0]["id"], insight_1.id)
+        self.assertEqual(response_data["results"][1]["id"], insight_2.id)
+
+    def test_another_user_viewing_an_insight_does_not_impact_the_list(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+        another_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
+        InsightViewed.objects.create(team=self.team, user=another_user, insight=insight, last_viewed_at=timezone.now())
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
+        )
+        response_data = response.json()
+
+        # Insights are ordered by most recently viewed
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 0)

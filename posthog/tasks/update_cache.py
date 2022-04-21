@@ -54,7 +54,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
-    filter = get_filter(data=filter_dict, team=Team(pk=team_id))
+    team = Team.objects.get(pk=team_id)
+    filter = get_filter(data=filter_dict, team=team)
 
     # Doing the filtering like this means we'll update _all_ Insights with the same filters hash
     dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
@@ -62,9 +63,9 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
 
     try:
         if cache_type == CacheType.FUNNEL:
-            result = _calculate_funnel(filter, key, team_id)
+            result = _calculate_funnel(filter, key, team)
         else:
-            result = _calculate_by_filter(filter, key, team_id, cache_type)
+            result = _calculate_by_filter(filter, key, team, cache_type)
         cache.set(
             key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
         )
@@ -149,19 +150,17 @@ def dashboard_item_update_task_params(
     return cache_key, cache_type, payload
 
 
-def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
-        result = insight_class(filter, Team(pk=team_id)).run(filter, Team(pk=team_id))
+        result = insight_class(filter, team).run(filter, team)
     else:
-        result = insight_class().run(filter, Team(pk=team_id))
+        result = insight_class().run(filter, team)
     return result
 
 
-def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    team = Team(pk=team_id)
-
+def _calculate_funnel(filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:

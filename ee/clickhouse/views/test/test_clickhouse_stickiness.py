@@ -1,14 +1,17 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from django.test.client import Client
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import _create_event, _create_person
 
@@ -115,3 +118,54 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert sorted([p["id"] for p in week1_actors]) == sorted(["org:0", "org:2"])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
         assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones(self, patch_feature_enabled):
+        people = journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2021, 5, 2, 1),
+                    },  # this time will fall on 5/1 in US Pacific
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 2, 9)},
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 3)},
+                ],
+            },
+            self.team,
+        )
+
+        data = ClickhouseStickiness().run(
+            filter=StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2021-05-01",
+                    "date_to": "2021-05-15",
+                    "events": [{"id": "$pageview"}],
+                },
+                team=self.team,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(data[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        self.assertEqual(data[0]["data"], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        data_pacific = ClickhouseStickiness().run(
+            filter=StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2021-05-01",
+                    "date_to": "2021-05-15",
+                    "events": [{"id": "$pageview"}],
+                },
+                team=self.team,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(data_pacific[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        self.assertEqual(data_pacific[0]["data"], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
