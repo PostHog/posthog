@@ -1,7 +1,7 @@
 # name: TestCohortQuery.test_basic_query
   '
   
-  SELECT person_id
+  SELECT person_id as id
   FROM
     (SELECT pdi.person_id as person_id,
             countIf(timestamp > now() - INTERVAL 2 day
@@ -41,7 +41,7 @@
 # name: TestCohortQuery.test_person_properties_with_pushdowns
   '
   
-  SELECT person_id
+  SELECT person_id as id
   FROM
     (SELECT pdi.person_id as person_id,
             countIf(timestamp > now() - INTERVAL 2 day
