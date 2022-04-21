@@ -5,9 +5,9 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0002_events_sample_by"
 
@@ -18,7 +18,7 @@ def execute_query(query: str) -> Any:
     return sync_execute(query)
 
 
-class Test0002EventsSampleBy(BaseTest):
+class Test0002EventsSampleBy(AsyncMigrationBaseTest):
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
         from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL

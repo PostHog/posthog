@@ -62,7 +62,14 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
-        return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                group_type_index=self.request.GET["group_type_index"],
+                group_key__icontains=self.request.GET.get("group_key", ""),
+            )
+        )
 
     @action(methods=["GET"], detail=False)
     def find(self, request: request.Request, **kw) -> response.Response:

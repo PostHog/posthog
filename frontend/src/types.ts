@@ -399,7 +399,7 @@ export interface PlayerPosition {
 
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
-    payload: string[]
+    payload: (string | null)[]
     trace: string[]
 }
 
@@ -577,7 +577,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new' | 'personsModalNew'
+    id: number | 'new'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
