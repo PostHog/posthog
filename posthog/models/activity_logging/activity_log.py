@@ -84,7 +84,17 @@ class ActivityLog(UUIDModel):
 field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
     "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
-    "Insight": [],
+    "Insight": [
+        "id",
+        "filters_hash",
+        "created_at",
+        "refreshing",
+        "dive_dashboard",
+        "updated_at",
+        "type",
+        "funnel",
+        "deprecated_tags",
+    ],
 }
 
 
