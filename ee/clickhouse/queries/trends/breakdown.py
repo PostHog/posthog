@@ -37,7 +37,7 @@ from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
+from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -170,7 +170,7 @@ class ClickhouseTrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix="0," if self.filter.interval == "week" else "",
+                    start_of_week_fix=start_of_week_fix(self.filter),
                     **breakdown_filter_params,
                 )
             else:
@@ -181,7 +181,7 @@ class ClickhouseTrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix="0," if self.filter.interval == "week" else "",
+                    start_of_week_fix=start_of_week_fix(self.filter),
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(

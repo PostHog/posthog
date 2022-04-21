@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.sql.events import GET_EARLIEST_TIMESTAMP_SQL
@@ -49,6 +50,8 @@ def format_ch_timestamp(
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
         # Then we convert it back to UTC (08:00 in UTC)
+        if timestamp.tzinfo and timestamp.tzinfo != pytz.UTC:
+            raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
         timestamp = pytz.timezone(timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
 
     is_hour = (
@@ -146,3 +149,13 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(params[key], dict) or isinstance(params[key], list):
             params[key] = json.dumps(params[key])
     return params
+
+
+def start_of_week_fix(filter: Filter) -> str:
+    """
+    toStartOfWeek is the only trunc function that takes three arguments:
+      toStartOfWeek(timestamp, mode, timezone)
+    Mode is whether the week starts on sunday or monday, with 0 being sunday.
+    This function adds mode to the trunc_func, but only if the interval is week
+    """
+    return "0," if filter.interval == "week" else ""

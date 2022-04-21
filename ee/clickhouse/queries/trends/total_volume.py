@@ -15,7 +15,7 @@ from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
+from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -62,21 +62,15 @@ class ClickhouseTrendsTotalVolume:
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql,
-                    start_of_week_fix="0," if filter.interval == "week" else "",
-                    **content_sql_params,
+                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(
-                    event_query=event_query,
-                    start_of_week_fix="0," if filter.interval == "week" else "",
-                    **content_sql_params,
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
                 )
 
             null_sql = NULL_SQL.format(
-                trunc_func=trunc_func,
-                interval_func=interval_func,
-                start_of_week_fix="0," if filter.interval == "week" else "",
+                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter),
             )
             params["interval"] = filter.interval
 
