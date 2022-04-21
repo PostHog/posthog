@@ -86,17 +86,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "values": [
                                 {
                                     "key": "$pageview",
-                                    "event_type": "event",
+                                    "event_type": "events",
                                     "time_value": 1,
                                     "time_interval": "day",
-                                    "type": "performed_event",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
                                 },
                                 {
                                     "key": "$pageview",
-                                    "event_type": "event",
+                                    "event_type": "events",
                                     "time_value": 2,
                                     "time_interval": "week",
-                                    "type": "performed_event",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
                                 },
                             ],
                         },
@@ -105,10 +107,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "values": [
                                 {
                                     "key": action1.pk,
-                                    "event_type": "action",
+                                    "event_type": "actions",
                                     "time_value": 2,
                                     "time_interval": "week",
-                                    "type": "performed_event_first_time",
+                                    "value": "performed_event_first_time",
+                                    "type": "behavioural",
                                 },
                                 {"key": "email", "value": "test@posthog.com", "type": "person"},
                             ],
@@ -153,10 +156,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "time_value": 1,
                             "time_interval": "week",
-                            "type": "performed_event",
+                            "value": "performed_event",
+                            "type": "behavioural",
                         }
                     ],
                 },
@@ -206,12 +210,13 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "operator": "gte",
                             "operator_value": 1,
                             "time_value": 1,
                             "time_interval": "week",
-                            "type": "performed_event_multiple",
+                            "value": "performed_event_multiple",
+                            "type": "behavioural",
                         }
                     ],
                 },
@@ -253,12 +258,13 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "time_value": 1,
                             "time_interval": "week",
                             "seq_time_value": 1,
                             "seq_time_interval": "week",
-                            "type": "stopped_performing_event",
+                            "value": "stopped_performing_event",
+                            "type": "behavioural",
                         }
                     ],
                 },
@@ -295,14 +301,15 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "operator": "gte",
                             "operator_value": 1,
                             "time_interval": "day",
                             "time_value": 3,
                             "total_periods": 3,
                             "min_periods": 3,
-                            "type": "performed_event_regularly",
+                            "value": "performed_event_regularly",
+                            "type": "behavioural",
                         }
                     ],
                 },
@@ -336,14 +343,15 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "operator": "gte",
                             "operator_value": 2,
                             "time_interval": "day",
                             "time_value": 3,
                             "total_periods": 3,
                             "min_periods": 2,
-                            "type": "performed_event_regularly",
+                            "value": "performed_event_regularly",
+                            "type": "behavioural",
                         }
                     ],
                 },
@@ -364,14 +372,15 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "values": [
                         {
                             "key": "$pageview",
-                            "event_type": "event",
+                            "event_type": "events",
                             "operator": "gte",
                             "operator_value": 1,
                             "time_interval": "day",
                             "time_value": 3,
                             "total_periods": 3,
                             "min_periods": 2,
-                            "type": "performed_event_regularly",
+                            "value": "performed_event_regularly",
+                            "type": "behavioural",
                         }
                     ],
                 },

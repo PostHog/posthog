@@ -140,7 +140,7 @@ class CohortQuery(EnterpriseEventQuery):
                 params = {}
                 conditions = []
                 for idx, p in enumerate(prop.values):
-                    q, q_params = build_conditions(p, f"{prepend}_level", idx)
+                    q, q_params = build_conditions(p, f"{prepend}_level", idx)  # type: ignore
                     if q != "":
                         conditions.append(q)
                         params.update(q_params)
@@ -153,24 +153,27 @@ class CohortQuery(EnterpriseEventQuery):
         return f"AND ({conditions})" if conditions else "", params
 
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        if prop.type == "performed_event":
-            return self.get_performed_event_condition(prop, prepend, idx)
-        elif prop.type == "performed_event_multiple":
-            return self.get_performed_event_multiple(prop, prepend, idx)
-        elif prop.type == "stopped_performing_event":
-            return self.get_stopped_performing_event(prop, prepend, idx)
-        elif prop.type == "restarted_performing_event":
-            return self.get_restarted_performing_event(prop, prepend, idx)
-        elif prop.type == "performed_event_first_time":
-            return self.get_performed_event_first_time(prop, prepend, idx)
-        elif prop.type == "performed_event_sequence":
-            return self.get_performed_event_sequence(prop, prepend, idx)
-        elif prop.type == "performed_event_regularly":
-            return self.get_performed_event_regularly(prop, prepend, idx)
-        elif prop.type == "person":
-            return self.get_person_condition(prop, prepend, idx)
-        else:
-            return "", {}
+
+        res: str = ""
+        params: Dict[str, Any] = {}
+        if prop.value == "performed_event":
+            res, params = self.get_performed_event_condition(prop, prepend, idx)
+        elif prop.value == "performed_event_multiple":
+            res, params = self.get_performed_event_multiple(prop, prepend, idx)
+        elif prop.value == "stopped_performing_event":
+            res, params = self.get_stopped_performing_event(prop, prepend, idx)
+        elif prop.value == "restarted_performing_event":
+            res, params = self.get_restarted_performing_event(prop, prepend, idx)
+        elif prop.value == "performed_event_first_time":
+            res, params = self.get_performed_event_first_time(prop, prepend, idx)
+        elif prop.value == "performed_event_sequence":
+            res, params = self.get_performed_event_sequence(prop, prepend, idx)
+        elif prop.value == "performed_event_regularly":
+            res, params = self.get_performed_event_regularly(prop, prepend, idx)
+        elif prop.value == "person":
+            res, params = self.get_person_condition(prop, prepend, idx)
+
+        return res, params
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle if props are pushed down in PersonQuery
@@ -291,7 +294,7 @@ class CohortQuery(EnterpriseEventQuery):
         seq_entity_query, seq_entity_params = self._get_entity(seq_event, f"{prepend}_seq", idx)
         seq_date_value = (prop.seq_time_value, prop.seq_time_interval)
 
-        field = f"""windowFunnel({relative_date_to_seconds(seq_date_value)})(toDateTime(timestamp), {entity_query} AND now() - INTERVAL %({date_value})s {validate_interval(date_interval)}, {seq_entity_query}) AS {column_name}"""
+        field = f"""windowFunnel({relative_date_to_seconds(seq_date_value)})(toDateTime(timestamp), {entity_query} AND now() - INTERVAL %({date_value})s {date_interval}, {seq_entity_query}) AS {column_name}"""
 
         self._fields.append(field)
 
@@ -320,13 +323,15 @@ class CohortQuery(EnterpriseEventQuery):
             min_periods_param: min_periods,
         }
         periods = []
-        for period in range(prop.total_periods):
-            start_time_value = f"%({time_value_param})s * {period}"
-            end_time_value = f"%({time_value_param})s * ({period} + 1)"
-            # Clause that returns 1 if the event was performed the expected number of times in the given time interval, otherwise 0
-            periods.append(
-                f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} %({operator_value_param})s, 1, 0)"
-            )
+
+        if prop.total_periods:
+            for period in range(prop.total_periods):
+                start_time_value = f"%({time_value_param})s * {period}"
+                end_time_value = f"%({time_value_param})s * ({period} + 1)"
+                # Clause that returns 1 if the event was performed the expected number of times in the given time interval, otherwise 0
+                periods.append(
+                    f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} %({operator_value_param})s, 1, 0)"
+                )
 
         field = "+".join(periods) + f">= %({min_periods_param})s" + f" as {column_name}"
 
@@ -340,16 +345,26 @@ class CohortQuery(EnterpriseEventQuery):
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = self._column_optimizer.is_using_person_properties
 
-    def _get_entity(self, event: Event, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def _get_entity(
+        self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
+    ) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle indexing of event params
-        if event[0] == "action":
+        res: str = ""
+        params: Dict[str, Any] = {}
+
+        if event[0] is None or event[1] is None:
+            raise ValueError("Event type and key must be specified")
+
+        if event[0] == "actions":
             self._add_action(int(event[1]))
-            return get_entity_query(None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}")
-        elif event[0] == "event":
-            self._add_event(event[1])
-            return get_entity_query(str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}")
+            res, params = get_entity_query(None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}")
+        elif event[0] == "events":
+            self._add_event(str(event[1]))
+            res, params = get_entity_query(str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}")
         else:
-            return "", {}
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        return res, params
 
     def _add_action(self, action_id: int) -> None:
         action = Action.objects.get(id=action_id)
@@ -366,21 +381,27 @@ INTERVAL_TO_SECONDS = {
     "day": 86400,
     "week": 604800,
     "month": 2592000,
+    "year": 31536000,
 }
 
 
-def relative_date_to_seconds(date: Relative_Date):
+def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
+    if date[0] is None or date[1] is None:
+        raise ValueError("Time value and time interval must be specified")
+
     return date[0] * INTERVAL_TO_SECONDS[date[1]]
 
 
-def validate_interval(interval: str) -> str:
-    if interval not in INTERVAL_TO_SECONDS.keys():
+def validate_interval(interval: Optional[OperatorInterval]) -> str:
+    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
         raise ValueError(f"Invalid interval: {interval}")
     else:
         return interval
 
 
-def parse_and_validate_positive_integer(value: Union[str, int], value_name: str) -> int:
+def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
+    if value is None:
+        raise ValueError(f"{value_name} cannot be None")
     try:
         parsed_value = int(value)
     except ValueError:
