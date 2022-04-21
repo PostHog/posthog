@@ -11,7 +11,7 @@ import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/Prope
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconInfo, IconOpenInNew } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
@@ -23,6 +23,35 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { usePopper } from 'react-popper'
 import ReactDOM from 'react-dom'
+import { TitleWithIcon } from '../TitleWithIcon'
+
+export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
+    <TitleWithIcon
+        icon={
+            <Tooltip title="Estimate updated once every 24 hours." placement={tooltipPlacement}>
+                <IconInfo />
+            </Tooltip>
+        }
+    >
+        30-day volume
+    </TitleWithIcon>
+)
+
+export const ThirtyDayQueryCountTitle = ({
+    tooltipPlacement,
+}: {
+    tooltipPlacement?: 'top' | 'bottom'
+}): JSX.Element => (
+    <TitleWithIcon
+        icon={
+            <Tooltip title="Estimate updated once every 24 hours." placement={tooltipPlacement}>
+                <IconInfo />
+            </Tooltip>
+        }
+    >
+        30-day query count
+    </TitleWithIcon>
+)
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -46,8 +75,8 @@ function TaxonomyIntroductionSection(): JSX.Element {
             <DefinitionPopup.Grid cols={2}>
                 <DefinitionPopup.Card title="First seen" value={<Lock />} />
                 <DefinitionPopup.Card title="Last seen" value={<Lock />} />
-                <DefinitionPopup.Card title="30 day volume" value={<Lock />} />
-                <DefinitionPopup.Card title="30 day queries" value={<Lock />} />
+                <DefinitionPopup.Card title={<ThirtyDayVolumeTitle />} value={<Lock />} />
+                <DefinitionPopup.Card title={<ThirtyDayQueryCountTitle />} value={<Lock />} />
             </DefinitionPopup.Grid>
             <DefinitionPopup.Section>
                 <Link
@@ -115,13 +144,13 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
                         <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
                         <DefinitionPopup.Card
-                            title="30 day volume"
+                            title={<ThirtyDayVolumeTitle />}
                             value={
                                 _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
                             }
                         />
                         <DefinitionPopup.Card
-                            title="30 day queries"
+                            title={<ThirtyDayQueryCountTitle />}
                             value={
                                 _definition.query_usage_30_day == null
                                     ? '-'
