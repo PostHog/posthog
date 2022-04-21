@@ -59,8 +59,9 @@ export function AsyncMigrations(): JSX.Element {
             title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const link =
-                    'https://posthog.com/docs/self-host/configure/async-migrations/' +
-                    asyncMigration.name.split('_').join('-')
+                    'https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/' +
+                    asyncMigration.name +
+                    '.py'
                 return (
                     <>
                         <div className="row-name">
