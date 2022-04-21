@@ -33,7 +33,7 @@ describe('hooks', () => {
     })
 
     describe('getUserDetails', () => {
-        const event = { distinct_id: 2 } as unknown as PluginEvent
+        const event = { distinct_id: 'WALL-E' } as unknown as PluginEvent
         const person = { properties: { email: 'test@posthog.com' } } as unknown as Person
 
         test('Slack', () => {
@@ -100,11 +100,11 @@ describe('hooks', () => {
 
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
-        const event = { distinct_id: 2, properties: { $browser: 'Chrome' } } as unknown as PluginEvent
+        const event = { distinct_id: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PluginEvent
         const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
 
-        test('person name', () => {
-            const tokenUserName = ['person', 'name']
+        test('person', () => {
+            const tokenUserName = ['person']
 
             const [text, markdown] = getValueOfToken(
                 action,
@@ -115,8 +115,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('2')
-            expect(markdown).toBe('[2](http://localhost:8000/person/2)')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
         })
 
         test('person prop', () => {
@@ -147,8 +147,8 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('2')
-            expect(markdown).toBe('[2](http://localhost:8000/person/2)')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
         })
 
         test('user prop (actually event prop)', () => {

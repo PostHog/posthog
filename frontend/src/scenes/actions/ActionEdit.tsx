@@ -269,7 +269,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         <>
                                             <Input
                                                 addonBefore="Message format (optional)"
-                                                placeholder="Default: [action.name] triggered by [person.name]"
+                                                placeholder="Default: [action.name] triggered by [person]"
                                                 value={value}
                                                 onChange={(e) => {
                                                     onValueChange(e.target.value)
