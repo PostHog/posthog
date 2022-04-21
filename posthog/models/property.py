@@ -29,7 +29,7 @@ class BehaviouralPropertyType(str, Enum):
     RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
 
 
-ValueT = Union[BehaviouralPropertyType, str, int, List[str]]
+ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
     "event",
     "person",
@@ -210,7 +210,7 @@ class Property:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
         if self.type == "behavioural":
-            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[self.value]:
+            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[cast(BehaviouralPropertyType, self.value)]:
                 if getattr(self, key, None) is None:
                     raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
 
