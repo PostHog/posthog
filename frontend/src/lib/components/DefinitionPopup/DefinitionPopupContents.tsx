@@ -28,7 +28,10 @@ import { TitleWithIcon } from '../TitleWithIcon'
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
         icon={
-            <Tooltip title="Estimate updated once every 24 hours." placement={tooltipPlacement}>
+            <Tooltip
+                title="Estimated event volume in the past 30 days, updated every 24 hours."
+                placement={tooltipPlacement}
+            >
                 <IconInfo />
             </Tooltip>
         }
@@ -44,7 +47,10 @@ export const ThirtyDayQueryCountTitle = ({
 }): JSX.Element => (
     <TitleWithIcon
         icon={
-            <Tooltip title="Estimate updated once every 24 hours." placement={tooltipPlacement}>
+            <Tooltip
+                title="Estimated number of queries in which the event was used in the past 30 days, updated once every 24 hours."
+                placement={tooltipPlacement}
+            >
                 <IconInfo />
             </Tooltip>
         }
