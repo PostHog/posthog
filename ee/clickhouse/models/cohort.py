@@ -175,7 +175,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
 
 
 def _get_entity_query(
-    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: int
+    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
         return "event = %(event)s", {"event": event_id}
