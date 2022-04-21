@@ -174,6 +174,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard_item)
 
+        name_for_logged_activity = (
+            dashboard_item.name if dashboard_item.name is not None else dashboard_item.derived_name
+        )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
@@ -181,7 +184,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             item_id=dashboard_item.id,
             scope="Insight",
             activity="created",
-            detail=Detail(name=dashboard_item.name, short_id=dashboard_item.short_id),
+            detail=Detail(name=name_for_logged_activity, short_id=dashboard_item.short_id),
         )
         return dashboard_item
 
@@ -201,6 +204,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
+        name_for_logged_activity = (
+            updated_insight.name if updated_insight.name is not None else updated_insight.derived_name
+        )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
@@ -208,7 +214,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             item_id=updated_insight.id,
             scope="Insight",
             activity="updated",
-            detail=Detail(name=updated_insight.name, changes=changes, short_id=updated_insight.short_id),
+            detail=Detail(name=name_for_logged_activity, changes=changes, short_id=updated_insight.short_id),
         )
 
         return updated_insight
@@ -534,6 +540,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
+        name_for_logged_activity = instance.name if instance.name is not None else instance.derived_name
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -541,7 +548,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             item_id=instance_id,
             scope="Insight",
             activity="deleted",
-            detail=Detail(name=instance.name, short_id=instance_short_id),
+            detail=Detail(name=name_for_logged_activity, short_id=instance_short_id),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

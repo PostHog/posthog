@@ -289,7 +289,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
-        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
@@ -325,6 +324,42 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "changes": None,
                         "merge": None,
                         "name": "a created dashboard",
+                        "short_id": response_data["short_id"],
+                    },
+                }
+            ],
+        )
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_create_insight_logs_derived_name_if_there_is_no_name(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "derived_name": "pageview unique users",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["derived_name"], "pageview unique users")
+
+        self.assert_insight_activity(
+            response_data["id"],
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(response_data["id"]),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
                 }
