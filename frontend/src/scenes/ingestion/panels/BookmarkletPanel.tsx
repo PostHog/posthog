@@ -31,27 +31,29 @@ export function BookmarkletPanel(): JSX.Element {
                         If you want to quickly test PostHog in your website without changing any code, try out our
                         bookmarklet.
                     </p>
-                    <Row gutter={24} className="bookmarklet-warning">
+                    <Row gutter={24} style={{ marginLeft: 0, marginRight: 0 }} className="bookmarklet-warning">
                         <Col span={2} className="warning-icon">
                             <IconInfo style={{ fontSize: '2em', color: 'var(--muted-alt)' }} />
                         </Col>
                         <Col span={22}>
-                            <p>
+                            <p className="text-muted fw-500">
                                 Please note this installation is only temporary and intended just for testing. It will
                                 only work for the current page and only in your browser session. The bookmarklet is not
                                 a permanent form of ingestion.
                             </p>
                         </Col>
                     </Row>
-                    <Row>
-                        Steps
-                        <ul>
-                            <li>1. Drag the PostHog Bookmarklet link below to your bookmarks toolbar.</li>
-                            <li>2. Open the website you want to track and click on the bookmark you just added.</li>
-                            <li>3. Click continue below and see events coming in.</li>
-                        </ul>
+                    <Row className="bookmarklet-steps">
+                        <Col>
+                            <h3 className="fw-700">Steps</h3>
+                            <ol style={{ paddingLeft: 18 }}>
+                                <li>Drag the PostHog Bookmarklet link below to your bookmarks toolbar.</li>
+                                <li>Open the website you want to track and click on the bookmark you just added.</li>
+                                <li>Click continue below and see events coming in.</li>
+                            </ol>
+                        </Col>
                     </Row>
-                    <Row>
+                    <Row justify="center">
                         <JSBookmarklet team={currentTeam} />
                     </Row>
                 </div>
