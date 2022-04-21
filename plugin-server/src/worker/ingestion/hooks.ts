@@ -36,7 +36,9 @@ export function getUserDetails(
     if (!person) {
         return ['undefined', 'undefined']
     }
-    const userName = stringify(person.properties?.['email'] || event.distinct_id)
+    const userName = stringify(
+        person.properties?.email || person.properties?.name || person.properties?.username || event.distinct_id
+    )
     let userMarkdown: string
     if (webhookType === WebhookType.Slack) {
         userMarkdown = `<${siteUrl}/person/${event.distinct_id}|${userName}>`

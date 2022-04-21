@@ -45,7 +45,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/2|test@posthog.com>')
+            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/WALL-E|test@posthog.com>')
         })
 
         test('Teams', () => {
@@ -57,7 +57,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/2)')
+            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/WALL-E)')
         })
     })
 
@@ -103,7 +103,7 @@ describe('hooks', () => {
         const event = { distinct_id: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PluginEvent
         const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
 
-        test('person', () => {
+        test('person with just distinct ID', () => {
             const tokenUserName = ['person']
 
             const [text, markdown] = getValueOfToken(
@@ -117,6 +117,22 @@ describe('hooks', () => {
 
             expect(text).toBe('WALL-E')
             expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+        })
+
+        test('person with email', () => {
+            const tokenUserName = ['person']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                { ...person, properties: { ...person.properties, email: 'wall-e@buynlarge.com' } },
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('wall-e@buynlarge.com')
+            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
         })
 
         test('person prop', () => {
