@@ -1407,3 +1407,14 @@ export function IconPlayCircle(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
         </svg>
     )
 }
+
+export function IconBookmarkBorder(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="15" height="18" viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12.5 0H2.5C1.4 0 0.5 0.9 0.5 2V18L7.5 15L14.5 18V2C14.5 0.9 13.6 0 12.5 0ZM12.5 15L7.5 12.82L2.5 15V2H12.5V15Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
