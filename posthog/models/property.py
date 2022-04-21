@@ -76,7 +76,7 @@ VALIDATE_PROP_TYPES = {
     "static-cohort": ["key", "value"],
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
-    "recording": ["key", "value"],
+    "recording": ["key"],
     "behavioural": ["key", "value"],
 }
 
