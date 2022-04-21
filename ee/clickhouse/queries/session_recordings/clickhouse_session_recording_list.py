@@ -253,7 +253,7 @@ class ClickhouseSessionRecordingList(EnterpriseEventQuery):
             condition_sql, filter_params = self.format_event_filter(
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
-            aggregate_select_clause += f", count({condition_sql}) as count_event_match_{index}"
+            aggregate_select_clause += f", countIf({condition_sql}) as count_event_match_{index}"
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}
 
