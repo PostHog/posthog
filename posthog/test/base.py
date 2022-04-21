@@ -123,12 +123,7 @@ class TestMixin:
     def tearDown(self):
         persons_cache_tests.clear()
         events_cache_tests.clear()
-        super().tearDown()
-
-    def tearDownClass(self):
-        persons_cache_tests.clear()
-        events_cache_tests.clear()
-        super().tearDownClass()
+        super().tearDown()  # type: ignore
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
