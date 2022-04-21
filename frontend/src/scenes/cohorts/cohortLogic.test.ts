@@ -45,7 +45,7 @@ describe('cohortLogic', () => {
     describe('initial load', () => {
         it('loads existing cohort on mount', async () => {
             await initCohortLogic({ id: 1 })
-            await expectLogic(logic).toDispatchActions(['setCohort'])
+            await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
             expect(api.get).toBeCalledTimes(1)
         })
