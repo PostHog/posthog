@@ -51,7 +51,10 @@ if TEST:
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
 
-    from freezegun import freeze_time
+    try:
+        from freezegun import freeze_time
+    except:
+        pass
 
     def bulk_create_persons(persons_list: List[Dict]):
         persons = []
