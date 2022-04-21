@@ -153,6 +153,7 @@ interface SentenceListProps {
     suffix?: string | JSX.Element | null
 }
 
+// TODO this should be a component. and needs the height of parts sorting out
 export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">

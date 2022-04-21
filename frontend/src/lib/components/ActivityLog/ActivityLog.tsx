@@ -9,7 +9,7 @@ import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 export interface ActivityLogProps {
-    scope: 'FeatureFlag' | 'Person'
+    scope: 'FeatureFlag' | 'Person' | 'Insight'
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer

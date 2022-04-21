@@ -174,9 +174,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard_item)
 
-        name_for_logged_activity = (
-            dashboard_item.name if dashboard_item.name is not None else dashboard_item.derived_name
-        )
+        name_for_logged_activity = dashboard_item.name if len(dashboard_item.name) > 0 else dashboard_item.derived_name
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
@@ -205,7 +203,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
         name_for_logged_activity = (
-            updated_insight.name if updated_insight.name is not None else updated_insight.derived_name
+            updated_insight.name if len(updated_insight.name) > 0 else updated_insight.derived_name
         )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
@@ -540,7 +538,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
-        name_for_logged_activity = instance.name if instance.name is not None else instance.derived_name
+        name_for_logged_activity = instance.name if len(instance.name) > 0 else instance.derived_name
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,

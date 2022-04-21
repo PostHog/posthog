@@ -97,6 +97,10 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "last_modified_at",
         "layouts",
         "color",
+        "order",
+        "result",
+        "dashboard",
+        "last_refresh",
     ],
 }
 
@@ -118,6 +122,7 @@ def changes_between(
     if previous is not None:
         fields = current._meta.fields if current is not None else []
 
+        # TODO how to include tags in the fields assessed
         filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)

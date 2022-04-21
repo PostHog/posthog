@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { PersonType } from '~/types'
+import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
     type: 'FeatureFlag' | 'Person'
@@ -19,6 +19,7 @@ export interface ActivityLogDetail {
     merge: PersonMerge | null
     changes: ActivityChange[] | null
     name: string
+    short_id: InsightShortId | null
 }
 
 export interface ActivityUser {
@@ -29,6 +30,7 @@ export interface ActivityUser {
 export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    INSIGHT = 'Insight',
 }
 
 export interface ActivityLogItem {

@@ -203,6 +203,13 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
+    public insights(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insights')
+    }
+
+    public insightsActivity(teamId: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('activity')
+    }
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -310,6 +317,9 @@ const api = {
                 },
                 [ActivityScope.PERSON]: (props) => {
                     return new ApiRequest().personActivity(props.id)
+                },
+                [ActivityScope.INSIGHT]: () => {
+                    return new ApiRequest().insightsActivity(teamId)
                 },
             }
 
