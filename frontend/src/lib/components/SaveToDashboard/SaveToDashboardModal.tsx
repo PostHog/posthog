@@ -30,7 +30,7 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
-        updateInsight({ ...insight, dashboards: [...(insight.dashboards ?? []), dashboardId] }, () => {
+        updateInsight({ ...insight, dashboards: [dashboardId] }, () => {
             reportSavedInsightToDashboard()
             lemonToast.success('Insight added to dashboard', {
                 button: {

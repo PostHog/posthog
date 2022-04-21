@@ -458,7 +458,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        /** filters for data that's being displayed, might not be same as savedInsight. filters or filters */
+        /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         derivedName: [
