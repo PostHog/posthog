@@ -10,7 +10,7 @@ from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q
-from posthog.test.base import BaseTest, _create_person
+from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 
 class TestFilter(BaseTest):
@@ -308,7 +308,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p1_uuid])
+            self.assertEqual(results, [str(p1_uuid.uuid)])
 
         def test_filter_out_team_members_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"})
@@ -332,6 +332,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 def _filter_persons(filter: Filter, team: Team):
     # TODO: confirm what to do here?
     # Postgres only supports ANDing all properties :shrug:
+    flush_persons_and_events()
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
