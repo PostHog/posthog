@@ -29,7 +29,7 @@ class BehaviouralPropertyType(str, Enum):
     RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
 
 
-ValueT = Union[BehaviouralPropertyType, str, int, List[str]]
+ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
     "event",
     "person",
@@ -81,16 +81,57 @@ VALIDATE_PROP_TYPES = {
 }
 
 VALIDATE_BEHAVIOURAL_PROP_TYPES = {
-    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "event_type", "time_value", "time_interval"],
+    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "value", "event_type", "time_value", "time_interval"],
     BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         "key",
+        "value",
         "event_type",
         "time_value",
         "time_interval",
         "operator",
         "operator_value",
     ],
-    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: ["key", "event_type", "time_value"],
+    BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
+    BehaviouralPropertyType.PERFORMED_EVENT_SEQUENCE: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_event_type",
+        "seq_event",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
+    BehaviouralPropertyType.PERFORMED_EVENT_REGULARLY: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "operator_value",
+        "operator",
+        "min_periods",
+        "total_periods",
+    ],
+    BehaviouralPropertyType.STOPPED_PERFORMING_EVENT: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
+    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
 }
 
 
@@ -105,23 +146,29 @@ class Property:
     event_type: Optional[Literal["events", "actions"]]
     # Query people who did event '$pageview' 20 times in the last 30 days
     # translates into:
-    #  operator_value = 30, operator_interval = day
-    # time_value = 30, time_interval = day ??
+    # key = '$pageview', value = 'performed_event_multiple'
+    # time_value = 30, time_interval = day
+    # operator_value = 20, operator = 'gte'
     operator_value: Optional[int]
-    operator_interval: Optional[OperatorInterval]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
-    total_periods: Optional[int]
-    min_periods: Optional[int]
-    # Query people who did event '$pageview' in last week, but not in the past 30 days
+    # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
-    #
-    #
-    #
-    seq_event_type: Optional[str]
-    seq_event: Optional[Union[str, int]]
+    # key = '$pageview', value = 'restarted_performing_event'
+    # time_value = 1, time_interval = 'week'
+    # seq_time_value = 30, seq_time_interval = 'day'
     seq_time_value: Optional[int]
     seq_time_interval: Optional[OperatorInterval]
+    # Query people who did '$pageview' in last 2 weeks, followed by 'sign up' within 30 days
+    # translates into:
+    # key = '$pageview', value = 'performed_event_sequence'
+    # time_value = 2, time_interval = 'week'
+    # seq_event = 'sign up', seq_event_type = 'events'
+    # seq_time_value = 30, seq_time_interval = 'day'
+    seq_event_type: Optional[str]
+    seq_event: Optional[Union[str, int]]
+    total_periods: Optional[int]
+    min_periods: Optional[int]
     negation: Optional[bool] = False
     _data: Dict
 
@@ -136,7 +183,6 @@ class Property:
         # Only set for `type` == `behavioural`
         event_type: Optional[Literal["events", "actions"]] = None,
         operator_value: Optional[int] = None,
-        operator_interval: Optional[OperatorInterval] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
         total_periods: Optional[int] = None,
@@ -155,7 +201,6 @@ class Property:
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
         self.operator_value = operator_value
-        self.operator_interval = operator_interval
         self.time_value = time_value
         self.time_interval = time_interval
         self.total_periods = total_periods
@@ -170,8 +215,8 @@ class Property:
             if getattr(self, key, None) is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
-        if self.type == "behavioural" and isinstance(self.value, BehaviouralPropertyType):
-            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[self.value]:
+        if self.type == "behavioural":
+            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[cast(BehaviouralPropertyType, self.value)]:
                 if getattr(self, key, None) is None:
                     raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
 
