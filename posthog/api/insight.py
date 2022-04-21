@@ -56,7 +56,7 @@ from posthog.models.insight import InsightViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
-from posthog.tasks.update_cache import insight_update_task_params, update_insight_cache
+from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -196,16 +196,11 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
-
-        dashboard = self.context.get("dashboard", None)
-
         if should_refresh(self.context["request"]):
+            dashboard = self.context.get("dashboard", None)
             return update_insight_cache(insight, dashboard)
 
-        # TODO until filters_hash is stored on dashboard links, don't use the stored filters_hash
-        cache_key, _, _ = insight_update_task_params(insight, dashboard)
-        result = get_safe_cache(cache_key)
-
+        result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'

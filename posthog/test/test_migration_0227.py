@@ -71,9 +71,8 @@ class CreatingDashboardTilesTestCase(TestMigrations):
         self.assertEqual(DashboardTile.objects.filter(dashboard__name="d3").count(), 0)
 
     def tearDown(self):
-        if self.apps is not None:
-            Team = self.apps.get_model("posthog", "Team")
-            Dashboard = self.apps.get_model("posthog", "Dashboard")
+        Team = self.apps.get_model("posthog", "Team")
+        Dashboard = self.apps.get_model("posthog", "Dashboard")
 
-            Dashboard.objects.all().delete()
-            Team.objects.all().delete()
+        Dashboard.objects.all().delete()
+        Team.objects.all().delete()

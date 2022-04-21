@@ -731,7 +731,6 @@ export const insightLogic = kea<insightLogicType>({
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
