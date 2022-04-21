@@ -22,6 +22,7 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
             LEFT JOIN posthog_dashboardtile new_relation
                 ON new_relation.insight_id = old_relation.id AND new_relation.dashboard_id = old_relation.dashboard_id
             WHERE old_relation.dashboard_id IS NOT NULL -- has a dashboard id on the old relation
+            AND old_relation.deleted = FALSE -- no point linking deleted insights
             AND new_relation.insight_id IS NULL -- no new relation yet
             ORDER BY old_relation.last_modified_at ASC;
         """
