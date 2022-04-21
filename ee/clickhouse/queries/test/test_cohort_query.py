@@ -554,11 +554,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
 
     def test_person_materialized(self):
-        materialize("person", "email")
+        materialize("person", "$sample_field")
 
         # satiesfies all conditions
         p1 = Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "$sample_field": "test@posthog.com"}
         )
         filter = Filter(
             data={
@@ -573,7 +573,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "value": "performed_event",
                             "type": "behavioural",
                         },
-                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                        {"key": "$sample_field", "value": "test@posthog.com", "type": "person"},
                     ],
                 },
             }
