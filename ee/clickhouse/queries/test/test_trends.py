@@ -75,22 +75,22 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event="sign up",
             distinct_id="person1",
             team=self.team,
-            properties={"key": "uh", "$group_0": "org:5"},
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
             timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:01Z",
         )
         _create_event(
             event="sign up",
             distinct_id="person1",
             team=self.team,
             properties={"key": "uh", "$group_0": "org:6"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="sign up",
-            distinct_id="person1",
-            team=self.team,
-            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
-            timestamp="2020-01-02T12:00:00Z",
+            timestamp="2020-01-02T12:00:02Z",
         )
 
         response = ClickhouseTrends().run(

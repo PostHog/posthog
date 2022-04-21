@@ -97,6 +97,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         reached_from_step_count_condition, reached_to_step_count_condition, _ = self.get_steps_reached_conditions()
         trunc_func = get_trunc_func_ch(self._filter.interval)
         interval_func = get_interval_func_ch(self._filter.interval)
+        start_of_week_fix = "0," if self._filter.interval == "week" else ""
 
         if self._filter.date_from is None:
             _date_from = get_earliest_timestamp(self._team.pk)
@@ -134,7 +135,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number), %(timezone)s) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number), {start_of_week_fix} %(timezone)s) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
