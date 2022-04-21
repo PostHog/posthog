@@ -288,7 +288,61 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         pass
 
     def test_performed_event_sequence(self):
-        pass
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=3),
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "seq_time_value": 3,
+                            "seq_time_interval": "day",
+                            "value": "performed_event_sequence",
+                            "type": "behavioural",
+                        }
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
 
     def test_performed_event_regularly(self):
         p1 = Person.objects.create(
@@ -583,3 +637,65 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_date_query_earliest(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioural",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioural",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 4,
+                            "time_interval": "week",
+                            "seq_time_value": 1,
+                            "seq_time_interval": "week",
+                            "value": "stopped_performing_event",
+                            "type": "behavioural",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioural",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "time_interval": "week",
+                            "time_value": 3,
+                            "total_periods": 3,
+                            "min_periods": 2,
+                            "value": "performed_event_regularly",
+                            "type": "behavioural",
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        sync_execute(q, params)
+
+        self.assertTrue("timestamp >= now() - INTERVAL 3 week - INTERVAL 3 week - INTERVAL 3 week" in (q % params))
