@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.cohort_query import CohortQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -551,3 +552,34 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
+
+    def test_person_materialized(self):
+        materialize("person", "email")
+
+        # satiesfies all conditions
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioural",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])

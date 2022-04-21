@@ -111,8 +111,15 @@ class CohortQuery(EnterpriseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
+        select_field = (
+            f"if(person_id = '00000000-0000-0000-0000-000000000000', {self.PERSON_TABLE_ALIAS}.id, person_id)"
+            if self._should_join_persons
+            else "person_id"
+        )
+
         final_query = f"""
-        SELECT person_id as id FROM
+        SELECT {select_field} AS id FROM
         ({behavior_subquery}) {self.BEHAVIOR_QUERY_ALIAS}
         {person_query}
         WHERE 1 = 1
@@ -225,9 +232,9 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle if props are pushed down in PersonQuery
-        if "person_props" in self._person_query.fields:
+        if len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
-                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=False, property_operator=""
+                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
             )
         else:
             return "", {}
