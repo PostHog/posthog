@@ -1679,3 +1679,91 @@ export interface InstanceSetting {
     editable: boolean
     is_secret: boolean
 }
+
+export enum BaseMathType {
+    Total = 'total',
+    DailyActive = 'dau',
+    WeeklyActive = 'weekly_active',
+    MonthlyActive = 'monthly_active',
+}
+
+export enum PropertyMathType {
+    Average = 'avg',
+    Sum = 'sum',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+    P90 = 'p90',
+    P95 = 'p95',
+    P99 = 'p99',
+}
+
+export enum ActorGroupType {
+    Person = 'person',
+}
+
+export enum BehavioralEventType {
+    CompleteEvent = 'complete_event',
+    CompleteMultipleEvents = 'complete_multiple_events',
+    CompleteSequenceEvents = 'complete_sequence_events',
+    NotCompleteEvent = 'not_complete_event',
+    HaveProperty = 'have_property',
+    NotHaveProperty = 'not_have_property',
+}
+
+export enum BehavioralCohortType {
+    InCohort = 'in_cohort',
+    NotInCohort = 'not_in_cohort',
+}
+
+export enum BehavioralLifecycleType {
+    CompleteEventFirstTime = 'complete_event_first_time',
+    CompleteEventRegularly = 'complete_event_regularly',
+    StopEvent = 'stop_event',
+    StartEventAgain = 'start_event_again',
+    CompleteEventOnce = 'complete_event_once',
+}
+
+export enum TimeUnitType {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+    Year = 'year',
+}
+
+export enum DateOperatorType {
+    InTheLast = 'in_the_last',
+    BeforeTheLast = 'before_the_last',
+    Between = 'between',
+    NotBetween = 'not_between',
+    OnTheDate = 'on_the_date',
+    NotOnTheDate = 'not_on_the_date',
+    Since = 'since',
+    Before = 'before',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export enum OperatorType {
+    Equals = 'equals',
+    NotEquals = 'not_equals',
+    Contains = 'contains',
+    NotContains = 'not_contains',
+    MatchesRegex = 'matches_regex',
+    NotMatchesRegex = 'not_matches_regex',
+    GreaterThan = 'gt',
+    LessThan = 'lt',
+    Set = 'set',
+    NotSet = 'not_set',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
+}
+
+export enum ValueOptionType {
+    MostRecent = 'most_recent',
+    Initial = 'initial',
+    Previous = 'previous',
+    OnDate = 'on_date',
+}
