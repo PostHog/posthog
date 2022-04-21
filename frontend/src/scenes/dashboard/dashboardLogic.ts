@@ -130,8 +130,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         receivedErrorsFromAPI: [
             false,
             {
-                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
-                    receivedErrors,
+                setReceivedErrorsFromAPI: (
+                    _: boolean,
+                    {
+                        receivedErrors,
+                    }: {
+                        receivedErrors: boolean
+                    }
+                ) => receivedErrors,
             },
         ],
         filters: [
@@ -308,7 +314,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         shouldReportOnAPILoad: [
             /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
             We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
-            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard) 
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard)
             */
             false,
             {

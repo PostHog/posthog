@@ -18,6 +18,17 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex, str_to_bool
 
+
+class BehaviouralPropertyType(str, Enum):
+    PERFORMED_EVENT = "performed_event"
+    PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
+    PERFORMED_EVENT_FIRST_TIME = "performed_event_first_time"
+    PERFORMED_EVENT_SEQUENCE = "performed_event_sequence"
+    PERFORMED_EVENT_REGULARLY = "performed_event_regularly"
+    STOPPED_PERFORMING_EVENT = "stopped_performing_event"
+    RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
+
+
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
     "event",
@@ -30,17 +41,6 @@ PropertyType = Literal[
     "recording",
     "behavioural",
 ]
-
-
-class BehaviouralPropertyType(str, Enum):
-    PERFORMED_EVENT = "performed_event"
-    PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
-    PERFORMED_EVENT_FIRST_TIME = "performed_event_first_time"
-    PERFORMED_EVENT_SEQUENCE = "performed_event_sequence"
-    PERFORMED_EVENT_REGULARLY = "performed_event_regularly"
-    STOPPED_PERFORMING_EVENT = "stopped_performing_event"
-    RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
-
 
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
@@ -65,7 +65,7 @@ GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
-CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
+CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "behavioural", "recording"]
 
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
@@ -80,51 +80,106 @@ VALIDATE_PROP_TYPES = {
 }
 
 VALIDATE_BEHAVIOURAL_PROP_TYPES = {
-    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "event_type", "time_value", "time_interval"],
+    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "value", "event_type", "time_value", "time_interval"],
     BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         "key",
+        "value",
         "event_type",
         "time_value",
         "time_interval",
         "operator",
         "operator_value",
     ],
-    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: ["key", "event_type", "time_value"],
+    BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
+    BehaviouralPropertyType.PERFORMED_EVENT_SEQUENCE: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_event_type",
+        "seq_event",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
+    BehaviouralPropertyType.PERFORMED_EVENT_REGULARLY: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "operator_value",
+        "operator",
+        "min_periods",
+        "total_periods",
+    ],
+    BehaviouralPropertyType.STOPPED_PERFORMING_EVENT: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
+    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "seq_time_value",
+        "seq_time_interval",
+    ],
 }
 
 
 class Property:
-    key: Union[str, int]
+    key: str
     operator: Optional[OperatorType]
-    value: Optional[ValueT]
+    value: ValueT
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
 
-    event_type: Optional[str]
-    event: Optional[Union[str, int]]
+    # Type of `key`
+    event_type: Optional[Literal["events", "actions"]]
+    # Query people who did event '$pageview' 20 times in the last 30 days
+    # translates into:
+    # key = '$pageview', value = 'performed_event_multiple'
+    # time_value = 30, time_interval = day
+    # operator_value = 20, operator = 'gte'
     operator_value: Optional[int]
-    operator_interval: Optional[OperatorInterval]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
-    seq_event_type: Optional[str]
-    seq_event: Optional[Union[str, int]]
+    # Query people who did event '$pageview' in last week, but not in the previous 30 days
+    # translates into:
+    # key = '$pageview', value = 'restarted_performing_event'
+    # time_value = 1, time_interval = 'week'
+    # seq_time_value = 30, seq_time_interval = 'day'
     seq_time_value: Optional[int]
     seq_time_interval: Optional[OperatorInterval]
+    # Query people who did '$pageview' in last 2 weeks, followed by 'sign up' within 30 days
+    # translates into:
+    # key = '$pageview', value = 'performed_event_sequence'
+    # time_value = 2, time_interval = 'week'
+    # seq_event = 'sign up', seq_event_type = 'events'
+    # seq_time_value = 30, seq_time_interval = 'day'
+    seq_event_type: Optional[str]
+    seq_event: Optional[Union[str, int]]
     negation: Optional[bool] = False
     _data: Dict
 
     def __init__(
         self,
-        key: Union[str, int],
-        value: Optional[ValueT] = None,
+        key: str,
+        value: ValueT,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
         # Only set for `type` == `behavioural`
-        event_type: Optional[str] = None,
+        event_type: Optional[Literal["events", "actions"]] = None,
         operator_value: Optional[int] = None,
-        operator_interval: Optional[OperatorInterval] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
         seq_event_type: Optional[str] = None,
@@ -141,7 +196,6 @@ class Property:
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
         self.operator_value = operator_value
-        self.operator_interval = operator_interval
         self.time_value = time_value
         self.time_interval = time_interval
         self.seq_event_type = seq_event_type
@@ -150,31 +204,13 @@ class Property:
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
 
-        self._data = {
-            "key": self.key,
-            "value": self.value,
-            "operator": self.operator,
-            "type": self.type,
-            "group_type_index": self.group_type_index,
-            "event_type": self.event_type,
-            "operator_value": self.operator_value,
-            "operator_interval": self.operator_interval,
-            "time_value": self.time_value,
-            "time_interval": self.time_interval,
-            "seq_event_type": self.seq_event_type,
-            "seq_event": self.seq_event,
-            "seq_time_value": self.seq_time_value,
-            "seq_time_interval": self.seq_time_interval,
-            "negation": self.negation,
-        }
-
         for key in VALIDATE_PROP_TYPES[self.type]:
-            if key not in self._data or self._data[key] is None:
+            if getattr(self, key, None) is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
         if self.type == "behavioural":
-            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[self.value]:
-                if key not in self._data or self._data[key] is None:
+            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[cast(BehaviouralPropertyType, self.value)]:
+                if getattr(self, key, None) is None:
                     raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
 
     def __repr__(self):
@@ -182,7 +218,7 @@ class Property:
         return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self._data.items() if v is not None}
+        return {key: value for key, value in vars(self).items() if value is not None}
 
     def _parse_value(self, value: ValueT) -> Any:
         if isinstance(value, list):
@@ -203,9 +239,6 @@ class Property:
 
         if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
             raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
-
-        if self.value is None:
-            return Q()
 
         value = self._parse_value(self.value)
         if self.type == "cohort":

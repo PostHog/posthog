@@ -58,7 +58,7 @@ export enum InsightEventSource {
 export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
-    RecordingsList = 'recordings_list', // New recordings list page
+    RecordingsList = 'recordings_list',
     ProjectHomepage = 'project_homepage',
 }
 
@@ -179,7 +179,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together
+        properties_all: properties_global.concat(properties_local),
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
@@ -216,7 +216,7 @@ export const eventUsageLogic = kea<
             insightMode,
             isFirstLoad,
             fromDashboard,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay,
             changedFilters,
         }),
         reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
