@@ -126,7 +126,7 @@ class TestCohort(BaseTest):
                                 "key": "$pageview",
                                 "type": "behavioural",
                                 "value": "performed_event_multiple",
-                                "event_type": "event",
+                                "event_type": "events",
                                 "operator": "eq",
                                 "operator_value": "3",
                                 "time_interval": "day",
