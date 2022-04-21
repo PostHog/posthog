@@ -335,7 +335,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/insights",
-                data={"name": "insight new name", "description": "Internal system metrics.",},
+                data={"name": "insight name", "description": "Internal system metrics.",},
             )
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 
@@ -377,16 +377,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             {
                                 "type": "Insight",
                                 "action": "changed",
-                                "field": "last_modified_at",
-                                "before": "2012-01-14T03:21:34+00:00",
-                                "after": "2012-01-14T03:31:34+00:00",
-                            },
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "updated_at",
-                                "before": "2012-01-14T03:21:34+00:00",
-                                "after": "2012-01-14T03:31:34+00:00",
+                                "field": "name",
+                                "before": "insight name",
+                                "after": "insight new name",
                             },
                         ],
                         "merge": None,
@@ -400,7 +393,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "created_at": "2012-01-14T03:21:34Z",
                     "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
+                    "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
                 },
             ],
         )
