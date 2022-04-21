@@ -57,9 +57,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
 
     def test_person_property_names(self) -> None:
-        _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
-        _create_person(team=self.team, properties={"random_prop": "asdf"})
-        _create_person(team=self.team, properties={"random_prop": "asdf"})
+        _create_person(
+            distinct_ids=["person_1"], team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+        _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
+        _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "asdf"})
 
         response = self.client.get("/api/person/properties/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -75,11 +77,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
-            team=self.team, properties={"random_prop": "asdf", "some other prop": "with some text"},
+            distinct_ids=["person_1"],
+            team=self.team,
+            properties={"random_prop": "asdf", "some other prop": "with some text"},
         )
-        _create_person(team=self.team, properties={"random_prop": "asdf"})
-        _create_person(team=self.team, properties={"random_prop": "qwerty"})
-        _create_person(team=self.team, properties={"something_else": "qwerty"})
+        _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
+        _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "qwerty"})
+        _create_person(distinct_ids=["person_4"], team=self.team, properties={"something_else": "qwerty"})
         response = self.client.get("/api/person/values/?key=random_prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()

@@ -30,6 +30,7 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
 
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")

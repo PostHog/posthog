@@ -42,6 +42,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
 
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self):
         settings.CLICKHOUSE_REPLICATION = False

@@ -77,6 +77,7 @@ class Test0002EventsSampleBy(AsyncMigrationBaseTest):
     def tearDown(self):
         self.dropTables()
         execute_query(self.create_events_table_query)
+        super().tearDown()
 
     @classmethod
     def dropTables(cls):

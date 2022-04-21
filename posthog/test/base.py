@@ -120,6 +120,16 @@ class TestMixin:
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
+    def tearDown(self):
+        persons_cache_tests.clear()
+        events_cache_tests.clear()
+        super().tearDown()
+
+    def tearDownClass(self):
+        persons_cache_tests.clear()
+        events_cache_tests.clear()
+        super().tearDownClass()
+
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
         self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)  # type: ignore
