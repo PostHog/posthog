@@ -67,7 +67,8 @@
      GROUP BY person_id) behavior_query
   FULL OUTER JOIN
     (SELECT id,
-            argMax(properties, _timestamp) as person_props
+            replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '')) as prop_interested
+            // argMax(properties, _timestamp) as person_props
      FROM person
      WHERE team_id = 2
      GROUP BY id
