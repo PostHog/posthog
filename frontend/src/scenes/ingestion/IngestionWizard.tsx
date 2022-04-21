@@ -15,6 +15,7 @@ import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
+import posthogLogo from 'public/posthog-logo.png'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -97,8 +98,12 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                 width: '100vw',
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexDirection: 'column',
             }}
         >
+            <div className="mb">
+                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+            </div>
             {children}
         </div>
     )

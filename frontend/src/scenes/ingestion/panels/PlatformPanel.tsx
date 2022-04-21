@@ -6,7 +6,6 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { APP, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
 import { PlatformType } from 'scenes/ingestion/types'
 import { LemonButton } from 'lib/components/LemonButton'
-import posthogLogo from 'public/posthog-logo.png'
 import { Link } from 'lib/components/Link'
 import './Panels.scss'
 
@@ -18,9 +17,6 @@ export function PlatformPanel(): JSX.Element {
         <>
             {onboarding1 ? (
                 <div style={{ minWidth: 300, width: '30vw' }}>
-                    <Row justify="center">
-                        <img src={posthogLogo} style={{ width: 157, height: 30 }} />
-                    </Row>
                     <div className="welcome-panel">
                         <h1>Welcome to PostHog</h1>
                         <p className="fw-500">
@@ -34,7 +30,7 @@ export function PlatformPanel(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="platform-btn"
+                                    className="ingestion-btn"
                                     onClick={() => setPlatform(platform)}
                                 >
                                     {platform}
@@ -45,16 +41,16 @@ export function PlatformPanel(): JSX.Element {
                                 fullWidth
                                 center
                                 type="primary"
-                                className="platform-btn"
+                                className="ingestion-btn"
                             >
                                 {APP}
                             </LemonButton>
                             <LemonButton
                                 type="secondary"
+                                className="ingestion-btn inverted"
                                 fullWidth
                                 center
                                 onClick={() => setPlatform(BOOKMARKLET)}
-                                style={{ color: 'black', borderColor: 'black' }}
                             >
                                 {BOOKMARKLET}
                             </LemonButton>

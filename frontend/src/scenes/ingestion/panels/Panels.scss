@@ -3,7 +3,6 @@
 .welcome-panel {
     padding: 40px;
     background-color: white;
-    margin-top: 2rem;
     box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
 
     h1 {
@@ -11,13 +10,21 @@
         font-weight: 700;
         margin-bottom: $default_spacing / 2;
     }
+}
 
-    .platform-btn {
+.welcome-panel,
+.panel-footer {
+    .ingestion-btn {
         margin-bottom: $default_spacing / 2;
         background-color: black;
         &:hover {
             background-color: black;
             opacity: 0.8;
+        }
+        &.inverted {
+            background-color: white;
+            color: black;
+            border: 2px solid black;
         }
     }
 }
@@ -46,4 +53,13 @@
 
 .bookmarklet-steps {
     margin-top: $default_spacing / 2;
+}
+
+.panel-footer {
+    border-top: 2px dashed $border;
+    background-color: white;
+    padding-top: $default_spacing;
+    margin-top: $default_spacing;
+    position: sticky;
+    bottom: 0;
 }

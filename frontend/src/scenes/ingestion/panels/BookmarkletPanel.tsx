@@ -6,6 +6,7 @@ import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
+import { PanelFooter } from './PanelFooter'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
@@ -22,7 +23,7 @@ export function BookmarkletPanel(): JSX.Element {
             onBack={() => setPlatform(null)}
         >
             {currentTeam && (
-                <div style={{ padding: 16, paddingTop: 0 }}>
+                <div style={{ padding: '0px 16px' }}>
                     <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Just exploring?</h1>
                     <h2 style={{ fontSize: 20, fontWeight: 800 }}>
                         Immediately run PostHog on your website for some initial exploring
@@ -58,6 +59,7 @@ export function BookmarkletPanel(): JSX.Element {
                     </Row>
                 </div>
             )}
+            <PanelFooter />
         </CardContainer>
     )
 }

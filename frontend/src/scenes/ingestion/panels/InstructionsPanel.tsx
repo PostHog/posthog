@@ -18,6 +18,7 @@ import React from 'react'
 import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { PanelFooter } from './PanelFooter'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     PURE_JS: JSInstructions,
@@ -35,7 +36,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, totalSteps, platform, framework } = useValues(ingestionLogic)
+    const { index, totalSteps, platform, framework, onboarding1 } = useValues(ingestionLogic)
     const { setFramework, setVerify } = useActions(ingestionLogic)
 
     if (!framework) {
@@ -90,6 +91,7 @@ export function InstructionsPanel(): JSX.Element {
                 </>
             ) : null}
             {platform === MOBILE ? <FrameworkSnippet /> : null}
+            {onboarding1 && <PanelFooter />}
         </CardContainer>
     )
 }

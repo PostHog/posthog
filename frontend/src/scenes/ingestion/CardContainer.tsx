@@ -1,6 +1,8 @@
 import React from 'react'
 import { Col, Card, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ingestionLogic } from './ingestionLogic'
+import { useValues } from 'kea'
 
 export function CardContainer({
     index,
@@ -17,10 +19,11 @@ export function CardContainer({
     nextButton?: boolean
     onSubmit?: () => void
 }): JSX.Element {
+    const { onboarding1 } = useValues(ingestionLogic)
+
     return (
         <Col>
             <Card
-                headStyle={{ minHeight: 60 }}
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
                         {index !== 0 && (
@@ -33,12 +36,17 @@ export function CardContainer({
                         {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
                     </Row>
                 }
-                style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)' }}
+                style={{
+                    position: 'relative',
+                    width: '65vw',
+                    maxHeight: '70vh',
+                    overflow: 'auto',
+                    border: '1px solid var(--border)',
+                }}
             >
                 {children}
             </Card>
-
-            {nextButton && (
+            {!onboarding1 && nextButton && (
                 <div
                     data-attr="wizard-continue-button"
                     className="bg-primary"
