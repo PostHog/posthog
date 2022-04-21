@@ -97,6 +97,10 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "last_modified_at",
         "layouts",
         "color",
+        "order",
+        "result",
+        "dashboard",
+        "last_refresh",
     ],
 }
 
