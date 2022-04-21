@@ -306,13 +306,13 @@ class CohortQuery(EnterpriseEventQuery):
         date_interval = validate_interval(prop.time_interval)
 
         time_value_param = f"{prepend}_time_value_{idx}"
-        time_value = validate_positive_integer(prop.time_value, "time_value")
+        time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
 
         operator_value_param = f"{prepend}_operator_value_{idx}"
-        operator_value = validate_positive_integer(prop.operator_value, "operator_value")
+        operator_value = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
 
         min_periods_param = f"{prepend}_min_periods_{idx}"
-        min_periods = validate_positive_integer(prop.min_periods, "min_periods")
+        min_periods = parse_and_validate_positive_integer(prop.min_periods, "min_periods")
 
         params = {
             time_value_param: time_value,
@@ -380,7 +380,7 @@ def validate_interval(interval: str) -> str:
         return interval
 
 
-def validate_positive_integer(value: Union[str, int], value_name: str) -> int:
+def parse_and_validate_positive_integer(value: Union[str, int], value_name: str) -> int:
     try:
         parsed_value = int(value)
     except ValueError:
