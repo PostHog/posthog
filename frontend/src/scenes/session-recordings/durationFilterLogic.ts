@@ -81,7 +81,7 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
             unit,
             operator,
         }: {
-            timeValue?: number
+            timeValue?: number | null
             unit?: TimeUnit
             operator?: PropertyOperator
         }): void => {
