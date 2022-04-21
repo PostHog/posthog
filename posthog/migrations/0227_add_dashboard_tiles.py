@@ -34,7 +34,8 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
             if not page:
                 break
             DashboardTile.objects.bulk_create(
-                [DashboardTile(insight_id=row[0], dashboard_id=row[1], layouts=row[2], color=row[3]) for row in page]
+                [DashboardTile(insight_id=row[0], dashboard_id=row[1], layouts=row[2], color=row[3]) for row in page],
+                ignore_conflicts=True,
             )
             count += len(page)
 
