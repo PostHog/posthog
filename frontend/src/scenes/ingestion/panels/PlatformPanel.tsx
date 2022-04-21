@@ -24,8 +24,8 @@ export function PlatformPanel(): JSX.Element {
                     <div className="welcome-panel">
                         <h1>Welcome to PostHog</h1>
                         <p className="fw-500">
-                            Let's get you up and running with PostHog! What type of platform is your app? Migrating from
-                            another analytics service? Try one of our plugins or integrations to ingest data.
+                            First things first, where do you want to deploy PostHog? Or you can import existing data, if
+                            you prefer.
                         </p>
                         <Col>
                             {platforms.map((platform) => (
