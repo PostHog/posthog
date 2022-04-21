@@ -183,7 +183,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
             ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
-            for dashboard in Dashboard.objects.filter(team=instance.team, id__in=ids_to_add):
+            for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                if dashboard.team != instance.team:
+                    raise serializers.ValidationError("Dashboard not found")
                 DashboardTile.objects.create(insight=instance, dashboard=dashboard)
 
             if ids_to_remove:

@@ -1000,6 +1000,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    def test_cannot_update_insight_with_dashboard_from_another_team(self):
+        another_team = Team.objects.create(organization=self.organization)
+        dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
+        dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
+
+        insight_id, _ = self._create_insight(
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_own_team.pk],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_an_insight_on_no_dashboard_has_no_restrictions(self):
         _, response_data = self._create_insight(data={"name": "not on a dashboard"})
         self.assertEqual(
