@@ -131,7 +131,7 @@ describe('cohortLogic', () => {
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
             expect(api.update).toBeCalledTimes(0)
         })
-        it('do not save dynamic cohort with malformed properti3s group', async () => {
+        it('do not save dynamic cohort with malformed properties group', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({

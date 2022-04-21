@@ -78,6 +78,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
+        fetchCohort: (id: CohortType['id']) => ({ id }),
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
@@ -122,21 +123,19 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
                 // Return type of validator[groups](...) must be the shape of groups. Returning the error message
                 // for groups as a value for id is a hacky stopgap.
-                groups:
-                    !groups || groups.length < 1
-                        ? [{ id: 'You need at least one matching group' }]
-                        : groups?.map(({ matchType, properties, action_id, event_id }) => {
-                              if (is_static) {
-                                  return { id: undefined }
-                              }
-                              if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
-                                  return { id: 'Please select at least one property or remove this match group.' }
-                              }
-                              if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
-                                  return { id: 'Please select an event or action.' }
-                              }
-                              return { id: undefined }
-                          }),
+                groups: is_static
+                    ? undefined
+                    : !groups || groups.length < 1
+                    ? [{ id: 'You need at least one matching group' }]
+                    : groups?.map(({ matchType, properties, action_id, event_id }) => {
+                          if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
+                              return { id: 'Please select at least one property or remove this match group.' }
+                          }
+                          if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
+                              return { id: 'Please select an event or action.' }
+                          }
+                          return { id: undefined }
+                      }),
             }),
             submit: (cohort) => {
                 actions.saveCohort(cohort)
@@ -150,6 +149,17 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
             {
                 setCohort: ({ cohort }) => {
                     return processCohortOnSet(cohort)
+                },
+                fetchCohort: async ({ id }, breakpoint) => {
+                    try {
+                        const cohort = await api.cohorts.get(id)
+                        breakpoint()
+                        cohortsModel.actions.updateCohort(cohort)
+                        return processCohortOnSet(cohort)
+                    } catch (error: any) {
+                        lemonToast.error(error.detail || 'Failed to fetch cohort')
+                        return values.cohort
+                    }
                 },
                 saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
                     let cohort = { ...values.cohort, ...cohortParams }
@@ -230,8 +240,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
             if (!props.id || props.id === 'new') {
                 actions.setCohort(NEW_COHORT)
             } else {
-                const cohort = await api.cohorts.get(Number(props.id))
-                actions.setCohort(cohort)
+                actions.fetchCohort(props.id)
             }
         },
         beforeUnmount: () => {
