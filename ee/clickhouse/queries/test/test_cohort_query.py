@@ -18,6 +18,18 @@ def _create_event(**kwargs) -> None:
     create_event(**kwargs)
 
 
+def _make_event_sequence(team, distinct_id, interval_days, period_event_counts):
+    for period_index, event_count in enumerate(period_event_counts):
+        for _ in range(event_count):
+            _create_event(
+                team=team,
+                event="$pageview",
+                properties={},
+                distinct_id=distinct_id,
+                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1),
+            )
+
+
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     def test_basic_query(self):
 
@@ -271,15 +283,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
         )
-        for i in range(10):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                properties={},
-                distinct_id="p1",
-                timestamp=datetime.now() - timedelta(days=3 * i, hours=1),
-            )
 
+        _make_event_sequence(self.team, "p1", 3, [1, 1, 1])
+        # Filter for:
+        # Regularly completed [$pageview] [at least] [1] times per
+        # [3][day] period for at least [3] of the last [3] periods
         filter = Filter(
             data={
                 "properties": {
@@ -292,8 +300,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "operator_value": 1,
                             "time_interval": "day",
                             "time_value": 3,
-                            "total_periods": 11,
-                            "min_periods": 10,
+                            "total_periods": 3,
+                            "min_periods": 3,
                             "type": "performed_event_regularly",
                         }
                     ],
@@ -305,6 +313,74 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test2", "email": "test2@posthog.com"}
+        )
+        # p1 gets variable number of events in each period
+        _make_event_sequence(self.team, "p1", 3, [0, 1, 2])
+        # p2 gets 10 events in each period
+        _make_event_sequence(self.team, "p2", 3, [2, 2, 2])
+
+        # Filter for:
+        # Regularly completed [$pageview] [at least] [2] times per
+        # [3][day] period for at least [2] of the last [3] periods
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "event",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "time_interval": "day",
+                            "time_value": 3,
+                            "total_periods": 3,
+                            "min_periods": 2,
+                            "type": "performed_event_regularly",
+                        }
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+        self.assertEqual([p2.uuid], [r[0] for r in res])
+
+        # Filter for:
+        # Regularly completed [$pageview] [at least] [1] times per
+        # [3][day] period for at least [2] of the last [3] periods
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "event",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_interval": "day",
+                            "time_value": 3,
+                            "total_periods": 3,
+                            "min_periods": 2,
+                            "type": "performed_event_regularly",
+                        }
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+        self.assertEqual(set([p1.uuid, p2.uuid]), set([r[0] for r in res]))
 
     def test_person_props(self):
         pass
