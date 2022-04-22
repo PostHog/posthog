@@ -4,6 +4,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
 import { PanelHeader } from './panels/PanelComponents'
+import './panels/Panels.scss'
 
 export function CardContainer({
     index,
@@ -23,19 +24,19 @@ export function CardContainer({
     const { onboarding1 } = useValues(ingestionLogic)
 
     return (
-        <Col>
+        <Col className="ingestion-card-container">
             <Card
+                headStyle={{ border: 'none', paddingBottom: 0 }}
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
-                        <PanelHeader index={index} totalSteps={totalSteps} />
-                        {/* {index !== 0 && (
+                        {index !== 0 && (
                             <ArrowLeftOutlined
                                 className="button-border clickable"
                                 style={{ marginRight: 4 }}
                                 onClick={onBack}
                             />
-                        )} */}
-                        {/* {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`} */}
+                        )}
+                        <PanelHeader index={index} totalSteps={totalSteps} />
                     </Row>
                 }
                 style={{

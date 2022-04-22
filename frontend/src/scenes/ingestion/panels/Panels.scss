@@ -66,9 +66,11 @@
 
 .panel-header {
     font-size: 14px;
-    // display: flex;
+    color: $text_muted_alt;
+}
 
-    // li:not(:first-child):before {
-    //     content: '> ';
-    // }
+.ingestion-card-container {
+    .ant-card-head-title {
+        padding-bottom: 0;
+    }
 }

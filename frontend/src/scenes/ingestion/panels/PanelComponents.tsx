@@ -63,12 +63,22 @@ export function PanelFooter(): JSX.Element {
     )
 }
 
-export function PanelHeader({ index, totalSteps }: { index: number, totalSteps?: number }): JSX.Element {
+export function PanelHeader({ index }: { index: number }): JSX.Element {
     return (
         <Row align="middle" className="panel-header">
-            <li>Step 1</li>
-            {index > 1 && (<><IconChevronRight /><li>Step 2</li></>)}
-            {index > 2 && (<><IconChevronRight /><li>Step 3</li></>)}
+            <li style={index === 1 ? { color: 'black' } : {}}>Step 1</li>
+            {index > 1 && (
+                <>
+                    <IconChevronRight />
+                    <li style={index === 2 ? { color: 'black' } : {}}>Step 2</li>
+                </>
+            )}
+            {index > 2 && (
+                <>
+                    <IconChevronRight />
+                    <li style={index === 3 ? { color: 'black' } : {}}>Step 3</li>
+                </>
+            )}
         </Row>
     )
 }
