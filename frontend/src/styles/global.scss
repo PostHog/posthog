@@ -101,6 +101,14 @@ body strong {
     font-weight: 500;
 }
 
+.fw-700 {
+    font-weight: 700;
+}
+
+.fw-800 {
+    font-weight: 800;
+}
+
 .text-default {
     color: var(--text-default);
     font-size: 14px;
@@ -641,6 +649,12 @@ input::-ms-clear {
         margin-left: 0;
         margin-right: 4px;
     }
+}
+
+.title-icon {
+    margin-left: 0.375rem;
+    font-size: 1rem;
+    line-height: 0;
 }
 
 .btn-lg-2x {

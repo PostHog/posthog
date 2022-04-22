@@ -22,11 +22,13 @@ import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
 import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { realm } = useValues(preflightLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
@@ -60,7 +62,7 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="project-homepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
-            {featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS] && (
+            {(featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS_EXPERIMENT] === 'test' || realm !== 'cloud') && (
                 <div
                     ref={topListContainerRef}
                     className={

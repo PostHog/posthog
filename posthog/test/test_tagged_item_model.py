@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
-from posthog.models import Action, Dashboard, Insight, Tag, TaggedItem
+from posthog.models import Action, Dashboard, DashboardTile, Insight, Tag, TaggedItem
 
 from .base import BaseTest
 
@@ -11,9 +11,8 @@ class TestTaggedItem(BaseTest):
     def test_exactly_one_object_constraint(self):
         # Setup
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        insight = Insight.objects.create(
-            dashboard=dashboard, filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,
-        )
+        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         # Before migration you can create duplicate tagged items
@@ -36,9 +35,8 @@ class TestTaggedItem(BaseTest):
 
     def test_uniqueness_constraint_insight(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        insight = Insight.objects.create(
-            dashboard=dashboard, filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,
-        )
+        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
         TaggedItem.objects.create(insight_id=insight.id, tag_id=tag.id)

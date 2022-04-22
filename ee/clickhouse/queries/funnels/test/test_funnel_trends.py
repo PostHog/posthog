@@ -1216,14 +1216,19 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "user_one": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 9)},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 10)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 10)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 12)},  # today in pacific
                 ],
                 "user_two": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 2, 1)},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 2)},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 4, 3)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},  # 04-30 in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},  # 04-30 in pacific
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 10)},  #  today in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
                 ],
                 "user_eight": [],
             },
@@ -1253,11 +1258,14 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results_pacific = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
         saturday = results[1]  # 5/1
-        self.assertEqual(1, saturday["reached_to_step_count"])
-        self.assertEqual(1, saturday["reached_from_step_count"])
+        self.assertEqual(3, saturday["reached_to_step_count"])
+        self.assertEqual(3, saturday["reached_from_step_count"])
         self.assertEqual(100.0, saturday["conversion_rate"])
 
         friday_pacific = results_pacific[0]
-        self.assertEqual(1, friday_pacific["reached_to_step_count"])
-        self.assertEqual(1, friday_pacific["reached_from_step_count"])
+        self.assertEqual(2, friday_pacific["reached_to_step_count"])
+        self.assertEqual(2, friday_pacific["reached_from_step_count"])
         self.assertEqual(100.0, friday_pacific["conversion_rate"])
+        saturday_pacific = results_pacific[1]
+        self.assertEqual(1, saturday_pacific["reached_to_step_count"])
+        self.assertEqual(1, saturday_pacific["reached_from_step_count"])
