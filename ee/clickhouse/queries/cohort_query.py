@@ -514,6 +514,13 @@ class CohortQuery(EnterpriseEventQuery):
 
         total_period_count = parse_and_validate_positive_integer(prop.total_periods, "total_periods")
 
+        if min_period_count > total_period_count:
+            raise (
+                ValueError(
+                    f"min_periods ({min_period_count}) cannot be greater than total_periods ({total_period_count})"
+                )
+            )
+
         params = {
             time_value_param: time_value,
             operator_value_param: operator_value,
