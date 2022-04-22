@@ -81,7 +81,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (!dashboard && !itemsLoading) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
