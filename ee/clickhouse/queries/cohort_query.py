@@ -9,7 +9,7 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property import BehaviouralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -91,6 +91,18 @@ def get_relative_date_arg(relative_date: Relative_Date) -> str:
     return f"-{relative_date[0]}{relative_date[1][0].lower()}"
 
 
+def full_outer_join_query(q: str, alias: str, left_operand: str, right_operand: str) -> str:
+    return join_query(q, "FULL OUTER JOIN", alias, left_operand, right_operand)
+
+
+def inner_join_query(q: str, alias: str, left_operand: str, right_operand: str) -> str:
+    return join_query(q, "INNER JOIN", alias, left_operand, right_operand)
+
+
+def join_query(q: str, join: str, alias: str, left_operand: str, right_operand: str) -> str:
+    return f"{join} ({q}) {alias} ON {left_operand} = {right_operand}"
+
+
 class CohortQuery(EnterpriseEventQuery):
 
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
@@ -144,14 +156,21 @@ class CohortQuery(EnterpriseEventQuery):
         conditions, condition_params = self._get_conditions()
         self.params.update(condition_params)
 
-        behavior_subquery, behavior_subquery_params = self._get_behavior_subquery()
+        subq = []
+
+        behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
+        subq.append((behavior_subquery, behavior_query_alias))
         self.params.update(behavior_subquery_params)
 
-        person_query, person_params = self._get_person_query()
+        person_query, person_params, person_query_alias = self._get_person_query()
+        subq.append((person_query, person_query_alias))
         self.params.update(person_params)
 
-        sequence_query, sequence_params = self._get_sequence_query()
+        sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query()
+        subq.append((sequence_query, sequence_query_alias))
         self.params.update(sequence_params)
+
+        q = self._build_sources(subq)
 
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         select_field = (
@@ -162,42 +181,60 @@ class CohortQuery(EnterpriseEventQuery):
 
         final_query = f"""
         SELECT {select_field} AS id FROM
-        ({behavior_subquery}) {self.BEHAVIOR_QUERY_ALIAS}
-        {person_query}
-        {sequence_query}
+        {q}
         WHERE 1 = 1
         {conditions}
         """
 
         return final_query, self.params
 
+    def _build_sources(self, subq: List[Tuple[str, str]]) -> str:
+        q = ""
+        filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
+
+        prev_alias = None
+        for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
+            if idx == 0:
+                q += f"({subq_query}) {subq_alias}"
+            elif prev_alias:  # can't join without a previous alias
+                q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+
+            prev_alias = subq_alias
+
+        return q
+
     def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any]]:
         #
         # Get the subquery for the cohort query.
         #
 
-        _fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
-        _fields.extend(self._fields)
+        query, params = "", {}
+        if self._should_join_behavioral_query:
 
-        date_query, date_params = self._get_date_query()
+            _fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id AS person_id"]
+            _fields.extend(self._fields)
 
-        query = f"""
-        SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
-        WHERE team_id = %(team_id)s
-        AND event IN %(events)s
-        {date_query}
-        GROUP BY person_id
-        """
+            date_condition, date_params = self._get_date_condition()
 
-        return (
-            query,
-            {"team_id": self._team_id, "events": self._events, **date_params,},
-        )
+            query = f"""
+            SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
+            {self._get_distinct_id_query()}
+            WHERE team_id = %(team_id)s
+            AND event IN %(events)s
+            {date_condition}
+            GROUP BY person_id
+            """
+
+            query, params = (query, {"team_id": self._team_id, "events": self._events, **date_params,})
+
+        return query, params, self.BEHAVIOR_QUERY_ALIAS
 
     def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
+            person_query = f"SELECT *, id AS person_id FROM ({person_query})"
+
+            return person_query, params, self.PERSON_TABLE_ALIAS
 
             if "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]:
                 # No outer group properties relate to persons, so inner join is sufficient
@@ -218,9 +255,9 @@ class CohortQuery(EnterpriseEventQuery):
                     params,
                 )
         else:
-            return "", {}
+            return "", {}, ""
 
-    def _get_date_query(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle as params
         date_query = ""
         date_params = {}
@@ -416,7 +453,7 @@ class CohortQuery(EnterpriseEventQuery):
                 return prop
         return None
 
-    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         query, params = "", {}
 
         if self.sequence_filter_to_query:
@@ -450,15 +487,12 @@ class CohortQuery(EnterpriseEventQuery):
             params = funnel_builder.params
 
             query = f"""
-            FULL OUTER JOIN (
-                SELECT aggregation_target, steps FROM (
-                    {funnel_query}
-                ) WHERE steps = 2
-            ) {self.FUNNEL_QUERY_ALIAS}
-            ON person_id = {self.FUNNEL_QUERY_ALIAS}.aggregation_target
+            SELECT aggregation_target AS person_id, steps FROM (
+                {funnel_query}
+            ) WHERE steps = 2
             """
 
-        return query, params
+        return query, params, self.FUNNEL_QUERY_ALIAS
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -508,6 +542,20 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = self._column_optimizer.is_using_person_properties
+
+    @cached_property
+    def _should_join_behavioral_query(self) -> bool:
+        for prop in self._filter.property_groups.flat:
+            if prop.value in [
+                BehaviouralPropertyType.PERFORMED_EVENT,
+                BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE,
+                BehaviouralPropertyType.PERFORMED_EVENT_REGULARLY,
+                BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT,
+                BehaviouralPropertyType.STOPPED_PERFORMING_EVENT,
+            ]:
+                return True
+        return False
 
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int

@@ -127,7 +127,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         # Since all props should be pushed down here, there should be no full outer join!
-        self.assertTrue("FULL OUTER JOIN" not in q)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
