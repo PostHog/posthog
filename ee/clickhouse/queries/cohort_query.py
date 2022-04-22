@@ -4,8 +4,11 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter, Team
 from posthog.models.action import Action
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import OperatorInterval, Property, PropertyGroup, PropertyName
 
 Relative_Date = Tuple[int, OperatorInterval]
@@ -48,6 +51,14 @@ def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -
     return parsed_value
 
 
+def validate_entity(possible_event: Tuple[Optional[str], Optional[Union[int, str]]]) -> Event:
+    event_type = possible_event[0]
+    event_val = possible_event[1]
+    if event_type is None or event_val is None:
+        raise ValueError("Entity name and entity id must be specified")
+    return (event_type, event_val)
+
+
 def relative_date_is_greater(date_1: List[Relative_Date], date_2: List[Relative_Date]) -> bool:
     tot_seconds = sum(relative_date_to_seconds(date) for date in date_1)
     curr_seconds = sum(relative_date_to_seconds(date) for date in date_2)
@@ -55,9 +66,35 @@ def relative_date_is_greater(date_1: List[Relative_Date], date_2: List[Relative_
     return tot_seconds > curr_seconds
 
 
+def convert_to_entity_params(events: List[Event]) -> Tuple[List, List]:
+    res_events = []
+    res_actions = []
+
+    for idx, event in enumerate(events):
+        event_type = event[0]
+        event_val = event[1]
+
+        if event_type == "events":
+            res_events.append(
+                {"id": event_val, "name": event_val, "order": idx, "type": event_type,}
+            )
+        elif event_type == "actions":
+            action = Action.objects.get(id=event_val)
+            res_actions.append(
+                {"id": event_val, "name": action.name, "order": idx, "type": event_type,}
+            )
+
+    return res_events, res_actions
+
+
+def get_relative_date_arg(relative_date: Relative_Date) -> str:
+    return f"-{relative_date[0]}{relative_date[1][0].lower()}"
+
+
 class CohortQuery(EnterpriseEventQuery):
 
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
+    FUNNEL_QUERY_ALIAS = "funnel_query"
     _fields: List[str]
     _events: List[str]
     _earliest_time: List[Relative_Date]
@@ -113,6 +150,9 @@ class CohortQuery(EnterpriseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        sequence_query, sequence_params = self._get_sequence_query()
+        self.params.update(sequence_params)
+
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         select_field = (
             f"if(person_id = '00000000-0000-0000-0000-000000000000', {self.PERSON_TABLE_ALIAS}.id, person_id)"
@@ -124,6 +164,7 @@ class CohortQuery(EnterpriseEventQuery):
         SELECT {select_field} AS id FROM
         ({behavior_subquery}) {self.BEHAVIOR_QUERY_ALIAS}
         {person_query}
+        {sequence_query}
         WHERE 1 = 1
         {conditions}
         """
@@ -366,28 +407,58 @@ class CohortQuery(EnterpriseEventQuery):
         return f"{column_name} = 1", {f"{date_param}": date_value, **entity_params}
 
     def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        event = (prop.event_type, prop.key)
-        entity_query, entity_params = self._get_entity(event, prepend, idx)
+        return f"steps = 2", {}
 
-        column_name = f"event_sequence_condition_{prepend}_{idx}"
+    @cached_property
+    def sequence_filter_to_query(self) -> Optional[Property]:
+        for prop in self._filter.property_groups.flat:
+            if prop.value == "performed_event_sequence":
+                return prop
+        return None
 
-        date_value = prop.time_value
-        date_param = f"{prepend}_date_{idx}"
-        date_interval = validate_interval(prop.time_interval)
+    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any]]:
+        query, params = "", {}
 
-        seq_event = (prop.seq_event_type, prop.seq_event)
-        seq_entity_query, seq_entity_params = self._get_entity(seq_event, f"{prepend}_seq", idx)
+        if self.sequence_filter_to_query:
+            prop = self.sequence_filter_to_query
+            event = validate_entity((prop.event_type, prop.key))
+            seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
 
-        seq_date_value = parse_and_validate_positive_integer(prop.seq_time_value, "time_value")
-        seq_date_interval = validate_interval(prop.seq_time_interval)
+            time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            time_interval = validate_interval(prop.time_interval)
+            seq_date_value = parse_and_validate_positive_integer(prop.seq_time_value, "time_value")
+            seq_date_interval = validate_interval(prop.seq_time_interval)
 
-        self._check_earliest_date([(date_value, date_interval)])
+            events, actions = convert_to_entity_params([event, seq_event])
+            new_filter = Filter(
+                data={
+                    "insight": INSIGHT_FUNNELS,
+                    "funnel_window_interval": seq_date_value,
+                    "funnel_window_interval_unit": seq_date_interval,
+                    "events": events,
+                    "actions": actions,
+                    "filter_test_accounts": self._filter.filter_test_accounts,
+                    "display": "FunnelViz",
+                    "funnel_viz_type": "steps",
+                    "date_from": get_relative_date_arg((time_value, time_interval)),
+                }
+            )
 
-        field = f"""windowFunnel({relative_date_to_seconds((seq_date_value, seq_date_interval))})(toDateTime(timestamp), {entity_query} AND timestamp >= now() - INTERVAL %({date_param})s {date_interval}, {seq_entity_query}) AS {column_name}"""
+            team = Team.objects.get(id=self._team_id)
+            funnel_builder = ClickhouseFunnel(new_filter, team)
+            funnel_query = funnel_builder.get_step_counts_query()
+            params = funnel_builder.params
 
-        self._fields.append(field)
+            query = f"""
+            FULL OUTER JOIN (
+                SELECT aggregation_target, steps FROM (
+                    {funnel_query}
+                ) WHERE steps = 2
+            ) {self.FUNNEL_QUERY_ALIAS}
+            ON person_id = {self.FUNNEL_QUERY_ALIAS}.aggregation_target
+            """
 
-        return f"{column_name} = 2", {f"{date_param}": date_value, **entity_params, **seq_entity_params}
+        return query, params
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)

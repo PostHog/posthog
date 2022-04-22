@@ -300,7 +300,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         _create_event(
             team=self.team,
-            event="$new_view",
+            event="$pageview",
             properties={},
             distinct_id="p1",
             timestamp=datetime.now() - timedelta(days=3),
