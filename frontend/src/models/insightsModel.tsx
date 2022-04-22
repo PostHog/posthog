@@ -57,7 +57,7 @@ export const insightsModel = kea<insightsModelType>({
             })
 
             const { id: _discard, short_id: __discard, ...rest } = item // eslint-disable-line
-            const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
+            const newItem = dashboardId ? { ...rest, dashboards: [dashboardId], layouts } : { ...rest, layouts }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
