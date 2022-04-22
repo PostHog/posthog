@@ -20,7 +20,6 @@ describe('Insights', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         // Save
-        cy.wait(500) // TODO: hoxfix until we disable "save" when loading
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 
@@ -64,7 +63,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('body').type('l') // Tab is cut off on narrow screens; plus we test hotkeys too
+        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
         cy.get('h4').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph

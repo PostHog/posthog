@@ -10,12 +10,9 @@ const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
 }
 
-type FlagFields = keyof FeatureFlagType
 type Description = string | JSX.Element | null
 
-const featureFlagActionsMapping: {
-    [field in FlagFields]: (change?: ActivityChange) => Description[] | null
-} = {
+const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => Description[] | null> = {
     name: function onName(change) {
         return [
             <>
@@ -49,7 +46,7 @@ const featureFlagActionsMapping: {
                 filtersAfter.groups
                     .filter((groupAfter, index) => {
                         const groupBefore = filtersBefore?.groups?.[index]
-                        // only keep changes with no before state, or those where before and after are different
+                        // only keep changes with no "before" state, or those where before and after are different
                         return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
                     })
                     .forEach((groupAfter) => {
@@ -112,7 +109,7 @@ const featureFlagActionsMapping: {
     key: function onKey(change) {
         return [<>changed flag key from ${change?.before}</>]
     },
-    // fields that shouldn't show in the log if they change
+    // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
@@ -121,8 +118,8 @@ const featureFlagActionsMapping: {
 
 export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'FeatureFlag') {
-        console.error('feature flag decsriber received a non-feature flag activity')
-        return null // only humanizes the feature flag scope
+        console.error('feature flag describer received a non-feature flag activity')
+        return null
     }
 
     if (logItem.activity == 'created') {
@@ -156,23 +153,23 @@ interface SentenceListProps {
     suffix?: string | JSX.Element | null
 }
 
-function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
+export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
-            {prefix && <div>{prefix}&nbsp;</div>}
+            {prefix && <div>{prefix}&#32;</div>}
             <>
                 {listParts.flatMap((part, index, all) => {
                     const isntFirst = index > 0
                     const isLast = index === all.length - 1
                     const atLeastThree = all.length >= 2
                     return [
-                        isntFirst && <div key={`${index}-a`}>,&nbsp;</div>,
-                        isLast && atLeastThree && <div key={`${index}-b`}>and&nbsp;</div>,
+                        isntFirst && <div key={`${index}-a`}>,&#32;</div>,
+                        isLast && atLeastThree && <div key={`${index}-b`}>and&#32;</div>,
                         <div key={`${index}-c`}>{part}</div>,
                     ]
                 })}
             </>
-            {suffix && <div>&nbsp;{suffix}</div>}
+            {suffix && <div>&#32;{suffix}</div>}
         </div>
     )
 }

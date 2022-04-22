@@ -5,13 +5,13 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
-from posthog.test.base import BaseTest
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 
 MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
 @pytest.mark.ee
-class Test0003FillPersonDistinctId2(BaseTest):
+class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
     def setUp(self):
         from posthog.client import sync_execute
 
@@ -49,8 +49,8 @@ class Test0003FillPersonDistinctId2(BaseTest):
 
         self.create_distinct_id(team_id=3, distinct_id="d", person_id=str(p6), sign=1)
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         rows = sync_execute(

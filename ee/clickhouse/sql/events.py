@@ -2,7 +2,7 @@ from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
@@ -92,6 +92,35 @@ created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events
+""".format(
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+)
+
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    extra_fields="",
+    materialized_columns="",
+)
+
+EVENTS_TABLE_JSON_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+_timestamp,
+_offset
+FROM {database}.kafka_events_json
 """.format(
     target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -227,7 +256,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number), {start_of_week_fix} %(timezone)s) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -247,12 +276,12 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_fu
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
+FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s), toDateTime(%(date_to)s), %(timezone)s))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s)
 """
 
 EVENT_JOIN_PERSON_SQL = """

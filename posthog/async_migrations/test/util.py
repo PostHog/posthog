@@ -1,4 +1,15 @@
+from unittest.mock import patch
+
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.test.base import BaseTest
+
+
+class AsyncMigrationBaseTest(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.patcher = patch("posthoganalytics.capture")
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
 
 
 def create_async_migration(

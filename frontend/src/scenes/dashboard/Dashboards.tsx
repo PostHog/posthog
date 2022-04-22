@@ -1,10 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Input, Row, Tabs } from 'antd'
+import { Card, Col, Input, Row, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
@@ -20,9 +20,10 @@ import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
 import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -60,14 +61,20 @@ export function Dashboards(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight, is_shared }) {
+            render: function Render(name, { id, description, _highlight, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
+                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
+                            {!canEditDashboard && (
+                                <Tooltip title="You don't have edit permissions for this dashboard.">
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                </Tooltip>
+                            )}
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
@@ -75,7 +82,14 @@ export function Dashboards(): JSX.Element {
                             )}
                             {isPrimary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
+                                    <IconCottage
+                                        style={{
+                                            marginLeft: 6,
+                                            color: 'var(--warning)',
+                                            fontSize: '1rem',
+                                            verticalAlign: '-0.125em',
+                                        }}
+                                    />
                                 </Tooltip>
                             )}
                         </div>
@@ -139,7 +153,11 @@ export function Dashboards(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
-                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
+                                <LemonRow
+                                    icon={<IconCottage style={{ color: 'var(--warning)' }} />}
+                                    fullWidth
+                                    status="muted"
+                                >
                                     <span>
                                         Change the default dashboard on the{' '}
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
@@ -168,14 +186,9 @@ export function Dashboards(): JSX.Element {
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <Button
-                        data-attr={'new-dashboard'}
-                        onClick={showNewDashboardModal}
-                        type="primary"
-                        icon={<PlusOutlined />}
-                    >
-                        New Dashboard
-                    </Button>
+                    <LemonButton data-attr={'new-dashboard'} onClick={showNewDashboardModal} type="primary">
+                        New dashboard
+                    </LemonButton>
                 }
             />
             <Tabs

@@ -1,7 +1,7 @@
 import dataclasses
 import datetime
 import json
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
@@ -78,6 +78,12 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
+field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
+    "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+}
+
+
 def changes_between(
     model_type: Literal["FeatureFlag", "Person"], previous: Optional[models.Model], current: Optional[models.Model]
 ) -> List[Change]:
@@ -93,7 +99,8 @@ def changes_between(
     if previous is not None:
         fields = current._meta.fields if current is not None else []
 
-        for field in [f.name for f in fields]:
+        filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
+        for field in filtered_fields:
             left = getattr(previous, field, None)
             right = getattr(current, field, None)
 

@@ -1,14 +1,12 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -30,10 +28,11 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode } = useActions(insightSceneLogic)
+    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -46,12 +45,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insight,
         insightChanged,
         tagLoading,
-        sourceDashboardId,
+        insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -59,40 +58,20 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { mathDefinitions } = useValues(mathsLogic)
     const screens = useBreakpoint()
 
+    useEffect(() => {
+        reportInsightViewedForRecentInsights()
+    }, [insightId])
+
     const isSmallScreen = !screens.xl
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
-    const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
-        setActiveView(view)
-        reportHotkeyNavigation('insights', hotkey)
-    }
+    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
-    useKeyboardHotkeys({
-        t: {
-            action: () => handleHotkeyNavigation(InsightType.TRENDS, 't'),
-        },
-        f: {
-            action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
-        },
-        r: {
-            action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
-        },
-        p: {
-            action: () => handleHotkeyNavigation(InsightType.PATHS, 'p'),
-        },
-        i: {
-            action: () => handleHotkeyNavigation(InsightType.STICKINESS, 'i'),
-        },
-        l: {
-            action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
-        },
-        e: {
-            action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.View,
-        },
-    })
+    useEffect(() => {
+        syncInsightChanged(insightChanged)
+    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -136,13 +115,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 buttons={
                     <div className="insights-tab-actions">
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={cancelChanges}>
+                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && (
-                            <SaveToDashboard insight={insight} sourceDashboardId={sourceDashboardId} />
-                        )}
+                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <LemonButton
@@ -159,7 +136,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
+                                insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
                         )}
@@ -179,36 +157,26 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                                notice={
-                                    !canEditInsight
-                                        ? {
-                                              icon: <IconLock />,
-                                              tooltip:
-                                                  "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                          }
-                                        : undefined
-                                }
                             />
                         )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            (canEditInsight ? (
-                                <ObjectTags
-                                    tags={insight.tags ?? []}
-                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                    saving={tagLoading}
-                                    tagsAvailable={[]}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                />
-                            ) : insight.tags?.length ? (
-                                <ObjectTags
-                                    tags={insight.tags}
-                                    saving={tagLoading}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                    staticOnly
-                                />
-                            ) : null)}
+                        {canEditInsight ? (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        ) : insight.tags?.length ? (
+                            <ObjectTags
+                                tags={insight.tags}
+                                saving={tagLoading}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                                staticOnly
+                            />
+                        ) : null}
                         <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }
@@ -228,7 +196,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     >
                         <div
                             style={{
-                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
                                 marginRight: verticalLayout ? '1rem' : 0,
                             }}
                         >
@@ -246,7 +214,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <div
                             style={{
                                 flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
                             }}
                         >
                             <InsightContainer />

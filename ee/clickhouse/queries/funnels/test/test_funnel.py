@@ -1,5 +1,6 @@
 from datetime import datetime
 from unittest.case import skip
+from unittest.mock import patch
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -1615,3 +1616,32 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertCountEqual(
             self._get_actor_ids_at_step(filter, 3), [people["stopped_after_pageview3"].uuid,],
         )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones(self, patch_feature_enabled):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        #  this event shouldn't appear as in US/Pacific this would be the previous day
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-01T01:00:00Z",
+        )
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 0)

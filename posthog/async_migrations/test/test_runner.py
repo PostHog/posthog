@@ -9,14 +9,13 @@ from posthog.async_migrations.runner import (
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import update_async_migration
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
-class TestRunner(BaseTest):
+class TestRunner(AsyncMigrationBaseTest):
     def setUp(self):
         self.migration = Migration()
         self.TEST_MIGRATION_DESCRIPTION = self.migration.description

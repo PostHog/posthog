@@ -61,10 +61,10 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
 ): JSX.Element {
+    const symbolic = children == null || children === false
     if (loading) {
         icon = <Spinner size="sm" />
     }
-
     const element = React.createElement(
         tag || 'div',
         {
@@ -73,7 +73,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 className,
                 status && `LemonRow--status-${status}`,
                 compact && 'LemonRow--compact',
-                !children && 'LemonRow--symbolic',
+                symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center'
@@ -84,13 +84,25 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         <>
             <div className="LemonRow__main-area">
                 {icon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--prefix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {icon}
                     </span>
                 )}
-                {children && <div className="LemonRow__content">{children}</div>}
+                {!symbolic && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                    <span
+                        className={clsx(
+                            'LemonRow__icon',
+                            'LemonRow__icon--suffix',
+                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
+                        )}
+                    >
                         {sideIcon}
                     </span>
                 )}

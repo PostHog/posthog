@@ -112,7 +112,18 @@ export const fetchEventsForInterval = async (
         )
 
         const fetchEventsQuery = `
-        SELECT * FROM events 
+        SELECT
+            uuid,
+            team_id,
+            distinct_id,
+            properties,
+            timestamp,
+            now,
+            event,
+            ip,
+            site_url,
+            sent_at 
+        FROM events 
         WHERE team_id = ${teamId} 
         AND _timestamp >= '${chTimestampLower}' 
         AND _timestamp < '${chTimestampHigher}'
@@ -130,7 +141,22 @@ export const fetchEventsForInterval = async (
         )
     } else {
         const postgresFetchEventsResult = await db.postgresQuery(
-            `SELECT * FROM posthog_event WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3 ORDER BY id LIMIT $4 OFFSET $5`,
+            `
+            SELECT 
+                event, 
+                timestamp,
+                team_id,
+                distinct_id,
+                created_at,
+                properties,
+                elements,
+                id,
+                elements_hash 
+            FROM posthog_event 
+            WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3 
+            ORDER BY id 
+            LIMIT $4 
+            OFFSET $5`,
             [teamId, timestampLowerBound.toISOString(), timestampUpperBound.toISOString(), eventsPerRun, offset],
             'fetchEventsForInterval'
         )

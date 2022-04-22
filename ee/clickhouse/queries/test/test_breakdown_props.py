@@ -56,12 +56,13 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     "interval": "day",
                     "breakdown": "$browser",
                     "breakdown_type": "person",
+                    "breakdown_limit": 5,
                     "date_from": "-14d",
                     "funnel_window_days": 14,
                 }
             )
             res = get_breakdown_prop_values(
-                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team.pk, 5
+                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team
             )
             self.assertEqual(res, ["test"])
 
@@ -109,11 +110,12 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "interval": "day",
                         "breakdown": "$browser",
                         "breakdown_type": "person",
+                        "breakdown_limit": 5,
                         "date_from": "-14d",
                         "funnel_window_days": 14,
                     }
                 )
-                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5)
+                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
                 self.assertEqual(res, ["test"])
 
     @snapshot_clickhouse_queries
@@ -176,11 +178,12 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "interval": "day",
                         "breakdown": "$browser",
                         "breakdown_type": "person",
+                        "breakdown_limit": 5,
                         "date_from": "-14d",
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5))
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
                 self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries
@@ -216,6 +219,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
+                "breakdown_limit": 5,
                 "events": [{"id": "$pageview", "type": "events", "order": 0,}],
                 "properties": [
                     {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
@@ -223,7 +227,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk, 5)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
 
         filter = Filter(
@@ -233,6 +237,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
+                "breakdown_limit": 5,
                 "events": [{"id": "$pageview", "type": "events", "order": 0,}],
                 "properties": {
                     "type": "AND",
@@ -242,5 +247,5 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk, 5)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])

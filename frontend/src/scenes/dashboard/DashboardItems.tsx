@@ -43,7 +43,9 @@ export function DashboardItems(): JSX.Element {
                 margin={[16, 16]}
                 containerPadding={[0, 0]}
                 onLayoutChange={(_, newLayouts) => {
-                    updateLayouts(newLayouts)
+                    if (dashboardMode === DashboardMode.Edit) {
+                        updateLayouts(newLayouts)
+                    }
                 }}
                 onWidthChange={(containerWidth, _, newCols) => {
                     updateContainerWidth(containerWidth, newCols)
@@ -85,7 +87,7 @@ export function DashboardItems(): JSX.Element {
                         showResizeHandles={dashboardMode === DashboardMode.Edit}
                         canResizeWidth={canResizeWidth}
                         updateColor={(color) => updateItemColor(item.id, color)}
-                        removeFromDashboard={() => removeItem(item.id)}
+                        removeFromDashboard={() => removeItem(item)}
                         refresh={() => refreshAllDashboardItems([item])}
                         rename={() => renameInsight(item)}
                         duplicate={() => duplicateInsight(item)}

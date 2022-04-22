@@ -6,17 +6,25 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
     const { setHeatmapFilter } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
+    const { wildcardHref } = useValues(currentPageLogic)
+    const { setWildcardHref } = useActions(currentPageLogic)
 
     return (
         <div style={{ margin: 8 }}>
             {heatmapEnabled ? (
                 <>
-                    <div style={{ marginTop: 0, marginBottom: 10 }} className="flex-center">
+                    <div style={{ marginBottom: 10 }}>
+                        <LemonInput value={wildcardHref} onChange={setWildcardHref} />
+                        <div style={{ color: '#888' }}>Use * as a wildcard</div>
+                    </div>
+                    <div style={{ marginBottom: 10 }} className="flex-center">
                         <DateFilter
                             defaultValue="Last 7 days"
                             dateFrom={heatmapFilter.date_from}

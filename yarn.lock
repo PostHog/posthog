@@ -11830,9 +11830,9 @@ mkdirp@^1.0.3, mkdirp@^1.0.4:
   integrity sha512-vVqVZQyf3WLx2Shd0qJ9xuvqgAyKPLAiqITEtqW0oIUjzo3PePDd6fW9iFz30ef7Ysp/oiWqbhszeGWW2T6Gzw==
 
 moment@^2.10.2, moment@^2.24.0, moment@^2.25.3:
-  version "2.29.1"
-  resolved "https://registry.yarnpkg.com/moment/-/moment-2.29.1.tgz#b2be769fa31940be9eeea6469c075e35006fa3d3"
-  integrity sha512-kHmoybcPV8Sqy59DwNDY3Jefr64lK/by/da0ViFcuA4DH0vQg5Q6Ze5VimxkfQNSC+Mls/Kx53s7TjP1RhFEDQ==
+  version "2.29.2"
+  resolved "https://registry.yarnpkg.com/moment/-/moment-2.29.2.tgz#00910c60b20843bcba52d37d58c628b47b1f20e4"
+  integrity sha512-UgzG4rvxYpN15jgCmVJwac49h9ly9NurikMWGPdVxm8GZD6XjkKPxDTjQQ43gtGgnV3X0cAyWDdP2Wexoquifg==
 
 move-concurrently@^1.0.1:
   version "1.0.1"
@@ -13145,10 +13145,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.20.1:
-  version "1.20.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.20.1.tgz#4dc438230643cf387718f626c3d33f9fe8fce399"
-  integrity sha512-Dm+illvBhg7W859/Crx3tvDo8eZ4bbWl4bqY3Dod4jLvcaE3iweOn9r7IKamo6OxmhrNNtBMGPD6+jusBnJYtw==
+posthog-js@1.20.4:
+  version "1.20.4"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.20.4.tgz#6295b6b5b95a2ee31c16fae9b5b1fa6fcfd3030d"
+  integrity sha512-z4A7z+OXNmDaBy046SdQR3LlbG+ycFP4puLPArRsQsv5abN2nhDD+RKIO/jnhNaME9d4b59+proDUdCSaEg/tA==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"

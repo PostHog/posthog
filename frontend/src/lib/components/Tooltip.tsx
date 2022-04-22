@@ -24,7 +24,7 @@ export function Tooltip({
     delayMs = DEFAULT_DELAY_MS,
     ...props
 }: TooltipProps): JSX.Element {
-    const [localVisible, setVisible] = useState(visible)
+    const [localVisible, setVisible] = useState(!!visible)
     const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
 
     if (!isDefaultTooltip && !('mouseEnterDelay' in props)) {

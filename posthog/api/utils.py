@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
@@ -298,3 +299,12 @@ def check_definition_ids_inclusion_field_sql(
         return included_definitions_sql, []
 
     return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
+
+
+# keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
+def safe_clickhouse_string(s: str) -> str:
+    surrogate_regex = re.compile("([\ud800-\udfff])")
+    matches = re.findall(surrogate_regex, s or "")
+    for match in matches:
+        s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
+    return s

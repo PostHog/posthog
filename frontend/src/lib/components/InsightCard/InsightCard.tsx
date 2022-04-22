@@ -49,6 +49,8 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../InfoMessage/AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -97,6 +99,10 @@ const displayMap: Record<
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
+    },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
     },
 }
 
@@ -170,14 +176,16 @@ function InsightMeta({
     areDetailsShown,
     setAreDetailsShown,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, color, filters, dashboard } = insight
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
+        (d: DashboardType) => !dashboards?.includes(d.id)
+    )
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -400,6 +408,14 @@ function InsightMeta({
     )
 }
 
+function VizComponentFallback(): JSX.Element {
+    return (
+        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
+            Unknown insight display type
+        </AlertMessage>
+    )
+}
+
 interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
@@ -419,7 +435,7 @@ function InsightViz({
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
-    const VizComponent = displayMap[displayedType].element
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
     return (
         <div
