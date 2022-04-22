@@ -18,6 +18,7 @@ import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 export type PersonUUID = string
 interface Params {
@@ -40,15 +41,17 @@ export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
 
 export const DEFAULT_PROPERTY_FILTERS = []
 
+const event = getDefaultEventName()
+
 export const DEFAULT_ENTITY_FILTERS = {
     events: [],
     actions: [],
     new_entity: [
         {
-            id: null,
+            id: event,
             type: EntityTypes.EVENTS,
             order: 0,
-            name: null,
+            name: event,
         },
     ],
 }

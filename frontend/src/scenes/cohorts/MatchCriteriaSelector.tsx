@@ -15,12 +15,12 @@ export function MatchCriteriaSelector({
     onCriteriaChange,
     group,
     onRemove,
-    showErrors,
+    hideRemove = false,
 }: {
     onCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
     onRemove: () => void
-    showErrors?: boolean
+    hideRemove?: boolean
 }): JSX.Element {
     const onMatchTypeChange = (input: MatchType): void => {
         onCriteriaChange({
@@ -34,20 +34,8 @@ export function MatchCriteriaSelector({
         })
     }
 
-    const errored =
-        showErrors &&
-        ((group.matchType === ENTITY_MATCH_TYPE && !group.properties?.length) ||
-            (group.matchType === PROPERTY_MATCH_TYPE && !(group.action_id || group.event_id)))
-
     return (
-        <div
-            style={{
-                padding: 15,
-                border: errored ? '1px solid var(--danger)' : '1px solid rgba(0, 0, 0, 0.1)',
-                borderRadius: 4,
-                width: '100%',
-            }}
-        >
+        <>
             <Row align="middle" justify="space-between">
                 <div>
                     Match users who
@@ -61,16 +49,7 @@ export function MatchCriteriaSelector({
                         <Option value={ENTITY_MATCH_TYPE}>performed action or event</Option>
                     </Select>
                 </div>
-                <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />
-            </Row>
-            <Row>
-                {errored && (
-                    <div style={{ color: 'var(--danger)', marginTop: 16 }}>
-                        {group.matchType === ENTITY_MATCH_TYPE
-                            ? 'Please select an event or action.'
-                            : 'Please select at least one property or remove this match group.'}
-                    </div>
-                )}
+                {!hideRemove && <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />}
             </Row>
             <Row align="middle">
                 {group.matchType === ENTITY_MATCH_TYPE ? (
@@ -79,7 +58,7 @@ export function MatchCriteriaSelector({
                     <PropertyCriteriaRow onPropertyCriteriaChange={onCriteriaChange} group={group} />
                 )}
             </Row>
-        </div>
+        </>
     )
 }
 

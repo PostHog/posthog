@@ -97,6 +97,7 @@ class Filter(
     def __init__(
         self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
     ) -> None:
+
         if request:
             properties = {}
             if request.GET.get(PROPERTIES):

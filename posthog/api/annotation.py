@@ -3,7 +3,7 @@ from typing import Any, Dict
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import request, serializers, viewsets
+from rest_framework import filters, request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
@@ -58,6 +58,8 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

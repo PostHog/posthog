@@ -110,12 +110,15 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            !disableTable
+            !disableTable &&
+            (featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            // The legacy FunnelStepTable is shown in top-to-bottom funnel view, otherwise the newer FunnelStepsTable
-            if (filters?.layout === FunnelLayout.horizontal) {
-                return <FunnelStepsTable />
-            }
+            return (
+                <>
+                    <h2 style={{ margin: '1rem 0' }}>Detailed results</h2>
+                    <FunnelStepsTable />
+                </>
+            )
         }
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
@@ -133,7 +136,7 @@ export function InsightContainer(
                 <>
                     {csvExportUrl && (
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
-                            <h2>Trend results</h2>
+                            <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <LemonButton
                                     type="secondary"
@@ -172,7 +175,6 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
-                            disabled={!canEditInsight}
                         />
                     )
                 }

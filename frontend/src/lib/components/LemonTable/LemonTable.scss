@@ -16,29 +16,6 @@
         border-radius: 0;
         background: none;
     }
-    &::before,
-    &::after {
-        z-index: 1;
-        transition: opacity 200ms ease;
-        opacity: 0;
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-    }
-    &::before {
-        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-    }
-    &::after {
-        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-    }
-    &.LemonTable--scrollable-right::after,
-    &.LemonTable--scrollable-left::before {
-        opacity: 1;
-    }
     .PaginationControl {
         height: var(--row-base-height);
         margin: 0;
@@ -70,13 +47,38 @@
         font-size: 0.75rem;
         letter-spacing: 0.03125rem;
         > tr {
-            &:first-of-type:not(:last-of-type) {
-                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
-            }
             > th {
                 font-weight: 700;
                 text-align: left;
                 white-space: pre-wrap;
+            }
+            &.LemonTable__th--column-group {
+                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
+            }
+            &.LemonTable__loader {
+                transition: height 200ms ease, top 200ms ease;
+                z-index: 10;
+                position: absolute;
+                left: 0;
+                bottom: -1px;
+                width: 100%;
+                height: 0;
+                background: var(--primary-bg-active);
+                border: none !important;
+                overflow: hidden;
+                &::after {
+                    content: '';
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 50%;
+                    height: 100%;
+                    animation: loading-bar 1.5s linear infinite;
+                    background: var(--primary);
+                }
+                .LemonTable--loading & {
+                    height: 0.25rem;
+                }
             }
         }
     }
@@ -155,16 +157,6 @@
     }
 }
 
-.LemonTable__scroll {
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
-.LemonTable__content {
-    min-width: fit-content;
-}
-
 .LemonTable__empty-state {
     color: var(--muted-alt);
 }
@@ -182,31 +174,6 @@
     .LemonTable--loading & {
         opacity: 1;
         pointer-events: auto;
-    }
-}
-
-.LemonTable__loader {
-    transition: height 200ms ease, top 200ms ease;
-    z-index: 10;
-    position: absolute;
-    left: 0;
-    bottom: -1px;
-    width: 100%;
-    height: 0;
-    background: var(--primary-bg-active);
-    overflow: hidden;
-    &::after {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 50%;
-        height: 100%;
-        animation: loading-bar 1.5s linear infinite;
-        background: var(--primary);
-    }
-    .LemonTable--loading & {
-        height: 0.25rem;
     }
 }
 
