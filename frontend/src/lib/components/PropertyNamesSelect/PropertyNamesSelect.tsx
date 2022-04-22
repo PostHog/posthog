@@ -23,7 +23,7 @@ export const PropertyNamesSelect = ({
     */
 
     // Make a key that identifies the logic for this specific component instance
-    const propertySelectLogicKey = React.useMemo(() => propertyNameSelectCounter++, [])
+    const propertySelectLogicKey = React.useMemo(() => `${propertyNameSelectCounter++}`, [])
 
     return allProperties?.length ? (
         <BindLogic
@@ -67,7 +67,10 @@ export const PropertyNamesSelectBox = ({
 
     // Explicitly set the selectedProperties on value change
     React.useEffect(() => {
-        setSelectedProperties(Array.from(value))
+        const serialize = (v: Set<any>): string => JSON.stringify(Array.from(v))
+        if (serialize(selectedProperties) !== serialize(value)) {
+            setSelectedProperties(Array.from(value))
+        }
     }, [value, setSelectedProperties])
 
     return (
