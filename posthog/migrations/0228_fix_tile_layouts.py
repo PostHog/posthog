@@ -2,7 +2,8 @@
 import json
 
 import structlog
-from django.db import connection, migrations
+from django.core.paginator import Paginator
+from django.db import migrations
 
 
 def migrate_dashboard_insight_relations(apps, _) -> None:
@@ -11,42 +12,33 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
 
     DashboardTile = apps.get_model("posthog", "DashboardTile")
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id, layouts FROM posthog_dashboardtile ORDER BY id ASC;
-        """
-        )
+    tiles = DashboardTile.objects.order_by("id").all()
+    paginator = Paginator(tiles, 500)
 
-        converted_count = 0
-        while True:
-            page = cursor.fetchmany(500)
-            if not page:
-                break
+    conversion_count = 0
 
-            updated_tiles = []
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
+        updated_tiles = []
 
-            for tile_row in page:
-                if isinstance(tile_row[1], str):
-                    tile = DashboardTile.objects.get(pk=tile_row[0])
+        for tile in page.object_list:
+            if isinstance(tile.layouts, str):
+                # from migration 0227
+                # the layout was a json serialized string that has again been serialized as string
+                # normally we could load it from string to dict once
+                tile.layouts = json.loads(tile.layouts)
+                if isinstance(tile.layouts, str):
+                    # but if it is still in the state after 0227
+                    # where it was not `json.loads`ed before being saved
+                    # it must be loaded from json twice, since saving it will stringify again
+                    tile.layouts = json.loads(tile.layouts)
 
-                    # from migration 0227
-                    # the layout was a json serialized string that has again been serialized as string
-                    # normally we could load it from string to dict once
-                    as_json = json.loads(tile_row[1])
-                    if isinstance(as_json, str):
-                        # but if it is still in the state after 0227
-                        # where it was not `json.loads`ed before being saved
-                        # it must be loaded from json twice, since saving it will stringify again
-                        as_json = json.loads(as_json)
+                updated_tiles.append(tile)
 
-                    tile.layouts = as_json
-                    updated_tiles.append(tile)
+        DashboardTile.objects.bulk_update(updated_tiles, ["layouts"])
+        conversion_count += len(updated_tiles)
 
-            DashboardTile.objects.bulk_update(updated_tiles, ["layouts"])
-            converted_count += len(page)
-
-        logger.info("finished_0228_fix_tile_layouts", conversion_count=converted_count)
+    logger.info("finished_0228_fix_tile_layouts", conversion_count=conversion_count)
 
 
 class Migration(migrations.Migration):
