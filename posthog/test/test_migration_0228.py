@@ -31,7 +31,7 @@ class FixingDashboardTilesTestCase(TestMigrations):
         # dashboard with layout that has been stringified once
         # Expect: conversion for this tile
         insight_for_case_2 = Insight.objects.create(
-            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has singly invalid layouts on tile",
+            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has invalid layouts on tile",
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_for_case_2, layouts=json.dumps({"a": "dict"}))
 
@@ -51,10 +51,14 @@ class FixingDashboardTilesTestCase(TestMigrations):
         DashboardTile = self.apps.get_model("posthog", "DashboardTile")  # type: ignore
 
         # CASE 1:
-        self.assertIsInstance(DashboardTile.objects.get(id=1).layouts, dict)
+        self.assertIsInstance(
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has valid layouts on tile").layouts, dict
+        )
 
         # CASE 2:
-        self.assertIsInstance(DashboardTile.objects.get(id=2).layouts, dict)
+        self.assertIsInstance(
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has invalid layouts on tile").layouts, dict
+        )
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
