@@ -1,5 +1,3 @@
-import json
-
 from posthog.test.base import TestMigrations
 
 
@@ -61,11 +59,11 @@ class CreatingDashboardTilesTestCase(TestMigrations):
         self.assertEqual(DashboardTile.objects.filter(dashboard__name="d2").count(), 2)
         blue_tile = DashboardTile.objects.get(dashboard__name="d2", insight__name="blue")
         self.assertEqual(blue_tile.color, "blue")
-        self.assertEqual(blue_tile.layouts, json.dumps({"some": "content"}))
+        self.assertEqual(blue_tile.layouts, {"some": "content"})
 
         red_tile = DashboardTile.objects.get(dashboard__name="d2", insight__name="red")
         self.assertEqual(red_tile.color, "red")
-        self.assertEqual(red_tile.layouts, json.dumps({"some": "different content"}))
+        self.assertEqual(red_tile.layouts, {"some": "different content"})
 
         # CASE 3:
         self.assertEqual(DashboardTile.objects.filter(dashboard__name="d3").count(), 0)
