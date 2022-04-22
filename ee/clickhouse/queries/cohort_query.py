@@ -46,7 +46,7 @@ def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -
         parsed_value = int(value)
     except ValueError:
         raise ValueError(f"{value_name} must be an integer, got {value}")
-    if parsed_value < 0:
+    if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value
 
@@ -346,7 +346,7 @@ class CohortQuery(EnterpriseEventQuery):
         column_name = f"performed_event_multiple_condition_{prepend}_{idx}"
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
-        count = prop.operator_value
+        count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
         date_param = f"{prepend}_date_{idx}"
