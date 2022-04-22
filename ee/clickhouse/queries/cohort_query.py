@@ -113,7 +113,8 @@ class CohortQuery(EnterpriseEventQuery):
     FUNNEL_QUERY_ALIAS = "funnel_query"
     _fields: List[str]
     _events: List[str]
-    _earliest_time: List[Relative_Date]
+    _earliest_time_for_event_query: List[Relative_Date]
+    _restrict_event_query_by_time: bool
 
     def __init__(
         self,
@@ -131,7 +132,8 @@ class CohortQuery(EnterpriseEventQuery):
     ) -> None:
         self._fields = []
         self._events = []
-        self._earliest_time = []
+        self._earliest_time_for_event_query = []
+        self._restrict_event_query_by_time = True
         super().__init__(
             filter=filter,
             team=team,
@@ -248,9 +250,9 @@ class CohortQuery(EnterpriseEventQuery):
         date_query = ""
         date_params: Dict[str, Any] = {}
 
-        if self._earliest_time:
+        if self._earliest_time_for_event_query and self._restrict_event_query_by_time:
             date_query = f"AND timestamp <= now() AND timestamp >= now()"
-            for i, date in enumerate(self._earliest_time):
+            for i, date in enumerate(self._earliest_time_for_event_query):
                 param = f"earliest_time_{i}"
                 date_query += f" - INTERVAL %({param})s {validate_interval(date[1])}"
                 date_params = {**date_params, param: date[0]}
@@ -258,10 +260,10 @@ class CohortQuery(EnterpriseEventQuery):
         return date_query, date_params
 
     def _check_earliest_date(self, relative_dates: List[Relative_Date]) -> None:
-        if not self._earliest_time:
-            self._earliest_time = relative_dates
-        elif relative_date_is_greater(relative_dates, self._earliest_time):
-            self._earliest_time = relative_dates
+        if not self._earliest_time_for_event_query:
+            self._earliest_time_for_event_query = relative_dates
+        elif relative_date_is_greater(relative_dates, self._earliest_time_for_event_query):
+            self._earliest_time_for_event_query = relative_dates
 
     # TODO: Build conditions based on property group
     def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
@@ -386,8 +388,7 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
-        before_column_name = f"restarted_event_condition_{prepend}_{idx}_before"
-        after_column_name = f"restarted_event_condition_{prepend}_{idx}_after"
+        column_name = f"restarted_event_condition_{prepend}_{idx}"
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
@@ -398,16 +399,23 @@ class CohortQuery(EnterpriseEventQuery):
         seq_date_param = f"{prepend}_seq_date_{idx}"
         seq_date_interval = validate_interval(prop.seq_time_interval)
 
-        self._check_earliest_date([(date_value, date_interval), (seq_date_value, seq_date_interval)])
+        self._restrict_event_query_by_time = False
 
-        before_field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} - INTERVAL %({seq_date_param})s {seq_date_interval} AND timestamp < now() - INTERVAL %({date_param})s {date_interval} AND {entity_query}) AS {before_column_name}"
-        after_field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) AS {after_column_name}"
+        # Events should have been fired in the initial_period
+        initial_period = f"countIf(timestamp <= now() - INTERVAL %({date_param})s {date_interval} AND {entity_query})"
+        # Then stopped in the event_stopped_period
+        event_stopped_period = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp <= now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND {entity_query})"
+        # Then restarted in the final event_restart_period
+        event_restarted_period = f"countIf(timestamp > now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND timestamp <= now() AND {entity_query})"
 
-        self._fields.append(before_field)
-        self._fields.append(after_field)
+        full_condition = (
+            f"({initial_period} > 0 AND {event_stopped_period} = 0 AND {event_restarted_period} > 0) as {column_name}"
+        )
+
+        self._fields.append(full_condition)
 
         return (
-            f"({before_column_name} = 0 AND {after_column_name} > 0)",
+            f"{column_name}",
             {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
         )
 
@@ -421,7 +429,7 @@ class CohortQuery(EnterpriseEventQuery):
         date_param = f"{prepend}_date_{idx}"
         date_interval = validate_interval(prop.time_interval)
 
-        self._check_earliest_date([(date_value, date_interval)])
+        self._restrict_event_query_by_time = False
 
         field = f"""if(minIf(timestamp, {entity_query}) >= now() - INTERVAL %({date_param})s {date_interval} AND minIf(timestamp, {entity_query}) < now(), 1, 0) as {column_name}"""
 
