@@ -36,7 +36,12 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
                 break
             DashboardTile.objects.bulk_create(
                 [
-                    DashboardTile(insight_id=row[0], dashboard_id=row[1], layouts=json.loads(row[2]), color=row[3])
+                    DashboardTile(
+                        insight_id=row[0],
+                        dashboard_id=row[1],
+                        layouts=json.loads(row[2]) if row[2] is not None else {},
+                        color=row[3],
+                    )
                     for row in page
                 ],
                 ignore_conflicts=True,
