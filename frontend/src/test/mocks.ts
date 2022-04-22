@@ -1,4 +1,5 @@
-import { EventDefinition, EventType, PropertyDefinition } from '~/types'
+import { CohortType, EventDefinition, EventType, PropertyDefinition, PropertyOperator } from '~/types'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 export const mockEvent: EventType = {
     id: 'my_id',
@@ -108,9 +109,24 @@ export const mockActionDefinition = {
     created_by: null,
 }
 
-export const mockCohort = {
+export const mockCohort: CohortType = {
     id: 1,
     name: 'Cohort',
     count: 1,
-    groups: [{ id: 'a', name: 'Properties Group', count: 1, matchType: 'properties' }],
+    groups: [
+        {
+            id: 'a',
+            name: 'Properties Group',
+            count: 1,
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [
+                {
+                    key: '$geoip_continent_name',
+                    type: 'person',
+                    value: ['Oceania'],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        },
+    ],
 }

@@ -1,39 +1,21 @@
-import './LemonInput.scss'
+import './LemonTextArea.scss'
 import React, { useRef, useState } from 'react'
+import { LemonInputPropsBase } from 'lib/components/LemonInput/LemonInput'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export interface LemonInputPropsBase {
-    id?: string
-    value?: string
-    defaultValue?: string
-    placeholder?: string
-    onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
-    /** An embedded input has no border around it and no background. This way it blends better into other components. */
-    embedded?: boolean
-    /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
-    allowClear?: boolean
-    /** Icon to prefix input field */
-    icon?: React.ReactElement | null
-    /** Icon to suffix input field */
-    sideIcon?: React.ReactElement | null
-    /** Whether input field is disabled */
-    disabled?: boolean
-}
-
-export interface LemonInputProps
+export interface LemonTextAreaProps
     extends Omit<
-            React.InputHTMLAttributes<HTMLInputElement>,
+            React.TextareaHTMLAttributes<HTMLTextAreaElement>,
             'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
         >,
         LemonInputPropsBase {
-    ref?: React.Ref<HTMLInputElement>
+    ref?: React.Ref<HTMLTextAreaElement>
 }
 
-export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
     {
         className,
         onChange,
@@ -48,17 +30,17 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     },
     ref
 ): JSX.Element {
-    const _ref = useRef<HTMLInputElement | null>(null)
+    const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
     const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
 
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
         className: clsx(
-            'LemonInput',
-            textProps.disabled && 'LemonInput--disabled',
-            !textProps.disabled && focused && 'LemonInput--focused',
-            embedded && 'LemonInput--embedded',
+            'LemonTextArea',
+            textProps.disabled && 'LemonTextArea--disabled',
+            !textProps.disabled && focused && 'LemonTextArea--focused',
+            embedded && 'LemonTextArea--embedded',
             className
         ),
         fullWidth: true,
@@ -89,9 +71,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         },
         outlined: !embedded,
     }
-    const props: React.InputHTMLAttributes<HTMLInputElement> = {
-        className: 'LemonInput__input',
-        type: 'text',
+    const props: React.TextareaHTMLAttributes<HTMLTextAreaElement> = {
+        className: 'LemonTextArea__textarea',
         onChange: (event) => {
             onChange?.(event.currentTarget.value ?? '')
         },
@@ -108,7 +89,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
 
     return (
         <LemonRow {...rowProps}>
-            <input {...props} ref={textRef} />
+            <textarea rows={5} {...props} ref={textRef} />
         </LemonRow>
     )
 })
