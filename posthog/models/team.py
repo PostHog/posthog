@@ -10,6 +10,7 @@ from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
@@ -182,16 +183,21 @@ class Team(UUIDClassicModel):
                 return None
             return requesting_parent_membership.level
 
+    @property
     def timezone_for_charts(self) -> str:
         """
         Stopgap function for rolling this feature out
         """
-        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
-        if posthoganalytics.feature_enabled(
-            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
-        ):
+        if self.timezone != "UTC" and self._timezone_feature_flag_enabled:
             return self.timezone
         return "UTC"
+
+    @cached_property
+    def _timezone_feature_flag_enabled(self) -> bool:
+        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
+        return posthoganalytics.feature_enabled(
+            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
+        )
 
     def __str__(self):
         if self.name:

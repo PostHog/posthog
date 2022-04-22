@@ -94,7 +94,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
         _, _, round_interval = get_time_diff(
             self._filter.interval, self._filter.date_from, self._filter.date_to, team_id=self._team_id
         )
-        _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
         parsed_date_from = date_from_clause(interval_annotation, round_interval)
 
         self.parsed_date_from = parsed_date_from
