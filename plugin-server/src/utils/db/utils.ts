@@ -193,6 +193,7 @@ const initialParams = new Set([
     '$browser_version',
     '$device_type',
     '$current_url',
+    '$pathname',
     '$os',
     '$referring_domain',
     '$referrer',
