@@ -149,9 +149,6 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
         label: 'Date Operators',
         type: FilterGroupTypes.DateOperators,
         values: {
-            [DateOperatorType.InTheLast]: {
-                label: 'in the last',
-            },
             [DateOperatorType.BeforeTheLast]: {
                 label: 'before the last',
             },
@@ -175,9 +172,6 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
             [DateOperatorType.IsSet]: {
                 label: 'is set',
-            },
-            [DateOperatorType.InTheLast]: {
-                label: 'is not set',
             },
         },
     },
@@ -232,9 +226,6 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
         values: {
             [ValueOptionType.MostRecent]: {
                 label: 'most recent value',
-            },
-            [ValueOptionType.Initial]: {
-                label: 'initial value',
             },
             [ValueOptionType.Previous]: {
                 label: 'previous value',

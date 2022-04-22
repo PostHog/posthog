@@ -1733,7 +1733,6 @@ export enum TimeUnitType {
 }
 
 export enum DateOperatorType {
-    InTheLast = 'in_the_last',
     BeforeTheLast = 'before_the_last',
     Between = 'between',
     NotBetween = 'not_between',
@@ -1764,7 +1763,6 @@ export enum OperatorType {
 
 export enum ValueOptionType {
     MostRecent = 'most_recent',
-    Initial = 'initial',
     Previous = 'previous',
     OnDate = 'on_date',
 }
