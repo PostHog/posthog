@@ -189,7 +189,6 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         ) : (
                             <div style={{ marginTop: 15 }}>
                                 <Persons cohort={cohort} />
-                                new commit
                             </div>
                         )}
                     </div>
