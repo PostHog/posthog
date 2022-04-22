@@ -8,14 +8,12 @@ import './panels/Panels.scss'
 
 export function CardContainer({
     index,
-    totalSteps,
     onBack,
     children,
     nextButton,
     onSubmit,
 }: {
     index: number
-    totalSteps?: number
     onBack?: () => void
     children: React.ReactNode
     nextButton?: boolean
@@ -36,7 +34,7 @@ export function CardContainer({
                                 onClick={onBack}
                             />
                         )}
-                        <PanelHeader index={index} totalSteps={totalSteps} />
+                        <PanelHeader index={index} />
                     </Row>
                 }
                 style={{

@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PanelFooter } from './PanelComponents'
 
 export function AutocapturePanel(): JSX.Element {
-    const { index, totalSteps, framework, onboarding1 } = useValues(ingestionLogic)
+    const { index, framework, onboarding1 } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
@@ -35,7 +35,6 @@ export function AutocapturePanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
             nextButton={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}

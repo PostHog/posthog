@@ -10,14 +10,13 @@ import { PanelFooter } from './PanelComponents'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
             nextButton={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}

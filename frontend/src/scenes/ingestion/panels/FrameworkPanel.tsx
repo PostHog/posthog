@@ -7,13 +7,12 @@ import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/
 
 export function FrameworkPanel(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
-    const { platform, index, totalSteps } = useValues(ingestionLogic)
+    const { platform, index } = useValues(ingestionLogic)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
             onBack={() => {
                 setPlatform(null)
             }}

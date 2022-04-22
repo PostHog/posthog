@@ -73,24 +73,6 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
-        totalSteps: [
-            (s) => [s.platform, s.framework, s.verify],
-            (platform, framework, verify) => {
-                const featFlags = featureFlagLogic.values.featureFlags
-                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
-                    return 3
-                }
-                // if missing parts of the URL
-                if (verify) {
-                    return 4 - (platform ? 0 : 1) - (framework ? 0 : 1)
-                }
-                if (framework === API && !platform) {
-                    return 4
-                }
-
-                return platform === WEB ? 3 : 4 // (mobile & backend)
-            },
-        ],
         onboarding1: [
             () => [],
             (): boolean => {
