@@ -42,7 +42,6 @@ export function resumeKeaLoadersErrors(): void {
 
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
-        autoConnectMountWarning: true,
         plugins: [
             ...(beforePlugins || []),
             localStoragePlugin,

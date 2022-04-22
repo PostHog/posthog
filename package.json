@@ -91,7 +91,7 @@
         "kea": "^3.0.0-alpha.6",
         "kea-forms": "^3.0.0-alpha.0",
         "kea-loaders": "^3.0.0-alpha.1",
-        "kea-localstorage": "^3.0.0-alpha.1",
+        "kea-localstorage": "^3.0.0-alpha.2",
         "kea-router": "^3.0.0-alpha.0",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0-alpha.1",
