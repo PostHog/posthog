@@ -12,7 +12,13 @@ from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    test_with_materialized_columns,
+)
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -25,6 +31,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={"name": "jane"})
 
+        flush_persons_and_events()
         response = self.client.get("/api/person/?search=another@gm")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -41,6 +48,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
         )
         _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+        flush_persons_and_events()
 
         response = self.client.get(
             "/api/person/?properties=%s"
@@ -62,6 +70,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
         _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "asdf"})
+        flush_persons_and_events()
 
         response = self.client.get("/api/person/properties/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -84,6 +93,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
         _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "qwerty"})
         _create_person(distinct_ids=["person_4"], team=self.team, properties={"something_else": "qwerty"})
+        flush_persons_and_events()
+
         response = self.client.get("/api/person/values/?key=random_prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -108,6 +119,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
             )
 
+        flush_persons_and_events()
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people_ch(pending_version=0)
 
@@ -146,6 +158,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
         )
 
+        flush_persons_and_events()
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people_ch(pending_version=0)
 
@@ -173,10 +186,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["distinct_id", "another_one"],
             properties={"email": "someone@gmail.com"},
             is_identified=True,
+            immediate=True,
         )
         person2: Person = _create_person(
-            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"}, immediate=True
         )
+        flush_persons_and_events()
 
         # Filter by distinct ID
         with self.assertNumQueries(6):
@@ -225,9 +240,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Person in current team
-        person: Person = _create_person(
-            team=self.team, distinct_ids=["distinct_id"],
-        )
+        person: Person = _create_person(team=self.team, distinct_ids=["distinct_id"], immediate=True)
 
         # Filter by distinct ID
         response = self.client.get("/api/person/?distinct_id=distinct_id")
@@ -250,7 +263,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person(self):
         person = _create_person(
-            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"}, immediate=True
         )
         _create_event(event="test", team=self.team, distinct_id="person_1")
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
@@ -281,10 +294,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_filter_uuid(self) -> None:
-        person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
-        person2 = _create_person(team=self.team, properties={"random_prop": "asdf"})
-        _create_person(team=self.team, properties={"random_prop": "asdf"})
+        person1 = _create_person(
+            team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}, distinct_ids=["person1"]
+        )
+        person2 = _create_person(team=self.team, properties={"random_prop": "asdf"}, distinct_ids=["person2"])
+        _create_person(team=self.team, properties={"random_prop": "asdf"}, distinct_ids=["person3"])
 
+        flush_persons_and_events()
         response = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 2)
@@ -430,7 +446,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_split_people_delete_props(self) -> None:
         # created first
         person1 = _create_person(
-            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
         )
 
         response = self.client.post("/api/person/%s/split/" % person1.pk,)
@@ -450,6 +469,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
         )
+        flush_persons_and_events()
 
         response = self.client.get("/api/person/").json()
 
@@ -468,7 +488,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_person_cohorts(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
         person2 = _create_person(
-            team=self.team, distinct_ids=["2"], properties={"$some_prop": "something", "number": 2}
+            team=self.team, distinct_ids=["2"], properties={"$some_prop": "something", "number": 2}, immediate=True
         )
         cohort1 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
@@ -493,7 +513,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     def test_split_person_clickhouse(self):
         person = _create_person(
-            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
         )
 
         response = self.client.post("/api/person/%s/split/" % person.pk,).json()
@@ -521,7 +544,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_patch_user_property(self):
         person = _create_person(
-            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
         )
 
         created_person = self.client.get("/api/person/%s/" % person.pk).json()
@@ -566,6 +592,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         _create_person(team=self.team, distinct_ids=["4"], properties={"$browser": "whatever", "$os": "Windows"})
 
+        flush_persons_and_events()
         response = self.client.get("/api/person.csv")
         self.assertEqual(len(response.content.splitlines()), 3, response.content)
 
@@ -579,6 +606,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             _create_person(
                 team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
             )
+
+        flush_persons_and_events()
         response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 10)
 

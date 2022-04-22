@@ -15,7 +15,7 @@ from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
 from ee.clickhouse.models.event import bulk_create_events
-from ee.clickhouse.models.person import bulk_create_persons
+from ee.clickhouse.models.person import bulk_create_persons, create_person
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
@@ -375,10 +375,16 @@ def _create_event(**kwargs):
 def _create_person(*args, **kwargs):
     """
     Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
+    Pass immediate=True to create immediately and get a pk back
     """
     kwargs["uuid"] = uuid.uuid4()
     # If we've done freeze_time just create straight away
-    if hasattr(now(), "__module__") and now().__module__ == "freezegun.api":
+    if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
+        if kwargs.get("immediate"):
+            del kwargs["immediate"]
+        create_person(
+            team_id=kwargs.get("team_id") or kwargs["team"].pk, properties=kwargs.get("properties"), uuid=kwargs["uuid"]
+        )
         return Person.objects.create(**kwargs)
     if len(args) > 0:
         kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
