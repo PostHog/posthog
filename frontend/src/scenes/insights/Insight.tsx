@@ -136,7 +136,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />

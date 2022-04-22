@@ -29,6 +29,11 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                     }
                 }}
                 enterButton
+                onPressEnter={(e) => {
+                    e.preventDefault()
+                    setListFilters({ search: searchTerm || undefined })
+                    loadPersons()
+                }}
                 allowClear
                 onSearch={() => {
                     setListFilters({ search: searchTerm || undefined })
