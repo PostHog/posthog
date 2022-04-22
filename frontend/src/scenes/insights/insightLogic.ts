@@ -63,7 +63,7 @@ export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<I
 })
 
 export const insightLogic = kea<insightLogicType>([
-    path((key) => ['scenes', 'insights', 'insightLogic', key]),
+    path(['scenes', 'insights', 'insightLogic']),
     key(keyForInsightLogicProps('new')),
     props({} as InsightLogicProps),
 

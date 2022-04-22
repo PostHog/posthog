@@ -147,7 +147,7 @@ export const sceneLogic = kea<sceneLogicType>({
             (s) => [s.activeLoadedScene, s.sceneParams],
             (activeLoadedScene, sceneParams) =>
                 activeLoadedScene?.logic
-                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {}, false)
+                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
                     : null,
         ],
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
@@ -361,7 +361,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
                 if (loadedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
-                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
+                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}).mount()
                     try {
                         await breakpoint(50)
                     } catch (e) {

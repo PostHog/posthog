@@ -5008,7 +5008,7 @@ assign-symbols@^1.0.0:
   resolved "https://registry.yarnpkg.com/assign-symbols/-/assign-symbols-1.0.0.tgz#59667f41fadd4f20ccbc2bb96b8d4f7f78ec0367"
   integrity sha1-WWZ/QfrdTyDMvCu5a41Pf3jsA2c=
 
-ast-types@^0.14.2:
+ast-types@0.14.2, ast-types@^0.14.2:
   version "0.14.2"
   resolved "https://registry.yarnpkg.com/ast-types/-/ast-types-0.14.2.tgz#600b882df8583e3cd4f2df5fa20fa83759d4bdfd"
   integrity sha512-O0yuUDnZeQDL+ncNGlJ78BiO4jnYI3bvMsD5prT0/nsgijG/LpNBIr63gTjVTNsiGkgQhiyCShTgxt8oXOrklA==
@@ -8163,7 +8163,7 @@ espree@^7.3.0:
     acorn-jsx "^5.2.0"
     eslint-visitor-keys "^1.3.0"
 
-esprima@^4.0.0, esprima@^4.0.1:
+esprima@^4.0.0, esprima@^4.0.1, esprima@~4.0.0:
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/esprima/-/esprima-4.0.1.tgz#13b04cdb3e6c5d19df91ab6987a8695619b0aa71"
   integrity sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==
@@ -11045,10 +11045,10 @@ kea-loaders@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.1.tgz#5cb4598e30bf89724ffd91beb97642b00cc78558"
   integrity sha512-VPkaRbrzRXKLLxxW+kDojH85SBorJI0SaSJlmUZLhjOoN0VJB/EiM4Y5KOFw6LaPqjT/IOP1lBMig5hEvFaaPw==
 
-kea-localstorage@^3.0.0-alpha.0:
-  version "3.0.0-alpha.0"
-  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-3.0.0-alpha.0.tgz#f947c51e436ca355c45e38ac37b7bb252a04a0ae"
-  integrity sha512-O5OfnxU6aSr3RGbuWpd8gxRrrFuuD58KMkyTXMPFgGI53HwrYcZUmTz1ge8bY6m3TneDovgPhn8Ez7mqZfiMJg==
+kea-localstorage@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-3.0.0-alpha.1.tgz#81873ae0055b7f017adb006af18c0eb2a25f68b1"
+  integrity sha512-AuS92jogL8J7xPWzR4qSrHBKZvhAmFmOY340TzhhoRhohtzGcQ8Daj8SA5//KhnHQ/yG7SA9qe0ucwPOZehAYA==
 
 kea-router@^3.0.0-alpha.0:
   version "3.0.0-alpha.0"
@@ -11064,14 +11064,15 @@ kea-test-utils@^0.2.2:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^3.0.0-alpha.0:
-  version "3.0.0-alpha.0"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.0.tgz#1f486062452373f586388a0a4f5b1f0166621dc8"
-  integrity sha512-ehhH8E4vmAGkm6XjY5TmYMZdvEqyfjob2ndQpYbqBvxc+jqCdm6+NYkPBfbJfyR6qVcupHWUXlgkUTQ4wuXvqA==
+kea-typegen@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.1.tgz#a37c97b6acdf4ddc32e9d86588e46c4ccf3fd768"
+  integrity sha512-U6O32l4UanrN2NZDQHyZ8DMV0Kn3166QpQl/9hFjk+/dDc23I41Ov1tKhYQuW9zfkBZXR0BjZUF1coW6UTXAFw==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
     prettier "^2.5.1"
+    recast "^0.20.5"
     yargs "^16.2.0"
 
 kea-waitfor@^0.2.1:
@@ -11084,10 +11085,10 @@ kea-window-values@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-alpha.4:
-  version "3.0.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.4.tgz#04115487698a054f4369869d8bf90c31019ff604"
-  integrity sha512-PMPlF/UXz8pnWFo8IYtNB33QunvMHm5OoMK6ygOUaHbACms+vvHtEATMCIK54bx0eAZLMoYcJ2AAWbufTGqziA==
+kea@^3.0.0-alpha.6:
+  version "3.0.0-alpha.6"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.6.tgz#fef0b7f9c66a15df6437ed33a97dd152f2e0e20e"
+  integrity sha512-uKsuQezYIWW16TB5hTztC7VPsrT9fg0kKz5cy+WS6QPvDE6eMpeuTF6vNdG/WlHKJTKj5E54rp0dk+gcR+KKMA==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -14291,6 +14292,16 @@ readdirp@~3.6.0:
   integrity sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==
   dependencies:
     picomatch "^2.2.1"
+
+recast@^0.20.5:
+  version "0.20.5"
+  resolved "https://registry.yarnpkg.com/recast/-/recast-0.20.5.tgz#8e2c6c96827a1b339c634dd232957d230553ceae"
+  integrity sha512-E5qICoPoNL4yU0H0NoBDntNB0Q5oMSNh9usFctYniLBluTthi3RsQVBXIJNbApOlvSwW/RGxIuokPcAc59J5fQ==
+  dependencies:
+    ast-types "0.14.2"
+    esprima "~4.0.0"
+    source-map "~0.6.1"
+    tslib "^2.0.1"
 
 rechoir@^0.7.0:
   version "0.7.0"
