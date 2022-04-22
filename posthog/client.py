@@ -132,9 +132,12 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
 
 def sync_execute(query, args=None, settings=None, with_column_types=False, flush=True):
     if TEST and flush:
-        from posthog.test.base import flush_persons_and_events
+        try:
+            from posthog.test.base import flush_persons_and_events
 
-        flush_persons_and_events()
+            flush_persons_and_events()
+        except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
+            pass
 
     with ch_pool.get_client() as client:
         start_time = perf_counter()
