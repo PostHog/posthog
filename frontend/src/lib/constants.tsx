@@ -111,7 +111,7 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
-    HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
+    HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
