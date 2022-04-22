@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    BILLING_LIMIT: 'billing-limit', // owner: @timgl
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

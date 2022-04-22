@@ -63,8 +63,8 @@ export function BillingAlerts(): JSX.Element | null {
                             <AlertOutlined className="text-warning" style={{ paddingRight: 16 }} />
                             <div>
                                 <b>Alert!</b> The monthly limit of events or billing limit for your organization has
-                                been exceeded. To avoid losing data or access to it, <b>we recommend upgrading</b> your
-                                billing plan now.
+                                been exceeded. To avoid losing data or access to it, <b>we recommend increasing</b> your
+                                billing limit.
                             </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>

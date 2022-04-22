@@ -5,10 +5,16 @@ import defaultImg from 'public/plan-default.svg'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
 import { billingLogic } from './billingLogic'
 import { PlanInterface } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
     const { billing } = useValues(billingLogic)
     const { setBillingLimit } = useActions(billingLogic)
+    const [billingLimitValue, setbillingLimitValue] = React.useState(billing?.billing_limit || 0)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showBillingLimit = featureFlags[FEATURE_FLAGS.BILLING_LIMIT]
 
     return (
         <>
@@ -43,25 +49,35 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                                 {plan.name}
                             </h3>
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
-                            <div style={{ marginTop: 8, marginBottom: 8, alignItems: 'center', display: 'flex' }}>
-                                Set monthly billing limit to{' '}
-                                <InputNumber
-                                    style={{ width: 200, marginLeft: 8, marginRight: 8 }}
-                                    onChange={(value): void => {
-                                        if (billing) {
-                                            setBillingLimit({ ...billing, billing_limit: value })
-                                        }
-                                    }}
-                                    value={billing?.billing_limit || 0}
-                                    min={0}
-                                    step={10}
-                                    addonAfter="$"
-                                />{' '}
-                                (in US dollars)
-                            </div>
+                            {showBillingLimit && (
+                                <div style={{ marginTop: 8, marginBottom: 8, alignItems: 'center', display: 'flex' }}>
+                                    Set monthly billing limit to{' '}
+                                    <InputNumber
+                                        style={{ width: 250, marginLeft: 8, marginRight: 8 }}
+                                        onChange={(value): void => {
+                                            setbillingLimitValue(value)
+                                        }}
+                                        value={billingLimitValue}
+                                        min={0}
+                                        step={10}
+                                        addonBefore="$"
+                                        addonAfter="USD / MONTH"
+                                    />{' '}
+                                    <Button
+                                        type="primary"
+                                        onClick={() => {
+                                            if (billing) {
+                                                setBillingLimit({ ...billing, billing_limit: billingLimitValue })
+                                            }
+                                        }}
+                                    >
+                                        Submit
+                                    </Button>
+                                </div>
+                            )}
                             <div className="text-muted mt">
                                 Click on <b>manage subscription</b> to cancel your billing agreement,{' '}
-                                <b>update your card</b> or other billing information,
+                                <b>update your card</b> or other billing information.
                             </div>
                         </div>
                         <div>
