@@ -147,6 +147,8 @@ class CohortQuery(EnterpriseEventQuery):
             **kwargs,
         )
 
+        self._validate_negations()
+
         property_groups = self._column_optimizer.property_optimizer.parse_property_groups(self._filter.property_groups)
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
@@ -550,6 +552,29 @@ class CohortQuery(EnterpriseEventQuery):
             ]:
                 return True
         return False
+
+    # Check if negations are always paired with a positive filter
+    # raise a value error warning that this is an invalid cohort
+    def _validate_negations(self) -> None:
+        def is_secondary_clause(prop: PropertyGroup):
+            if len(prop.values) and isinstance(prop.values[0], PropertyGroup):
+                for p in prop.values:
+                    if isinstance(p, PropertyGroup):
+                        is_secondary_clause(p)
+            else:
+                has_negation = False
+                has_primary_clause = False
+                for p in prop.values:
+                    if isinstance(p, Property):
+                        if p.negation:
+                            has_negation = True
+                        else:
+                            has_primary_clause = True
+
+                if has_negation and not has_primary_clause:
+                    raise ValueError("Negations must be paired with a positive filter.")
+
+        is_secondary_clause(self._filter.property_groups)
 
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
