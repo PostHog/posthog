@@ -242,6 +242,88 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    def test_performed_event_lte_1_times(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=9),
+        )
+
+        p3 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test3", "email": "test3@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(hours=9),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(hours=8),
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "lte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioural",
+                        }
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual(set([p2.uuid]), set([r[0] for r in res]))
+
+    def test_performed_event_zero_times_(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "eq",
+                            "operator_value": 0,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioural",
+                        }
+                    ],
+                },
+            }
+        )
+        with self.assertRaises(ValueError):
+            CohortQuery(filter=filter, team=self.team).get_query()
+
     def test_stopped_performing_event(self):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
@@ -254,7 +336,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=10),
         )
 
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
         )
         _create_event(
@@ -273,7 +355,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
-                            "time_value": 1,
+                            "time_value": 2,
                             "time_interval": "week",
                             "seq_time_value": 1,
                             "seq_time_interval": "week",
@@ -290,14 +372,38 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    def test_stopped_performing_event_raises_if_seq_date_later_than_date(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "seq_time_value": 2,
+                            "seq_time_interval": "day",
+                            "value": "stopped_performing_event",
+                            "type": "behavioural",
+                        }
+                    ],
+                },
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            CohortQuery(filter=filter, team=self.team).get_query()
+
     def test_restarted_performing_event(self):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
         )
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test2", "email": "test2@posthog.com"}
         )
-        p3 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test3", "email": "test3@posthog.com"}
         )
 
@@ -373,6 +479,30 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_restarted_performing_event_raises_if_seq_date_later_than_date(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "seq_time_value": 2,
+                            "seq_time_interval": "day",
+                            "value": "restarted_performing_event",
+                            "type": "behavioural",
+                        }
+                    ],
+                },
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            CohortQuery(filter=filter, team=self.team).get_query()
 
     def test_performed_event_first_time(self):
         p1 = Person.objects.create(
