@@ -67,7 +67,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 if (verify) {
                     return 3
                 }
-                if (platform === WEB) {
+                if (platform === WEB || platform === BOOKMARKLET) {
                     return 2
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
@@ -146,7 +146,6 @@ export const ingestionLogic = kea<ingestionLogicType>({
             )
         },
     }),
-
     listeners: () => ({
         completeOnboarding: () => {
             teamLogic.actions.updateCurrentTeam({
