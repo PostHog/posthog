@@ -162,7 +162,7 @@ class CohortQuery(EnterpriseEventQuery):
         subq.append((behavior_subquery, behavior_query_alias))
         self.params.update(behavior_subquery_params)
 
-        person_query, person_params, person_query_alias = self._get_person_query()
+        person_query, person_params, person_query_alias = self._get_persons_query()
         subq.append((person_query, person_query_alias))
         self.params.update(person_params)
 
@@ -192,7 +192,7 @@ class CohortQuery(EnterpriseEventQuery):
         q = ""
         filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
 
-        prev_alias = None
+        prev_alias: Optional[str] = None
         for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
             if idx == 0:
                 q += f"({subq_query}) {subq_alias}"
@@ -203,7 +203,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         return q
 
-    def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any], str]:
         #
         # Get the subquery for the cohort query.
         #
@@ -229,38 +229,20 @@ class CohortQuery(EnterpriseEventQuery):
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
-    def _get_person_query(self) -> Tuple[str, Dict]:
+    def _get_persons_query(self) -> Tuple[str, Dict[str, Any], str]:
+        query, params = "", {}
         if self._should_join_persons:
-            person_query, params = self._person_query.get_query()
+            person_query, person_params = self._person_query.get_query()
             person_query = f"SELECT *, id AS person_id FROM ({person_query})"
 
-            return person_query, params, self.PERSON_TABLE_ALIAS
+            query, params = person_query, person_params
 
-            if "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]:
-                # No outer group properties relate to persons, so inner join is sufficient
-                return (
-                    f"""
-                    INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
-                    ON {self.PERSON_TABLE_ALIAS}.id = {self.BEHAVIOR_QUERY_ALIAS}.person_id
-                    """,
-                    params,
-                )
-            else:
-                # FULL OUTER JOIN because the query needs to account for all people if there are or groups
-                return (
-                    f"""
-                FULL OUTER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
-                ON {self.PERSON_TABLE_ALIAS}.id = {self.BEHAVIOR_QUERY_ALIAS}.person_id
-                """,
-                    params,
-                )
-        else:
-            return "", {}, ""
+        return query, params, self.PERSON_TABLE_ALIAS
 
     def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle as params
         date_query = ""
-        date_params = {}
+        date_params: Dict[str, Any] = {}
 
         if self._earliest_time:
             date_query = f"AND timestamp <= now() AND timestamp >= now()"
@@ -328,7 +310,7 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # TODO: handle if props are pushed down in PersonQuery
-        if len(self._outer_property_groups.flat):
+        if self._outer_property_groups and len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
                 prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
             )
