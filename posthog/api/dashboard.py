@@ -195,6 +195,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
+                # workaround because DashboardTiles are saving JSON as a string :/
+                if isinstance(layouts, str):
+                    layouts = json.loads(layouts)
+
                 color = tile.color
 
                 # Make sure all items have an insight set
