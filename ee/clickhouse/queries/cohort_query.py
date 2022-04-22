@@ -103,6 +103,10 @@ def join_query(q: str, join: str, alias: str, left_operand: str, right_operand: 
     return f"{join} ({q}) {alias} ON {left_operand} = {right_operand}"
 
 
+def if_condition(condition: str, true_res: str, false_res: str) -> str:
+    return f"if({condition}, {true_res}, {false_res})"
+
+
 class CohortQuery(EnterpriseEventQuery):
 
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
@@ -170,17 +174,11 @@ class CohortQuery(EnterpriseEventQuery):
         subq.append((sequence_query, sequence_query_alias))
         self.params.update(sequence_params)
 
-        q = self._build_sources(subq)
-
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
-        select_field = (
-            f"if(person_id = '00000000-0000-0000-0000-000000000000', {self.PERSON_TABLE_ALIAS}.id, person_id)"
-            if self._should_join_persons
-            else "person_id"
-        )
+        q, fields = self._build_sources(subq)
 
         final_query = f"""
-        SELECT {select_field} AS id FROM
+        SELECT {fields} AS id FROM
         {q}
         WHERE 1 = 1
         {conditions}
@@ -188,20 +186,26 @@ class CohortQuery(EnterpriseEventQuery):
 
         return final_query, self.params
 
-    def _build_sources(self, subq: List[Tuple[str, str]]) -> str:
+    def _build_sources(self, subq: List[Tuple[str, str]]) -> Tuple[str, str]:
         q = ""
         filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
 
         prev_alias: Optional[str] = None
+        fields = ""
         for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
             if idx == 0:
                 q += f"({subq_query}) {subq_alias}"
+                fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-
+                fields = if_condition(
+                    f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
+                    f"{subq_alias}.person_id",
+                    f"{fields}",
+                )
             prev_alias = subq_alias
 
-        return q
+        return q, fields
 
     def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any], str]:
         #

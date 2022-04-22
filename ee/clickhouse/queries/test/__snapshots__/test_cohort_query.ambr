@@ -1,7 +1,7 @@
 # name: TestCohortQuery.test_basic_query
   '
   
-  SELECT if(person_id = '00000000-0000-0000-0000-000000000000', person.id, person_id) AS id
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 2 day
@@ -46,7 +46,7 @@
 # name: TestCohortQuery.test_person_properties_with_pushdowns
   '
   
-  SELECT if(person_id = '00000000-0000-0000-0000-000000000000', person.id, person_id) AS id
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 2 day
