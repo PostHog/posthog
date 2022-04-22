@@ -67,7 +67,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
         )
 
-    @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups(self):
         self._create_groups()
 
@@ -75,22 +74,22 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event="sign up",
             distinct_id="person1",
             team=self.team,
-            properties={"key": "uh", "$group_0": "org:5"},
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
             timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:01Z",
         )
         _create_event(
             event="sign up",
             distinct_id="person1",
             team=self.team,
             properties={"key": "uh", "$group_0": "org:6"},
-            timestamp="2020-01-02T12:00:00Z",
-        )
-        _create_event(
-            event="sign up",
-            distinct_id="person1",
-            team=self.team,
-            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
-            timestamp="2020-01-02T12:00:00Z",
+            timestamp="2020-01-02T12:00:02Z",
         )
 
         response = ClickhouseTrends().run(
@@ -1242,6 +1241,93 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones_hourly(self, patch_fe):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        with freeze_time("2020-01-05T06:01:01Z"):  # Previous day in pacific time, don't include
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+        with freeze_time("2020-01-05T15:01:01Z"):  # 07:01 in pacific time
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+        with freeze_time("2020-01-05T16:01:01Z"):  # 08:01 in pacific time
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2020-01-05T18:01:01Z"):  # 10:01 in pacific time
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "dStart",
+                        "interval": "hour",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertEqual(
+                response[0]["labels"],
+                [
+                    "5-Jan-2020 00:00",
+                    "5-Jan-2020 01:00",
+                    "5-Jan-2020 02:00",
+                    "5-Jan-2020 03:00",
+                    "5-Jan-2020 04:00",
+                    "5-Jan-2020 05:00",
+                    "5-Jan-2020 06:00",
+                    "5-Jan-2020 07:00",
+                    "5-Jan-2020 08:00",
+                    "5-Jan-2020 09:00",
+                    "5-Jan-2020 10:00",
+                ],
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "dStart",
+                        "interval": "hour",
+                        "events": [{"id": "sign up", "name": "sign up"},],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+            self.assertEqual(
+                response[0]["labels"],
+                [
+                    "5-Jan-2020 00:00",
+                    "5-Jan-2020 01:00",
+                    "5-Jan-2020 02:00",
+                    "5-Jan-2020 03:00",
+                    "5-Jan-2020 04:00",
+                    "5-Jan-2020 05:00",
+                    "5-Jan-2020 06:00",
+                    "5-Jan-2020 07:00",
+                    "5-Jan-2020 08:00",
+                    "5-Jan-2020 09:00",
+                    "5-Jan-2020 10:00",
+                ],
+            )
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         self.team.timezone = "US/Pacific"
         self.team.save()
@@ -1255,6 +1341,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         with freeze_time("2020-01-04T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        # Shouldn't be included anywhere
+        with freeze_time("2020-01-06T08:30:01Z"):
             _create_event(
                 team=self.team,
                 event="sign up",

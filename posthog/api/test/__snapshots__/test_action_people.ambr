@@ -31,7 +31,7 @@
         HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+       AND timestamp >= toStartOfDay(toDateTime('2020-01-08 00:00:00'), 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
