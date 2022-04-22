@@ -19,12 +19,7 @@ from ee.clickhouse.sql.cohort import (
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
-from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_ID_SQL,
-    GET_PERSON_IDS_BY_FILTER,
-    INSERT_PERSON_STATIC_COHORT,
-    PERSON_STATIC_COHORT_TABLE,
-)
+from ee.clickhouse.sql.person import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.client import sync_execute
 from posthog.models import Action, Cohort, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -40,37 +35,15 @@ logger = structlog.get_logger(__name__)
 def format_person_query(
     cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
 ) -> Tuple[str, Dict[str, Any]]:
-    filters = []
-    params: Dict[str, Any] = {}
-
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
 
-    or_queries = []
-    groups = cohort.groups
-    # TODO: replace with new cohort query class
+    # TODO: figure out how to handle empty cohorts, raise here or not?
+    from ee.clickhouse.queries.cohort_query import CohortQuery
 
-    if not groups:
-        # No person can match a cohort that has no match groups
-        return "0 = 19", {}
+    query, params = CohortQuery(Filter(data={"properties": cohort.properties}), cohort.team).get_query()
 
-    for group_idx, group in enumerate(groups):
-        if group.get("action_id") or group.get("event_id"):
-            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
-            params = {**params, **entity_params}
-            filters.append(entity_query)
-
-        elif group.get("properties"):
-            prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
-            or_queries.append(prop_query)
-            params = {**params, **prop_params}
-
-    if len(or_queries) > 0:
-        query = "AND ({})".format(" OR ".join(or_queries))
-        filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
-
-    joined_filter = " OR ".join(filters)
-    return joined_filter, params
+    return f"{custom_match_field} IN ({query})", params
 
 
 def format_static_cohort_query(

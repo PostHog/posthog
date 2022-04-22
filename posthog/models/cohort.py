@@ -148,7 +148,10 @@ class Cohort(models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         if self.filters:
-            return Filter(data=self.filters.get("properties"), team=self.team).property_groups
+            properties = Filter(data=self.filters.get("properties"), team=self.team).property_groups
+            if not properties.values:
+                raise ValueError("Cohort has no properties")
+            return properties
 
         raise ValueError("Cohort has no properties")
 
