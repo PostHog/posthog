@@ -8,6 +8,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.test.base import BaseTest
@@ -29,6 +30,15 @@ def _make_event_sequence(team, distinct_id, interval_days, period_event_counts):
                 distinct_id=distinct_id,
                 timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1),
             )
+
+
+def _create_cohort(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    groups = kwargs.pop("groups")
+    is_static = kwargs.pop("is_static", False)
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
+    return cohort
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
@@ -934,3 +944,83 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_cohort_filter(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"}
+        )
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+
+        filter = Filter(
+            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},}
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_cohort_filter_with_extra(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"}
+        )
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioural",
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p2.uuid], [r[0] for r in res])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioural",
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual(sorted([p1.uuid, p2.uuid]), sorted([r[0] for r in res]))

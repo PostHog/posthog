@@ -1,13 +1,14 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import get_count_operator, get_entity_query
+from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter, Team
 from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehaviouralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 
@@ -311,6 +312,8 @@ class CohortQuery(EnterpriseEventQuery):
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
+        elif prop.type == "cohort":
+            res, params = self.get_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
@@ -324,6 +327,31 @@ class CohortQuery(EnterpriseEventQuery):
             )
         else:
             return "", {}
+
+    def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+
+        q, params = "", {}
+        try:
+            prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            q = "0 = 14"
+
+        # TODO: renable this check when this class accepts a cohort not filter
+
+        # if prop_cohort.pk == cohort.pk:
+        #     # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
+        #     # we treat it as satisfied for all persons
+        #     pass
+        # else:
+
+        # TODO: format_filter_query uses the deprecated way of building cohorts
+        # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
+        # This function will only work for old cohorts right now
+        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
+        q = f"id IN ({person_id_query})"
+        params = cohort_filter_params
+
+        return q, params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -537,7 +565,9 @@ class CohortQuery(EnterpriseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = self._column_optimizer.is_using_person_properties
+        self._should_join_persons = (
+            self._column_optimizer.is_using_person_properties or self._column_optimizer.is_using_cohort_propertes
+        )
 
     @cached_property
     def _should_join_behavioral_query(self) -> bool:
