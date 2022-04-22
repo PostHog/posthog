@@ -306,7 +306,8 @@ class CohortQuery(EnterpriseEventQuery):
             elif prop.value == "performed_event_first_time":
                 res, params = self.get_performed_event_first_time(prop, prepend, idx)
             elif prop.value == "performed_event_sequence":
-                res, params = self.get_performed_event_sequence(prop, prepend, idx)
+                # TODO: implement this condition
+                pass
             elif prop.value == "performed_event_regularly":
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
@@ -363,10 +364,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
         self._fields.append(field)
 
-        return f"{column_name} > 0", {f"{date_param}": date_value, **entity_params}
+        return column_name, {f"{date_param}": date_value, **entity_params}
 
     def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -380,11 +381,11 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
         self._fields.append(field)
 
         return (
-            f"{column_name} {get_count_operator(prop.operator)} %(operator_value)s",
+            column_name,
             {"operator_value": count, f"{date_param}": date_value, **entity_params},
         )
 
@@ -450,7 +451,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{column_name}",
+            column_name,
             {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
         )
 
@@ -466,14 +467,11 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._restrict_event_query_by_time = False
 
-        field = f"""if(minIf(timestamp, {entity_query}) >= now() - INTERVAL %({date_param})s {date_interval} AND minIf(timestamp, {entity_query}) < now(), 1, 0) as {column_name}"""
+        field = f"minIf(timestamp, {entity_query}) >= now() - INTERVAL %({date_param})s {date_interval} AND minIf(timestamp, {entity_query}) < now() as {column_name}"
 
         self._fields.append(field)
 
-        return f"{column_name} = 1", {f"{date_param}": date_value, **entity_params}
-
-    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"steps = 2", {}
+        return column_name, {f"{date_param}": date_value, **entity_params}
 
     @cached_property
     def sequence_filter_to_query(self) -> Optional[Property]:
@@ -564,7 +562,7 @@ class CohortQuery(EnterpriseEventQuery):
                 periods.append(
                     f"if(countIf({entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}) {get_count_operator(prop.operator)} %({operator_value_param})s, 1, 0)"
                 )
-        earliest_date = ((total_period_count + 1) * time_value, date_interval)
+        earliest_date = (total_period_count * time_value, date_interval)
         self._check_earliest_date(earliest_date)
 
         field = "+".join(periods) + f">= %({min_periods_param})s" + f" as {column_name}"
