@@ -1700,6 +1700,7 @@ export enum PropertyMathType {
 
 export enum ActorGroupType {
     Person = 'person',
+    GroupPrefix = 'group',
 }
 
 export enum BehavioralEventType {

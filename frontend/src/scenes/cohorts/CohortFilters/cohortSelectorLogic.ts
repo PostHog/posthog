@@ -3,6 +3,8 @@ import { LemonSelectOption, LemonSelectOptions } from 'lib/components/LemonSelec
 import { FilterGroupTypes, GroupOption } from 'scenes/cohorts/CohortFilters/types'
 import type { cohortSelectorLogicType } from './cohortSelectorLogicType'
 import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/options'
+import { groupsModel } from '~/models/groupsModel'
+import { ActorGroupType } from '~/types'
 
 export interface CohortSelectorLogicProps {
     cohortFilterLogicKey: string
@@ -15,6 +17,9 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
     path: ['scenes', 'cohorts', 'CohortFilters', 'cohortSelectorLogic'],
     key: (props) => `${props.cohortFilterLogicKey}`,
     props: {} as CohortSelectorLogicProps,
+    connect: {
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+    },
     actions: {
         setValue: (value: keyof LemonSelectOptions | null) => ({ value }),
         onChange: (value: keyof LemonSelectOptions, option: LemonSelectOption, group: LemonSelectOptions) => ({
@@ -33,8 +38,28 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
     },
     selectors: {
         groups: [
-            () => [(_, props) => props.groupTypes],
-            (groupTypes): GroupOption[] => groupTypes?.map((type: FilterGroupTypes) => FILTER_GROUPS[type]) ?? [],
+            (s) => [(_, props) => props.groupTypes, s.groupTypes, s.aggregationLabel],
+            (propGroupTypes, groupTypes, aggregationLabel): GroupOption[] => {
+                const allGroups = {
+                    ...FILTER_GROUPS,
+                    [FilterGroupTypes.Actors]: {
+                        label: 'Actors',
+                        type: FilterGroupTypes.Actors,
+                        values: {
+                            [ActorGroupType.Person]: {
+                                label: 'Persons',
+                            },
+                            ...Object.fromEntries(
+                                groupTypes.map((type) => [
+                                    `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
+                                    { label: aggregationLabel(type.group_type_index).plural },
+                                ])
+                            ),
+                        },
+                    },
+                }
+                return [...(propGroupTypes?.map((type: FilterGroupTypes) => allGroups[type]) ?? [])]
+            },
         ],
         currentOption: [
             (s) => [s.groups, s.value],
