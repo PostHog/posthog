@@ -1,5 +1,6 @@
-import { Col } from 'antd'
+import { Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
+import { IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import React from 'react'
 import { BOOKMARKLET } from '../constants'
@@ -55,9 +56,19 @@ export function PanelFooter(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            <p className="text-center mb-0">
+            <p className="text-center mb-0 pb-05">
                 Need help? <a>Visit support</a> or <a>read our documentation</a>
             </p>
         </Col>
+    )
+}
+
+export function PanelHeader({ index, totalSteps }: { index: number, totalSteps?: number }): JSX.Element {
+    return (
+        <Row align="middle" className="panel-header">
+            <li>Step 1</li>
+            {index > 1 && (<><IconChevronRight /><li>Step 2</li></>)}
+            {index > 2 && (<><IconChevronRight /><li>Step 3</li></>)}
+        </Row>
     )
 }

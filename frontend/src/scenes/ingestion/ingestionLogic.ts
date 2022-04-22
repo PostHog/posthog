@@ -64,6 +64,12 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
                     return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
                 }
+                if (verify) {
+                    return 3
+                }
+                if (platform === WEB) {
+                    return 2
+                }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],

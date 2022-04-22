@@ -63,3 +63,12 @@
     position: sticky;
     bottom: 0;
 }
+
+.panel-header {
+    font-size: 14px;
+    // display: flex;
+
+    // li:not(:first-child):before {
+    //     content: '> ';
+    // }
+}

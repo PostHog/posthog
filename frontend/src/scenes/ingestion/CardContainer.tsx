@@ -3,6 +3,7 @@ import { Col, Card, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
+import { PanelHeader } from './panels/PanelComponents'
 
 export function CardContainer({
     index,
@@ -26,14 +27,15 @@ export function CardContainer({
             <Card
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
-                        {index !== 0 && (
+                        <PanelHeader index={index} totalSteps={totalSteps} />
+                        {/* {index !== 0 && (
                             <ArrowLeftOutlined
                                 className="button-border clickable"
                                 style={{ marginRight: 4 }}
                                 onClick={onBack}
                             />
-                        )}
-                        {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
+                        )} */}
+                        {/* {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`} */}
                     </Row>
                 }
                 style={{

@@ -18,7 +18,7 @@ import React from 'react'
 import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { PanelFooter } from './PanelFooter'
+import { PanelFooter } from './PanelComponents'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     PURE_JS: JSInstructions,

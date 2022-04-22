@@ -10,7 +10,7 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { PanelFooter } from './PanelFooter'
+import { PanelFooter } from './PanelComponents'
 
 export function AutocapturePanel(): JSX.Element {
     const { index, totalSteps, framework, onboarding1 } = useValues(ingestionLogic)

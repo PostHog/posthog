@@ -6,7 +6,7 @@ import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
-import { PanelFooter } from './PanelFooter'
+import { PanelFooter } from './PanelComponents'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
