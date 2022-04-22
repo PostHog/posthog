@@ -24,8 +24,6 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event IN ['$pageview', '$pageview', '$autocapture']
-       AND timestamp <= now()
-       AND timestamp >= now() - INTERVAL 2 week
      GROUP BY person_id) behavior_query
   FULL OUTER JOIN
     (SELECT *,
@@ -69,8 +67,6 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event IN ['$pageview', '$pageview', '$autocapture']
-       AND timestamp <= now()
-       AND timestamp >= now() - INTERVAL 2 week
      GROUP BY person_id) behavior_query
   FULL OUTER JOIN
     (SELECT *,
