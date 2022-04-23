@@ -60,6 +60,7 @@ export function InstructionsPanel(): JSX.Element {
                     }
                 </p>
                 <FrameworkSnippet />
+                {onboarding1 && <PanelFooter />}
             </CardContainer>
         )
     }
