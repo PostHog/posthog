@@ -39,7 +39,7 @@ export function CardContainer({
                 }
                 style={{
                     position: 'relative',
-                    width: '65vw',
+                    maxWidth: '65vw',
                     maxHeight: '70vh',
                     overflow: 'auto',
                     border: '1px solid var(--border)',
