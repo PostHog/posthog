@@ -6,6 +6,7 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
+import { PanelSupport } from './PanelComponents'
 
 export function FrameworkPanel(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
@@ -83,6 +84,9 @@ export function FrameworkPanel(): JSX.Element {
                     </Col>
                 </>
             )}
+            <Col className="panel-footer">
+                <PanelSupport />
+            </Col>
         </CardContainer>
     )
 }

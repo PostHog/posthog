@@ -56,9 +56,7 @@ export function PanelFooter(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            <p className="text-center mb-0 pb-05">
-                Need help? <a>Visit support</a> or <a>read our documentation</a>
-            </p>
+            <PanelSupport />
         </Col>
     )
 }
@@ -80,5 +78,24 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
                 </>
             )}
         </Row>
+    )
+}
+
+export function PanelSupport(): JSX.Element {
+    return (
+        <p className="text-center mb-0 pb-05">
+            Need help?{' '}
+            <a data-attr="support-docs-help" href="https://posthog.com/support" target="_blank">
+                Visit support
+            </a>{' '}
+            or{' '}
+            <a
+                data-attr="ingestion-docs-help"
+                href="https://posthog.com/docs/integrate/ingest-live-data"
+                target="_blank"
+            >
+                read our documentation
+            </a>
+        </p>
     )
 }
