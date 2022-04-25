@@ -126,6 +126,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
+        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
 
