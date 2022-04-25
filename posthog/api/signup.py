@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Union, cast
 
+import structlog
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -22,6 +23,8 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
+
+logger = structlog.get_logger(__name__)
 
 
 class SignupSerializer(serializers.Serializer):
@@ -354,13 +357,28 @@ def process_social_domain_jit_provisioning_signup(email: str, full_name: str) ->
     # Check if the user is on a whitelisted domain
     domain = email.split("@")[-1]
     try:
+        logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
         domain_instance = OrganizationDomain.objects.get(domain=domain)
     except OrganizationDomain.DoesNotExist:
+        logger.info(f"process_social_domain_jit_provisioning_signup_domain_does_not_exist", domain=domain)
         return user
     else:
+        logger.info(
+            f"process_social_domain_jit_provisioning_signup_domain_exists",
+            domain=domain,
+            is_verified=domain_instance.is_verified,
+            jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
+        )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             user = User.objects.create_and_join(
                 organization=domain_instance.organization, email=email, password=None, first_name=full_name
+            )
+            user.join(organization=domain_instance.organization)
+            logger.info(
+                f"process_social_domain_jit_provisioning_join_complete",
+                domain=domain,
+                user=user.email,
+                organization=domain_instance.organization.id,
             )
 
     return user
@@ -369,6 +387,7 @@ def process_social_domain_jit_provisioning_signup(email: str, full_name: str) ->
 @partial
 def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
+        logger.info(f"social_create_user_is_not_new", details=details)
         return {"is_new": False}
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
@@ -388,6 +407,8 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             {missing_attr: "This field is required and was not provided by the IdP."}, code="required"
         )
 
+    logger.info(f"social_create_user", full_name=full_name, email=email)
+
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
@@ -395,10 +416,12 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     else:
         # JIT Provisioning?
         user = process_social_domain_jit_provisioning_signup(email, full_name)
+        logger.info(f"social_create_user_jit_user", full_name=full_name, email=email, user=user.id)
         if user:
             backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
 
         if not user:
+            logger.info(f"social_create_user_jit_failed", full_name=full_name, email=email, user=user.id)
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)
             if not organization_name or email_opt_in is None:
@@ -418,6 +441,13 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
 
             serializer.is_valid(raise_exception=True)
             user = serializer.save()
+            logger.info(
+                f"social_create_user_signup",
+                full_name=full_name,
+                email=email,
+                user=user.id,
+                organization_name=organization_name,
+            )
 
     report_user_signed_up(
         user,
