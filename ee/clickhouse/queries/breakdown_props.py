@@ -39,7 +39,7 @@ def get_breakdown_prop_values(
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
     column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team.id)
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team.id)
+    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
     props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
     outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
@@ -88,7 +88,7 @@ def get_breakdown_prop_values(
             "limit": filter.breakdown_limit_or_default,
             "team_id": team.pk,
             "offset": filter.offset,
-            "timezone": team.timezone_for_charts(),
+            "timezone": team.timezone_for_charts,
             **prop_filter_params,
             **entity_params,
             **person_join_params,
@@ -118,11 +118,9 @@ def _to_value_expression(
         return get_single_or_multi_property_string_expr(breakdown, table="events", query_alias="value")
 
 
-def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:
+def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     entity = kwargs.pop("entity", None)
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(
-        filter=filter, team_id=team_id, table="all_events."
-    )
+    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team, table="all_events.")
 
     props_to_filter = filter.property_groups
 
@@ -130,12 +128,12 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team_id, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",
+        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
             FROM events all_events
-            WHERE team_id = {team_id}
+            WHERE team_id = {team.pk}
             {parsed_date_from}
             {parsed_date_to}
             {prop_filters}
@@ -143,17 +141,17 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     return query, {**date_params, **prop_filter_params}
 
 
-def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
+def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
     entity = kwargs.pop("entity", None)
     cohorts = (
-        Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
+        Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in filter.breakdown if b != "all"])
         if isinstance(filter.breakdown, list)
-        else Cohort.objects.filter(team_id=team_id, pk=filter.breakdown)
+        else Cohort.objects.filter(team_id=team.pk, pk=filter.breakdown)
     )
     cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
-        all_query, all_params = _format_all_query(team_id, filter, entity=entity)
+        all_query, all_params = _format_all_query(team, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
         ids.append(ALL_USERS_COHORT_ID)

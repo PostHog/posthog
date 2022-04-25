@@ -24,7 +24,8 @@ export const WEB = 'Web'
 export const MOBILE = 'Mobile'
 export const BACKEND = 'Backend'
 export const APP = 'Import data via an app'
-export const platforms = [WEB, MOBILE, BACKEND]
+export const BOOKMARKLET = 'Just exploring?'
+export const platforms: PlatformType[] = [WEB, MOBILE, BACKEND]
 
 export const PURE_JS = 'PURE_JS'
 export const NODEJS = 'NODEJS'

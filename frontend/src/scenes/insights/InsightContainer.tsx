@@ -175,7 +175,6 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
-                            disabled={!canEditInsight}
                         />
                     )
                 }

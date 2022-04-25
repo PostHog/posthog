@@ -6,7 +6,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonInput } from 'lib/components/LemonInput'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 export function HeatmapStats(): JSX.Element {

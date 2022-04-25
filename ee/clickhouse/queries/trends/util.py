@@ -56,7 +56,6 @@ def process_math(
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [item.strftime("%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
     return {
