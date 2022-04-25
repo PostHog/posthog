@@ -602,7 +602,7 @@ export class EventsProcessor {
                       JSON.stringify({
                           ...eventPayload,
                           person_id: personInfo?.uuid,
-                          person_properties: personInfo?.propertiesRaw,
+                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
                       })
                   )
 

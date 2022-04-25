@@ -129,7 +129,7 @@ export interface CreatePersonalApiKeyPayload {
 type PersonData = {
     uuid: string
     created_at_iso: string
-    propertiesRaw: string
+    properties: Properties
 }
 
 /** The recommended way of accessing the database. */
@@ -462,7 +462,7 @@ export class DB {
         }
     }
 
-    private async updatePersonCreatedAtRawCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
+    private async updatePersonCreatedAtIsoCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonCreatedAtCacheKey(teamId, personId),
@@ -473,25 +473,17 @@ export class DB {
     }
 
     private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
-        await this.updatePersonCreatedAtRawCache(teamId, personId, createdAt.toISO())
-    }
-
-    private async updatePersonPropertiesRawCache(
-        teamId: number,
-        personId: number,
-        propertiesRaw: string
-    ): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getPersonPropertiesCacheKey(teamId, personId),
-                propertiesRaw,
-                this.PERSON_INFO_CACHE_TTL
-            )
-        }
+        await this.updatePersonCreatedAtIsoCache(teamId, personId, createdAt.toISO())
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        await this.updatePersonPropertiesRawCache(teamId, personId, JSON.stringify(properties))
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonPropertiesCacheKey(teamId, personId),
+                properties,
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
     }
 
     public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
@@ -522,18 +514,18 @@ export class DB {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
             return null
         }
-        const [personUuid, personCreatedAt, personProperties] = await Promise.all([
+        const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
             this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
             this.redisGet(this.getPersonCreatedAtCacheKey(teamId, personId), null),
             this.redisGet(this.getPersonPropertiesCacheKey(teamId, personId), null),
         ])
-        if (personUuid !== null && personCreatedAt !== null && personProperties !== null) {
+        if (personUuid !== null && personCreatedAtIso !== null && personProperties !== null) {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
 
             return {
                 uuid: String(personUuid),
-                created_at_iso: String(personCreatedAt),
-                propertiesRaw: String(personProperties),
+                created_at_iso: String(personCreatedAtIso),
+                properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
             }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
@@ -545,17 +537,17 @@ export class DB {
         )
         if (result.rows.length !== 0) {
             const personUuid = String(result.rows[0].uuid)
-            const personCreatedAt = String(result.rows[0].created_at)
-            const personProperties = String(result.rows[0].properties)
+            const personCreatedAtIso = String(result.rows[0].created_at)
+            const personProperties: Properties = result.rows[0].properties
             await Promise.all([
                 this.updatePersonUuidCache(teamId, personId, personUuid),
-                this.updatePersonCreatedAtRawCache(teamId, personId, personCreatedAt),
-                this.updatePersonPropertiesRawCache(teamId, personId, personProperties),
+                this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso),
+                this.updatePersonPropertiesCache(teamId, personId, personProperties),
             ])
             return {
                 uuid: personUuid,
-                created_at_iso: personCreatedAt,
-                propertiesRaw: personProperties,
+                created_at_iso: personCreatedAtIso,
+                properties: personProperties,
             }
         }
         return null
