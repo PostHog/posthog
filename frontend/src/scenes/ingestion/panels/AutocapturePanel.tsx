@@ -10,10 +10,9 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { PanelFooter } from './PanelComponents'
 
 export function AutocapturePanel(): JSX.Element {
-    const { index, framework, onboarding1 } = useValues(ingestionLogic)
+    const { index, framework } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
@@ -35,7 +34,7 @@ export function AutocapturePanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
@@ -125,7 +124,6 @@ export function AutocapturePanel(): JSX.Element {
                 </p>
                 <JSInstructions />
             </div>
-            {onboarding1 && <PanelFooter />}
         </CardContainer>
     )
 }

@@ -18,7 +18,6 @@ import React from 'react'
 import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { PanelFooter } from './PanelComponents'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     PURE_JS: JSInstructions,
@@ -36,7 +35,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, platform, framework, onboarding1 } = useValues(ingestionLogic)
+    const { index, platform, framework } = useValues(ingestionLogic)
     const { setFramework, setVerify } = useActions(ingestionLogic)
 
     if (!framework) {
@@ -49,7 +48,7 @@ export function InstructionsPanel(): JSX.Element {
         return (
             <CardContainer
                 index={index}
-                nextButton={true}
+                showFooter={true}
                 onSubmit={() => setVerify(true)}
                 onBack={() => setFramework(null)}
             >
@@ -60,7 +59,6 @@ export function InstructionsPanel(): JSX.Element {
                     }
                 </p>
                 <FrameworkSnippet />
-                {onboarding1 && <PanelFooter />}
             </CardContainer>
         )
     }
@@ -68,7 +66,7 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setFramework(null)}
         >
@@ -90,7 +88,6 @@ export function InstructionsPanel(): JSX.Element {
                 </>
             ) : null}
             {platform === MOBILE ? <FrameworkSnippet /> : null}
-            {onboarding1 && <PanelFooter />}
         </CardContainer>
     )
 }

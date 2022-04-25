@@ -64,17 +64,17 @@ export function PanelFooter(): JSX.Element {
 export function PanelHeader({ index }: { index: number }): JSX.Element {
     return (
         <Row align="middle" className="panel-header">
-            <li style={index === 1 ? { color: 'black' } : {}}>Step 1</li>
+            <span style={index === 1 ? { color: 'black' } : {}}>Step 1</span>
             {index > 1 && (
                 <>
                     <IconChevronRight />
-                    <li style={index === 2 ? { color: 'black' } : {}}>Step 2</li>
+                    <span style={index === 2 ? { color: 'black' } : {}}>Step 2</span>
                 </>
             )}
             {index > 2 && (
                 <>
                     <IconChevronRight />
-                    <li style={index === 3 ? { color: 'black' } : {}}>Step 3</li>
+                    <span style={index === 3 ? { color: 'black' } : {}}>Step 3</span>
                 </>
             )}
         </Row>

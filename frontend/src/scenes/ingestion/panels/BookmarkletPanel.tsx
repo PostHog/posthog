@@ -6,7 +6,6 @@ import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
-import { PanelFooter } from './PanelComponents'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
@@ -17,7 +16,7 @@ export function BookmarkletPanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
@@ -58,7 +57,6 @@ export function BookmarkletPanel(): JSX.Element {
                     </Row>
                 </div>
             )}
-            <PanelFooter />
         </CardContainer>
     )
 }
