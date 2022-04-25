@@ -213,7 +213,6 @@ export function PropertiesTable({
         {
             key: 'key',
             title: 'Key',
-            width: '20rem',
             render: function Key(_, item: any): JSX.Element {
                 return (
                     <div className="properties-table-key">

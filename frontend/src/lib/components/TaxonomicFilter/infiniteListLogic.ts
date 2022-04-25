@@ -14,6 +14,7 @@ import {
     TaxonomicFilterGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -67,7 +68,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
+        values: [
+            taxonomicFilterLogic(props),
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            featureFlagsLogic,
+            ['featureFlags'],
+        ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 

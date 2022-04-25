@@ -43,7 +43,16 @@ export const groupsModel = kea<groupsModelType>({
             (groupTypes): TaxonomicFilterGroupType[] => {
                 return groupTypes.map(
                     (groupType: GroupType) =>
-                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as TaxonomicFilterGroupType
+                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
+                )
+            },
+        ],
+        groupNamesTaxonomicTypes: [
+            (s) => [s.groupTypes],
+            (groupTypes): TaxonomicFilterGroupType[] => {
+                return groupTypes.map(
+                    (groupType: GroupType) =>
+                        `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
                 )
             },
         ],

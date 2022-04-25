@@ -18,6 +18,7 @@ import { DataManagementPageHeader } from 'scenes/data-management/DataManagementP
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -73,7 +74,7 @@ export function EventDefinitionsTable(): JSX.Element {
         ...(hasIngestionTaxonomy
             ? [
                   {
-                      title: '30 day volume',
+                      title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,
                       key: 'volume_30_day',
                       align: 'right',
                       render: function Render(_, definition: EventDefinition) {
@@ -86,7 +87,7 @@ export function EventDefinitionsTable(): JSX.Element {
                       sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
                   {
-                      title: '30 day queries',
+                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
                       render: function Render(_, definition: EventDefinition) {

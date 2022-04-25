@@ -21,7 +21,7 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
     key: (props) => props.pageKey || 'global',
     props: {} as DurationFilterProps,
     actions: {
-        setTimeValue: (timeValue: number) => ({ timeValue }),
+        setTimeValue: (timeValue: number | null) => ({ timeValue }),
         setUnit: (unit: TimeUnit) => ({ unit }),
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setOperator: (operator: PropertyOperator) => ({ operator }),
@@ -41,7 +41,7 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
             },
         ],
         timeValue: [
-            Math.floor(props.initialFilter.value / TIME_MULTIPLIERS[TimeUnit.MINUTES]),
+            Math.floor(props.initialFilter.value / TIME_MULTIPLIERS[TimeUnit.MINUTES]) as number | null,
             {
                 setTimeValue: (_, { timeValue }) => timeValue,
             },
@@ -64,7 +64,7 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
                 } else {
                     durationString += '< '
                 }
-                durationString += timeValue
+                durationString += timeValue || 0
                 if (timeValue === 1) {
                     durationString += ' ' + unit.slice(0, -1)
                 } else {
@@ -81,11 +81,11 @@ export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterPro
             unit,
             operator,
         }: {
-            timeValue?: number
+            timeValue?: number | null
             unit?: TimeUnit
             operator?: PropertyOperator
         }): void => {
-            const timeValueToUse = timeValue || values.timeValue
+            const timeValueToUse = timeValue || values.timeValue || 0
             const unitToUse = unit || values.unit
 
             const seconds = timeValueToUse * TIME_MULTIPLIERS[unitToUse]

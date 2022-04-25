@@ -20,9 +20,10 @@ import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
 import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage } from 'lib/components/icons'
+import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -60,14 +61,20 @@ export function Dashboards(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight, is_shared }) {
+            render: function Render(name, { id, description, _highlight, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
+                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
+                            {!canEditDashboard && (
+                                <Tooltip title="You don't have edit permissions for this dashboard.">
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                </Tooltip>
+                            )}
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />

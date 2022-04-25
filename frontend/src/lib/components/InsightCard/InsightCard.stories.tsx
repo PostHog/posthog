@@ -22,7 +22,7 @@ const EXAMPLE_TRENDS: InsightModel = {
     },
     filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
-    dashboard: 1,
+    dashboards: [1],
     layouts: {
         sm: {
             h: 5,
@@ -233,7 +233,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
     filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,
-    dashboard: 6,
+    dashboards: [6],
     layouts: {},
     color: null,
     last_refresh: null,
