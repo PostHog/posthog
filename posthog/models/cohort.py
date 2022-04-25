@@ -93,7 +93,7 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    # deprecated
+    # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
     @cached_property
