@@ -713,7 +713,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
 
         cohort0: Cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"foo": "bar"}}], name="cohort0",
+            team=self.team, groups=[{"properties": [{"key": "foo", "value": "bar", "type": "person"}]}], name="cohort0",
         )
         cohort0.calculate_people_ch(pending_version=0)
 

@@ -46,7 +46,9 @@ def format_person_query(
     # TODO: figure out how to handle empty cohorts, raise here or not?
     from ee.clickhouse.queries.cohort_query import CohortQuery
 
-    query, params = CohortQuery(Filter(data={"properties": cohort.properties}), cohort.team).get_query()
+    query, params = CohortQuery(
+        Filter(data={"properties": cohort.properties}), cohort.team, cohort_pk=cohort.pk
+    ).get_query()
 
     return f"{custom_match_field} IN ({query})", params
 

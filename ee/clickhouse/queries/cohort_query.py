@@ -123,6 +123,8 @@ class CohortQuery(EnterpriseEventQuery):
         self,
         filter: Filter,
         team: Team,
+        *,
+        cohort_pk: Optional[int] = None,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -137,6 +139,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._events = []
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
+        self._cohort_pk = cohort_pk
         super().__init__(
             filter=filter,
             team=team,
@@ -330,28 +333,21 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
 
-        q, params = "", {}
         try:
             prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            q = "0 = 14"
+            return "0 = 14", {}
 
-        # TODO: renable this check when this class accepts a cohort not filter
-
-        # if prop_cohort.pk == cohort.pk:
-        #     # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
-        #     # we treat it as satisfied for all persons
-        #     pass
-        # else:
-
-        # TODO: format_filter_query uses the deprecated way of building cohorts
-        # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
-        # This function will only work for old cohorts right now
-        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
-        q = f"id IN ({person_id_query})"
-        params = cohort_filter_params
-
-        return q, params
+        if prop_cohort.pk == self._cohort_pk:
+            # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
+            # we treat it as satisfied for all persons
+            return "11 = 11", {}
+        else:
+            # TODO: format_filter_query uses the deprecated way of building cohorts
+            # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
+            # This function will only work for old cohorts right now
+            person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
+            return f"id IN ({person_id_query})", cohort_filter_params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
