@@ -1715,10 +1715,10 @@ export enum ActorGroupType {
 }
 
 export enum BehavioralEventType {
-    CompleteEvent = 'complete_event',
-    CompleteMultipleEvents = 'complete_multiple_events',
-    CompleteSequenceEvents = 'complete_sequence_events',
-    NotCompleteEvent = 'not_complete_event',
+    PerformEvent = 'performed_event',
+    PerformMultipleEvents = 'performed_event_multiple',
+    PerformSequenceEvents = 'performed_event_sequence',
+    NotPerformedEvent = 'not_performed_event',
     HaveProperty = 'have_property',
     NotHaveProperty = 'not_have_property',
 }
@@ -1729,11 +1729,11 @@ export enum BehavioralCohortType {
 }
 
 export enum BehavioralLifecycleType {
-    CompleteEventFirstTime = 'complete_event_first_time',
-    CompleteEventRegularly = 'complete_event_regularly',
-    StopEvent = 'stop_event',
-    StartEventAgain = 'start_event_again',
-    CompleteEventOnce = 'complete_event_once',
+    PerformEventFirstTime = 'performed_event_first_time',
+    PerformEventRegularly = 'performed_event_regularly',
+    StopPerformEvent = 'stopped_performing_event',
+    StartPerformEventAgain = 'restarted_performing_event',
+    PerformEventOnce = 'performed_event_once',
 }
 
 export enum TimeUnitType {

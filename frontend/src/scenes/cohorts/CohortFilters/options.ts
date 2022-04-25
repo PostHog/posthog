@@ -74,16 +74,16 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
         label: 'Behavioral',
         type: FilterGroupTypes.EventBehavioral,
         values: {
-            [BehavioralEventType.CompleteEvent]: {
+            [BehavioralEventType.PerformEvent]: {
                 label: 'Completed event',
             },
-            [BehavioralEventType.CompleteMultipleEvents]: {
+            [BehavioralEventType.PerformMultipleEvents]: {
                 label: 'Completed an event multiple times',
             },
-            [BehavioralEventType.CompleteSequenceEvents]: {
+            [BehavioralEventType.PerformSequenceEvents]: {
                 label: 'Completed a sequence of events',
             },
-            [BehavioralEventType.NotCompleteEvent]: {
+            [BehavioralEventType.NotPerformedEvent]: {
                 label: 'Did not complete event',
             },
             [BehavioralEventType.HaveProperty]: {
@@ -110,19 +110,19 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
         label: 'Lifecycle',
         type: FilterGroupTypes.LifecycleBehavioral,
         values: {
-            [BehavioralLifecycleType.CompleteEventFirstTime]: {
+            [BehavioralLifecycleType.PerformEventFirstTime]: {
                 label: 'Completed an event for the first time',
             },
-            [BehavioralLifecycleType.CompleteEventRegularly]: {
+            [BehavioralLifecycleType.PerformEventRegularly]: {
                 label: 'Completed an event regularly',
             },
-            [BehavioralLifecycleType.StopEvent]: {
+            [BehavioralLifecycleType.StopPerformEvent]: {
                 label: 'Stopped doing an event',
             },
-            [BehavioralLifecycleType.StartEventAgain]: {
+            [BehavioralLifecycleType.StartPerformEventAgain]: {
                 label: 'Started doing an event again',
             },
-            [BehavioralLifecycleType.CompleteEventOnce]: {
+            [BehavioralLifecycleType.PerformEventOnce]: {
                 label: 'Completed an event once',
             },
         },
