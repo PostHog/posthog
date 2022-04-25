@@ -45,7 +45,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --radius: #{$radius};
     --shadow-elevation: #{$shadow_elevation};
     --opacity-disabled: #{$opacity_disabled};
-    // Used for graph series. (Note: color.ts relies on these values being hex)
+    // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
     --purple: #{$purple_500};
@@ -65,6 +65,25 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-lilac: #8270f6;
+    --data-blue: #0494fb;
+    --data-spruce: #285d28;
+    --data-magenta: #ce0e74;
+    --data-vermilion: #d2453f;
+    --data-brown: #7c440e;
+    --data-green: #5cb206;
+    --data-purple: #621da6;
+    --data-orchid: #dc58ea;
+    --data-orange: #df8a1d;
+    --data-teal: #509d99;
+    --data-mint: #a2e0dd;
+    --data-grape: #83366b;
+    --data-yellow: #f4d403;
+    --data-aquamarine: #6becad;
+    --data-tan: #c4a499;
+    --data-pink: #fd9cba;
+    --data-olivine: #a0b460;
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};
