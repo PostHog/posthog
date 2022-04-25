@@ -17,7 +17,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       
   ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
@@ -43,7 +43,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       
   ) ENGINE = 
@@ -216,7 +216,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -370,7 +370,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       
   ) ENGINE = 
@@ -752,7 +752,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -821,7 +821,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       
   , _timestamp DateTime
@@ -1046,7 +1046,7 @@
       group1_properties VARCHAR,
       group2_properties VARCHAR,
       group3_properties VARCHAR,
-      group4_properties VARCHAR    
+      group4_properties VARCHAR
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
