@@ -1,6 +1,5 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { Provider } from 'kea'
 import {
     OperatorValueSelect,
     OperatorValueSelectProps,
@@ -31,45 +30,45 @@ const props = (type?: PropertyType | undefined): OperatorValueSelectProps => ({
 
 export function OperatorValueWithStringProperty(): JSX.Element {
     return (
-        <Provider>
+        <>
             <h1>String Property</h1>
             <OperatorValueSelect {...props(PropertyType.String)} />
-        </Provider>
+        </>
     )
 }
 
 export function OperatorValueWithDateTimeProperty(): JSX.Element {
     return (
-        <Provider>
+        <>
             <h1>Date Time Property</h1>
             <OperatorValueSelect {...props(PropertyType.DateTime)} />
-        </Provider>
+        </>
     )
 }
 
 export function OperatorValueWithNumericProperty(): JSX.Element {
     return (
-        <Provider>
+        <>
             <h1>Numeric Property</h1>
             <OperatorValueSelect {...props(PropertyType.Numeric)} />
-        </Provider>
+        </>
     )
 }
 
 export function OperatorValueWithBooleanProperty(): JSX.Element {
     return (
-        <Provider>
+        <>
             <h1>Boolean Property</h1>
             <OperatorValueSelect {...props(PropertyType.Boolean)} />
-        </Provider>
+        </>
     )
 }
 
 export function OperatorValueWithUnknownProperty(): JSX.Element {
     return (
-        <Provider>
+        <>
             <h1>Property without specific type</h1>
             <OperatorValueSelect {...props()} />
-        </Provider>
+        </>
     )
 }

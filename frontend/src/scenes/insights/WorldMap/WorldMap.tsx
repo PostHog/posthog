@@ -1,5 +1,4 @@
-import { useValues, getContext, useActions } from 'kea'
-import { Provider } from 'react-redux'
+import { useValues, useActions } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -33,7 +32,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipCoordinates) {
             ReactDOM.render(
-                <Provider store={getContext().store}>
+                <>
                     {currentTooltip && (
                         <InsightTooltip
                             seriesData={[
@@ -63,7 +62,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
                         />
                     )}
-                </Provider>,
+                </>,
                 tooltipEl
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit

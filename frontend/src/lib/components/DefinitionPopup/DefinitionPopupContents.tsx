@@ -4,7 +4,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import React, { CSSProperties, useEffect, useState } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -561,36 +561,34 @@ export function DefinitionPopupContents({
 
     return (
         <>
-            <Provider>
-                {ReactDOM.createPortal(
-                    <BindLogic
-                        logic={definitionPopupLogic}
-                        props={{
-                            type: group.type,
-                            updateRemoteItem,
-                            onMouseLeave,
-                            onSave,
-                            onCancel,
-                            hideView,
-                            hideEdit,
-                            openDetailInNewTab,
+            {ReactDOM.createPortal(
+                <BindLogic
+                    logic={definitionPopupLogic}
+                    props={{
+                        type: group.type,
+                        updateRemoteItem,
+                        onMouseLeave,
+                        onSave,
+                        onCancel,
+                        hideView,
+                        hideEdit,
+                        openDetailInNewTab,
+                    }}
+                >
+                    <ControlledDefinitionPopupContents
+                        item={item}
+                        group={group}
+                        popper={{
+                            styles: styles.popper,
+                            attributes: attributes.popper,
+                            forceUpdate,
+                            setRef: setPopperElement,
+                            ref: popperElement,
                         }}
-                    >
-                        <ControlledDefinitionPopupContents
-                            item={item}
-                            group={group}
-                            popper={{
-                                styles: styles.popper,
-                                attributes: attributes.popper,
-                                forceUpdate,
-                                setRef: setPopperElement,
-                                ref: popperElement,
-                            }}
-                        />
-                    </BindLogic>,
-                    document.querySelector('body') as HTMLElement
-                )}
-            </Provider>
+                    />
+                </BindLogic>,
+                document.querySelector('body') as HTMLElement
+            )}
             {children}
         </>
     )

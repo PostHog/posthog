@@ -5,7 +5,7 @@ import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -307,34 +307,32 @@ export function InfiniteList(): JSX.Element {
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None &&
-            showPopover ? (
-                <Provider>
-                    {ReactDOM.createPortal(
-                        selectedItem && group ? (
-                            <BindLogic
-                                logic={definitionPopupLogic}
-                                props={{
-                                    type: listGroupType,
-                                    updateRemoteItem,
-                                }}
-                            >
-                                <ControlledDefinitionPopupContents
-                                    item={selectedItem}
-                                    group={group}
-                                    popper={{
-                                        styles: styles.popper,
-                                        attributes: attributes.popper,
-                                        forceUpdate,
-                                        setRef: setPopperElement,
-                                        ref: popperElement,
-                                    }}
-                                />
-                            </BindLogic>
-                        ) : null,
-                        document.querySelector('body') as HTMLElement
-                    )}
-                </Provider>
-            ) : null}
+            showPopover
+                ? ReactDOM.createPortal(
+                      selectedItem && group ? (
+                          <BindLogic
+                              logic={definitionPopupLogic}
+                              props={{
+                                  type: listGroupType,
+                                  updateRemoteItem,
+                              }}
+                          >
+                              <ControlledDefinitionPopupContents
+                                  item={selectedItem}
+                                  group={group}
+                                  popper={{
+                                      styles: styles.popper,
+                                      attributes: attributes.popper,
+                                      forceUpdate,
+                                      setRef: setPopperElement,
+                                      ref: popperElement,
+                                  }}
+                              />
+                          </BindLogic>
+                      ) : null,
+                      document.querySelector('body') as HTMLElement
+                  )
+                : null}
         </div>
     )
 }

@@ -2,8 +2,6 @@ import '~/styles'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
-import { getContext } from 'kea'
 
 import { App } from 'scenes/App'
 import { initKea } from './initKea'
@@ -14,25 +12,13 @@ import { ErrorBoundary } from './layout/ErrorBoundary'
 loadPostHogJS()
 initKea()
 
-// Expose `window.getReduxState()` to make snapshots to storybook easy
-if (typeof window !== 'undefined') {
-    // Disabled in production to prevent leaking secret data, personal API keys, etc
-    if (process.env.NODE_ENV === 'development') {
-        ;(window as any).getReduxState = () => getContext().store.getState()
-    } else {
-        ;(window as any).getReduxState = () => 'Disabled outside development!'
-    }
-}
-
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         ReactDOM.render(
-            <Provider store={getContext().store}>
-                <ErrorBoundary>
-                    <App />
-                </ErrorBoundary>
-            </Provider>,
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>,
             root
         )
     } else {
