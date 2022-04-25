@@ -6,7 +6,7 @@ import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export default {
-    title: 'Components/Lemon TextArea',
+    title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
     argTypes: {
         value: {
