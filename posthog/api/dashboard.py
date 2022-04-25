@@ -195,8 +195,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
-                # workaround because DashboardTiles are saving JSON as a string :/
-                # TODO remove this after migration 0228 has been applied
+                # workaround because DashboardTiles layouts were migrated as stringified JSON :/
                 if isinstance(layouts, str):
                     layouts = json.loads(layouts)
 
