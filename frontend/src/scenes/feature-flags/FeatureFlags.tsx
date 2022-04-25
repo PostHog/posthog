@@ -80,7 +80,7 @@ function OverViewTab(): JSX.Element {
                                 featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
                             }
                             label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                            rowProps={{ style: { fontWeight: 400, padding: 0 } }}
+                            style={{ fontWeight: 400, padding: 0 }}
                         />
                     </div>
                 )

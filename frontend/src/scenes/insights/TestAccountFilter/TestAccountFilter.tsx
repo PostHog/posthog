@@ -38,7 +38,7 @@ export function TestAccountFilter({
                     />
                 </div>
             }
-            rowProps={{ style: { width: '100%' } }}
+            style={{ width: '100%' }}
         />
     )
 }

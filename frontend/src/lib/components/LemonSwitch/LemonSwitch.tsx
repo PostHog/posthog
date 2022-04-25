@@ -1,38 +1,36 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { LemonRow, LemonRowProps } from '../LemonRow'
 import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
-export interface LemonSwitchProps {
-    id?: string
+export interface LemonSwitchProps
+    extends Omit<LemonRowProps<'div'>, 'className' | 'alt' | 'label' | 'onChange' | 'outlined'> {
     onChange: (newChecked: boolean) => void
     checked: boolean
-    loading?: boolean
     label?: string | JSX.Element
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
     /** Default switches are inline. Primary switches _with a label_ are wrapped in an outlined block. */
     type?: 'default' | 'primary'
-    style?: React.CSSProperties
-    rowProps?: Omit<LemonRowProps<'div'>, 'className' | 'outlined'>
-    disabled?: boolean
-    'data-attr'?: string
 }
 
+/** Counter used for collision-less automatic switch IDs. */
+let switchCounter = 0
+
 export function LemonSwitch({
-    id,
+    id: rawId,
     onChange,
     checked,
+    disabled,
     loading,
     label,
     alt,
     type = 'default',
-    style,
-    rowProps,
-    disabled,
     'data-attr': dataAttr,
+    ...rowProps
 }: LemonSwitchProps): JSX.Element {
+    const id = useMemo(() => rawId || `lemon-checkbox-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
 
     return (
@@ -41,7 +39,8 @@ export function LemonSwitch({
             className={clsx(
                 'LemonSwitch',
                 checked && 'LemonSwitch--checked',
-                isActive && 'LemonSwitch--active',
+                disabled && 'LemonSwitch--disabled',
+                !disabled && isActive && 'LemonSwitch--active',
                 alt && 'LemonSwitch--alt'
             )}
             sideIcon={
@@ -54,7 +53,6 @@ export function LemonSwitch({
                     onMouseDown={() => setIsActive(true)}
                     onMouseUp={() => setIsActive(false)}
                     onMouseOut={() => setIsActive(false)}
-                    style={style}
                     disabled={disabled}
                     data-attr={dataAttr}
                 >

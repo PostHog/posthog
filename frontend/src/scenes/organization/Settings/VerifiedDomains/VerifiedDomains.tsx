@@ -132,7 +132,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             disabled={updatingDomainLoading || !is_verified}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
                             label={jit_provisioning_enabled ? 'Enabled' : 'Disabled'}
-                            rowProps={{ style: { padding: 0, fontWeight: 400 } }}
+                            style={{ padding: 0, fontWeight: 400 }}
                         />
                     </div>
                 ) : (

@@ -1,7 +1,11 @@
 @import '~/vars';
 
 .LemonSwitch {
+    width: fit-content;
     font-weight: 500;
+    &.LemonSwitch--disabled {
+        opacity: var(--opacity-disabled);
+    }
 }
 
 .LemonSwitch__button {
@@ -14,9 +18,8 @@
     background: none;
     border: none;
     cursor: pointer;
-    &:disabled {
+    .LemonSwitch--disabled & {
         cursor: not-allowed;
-        opacity: var(--opacity-disabled);
     }
 }
 
@@ -62,5 +65,12 @@
     }
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: translateX(1rem) scale(1.1);
+    }
+}
+
+.LemonSwitch__label {
+    cursor: pointer;
+    .LemonSwitch--disabled & {
+        cursor: not-allowed;
     }
 }
