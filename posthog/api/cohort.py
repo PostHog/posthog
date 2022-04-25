@@ -63,7 +63,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "groups",
-            "filters",
             "deleted",
             "is_calculating",
             "created_by",
