@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
@@ -18,7 +19,6 @@ import {
     PropertyUpdateOperation,
     SessionRecordingEvent,
     Team,
-    TeamId,
     TimestampFormat,
 } from '../../types'
 import { Client } from '../../utils/celery/client'
@@ -648,11 +648,15 @@ export class EventsProcessor {
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
         if (this.kafkaProducer) {
+            const partitionKeyHash = crypto.createHash('sha256')
+            partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+            const partitionKey = partitionKeyHash.digest('hex')
+
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_BUFFER,
                 messages: [
                     {
-                        key: bufferEvent.eventUuid,
+                        key: partitionKey,
                         value: Buffer.from(JSON.stringify(bufferEvent)),
                     },
                 ],
