@@ -12,9 +12,9 @@ import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/compon
 import { humanFriendlyDuration, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
-import { getSeriesColor } from './funnelUtils'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { getSeriesColor } from 'lib/colors'
 
 function StepBarLabels(): JSX.Element {
     return (

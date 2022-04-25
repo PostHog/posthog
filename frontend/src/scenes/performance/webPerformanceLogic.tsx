@@ -61,7 +61,7 @@ function decompress(
     }
 }
 
-const colors = getChartColors('green')
+const colors = getChartColors()
 function colorForEntry(entryType: string): string {
     switch (entryType) {
         case 'domComplete':

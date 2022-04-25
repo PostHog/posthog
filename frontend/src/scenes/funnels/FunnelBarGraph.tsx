@@ -16,7 +16,6 @@ import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
     getReferenceStep,
-    getSeriesColor,
     getSeriesPositionName,
     humanizeOrder,
     humanizeStepCount,
@@ -31,6 +30,7 @@ import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { FunnelBarChart } from './FunnelBarChart'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
+import { getSeriesColor } from 'lib/colors'
 
 interface BarProps {
     percentage: number

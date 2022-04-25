@@ -29,9 +29,8 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
-import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getChartColors } from 'lib/colors'
+import { getChartColors, getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
@@ -789,7 +788,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                               InsightType.FUNNELS
                                                                                           ) + 1
                                                                                       ) // baseline takes 0th index
-                                                                                    : getChartColors('white')[
+                                                                                    : getChartColors()[
                                                                                           getIndexForVariant(
                                                                                               variant.key,
                                                                                               InsightType.TRENDS
@@ -1060,7 +1059,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                       getIndexForVariant(variant, InsightType.FUNNELS) +
                                                                           1
                                                                   ) // baseline takes 0th index
-                                                                : getChartColors('white')[
+                                                                : getChartColors()[
                                                                       getIndexForVariant(variant, InsightType.TRENDS)
                                                                   ]
                                                         }

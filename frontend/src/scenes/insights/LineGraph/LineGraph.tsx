@@ -205,7 +205,7 @@ export function LineGraph_({
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors('white', _datasets.length, isCompare)
+        const colorList = getChartColors(_datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
@@ -688,7 +688,6 @@ export function LineGraph_({
                         onClose={() => {
                             setAnnotationsFocused(false)
                         }}
-                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />
@@ -723,7 +722,6 @@ export function LineGraph_({
                         left={(focused ? holdLeft : left) - 12.5}
                         top={topExtent}
                         label="Add note"
-                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />

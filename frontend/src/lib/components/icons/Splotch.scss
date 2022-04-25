@@ -7,19 +7,19 @@
         height: 1rem;
         border-radius: var(--radius);
         &.blue {
-            background: var(--blue);
+            background: var(--data-blue);
         }
         &.purple {
-            background: var(--purple);
+            background: var(--data-purple);
         }
         &.green {
-            background: var(--green);
+            background: var(--data-green);
         }
         &.black {
             background: var(--text-default);
         }
         &.white {
-            background: #fff;
+            background: var(--bg-light);
             border: 1px solid var(--border);
         }
     }

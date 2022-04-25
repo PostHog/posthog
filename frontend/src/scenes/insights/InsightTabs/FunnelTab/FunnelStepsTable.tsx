@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { formatDisplayPercentage, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -14,6 +14,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { LemonRow } from 'lib/components/LemonRow'
 import { humanFriendlyDuration } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { getSeriesColor } from 'lib/colors'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

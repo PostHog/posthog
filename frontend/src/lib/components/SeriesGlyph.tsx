@@ -25,7 +25,7 @@ interface SeriesLetterProps {
 }
 
 export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
-    const colorList = getChartColors('white')
+    const colorList = getChartColors()
     const color = seriesColor || colorList[seriesIndex % colorList.length]
 
     return (

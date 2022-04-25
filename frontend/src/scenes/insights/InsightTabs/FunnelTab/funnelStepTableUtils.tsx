@@ -5,13 +5,14 @@ import {
     FunnelStep,
     FunnelStepWithConversionMetrics,
 } from '~/types'
-import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
 import { BreakdownBarGroupWrapper } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBreakdown'
+import { getSeriesColor } from 'lib/colors'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
     return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, false, fallbackColor)

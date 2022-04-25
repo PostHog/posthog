@@ -25,7 +25,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         // If there are more series than colors, we reuse colors sequentially so all series are colored
-        const rawColorList = getChartColors('white', results.length)
+        const rawColorList = getChartColors(results.length)
         const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
 
         setData([

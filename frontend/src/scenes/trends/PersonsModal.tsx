@@ -111,7 +111,7 @@ export function PersonsModal({
             (!!flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) && // make sure flaggedInsights isn't evaluated as undefined
         showModalActions
 
-    const colorList = getChartColors('white', people?.crossDataset?.length)
+    const colorList = getChartColors(people?.crossDataset?.length)
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
     return (

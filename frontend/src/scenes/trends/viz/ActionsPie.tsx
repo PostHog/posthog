@@ -20,7 +20,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = _data.length > 0 ? _data[0].days : []
-        const rawColorList = getChartColors('white', _data.length)
+        const rawColorList = getChartColors(_data.length)
         const colorList = _data.map(({ id }) => rawColorList[id])
 
         setData([

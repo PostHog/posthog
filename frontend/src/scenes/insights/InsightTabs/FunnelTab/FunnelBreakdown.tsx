@@ -6,7 +6,6 @@ import {
     formatDisplayPercentage,
     getBreakdownStepValues,
     getReferenceStep,
-    getSeriesColor,
     humanizeOrder,
     humanizeStepCount,
 } from 'scenes/funnels/funnelUtils'
@@ -17,6 +16,7 @@ import { Popover } from 'antd'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { MetricRow } from 'scenes/funnels/FunnelBarGraph'
+import { getSeriesColor } from 'lib/colors'
 
 interface BreakdownBarGroupProps {
     currentStep: FunnelStepWithConversionMetrics

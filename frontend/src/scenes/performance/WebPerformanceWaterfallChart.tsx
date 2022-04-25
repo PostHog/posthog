@@ -37,7 +37,7 @@ const toPositionStyle = (
 
     return { right, blockSides }
 }
-const colors = getChartColors('green')
+const colors = getChartColors()
 
 const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     const title = typeof resourceTiming.item == 'string' ? resourceTiming.item : resourceTiming.item.pathname

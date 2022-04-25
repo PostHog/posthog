@@ -43,7 +43,7 @@ export function InsightLegend(): JSX.Element {
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
-    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
+    const colorList = getChartColors(indexedResults.length, !!filters.compare)
 
     return (
         <div className="insight-legend-menu">

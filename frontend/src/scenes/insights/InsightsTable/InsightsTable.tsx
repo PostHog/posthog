@@ -82,7 +82,7 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
+    const colorList = getChartColors(indexedResults.length, !!filters.compare)
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     const handleEditClick = (item: IndexedTrendResult): void => {
