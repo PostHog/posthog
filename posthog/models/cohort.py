@@ -98,6 +98,13 @@ class Cohort(models.Model):
 
     @cached_property
     def properties(self):
+        """
+        Kinds of errors I've seen so far:
+        - negation for the case when count=0 and operator=lte or eq
+        - Wherever we freezetime, things don't work anymore because that doesn't trickle down to clickhouse, and our new CH queries use now()
+        - cohorts within cohorts
+        - Cohorts with start_date / end_date. This isn't supported in new version really, but also, on metabase, no cohorts have this. So will deprecate this fully now.
+        """
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -113,7 +120,9 @@ class Cohort(models.Model):
                                 Property(
                                     key=group.get("action_id"),
                                     type="behavioural",
-                                    value="performed_event_multiple",
+                                    value="performed_event_multiple"
+                                    if group.get("count") is not None
+                                    else "performed_event",
                                     event_type="actions",
                                     time_interval="day",
                                     time_value=group.get("days"),
@@ -122,6 +131,7 @@ class Cohort(models.Model):
                                 ),
                             ],
                         )
+                        # TODO: support negation for the case when count=0 and operator=lte or eq
                     )
                 elif group.get("event_id"):
                     property_groups.append(
@@ -131,7 +141,9 @@ class Cohort(models.Model):
                                 Property(
                                     key=group.get("event_id"),
                                     type="behavioural",
-                                    value="performed_event_multiple",
+                                    value="performed_event_multiple"
+                                    if group.get("count") is not None
+                                    else "performed_event",
                                     event_type="events",
                                     time_interval="day",
                                     time_value=group.get("days"),

@@ -1,18 +1,3 @@
-# name: TestCohort.test_cohortpeople_action_count
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
 # name: TestCohort.test_cohortpeople_action_count.1
   '
   
