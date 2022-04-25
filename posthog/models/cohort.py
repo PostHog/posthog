@@ -12,7 +12,6 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import sane_repr
 
@@ -96,14 +95,14 @@ class Cohort(models.Model):
     # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
-    @cached_property
-    def properties(self) -> PropertyGroup:
+    @property
+    def properties(self):
         """
         Kinds of errors I've seen so far:
-        - negation for the case when count=0 and operator=lte or eq
-        - Wherever we freezetime, things don't work anymore because that doesn't trickle down to clickhouse, and our new CH queries use now()
-        - cohorts within cohorts
-        - Cohorts with start_date / end_date. This isn't supported in new version really, but also, on metabase, no cohorts have this. So will deprecate this fully now.
+        - [X] negation for the case when count=0 and operator=lte or eq
+        - [ ] Wherever we freezetime, things don't work anymore because that doesn't trickle down to clickhouse, and our new CH queries use now()
+        - [X] cohorts within cohorts
+        - [ ] Cohorts with start_date / end_date. This isn't supported in new version really, but also, on metabase, no cohorts have this. So will deprecate this fully now.
         """
         # convert deprecated groups to properties
         if self.groups:
@@ -122,18 +121,16 @@ class Cohort(models.Model):
                                 Property(
                                     key=group.get("action_id"),
                                     type="behavioural",
-                                    value="performed_event_multiple"
-                                    if group.get("count") is not None
-                                    else "performed_event",
+                                    value="performed_event_multiple" if group.get("count") else "performed_event",
                                     event_type="actions",
                                     time_interval="day",
                                     time_value=group.get("days"),
                                     operator=group.get("count_operator"),
                                     operator_value=group.get("count"),
+                                    negation=group.get("count") == 0 and group.get("count_operator") in ["lte", "eq"],
                                 ),
                             ],
                         )
-                        # TODO: support negation for the case when count=0 and operator=lte or eq
                     )
                 elif group.get("event_id"):
                     property_groups.append(
@@ -143,14 +140,13 @@ class Cohort(models.Model):
                                 Property(
                                     key=group.get("event_id"),
                                     type="behavioural",
-                                    value="performed_event_multiple"
-                                    if group.get("count") is not None
-                                    else "performed_event",
+                                    value="performed_event_multiple" if group.get("count") else "performed_event",
                                     event_type="events",
                                     time_interval="day",
                                     time_value=group.get("days"),
                                     operator=group.get("count_operator"),
                                     operator_value=group.get("count"),
+                                    negation=group.get("count") == 0 and group.get("count_operator") in ["lte", "eq"],
                                 ),
                             ],
                         )

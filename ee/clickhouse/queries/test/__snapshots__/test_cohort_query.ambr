@@ -6,14 +6,14 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 2 day
                     AND timestamp < now()
-                    AND event = '$pageview') AS performed_event_condition_level_level_level_0,
+                    AND event = '$pageview') > 0 AS performed_event_condition_level_level_level_0,
             countIf(timestamp > now() - INTERVAL 2 week
                     AND timestamp < now()
-                    AND event = '$pageview') AS performed_event_condition_level_level_level_1,
-            if(minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                  AND event = '$autocapture'))) >= now() - INTERVAL 2 week
-               AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                      AND event = '$autocapture'))) < now(), 1, 0) as first_time_condition_level_level_level_0
+                    AND event = '$pageview') > 0 AS performed_event_condition_level_level_level_1,
+            minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
+                               AND event = '$autocapture'))) >= now() - INTERVAL 2 week
+     AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
+                            AND event = '$autocapture'))) < now() as first_time_condition_level_level_level_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -36,9 +36,9 @@
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_level_level_level_0 > 0
-           OR performed_event_condition_level_level_level_1 > 0)
-          AND (first_time_condition_level_level_level_0 = 1)))
+    AND (((performed_event_condition_level_level_level_0
+           OR performed_event_condition_level_level_level_1)
+          AND (first_time_condition_level_level_level_0)))
   '
 ---
 # name: TestCohortQuery.test_person_materialized
@@ -86,14 +86,14 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 2 day
                     AND timestamp < now()
-                    AND event = '$pageview') AS performed_event_condition_level_level_level_0,
+                    AND event = '$pageview') > 0 AS performed_event_condition_level_level_level_0,
             countIf(timestamp > now() - INTERVAL 2 week
                     AND timestamp < now()
-                    AND event = '$pageview') AS performed_event_condition_level_level_level_1,
-            if(minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                  AND event = '$autocapture'))) >= now() - INTERVAL 2 week
-               AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                      AND event = '$autocapture'))) < now(), 1, 0) as first_time_condition_level_level_level_0
+                    AND event = '$pageview') > 0 AS performed_event_condition_level_level_level_1,
+            minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
+                               AND event = '$autocapture'))) >= now() - INTERVAL 2 week
+     AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
+                            AND event = '$autocapture'))) < now() as first_time_condition_level_level_level_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -117,10 +117,10 @@
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_level_level_level_0 > 0
-           OR performed_event_condition_level_level_level_1 > 0
+    AND (((performed_event_condition_level_level_level_0
+           OR performed_event_condition_level_level_level_1
            OR has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '')))
-          AND (first_time_condition_level_level_level_0 = 1)))
+          AND (first_time_condition_level_level_level_0)))
   '
 ---
 # name: TestCohortQuery.test_person_props_only

@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from django.utils import timezone
-from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.event import create_event
@@ -99,14 +98,22 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         action = _create_action(team=self.team, name="$pageview")
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_id",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=1),
         )
 
         _create_event(
-            event="$not_pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"},
+            event="$not_pageview",
+            team=self.team,
+            distinct_id="some_other_id",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=2),
         )
 
-        cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk}], name="cohort1",)
+        cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
         query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
@@ -408,50 +415,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
-    def test_cohortpeople_timestamp(self):
-        action = _create_action(team=self.team, name="$pageview")
-        p1 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["1"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
-
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="1",
-            properties={"attr": "some_val"},
-            timestamp=datetime(2020, 1, 9, 12, 0, 1),
-        )
-
-        p2 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["2"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
-
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="2",
-            properties={"attr": "some_val"},
-            timestamp=datetime(2020, 1, 7, 12, 0, 1),
-        )
-
-        # TODO: Do we support this still? Metabase suggests no such cohorts exist
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"action_id": action.pk, "start_date": datetime(2020, 1, 8, 12, 0, 1)}],
-            name="cohort1",
-        )
-        with freeze_time("2020-01-10"):
-            cohort1.calculate_people_ch(pending_version=0)
-
-        results = sync_execute(
-            "SELECT person_id FROM cohortpeople where team_id = %(team_id)s", {"team_id": self.team.pk}
-        )
-        self.assertEqual(len(results), 1)
-
     def _setup_actions_with_different_counts(self):
         action = _create_action(team=self.team, name="$pageview")
         p1 = Person.objects.create(
@@ -679,9 +642,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], p1.uuid)
 
-        cohort1.groups = [{"properties": {"$some_prop": "another", "$another_prop": "another"}}]
+        cohort1.groups = [
+            {
+                "properties": [
+                    {"key": "$some_prop", "value": "another", "type": "person"},
+                    {"key": "$another_prop", "value": "another", "type": "person"},
+                ]
+            }
+        ]
         cohort1.save()
-        cohort1.calculate_people_ch(pending_version=0)
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",

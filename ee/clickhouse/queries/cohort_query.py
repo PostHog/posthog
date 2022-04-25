@@ -223,7 +223,7 @@ class CohortQuery(EnterpriseEventQuery):
         #
         # Get the subquery for the cohort query.
         #
-        event_param = f"events_{self._cohort_pk}"
+        event_param_name = f"{self._cohort_pk}_event_ids"
 
         query, params = "", {}
         if self._should_join_behavioral_query:
@@ -237,12 +237,12 @@ class CohortQuery(EnterpriseEventQuery):
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             WHERE team_id = %(team_id)s
-            AND event IN %({event_param})s
+            AND event IN %({event_param_name})s
             {date_condition}
             GROUP BY person_id
             """
 
-            query, params = (query, {"team_id": self._team_id, event_param: self._events, **date_params,})
+            query, params = (query, {"team_id": self._team_id, event_param_name: self._events, **date_params,})
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
