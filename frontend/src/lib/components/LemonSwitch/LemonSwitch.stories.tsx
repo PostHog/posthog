@@ -7,11 +7,6 @@ export default {
     title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
     argTypes: {
-        loading: {
-            control: {
-                type: 'boolean',
-            },
-        },
         label: {
             defaultValue: 'Switch this!',
         },

@@ -50,7 +50,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/WorldMap'
-import { AlertMessage } from '../InfoMessage/AlertMessage'
+import { AlertMessage } from '../AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]

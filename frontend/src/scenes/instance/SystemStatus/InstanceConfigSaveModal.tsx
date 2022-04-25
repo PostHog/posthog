@@ -1,6 +1,6 @@
 import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/components/InfoMessage/AlertMessage'
+import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import React from 'react'
 import { RenderMetricValue } from './RenderMetricValue'

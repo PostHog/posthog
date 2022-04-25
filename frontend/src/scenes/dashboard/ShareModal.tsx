@@ -16,8 +16,8 @@ import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
     [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
@@ -100,11 +100,11 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                 <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING} style={{ marginTop: '0.75rem' }}>
                     <section>
                         {(!canEditDashboard || !canRestrictDashboard) && (
-                            <InfoMessage>
+                            <AlertMessage type="info">
                                 {canEditDashboard
                                     ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
                                     : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                            </InfoMessage>
+                            </AlertMessage>
                         )}
                         <LemonSelect
                             value={dashboard.effective_restriction_level}
