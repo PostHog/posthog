@@ -24,6 +24,7 @@ export class KafkaQueue implements Queue {
     private wasConsumerRan: boolean
     private workerMethods: WorkerMethods
     private pluginServerMode: PluginServerMode
+    private sleepTimeout: NodeJS.Timeout | null
 
     constructor(
         pluginsServer: Hub,
@@ -39,6 +40,7 @@ export class KafkaQueue implements Queue {
         )
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
+        this.sleepTimeout = null
     }
 
     private async eachMessageIngestion(message: KafkaMessage): Promise<void> {
@@ -93,16 +95,18 @@ export class KafkaQueue implements Queue {
                 consumerSleep = Math.max(consumerSleep, delayUntilTimeToProcess)
             }
         }
-
         await Promise.all(promises)
 
         // if consumerSleep > 0 it means we didn't process at least one message
         if (consumerSleep > 0) {
             // pause the consumer for this partition until we can process all unprocessed messages from this batch
-            await this.pause(batch.topic, batch.partition)
-            setTimeout(() => {
+            this.sleepTimeout = setTimeout(() => {
+                if (this.sleepTimeout) {
+                    clearTimeout(this.sleepTimeout)
+                }
                 this.resume(batch.topic, batch.partition)
             }, consumerSleep)
+            await this.pause(batch.topic, batch.partition)
 
             // we throw an error to prevent the non-processed message offsets from being committed
             // from the kafkajs docs:
