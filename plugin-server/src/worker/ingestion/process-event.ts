@@ -561,11 +561,11 @@ export class EventsProcessor {
         return {
             eventUuid,
             event,
-            teamId,
             distinctId,
             properties,
             timestamp,
             elementsList,
+            teamId: team.id,
         }
     }
 
