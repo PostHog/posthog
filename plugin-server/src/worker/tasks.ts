@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, Team } from '../types'
-import { ingestEvent } from './ingestion/ingest-event'
+import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
+import { ingestBufferEvent, ingestEvent } from './ingestion/ingest-event'
 import { runHandleAlert, runOnAction, runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
