@@ -772,7 +772,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
-
     @snapshot_clickhouse_queries
     def test_query_with_multiple_new_style_cohorts(self):
 
@@ -833,27 +832,30 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2 = Cohort.objects.create(
             team=self.team,
-            filters={'properties':{
-                "type": "AND",
-                "values": [
-                    {
-                        "key": action1.pk,
-                        "event_type": "actions",
-                        "time_value": 2,
-                        "time_interval": "week",
-                        "value": "performed_event_first_time",
-                        "type": "behavioural",
-                    },
-                    {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
-                ],
-            }},
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": action1.pk,
+                            "event_type": "actions",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioural",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
+                    ],
+                }
+            },
             name="cohort2",
         )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
-            filters={'properties': {
-                "type": "AND",
+            filters={
+                "properties": {
+                    "type": "AND",
                     "values": [
                         {
                             "type": "OR",
@@ -877,28 +879,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                                 {"key": "name", "value": "special", "type": "person"},  # this is NOT pushed down
                             ],
                         },
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "id",
-                                    "value": cohort2.pk,
-                                    "type": "cohort",
-                                },
-                            ],
-                        },
+                        {"type": "AND", "values": [{"key": "id", "value": cohort2.pk, "type": "cohort",},],},
                     ],
                 },
             },
             name="cohort1",
         )
 
-        # with self.settings(SHELL_PLUS_PRINT_SQL=True):
         cohort1.calculate_people_ch(pending_version=0)
 
         result = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )
-        print(result)
-
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])

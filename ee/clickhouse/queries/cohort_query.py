@@ -223,6 +223,7 @@ class CohortQuery(EnterpriseEventQuery):
         #
         # Get the subquery for the cohort query.
         #
+        event_param = f"events_{self._cohort_pk}"
 
         query, params = "", {}
         if self._should_join_behavioral_query:
@@ -236,12 +237,12 @@ class CohortQuery(EnterpriseEventQuery):
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             WHERE team_id = %(team_id)s
-            AND event IN %(events)s
+            AND event IN %({event_param})s
             {date_condition}
             GROUP BY person_id
             """
 
-            query, params = (query, {"team_id": self._team_id, "events": self._events, **date_params,})
+            query, params = (query, {"team_id": self._team_id, event_param: self._events, **date_params,})
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
@@ -259,10 +260,11 @@ class CohortQuery(EnterpriseEventQuery):
         # TODO: handle as params
         date_query = ""
         date_params: Dict[str, Any] = {}
+        earliest_time_param = f"earliest_time_{self._cohort_pk}"
 
         if self._earliest_time_for_event_query and self._restrict_event_query_by_time:
-            date_params = {"earliest_time": self._earliest_time_for_event_query[0]}
-            date_query = f"AND timestamp <= now() AND timestamp >= now() - INTERVAL %(earliest_time)s {self._earliest_time_for_event_query[1]}"
+            date_params = {earliest_time_param: self._earliest_time_for_event_query[0]}
+            date_query = f"AND timestamp <= now() AND timestamp >= now() - INTERVAL %({earliest_time_param})s {self._earliest_time_for_event_query[1]}"
 
         return date_query, date_params
 
@@ -282,7 +284,7 @@ class CohortQuery(EnterpriseEventQuery):
                 params = {}
                 conditions = []
                 for idx, p in enumerate(prop.values):
-                    q, q_params = build_conditions(p, f"{prepend}_level", idx)  # type: ignore
+                    q, q_params = build_conditions(p, f"{prepend}_level_{num}", idx)  # type: ignore
                     if q != "":
                         conditions.append(q)
                         params.update(q_params)
@@ -291,7 +293,7 @@ class CohortQuery(EnterpriseEventQuery):
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
-        conditions, params = build_conditions(self._outer_property_groups, prepend="level", num=0)
+        conditions, params = build_conditions(self._outer_property_groups, prepend=f"{self._cohort_pk}_level", num=0)
         return f"AND ({conditions})" if conditions else "", params
 
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -345,9 +347,6 @@ class CohortQuery(EnterpriseEventQuery):
             # we treat it as satisfied for all persons
             return "11 = 11", {}
         else:
-            # TODO: format_filter_query uses the deprecated way of building cohorts
-            # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
-            # This function will only work for old cohorts right now
             person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
             return f"id IN ({person_id_query})", cohort_filter_params
 
