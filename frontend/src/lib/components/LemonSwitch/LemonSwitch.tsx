@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import React, { useState } from 'react'
 import { LemonRow } from '../LemonRow'
+import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
@@ -43,7 +44,6 @@ export function LemonSwitch({
                 'LemonSwitch',
                 checked && 'LemonSwitch--checked',
                 isActive && 'LemonSwitch--active',
-                loading && 'LemonSwitch--loading',
                 alt && 'LemonSwitch--alt'
             )}
             onClick={() => onChange(!checked)}
@@ -55,7 +55,9 @@ export function LemonSwitch({
             data-attr={dataAttr}
         >
             <div className="LemonSwitch__slider" />
-            <div className="LemonSwitch__handle" />
+            <div className="LemonSwitch__handle">
+                {loading && <Spinner size="sm" type={checked ? 'inverse' : 'primary'} traceless />}
+            </div>
         </button>
     )
 

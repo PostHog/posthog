@@ -43,27 +43,6 @@
     background-color: #fff;
     border: 2px solid $border;
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
-    &::after {
-        content: '';
-        transition: border-color 100ms ease;
-        animation: spin 1000ms linear infinite;
-        display: block;
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        border-radius: 0.625rem;
-        border: 2px solid transparent;
-        border-left-color: transparent;
-    }
-    .LemonSwitch--loading &::after {
-        border-left-color: var(--primary);
-    }
-    .LemonSwitch--alt.LemonSwitch--loading &::after {
-        border-left-color: var(--primary-alt);
-    }
-    .LemonSwitch--loading.LemonSwitch--checked &::after {
-        border-left-color: #fff;
-    }
     .LemonSwitch--checked & {
         transform: translateX(1rem);
         background-color: var(--primary);
