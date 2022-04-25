@@ -48,7 +48,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -56,6 +57,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const screens = useBreakpoint()
+
+    useEffect(() => {
+        reportInsightViewedForRecentInsights()
+    }, [insightId])
 
     const isSmallScreen = !screens.xl
 
@@ -131,7 +136,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
@@ -152,36 +157,26 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                                notice={
-                                    !canEditInsight
-                                        ? {
-                                              icon: <IconLock />,
-                                              tooltip:
-                                                  "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                          }
-                                        : undefined
-                                }
                             />
                         )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            (canEditInsight ? (
-                                <ObjectTags
-                                    tags={insight.tags ?? []}
-                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                    saving={tagLoading}
-                                    tagsAvailable={[]}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                />
-                            ) : insight.tags?.length ? (
-                                <ObjectTags
-                                    tags={insight.tags}
-                                    saving={tagLoading}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                    staticOnly
-                                />
-                            ) : null)}
+                        {canEditInsight ? (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        ) : insight.tags?.length ? (
+                            <ObjectTags
+                                tags={insight.tags}
+                                saving={tagLoading}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                                staticOnly
+                            />
+                        ) : null}
                         <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }

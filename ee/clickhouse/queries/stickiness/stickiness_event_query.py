@@ -40,7 +40,7 @@ class StickinessEventsQuery(EnterpriseEventQuery):
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp))) as num_intervals
+                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp, %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}

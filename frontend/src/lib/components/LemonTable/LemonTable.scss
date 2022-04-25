@@ -52,7 +52,7 @@
                 text-align: left;
                 white-space: pre-wrap;
             }
-            &.LemonTable__th--groups {
+            &.LemonTable__row--grouping {
                 --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
             }
             &.LemonTable__loader {

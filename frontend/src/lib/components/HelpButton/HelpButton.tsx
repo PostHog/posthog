@@ -13,7 +13,9 @@ import clsx from 'clsx'
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
-    props: {} as { key?: string },
+    props: {} as {
+        key?: string
+    },
     key: (props: { key?: string }) => props.key || 'global',
     path: (key) => ['lib', 'components', 'HelpButton', key],
     connect: {

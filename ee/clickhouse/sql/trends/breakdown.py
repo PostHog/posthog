@@ -34,11 +34,11 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
 
                 SELECT
                     {interval}(
-                        toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
+                        toDateTime(%(date_to)s, %(timezone)s) - number * %(seconds_in_interval)s
                     ) as day_start
                 FROM numbers({num_intervals})
                 UNION ALL
-                SELECT {interval}(toDateTime(%(date_from)s)) as day_start
+                SELECT {interval}(toDateTime(%(date_from)s, %(timezone)s)) as day_start
             ) as ticks
 
             -- Zero fill for all values for the specified breakdown
@@ -64,7 +64,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
+    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {person_join}
@@ -76,7 +76,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
+    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
     breakdown_value
 FROM (
     SELECT
@@ -103,10 +103,10 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(timestamp) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(timestamp) as timestamp, person_id, {breakdown_value} as breakdown_value
+        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, person_id, {breakdown_value} as breakdown_value
         FROM events e
         INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
         ON e.distinct_id = pdi.distinct_id

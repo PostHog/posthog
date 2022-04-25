@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from unittest.mock import patch
 
 import pytz
 from constance.test import override_config
@@ -981,6 +982,70 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                         [0],
                     ],
                 )
+
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_timezones(self, patch_feature_enabled):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(-1, 1)),
+                    ("person1", self._date(0, 1)),
+                    ("person1", self._date(1, 1)),  # this is the only event in US Pacific on the first day
+                    ("person2", self._date(6, 1)),
+                    ("person2", self._date(6, 9)),
+                ]
+            )
+
+            result = retention().run(
+                RetentionFilter(data={"date_to": self._date(10, hour=6)}, team=self.team), self.team
+            )
+
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            result_pacific = retention().run(
+                RetentionFilter(data={"date_to": self._date(10, hour=6)}, team=self.team), self.team
+            )
+            self.assertEqual(
+                self.pluck(result_pacific, "label"),
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
+            )
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],  #  person 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result_pacific, "values", "count"),
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
 
         def _create_signup_actions(self, user_and_timestamps):
 
