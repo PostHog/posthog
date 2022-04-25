@@ -75,7 +75,6 @@ class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    filters: models.JSONField = models.JSONField(null=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -110,9 +109,11 @@ class Cohort(models.Model):
             property_groups = []
             for group in self.groups:
                 if group.get("properties"):
-                    property_groups.append(Filter(data=group, team=self.team).property_groups)
+                    # Do not try simplifying properties at this stage. We'll let this happen at query time.
+                    property_groups.append(
+                        Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
+                    )
                 elif group.get("action_id"):
-                    # TODO: check with Eric and figure out what these params mean!
                     property_groups.append(
                         PropertyGroup(
                             PropertyOperatorType.AND,
@@ -158,12 +159,6 @@ class Cohort(models.Model):
                     raise ValueError("Cohort group needs properties or action_id or event_id")
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
-
-        if self.filters:
-            properties = Filter(data=self.filters.get("properties"), team=self.team).property_groups
-            if not properties.values:
-                raise ValueError("Cohort has no properties")
-            return properties
 
         raise ValueError("Cohort has no properties")
 
