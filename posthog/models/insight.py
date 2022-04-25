@@ -30,6 +30,7 @@ class Insight(models.Model):
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
+    # stores the filters hash for this insight when displayed in isolation, not on a dashboard
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
@@ -142,6 +143,10 @@ def insight_saving(sender, instance: Insight, **kwargs):
 
     # ensure there's a filters hash
     if instance.filters and instance.filters != {}:
-        filter = get_filter(data=instance.dashboard_filters(dashboard=None), team=instance.team)
+        instance.filters_hash = generate_insight_cache_key(instance, None)
 
-        instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+
+def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
+    dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
+    candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+    return candidate_filters_hash

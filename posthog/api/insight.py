@@ -196,11 +196,21 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
+
+        dashboard = self.context.get("dashboard", None)
+
         if should_refresh(self.context["request"]):
-            dashboard = self.context.get("dashboard", None)
             return update_insight_cache(insight, dashboard)
 
-        result = get_safe_cache(insight.filters_hash)
+        cache_key = insight.filters_hash
+        if dashboard is not None:
+            tile_values = (
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard).values("filters_hash").first()
+            )
+            if tile_values is not None:
+                cache_key = tile_values["filters_hash"]
+
+        result = get_safe_cache(cache_key)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
@@ -224,7 +234,29 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        representation = self._choose_filters_hash(dashboard, instance, representation)
+
+        return representation
+
+    def _choose_filters_hash(self, dashboard, instance, representation):
+        if dashboard is not None:
+            # noinspection PyBroadException
+            try:
+                dashboard_context_filters_hash = DashboardTile.objects.get(
+                    dashboard__id=dashboard.id, insight=instance
+                ).filters_hash
+                representation["filters_hash"] = dashboard_context_filters_hash
+            except Exception as e:
+                logger.error(
+                    "insight_on_dashboard.could_not_load_filters_hash",
+                    insight=instance.id,
+                    dashboard=dashboard.id,
+                    exception=e,
+                )
+
         return representation
 
 
