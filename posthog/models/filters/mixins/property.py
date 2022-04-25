@@ -48,7 +48,10 @@ class PropertyMixin(BaseParamMixin):
         # if grouped properties
         if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
             try:
-                return self._parse_property_group(loaded_props)
+                val = self._parse_property_group(loaded_props)
+                print('parsed prop group: ', val)
+                return val
+                # return self._parse_property_group(loaded_props)
             except ValidationError as e:
                 raise e
             except ValueError as e:

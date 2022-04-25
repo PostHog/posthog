@@ -350,6 +350,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
     """
     'Simplifies' cohort property filters, removing team-specific context from properties.
     """
+    print(cohort.properties)
     from ee.clickhouse.models.cohort import is_precalculated_query
 
     if cohort.is_static:

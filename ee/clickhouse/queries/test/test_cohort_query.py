@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.cohort_query import CohortQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -11,7 +10,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs) -> None:
@@ -818,8 +817,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
 
-    def test_person_materialized(self):
-        materialize("person", "$sample_field")
+    @test_with_materialized_columns(person_properties=["$sample_field"])
+    @snapshot_clickhouse_queries
+    def test_person(self):
 
         # satiesfies all conditions
         p1 = Person.objects.create(

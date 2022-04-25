@@ -97,7 +97,7 @@ class Cohort(models.Model):
     groups: models.JSONField = models.JSONField(default=list)
 
     @cached_property
-    def properties(self):
+    def properties(self) -> PropertyGroup:
         """
         Kinds of errors I've seen so far:
         - negation for the case when count=0 and operator=lte or eq
@@ -162,7 +162,7 @@ class Cohort(models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         if self.filters:
-            properties = Filter(data=self.filters.get("properties"), team=self.team).property_groups
+            properties = Filter(data=self.filters, team=self.team).property_groups
             if not properties.values:
                 raise ValueError("Cohort has no properties")
             return properties

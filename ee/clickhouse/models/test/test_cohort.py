@@ -771,3 +771,134 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+
+    @snapshot_clickhouse_queries
+    def test_query_with_multiple_new_style_cohorts(self):
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+        )
+
+        # satiesfies all conditions
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # doesn't satisfy action
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(weeks=3),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # satisfies special condition (not pushed down person property in OR group)
+        p3 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "special", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={'properties':{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": action1.pk,
+                        "event_type": "actions",
+                        "time_value": 2,
+                        "time_interval": "week",
+                        "value": "performed_event_first_time",
+                        "type": "behavioural",
+                    },
+                    {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
+                ],
+            }},
+            name="cohort2",
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={'properties': {
+                "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "day",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
+                                },
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioural",
+                                },
+                                {"key": "name", "value": "special", "type": "person"},  # this is NOT pushed down
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "id",
+                                    "value": cohort2.pk,
+                                    "type": "cohort",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+            name="cohort1",
+        )
+
+        # with self.settings(SHELL_PLUS_PRINT_SQL=True):
+        cohort1.calculate_people_ch(pending_version=0)
+
+        result = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )
+        print(result)
+
+        self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])

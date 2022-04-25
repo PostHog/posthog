@@ -41,6 +41,43 @@
           AND (first_time_condition_level_level_level_0 = 1)))
   '
 ---
+# name: TestCohortQuery.test_person_materialized
+  '
+  
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT pdi.person_id AS person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview') > 0 AS performed_event_condition_level_level_0
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 1 week
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id,
+               argMax(pmat_$sample_field, _timestamp) as pmat_$sample_field
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND ((performed_event_condition_level_level_0
+          OR has(['test@posthog.com'], "pmat_$sample_field")))
+  '
+---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
   '
   
