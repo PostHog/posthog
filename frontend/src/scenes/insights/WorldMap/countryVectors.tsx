@@ -1,6 +1,9 @@
 import React from 'react'
 
-/** An SVG element for each country on the map. */
+/** A Robinson projection SVG element for each country on the map.
+ *
+ * Adapted from https://commons.wikimedia.org/wiki/File:BlankMap-World.svg (public domain).
+ */
 export const countryVectors: Record<string, JSX.Element> = {
     SD: (
         <path
