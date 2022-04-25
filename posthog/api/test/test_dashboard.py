@@ -104,15 +104,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
+        self._create_insight(
             {
                 "dashboards": [dashboard.pk],
                 "name": "dashboard item",
-                "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error
-            },
+                "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error,
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
         dashboard_item = Insight.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
         self.assertEqual(list(dashboard_item.dashboards.all()), [dashboard])
@@ -226,9 +225,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by one query for each additional insight
+        # then only climbs by two queries for each additional insight
         self.assertTrue(
-            all(j - i == 1 for i, j in zip(query_counts[2:], query_counts[3:])),
+            all(j - i == 2 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts} for queries: \n\n {queries}",
         )
 
@@ -641,6 +640,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
         self.assertEqual(response.status_code, expected_status)
