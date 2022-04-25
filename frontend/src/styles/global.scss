@@ -860,35 +860,6 @@ input::-ms-clear {
     border-color: $border !important;
 }
 
-// Hotkeys
-
-.hotkey {
-    width: 22px;
-    height: 22px;
-    border-radius: $radius;
-    font-weight: bold;
-    margin-left: 6px;
-    background-color: white;
-    color: $primary;
-    text-shadow: none;
-    text-transform: uppercase;
-    border: 1px solid $border_light;
-    margin-bottom: 2px;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.hotkey-plus {
-    display: inline;
-    &::after {
-        content: '+';
-        margin-left: 6px;
-        font-size: 1rem;
-    }
-}
-
 // Main app/body styles
 
 .fullscreen-scroll {
