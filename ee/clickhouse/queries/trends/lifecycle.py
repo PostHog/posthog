@@ -105,7 +105,7 @@ class LifecycleEventQuery(EnterpriseEventQuery):
         return (
             f"""
             SELECT DISTINCT
-                person_id,
+                {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id,
                 dateTrunc(%(interval)s, toDateTime(events.timestamp, %(timezone)s)) AS period,
                 toDateTime(person.created_at, %(timezone)s) AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}

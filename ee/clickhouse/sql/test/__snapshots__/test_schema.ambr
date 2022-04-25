@@ -10,7 +10,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       
   ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
@@ -29,7 +36,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       
   ) ENGINE = 
@@ -195,7 +209,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -342,7 +363,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       
   ) ENGINE = 
@@ -717,7 +745,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -779,7 +814,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       
   , _timestamp DateTime
@@ -997,7 +1039,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR    
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
