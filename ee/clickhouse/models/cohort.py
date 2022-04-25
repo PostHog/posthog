@@ -138,7 +138,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     count_operator = cohort_group.get("count_operator")
 
     date_query, date_params = get_date_query(days, start_time, end_time)
-    entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
+    entity_query, entity_params = get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
     if count is not None:
 
@@ -146,7 +146,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
             count_operator == "eq" or count_operator == "lte"
         ) and count == 0  # = 0 means all people who never performed the event
 
-        count_operator = _get_count_operator(count_operator)
+        count_operator = get_count_operator(count_operator)
         pdi_query = get_team_distinct_ids_query(cohort.team_id)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
@@ -163,7 +163,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
 
 
-def _get_count_operator(count_operator: Optional[str]) -> str:
+def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
     elif count_operator == "lte":
@@ -174,11 +174,11 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
-def _get_entity_query(
+def get_entity_query(
     event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
-        return "event = %(event)s", {"event": event_id}
+        return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
         action_filter_query, action_params = format_action_filter(
