@@ -6,7 +6,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$pageview', 1, 0)) as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -62,7 +62,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$autocapture', 1, 0)) as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -201,7 +201,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$pageview', 1, 0)) as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -257,7 +257,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$autocapture', 1, 0)) as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,

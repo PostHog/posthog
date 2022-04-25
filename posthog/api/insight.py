@@ -333,7 +333,12 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
-            serialized_data["layouts"] = dashboard_tile.layouts
+            layouts = dashboard_tile.layouts
+            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
+            if isinstance(layouts, str):
+                layouts = json.loads(layouts)
+
+            serialized_data["layouts"] = layouts
 
         return Response(serialized_data)
 
