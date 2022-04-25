@@ -110,8 +110,9 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    BILLING_LIMIT: 'billing-limit', // owner: @timgl
     UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
-    HOMEPAGE_LISTS: 'homepage-lists', // owner: @rcmarron
+    HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
@@ -150,8 +151,10 @@ export enum FunnelLayout {
 export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
-export const COHORT_STATIC = 'static'
-export const COHORT_DYNAMIC = 'dynamic'
+export enum CohortTypeEnum {
+    Static = 'static',
+    Dynamic = 'dynamic',
+}
 
 /**
  * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.

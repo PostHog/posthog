@@ -24,7 +24,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, Filter, Insight, Team
+from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
@@ -82,10 +82,10 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     return result
 
 
-def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
-    cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
+def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
+    cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
     result = update_cache_item(cache_key, cache_type, payload)
-    dashboard_item.refresh_from_db()
+    insight.refresh_from_db()
     return result
 
 
@@ -110,26 +110,26 @@ def update_cached_items() -> None:
 
     tasks = []
     items = (
-        Insight.objects.filter(
+        DashboardTile.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
         .exclude(dashboard__deleted=True)
-        .exclude(refreshing=True)
-        .exclude(deleted=True)
-        .exclude(refresh_attempt__gt=2)
-        .exclude(filters={})
-        .order_by(F("last_refresh").asc(nulls_first=True))
+        .exclude(insight__refreshing=True)
+        .exclude(insight__deleted=True)
+        .exclude(insight__refresh_attempt__gt=2)
+        .exclude(insight__filters={})
+        .select_related("insight")
+        .order_by(F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for item in items[0:PARALLEL_INSIGHT_CACHE]:
+    for dashboard_tile in items[0:PARALLEL_INSIGHT_CACHE]:
+        insight = dashboard_tile.insight
         try:
-            cache_key, cache_type, payload = dashboard_item_update_task_params(item)
-            if item.filters_hash != cache_key:
-                item.save()  # force update if the saved key is different from the cache key
+            cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
-            item.refresh_attempt = (item.refresh_attempt or 0) + 1
-            item.save()
+            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
+            insight.save()
             capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))
@@ -138,14 +138,12 @@ def update_cached_items() -> None:
     statsd.gauge("update_cache_queue_depth", items.count())
 
 
-def dashboard_item_update_task_params(
-    item: Insight, dashboard: Optional[Dashboard] = None
-) -> Tuple[str, CacheType, Dict]:
-    filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
-    cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] = None) -> Tuple[str, CacheType, Dict]:
+    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
+    cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), insight.team_id))
 
     cache_type = get_cache_type(filter)
-    payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+    payload = {"filter": filter.toJSON(), "team_id": insight.team_id}
 
     return cache_key, cache_type, payload
 

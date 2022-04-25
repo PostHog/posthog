@@ -35,7 +35,7 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState(false as string | false)
+    const [searchTerm, setSearchTerm] = useState<string | false>(false)
 
     const columns: LemonTableColumns<CohortType> = [
         {

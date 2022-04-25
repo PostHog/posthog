@@ -6,8 +6,6 @@ import {
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
-    COHORT_DYNAMIC,
-    COHORT_STATIC,
     BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
@@ -566,10 +564,10 @@ export interface CohortGroupType {
     count_operator?: string
     properties?: AnyPropertyFilter[]
     matchType: MatchType
+    name?: string
 }
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
-export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
@@ -682,6 +680,17 @@ export interface BillingType {
     subscription_url: string
     current_bill_amount: number | null
     should_display_current_bill: boolean
+    billing_limit: number | null
+    billing_limit_exceeded: boolean | null
+    tiers: BillingTierType[] | null
+}
+
+export interface BillingTierType {
+    name: string
+    price_per_event: number
+    number_of_events: number
+    subtotal: number
+    running_total: number
 }
 
 export interface PlanInterface {
@@ -726,7 +735,7 @@ export interface InsightModel {
     last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
-    dashboard: number | null
+    dashboards: number[] | null
     result: any | null
     updated_at: string
     tags?: string[]
