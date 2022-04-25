@@ -130,6 +130,9 @@ export class EventsProcessor {
             // TODO: we should just handle all person's related changes together not here and in capture separately
             const parsedTs = this.handleTimestamp(data, now, sentAt)
             const ts = parsedTs.isValid ? parsedTs : DateTime.now()
+            if (!parsedTs.isValid) {
+                this.pluginsServer.statsd?.increment('process_event_invalid_timestamp', { teamId: String(teamId) })
+            }
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
