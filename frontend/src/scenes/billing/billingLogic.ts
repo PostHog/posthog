@@ -34,8 +34,7 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     actions.registerInstrumentationProps()
                     return response as BillingType
                 },
-                setBillingLimit: async (billing: BillingType, breakpoint) => {
-                    await breakpoint(1000)
+                setBillingLimit: async (billing: BillingType) => {
                     const res = await api.update('api/billing/', billing)
                     lemonToast.success(`Billing limit set to $${billing.billing_limit} usd/month`)
                     return res as BillingType
