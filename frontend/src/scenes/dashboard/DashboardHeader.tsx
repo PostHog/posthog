@@ -224,7 +224,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
                         )}
-                        {dashboard?.tags && hasAvailableFeature(AvailableFeature.TAGGING) && (
+                        {dashboard?.tags && (
                             <>
                                 {canEditDashboard ? (
                                     <ObjectTags

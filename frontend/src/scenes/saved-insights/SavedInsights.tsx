@@ -91,6 +91,14 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
+export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
+    const insightMetadata = INSIGHT_TYPES_METADATA[insight?.filters?.insight || InsightType.TRENDS]
+    if (insightMetadata && insightMetadata.icon) {
+        return <insightMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
+    }
+    return null
+}
+
 function NewInsightButton(): JSX.Element {
     return (
         <LemonButtonWithSideAction
@@ -189,10 +197,7 @@ export function SavedInsights(): JSX.Element {
             className: 'icon-column',
             width: 32,
             render: function renderType(_, insight) {
-                const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
-                if (typeMetadata && typeMetadata.icon) {
-                    return <typeMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
-                }
+                return <InsightIcon insight={insight} />
             },
         },
         {

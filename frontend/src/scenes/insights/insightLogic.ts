@@ -86,6 +86,7 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -190,8 +191,8 @@ export const insightLogic = kea<insightLogicType>({
                     callback?.(updatedInsight)
                     dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    if (updatedInsight.dashboard) {
-                        dashboardLogic.findMounted({ id: updatedInsight.dashboard })?.actions.loadDashboardItems()
+                    for (const id of updatedInsight.dashboards ?? []) {
+                        dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
                     }
                     return updatedInsight
                 },
@@ -457,7 +458,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        /** filters for data that's being displayed, might not be same as savedInsight.filters or filters */
+        /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         derivedName: [
@@ -562,6 +563,19 @@ export const insightLogic = kea<insightLogicType>({
                 actions.loadResults()
             }
         },
+        reportInsightViewedForRecentInsights: async () => {
+            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
+
+            // TODO: This should be merged into the same action as `reportInsightViewed`, but we can't right now
+            // because there are some issues with `reportInsightViewed` not being called when the
+            // insightLogic is already loaded.
+            // For example, if the user navigates to an insight after viewing it on a dashboard, `reportInsightViewed`
+            // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
+            // right now
+            if (values.insight.id) {
+                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+            }
+        },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
             if (!values.isViewedOnDashboard) {
@@ -583,9 +597,6 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     changedKeysObj
                 )
-
-                // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
-                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
 
                 actions.setNotFirstLoad()
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
@@ -669,7 +680,7 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
+            const { name, description, favorited, filters, deleted, color, dashboards, tags } = values.insight
             let savedInsight: InsightModel
 
             try {
@@ -693,9 +704,8 @@ export const insightLogic = kea<insightLogicType>({
                     filters,
                     deleted,
                     saved: true,
-                    layouts,
                     color,
-                    dashboard,
+                    dashboards,
                     tags,
                 }
 
@@ -715,7 +725,7 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            lemonToast.success(`Insight saved${dashboard ? ' & added to dashboard' : ''}`, {
+            lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -727,9 +737,9 @@ export const insightLogic = kea<insightLogicType>({
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
                 mountedInsightSceneLogic?.actions.syncInsightChanged(false)
-                if (!insightNumericId && dashboard) {
+                if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
-                    router.actions.push(urls.dashboard(dashboard, savedInsight.short_id))
+                    router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
                     mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {

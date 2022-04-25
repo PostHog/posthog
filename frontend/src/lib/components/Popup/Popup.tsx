@@ -25,6 +25,7 @@ export interface PopupProps {
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
     className?: string
+    modifier?: Record<string, any>
 }
 
 /** 0 means no parent. */
@@ -44,6 +45,7 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
+    modifier = {},
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -80,6 +82,7 @@ export function Popup({
                       requires: ['computeStyles'],
                   }
                 : {},
+            modifier,
         ],
         []
     )

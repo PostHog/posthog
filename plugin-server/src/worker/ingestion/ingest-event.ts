@@ -83,8 +83,6 @@ async function handleActionMatches(
     actionMatches = await hub.actionMatcher.match(event, person, elements)
     await hub.hookCannon.findAndFireHooks(event, person, siteUrl, actionMatches)
 
-    // eventId is undefined for CH deployments
-    // CH deployments calculate actions on the fly
     if (actionMatches.length && eventId !== undefined) {
         await hub.db.registerActionMatch(eventId, actionMatches)
     }
@@ -92,7 +90,10 @@ async function handleActionMatches(
     return actionMatches
 }
 
-// TODO: Handle new persons?
+// context: https://github.com/PostHog/posthog/issues/9182
+// TL;DR: events from a recently created non-anonymous person are sent to a buffer
+// because their person_id might change. We merge based on the person_id of the anonymous user
+// so ingestion is delayed for those events to increase our chances of getting person_id correctly
 function shouldSendEventToBuffer(hub: Hub, event: PreIngestionEvent, person?: Person) {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
