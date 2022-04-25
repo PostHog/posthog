@@ -19,6 +19,7 @@ export function FrameworkPanel(): JSX.Element {
             onBack={() => {
                 setPlatform(null)
             }}
+            bodyStyle={{ paddingTop: 0 }}
         >
             {onboarding1 ? (
                 <div style={{ maxWidth: 400 }}>
@@ -43,7 +44,7 @@ export function FrameworkPanel(): JSX.Element {
                             </LemonButton>
                         ))}
                         <Row justify="center" className="mt">
-                            <p className="text-center" style={{ fontSize: 16 }}>
+                            <p className="text-center mb-0" style={{ fontSize: 16 }}>
                                 Don't see your framework here?{' '}
                                 <a onClick={() => setFramework(API)}>
                                     <b>Continue with our HTTP API</b>
