@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React, { useState } from 'react'
-import { LemonRow } from '../LemonRow'
+import { LemonRow, LemonRowProps } from '../LemonRow'
 import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
@@ -15,7 +15,7 @@ export interface LemonSwitchProps {
     /** Default switches are inline. Primary switches _with a label_ are wrapped in an outlined block. */
     type?: 'default' | 'primary'
     style?: React.CSSProperties
-    rowStyle?: React.CSSProperties
+    rowProps?: Omit<LemonRowProps<'div'>, 'className' | 'outlined'>
     disabled?: boolean
     'data-attr'?: string
 }
@@ -29,46 +29,49 @@ export function LemonSwitch({
     alt,
     type = 'default',
     style,
-    rowStyle,
+    rowProps,
     disabled,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
 
-    const button = (
-        <button
-            id={id}
-            type="button"
-            role="switch"
+    return (
+        <LemonRow
+            outlined={type === 'primary'}
             className={clsx(
                 'LemonSwitch',
                 checked && 'LemonSwitch--checked',
                 isActive && 'LemonSwitch--active',
                 alt && 'LemonSwitch--alt'
             )}
-            onClick={() => onChange(!checked)}
-            onMouseDown={() => setIsActive(true)}
-            onMouseUp={() => setIsActive(false)}
-            onMouseOut={() => setIsActive(false)}
-            style={style}
-            disabled={disabled}
-            data-attr={dataAttr}
+            sideIcon={
+                <button
+                    id={id}
+                    className="LemonSwitch__button"
+                    type="button"
+                    role="switch"
+                    onClick={() => onChange(!checked)}
+                    onMouseDown={() => setIsActive(true)}
+                    onMouseUp={() => setIsActive(false)}
+                    onMouseOut={() => setIsActive(false)}
+                    style={style}
+                    disabled={disabled}
+                    data-attr={dataAttr}
+                >
+                    <div className="LemonSwitch__slider" />
+                    <div className="LemonSwitch__handle">
+                        {loading && <Spinner size="sm" type={checked ? 'inverse' : 'primary'} traceless />}
+                    </div>
+                </button>
+            }
+            relaxedIconWidth
+            {...rowProps}
         >
-            <div className="LemonSwitch__slider" />
-            <div className="LemonSwitch__handle">
-                {loading && <Spinner size="sm" type={checked ? 'inverse' : 'primary'} traceless />}
-            </div>
-        </button>
-    )
-
-    return label ? (
-        <LemonRow outlined={type === 'primary'} style={rowStyle}>
-            <label className="LemonSwitch__label" htmlFor={id}>
-                {label}
-            </label>
-            {button}
+            {label && (
+                <label className="LemonSwitch__label" htmlFor={id}>
+                    {label}
+                </label>
+            )}
         </LemonRow>
-    ) : (
-        button
     )
 }

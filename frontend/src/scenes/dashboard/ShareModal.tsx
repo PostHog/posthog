@@ -58,7 +58,7 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
                     }}
                     type="primary"
                     disabled={!canEditDashboard}
-                    rowStyle={{ height: '3rem', fontWeight: 600 }}
+                    rowProps={{ style: { width: '100%', height: '3rem', fontWeight: 600 } }}
                 />
                 {dashboard.is_shared ? (
                     <>

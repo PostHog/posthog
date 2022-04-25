@@ -129,7 +129,7 @@
     font-size: 1.5rem;
     color: var(--muted-alt);
 
-    &:not(:first-child):last-child {
+    .LemonRow--full-width &:not(:first-child):last-child {
         margin-right: -0.5rem;
     }
 
