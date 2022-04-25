@@ -12,12 +12,14 @@ export function CardContainer({
     children,
     nextButton,
     onSubmit,
+    bodyStyle,
 }: {
     index: number
     onBack?: () => void
     children: React.ReactNode
     nextButton?: boolean
     onSubmit?: () => void
+    bodyStyle?: React.CSSProperties
 }): JSX.Element {
     const { onboarding1 } = useValues(ingestionLogic)
 
@@ -41,10 +43,11 @@ export function CardContainer({
                         <PanelHeader index={index} />
                     </Row>
                 }
+                bodyStyle={{ ...bodyStyle }}
                 style={{
                     position: 'relative',
-                    width: '65vw',
-                    maxHeight: '70vh',
+                    maxWidth: '65vw',
+                    maxHeight: '80vh',
                     overflow: 'auto',
                     border: '1px solid var(--border)',
                 }}

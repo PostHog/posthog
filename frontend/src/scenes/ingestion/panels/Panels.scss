@@ -13,7 +13,8 @@
 }
 
 .welcome-panel,
-.panel-footer {
+.panel-footer,
+.framework-panel {
     .ingestion-btn {
         margin-bottom: $default_spacing / 2;
         background-color: black;
@@ -27,12 +28,6 @@
             border: 2px solid black;
         }
     }
-}
-
-.visit-support {
-    border-top: 2px dashed $border;
-    margin-top: $default_spacing * 2;
-    padding-top: $default_spacing * 2;
 }
 
 .bookmarklet-warning {

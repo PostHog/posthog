@@ -6,8 +6,8 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { APP, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
 import { PlatformType } from 'scenes/ingestion/types'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Link } from 'lib/components/Link'
 import './Panels.scss'
+import { PanelSupport } from './PanelComponents'
 
 export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)
@@ -55,11 +55,9 @@ export function PlatformPanel(): JSX.Element {
                                 {BOOKMARKLET}
                             </LemonButton>
                         </Col>
-                        <Row justify="center" className="visit-support">
-                            <p style={{ marginBottom: 0 }}>
-                                Have questions? <Link>Visit support</Link>
-                            </p>
-                        </Row>
+                        <Col className="panel-footer">
+                            <PanelSupport />
+                        </Col>
                     </div>
                 </div>
             ) : (
