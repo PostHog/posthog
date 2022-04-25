@@ -578,7 +578,6 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        // TODO: don't parse back and forth with json
         const personInfo = await this.db.getPersonData(teamId, distinctId)
 
         const eventPayload: IEvent = {
@@ -603,7 +602,7 @@ export class EventsProcessor {
                       JSON.stringify({
                           ...eventPayload,
                           person_id: personInfo?.uuid,
-                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
+                          person_properties: personInfo?.propertiesRaw,
                       })
                   )
 

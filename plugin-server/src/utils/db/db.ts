@@ -128,8 +128,8 @@ export interface CreatePersonalApiKeyPayload {
 
 type PersonData = {
     uuid: string
-    created_at: DateTime
-    properties: Properties
+    created_at_iso: string
+    propertiesRaw: string
 }
 
 /** The recommended way of accessing the database. */
@@ -462,24 +462,36 @@ export class DB {
         }
     }
 
-    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+    private async updatePersonCreatedAtRawCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonCreatedAtCacheKey(teamId, personId),
-                createdAt,
+                createdAtIso,
+                this.PERSON_INFO_CACHE_TTL
+            )
+        }
+    }
+
+    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+        await this.updatePersonCreatedAtRawCache(teamId, personId, createdAt.toISO())
+    }
+
+    private async updatePersonPropertiesRawCache(
+        teamId: number,
+        personId: number,
+        propertiesRaw: string
+    ): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getPersonPropertiesCacheKey(teamId, personId),
+                propertiesRaw,
                 this.PERSON_INFO_CACHE_TTL
             )
         }
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getPersonPropertiesCacheKey(teamId, personId),
-                JSON.stringify(properties),
-                this.PERSON_INFO_CACHE_TTL
-            )
-        }
+        await this.updatePersonPropertiesRawCache(teamId, personId, JSON.stringify(properties))
     }
 
     public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
@@ -520,8 +532,8 @@ export class DB {
 
             return {
                 uuid: String(personUuid),
-                created_at: DateTime.fromISO(String(personCreatedAt)).toUTC(),
-                properties: JSON.parse(String(personProperties)),
+                created_at_iso: String(personCreatedAt),
+                propertiesRaw: String(personProperties),
             }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
@@ -533,17 +545,17 @@ export class DB {
         )
         if (result.rows.length !== 0) {
             const personUuid = String(result.rows[0].uuid)
-            const personCreatedAt = DateTime.fromISO(result.rows[0].created_at).toUTC()
-            const personProperties: Properties = result.rows[0].properties
+            const personCreatedAt = String(result.rows[0].created_at)
+            const personProperties = String(result.rows[0].properties)
             await Promise.all([
                 this.updatePersonUuidCache(teamId, personId, personUuid),
-                this.updatePersonCreatedAtCache(teamId, personId, personCreatedAt),
-                this.updatePersonPropertiesCache(teamId, personId, personProperties),
+                this.updatePersonCreatedAtRawCache(teamId, personId, personCreatedAt),
+                this.updatePersonPropertiesRawCache(teamId, personId, personProperties),
             ])
             return {
                 uuid: personUuid,
-                created_at: personCreatedAt,
-                properties: personProperties,
+                created_at_iso: personCreatedAt,
+                propertiesRaw: personProperties,
             }
         }
         return null
@@ -756,6 +768,7 @@ export class DB {
         }
 
         await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
+        await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
 
         return client ? kafkaMessages : updatedPerson
     }
