@@ -318,7 +318,7 @@ class TestUpdateCache(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
-        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we woul donly update one of those
+        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we would only update one of those
         dashboard1: Dashboard = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
         dashboard2: Dashboard = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
         dashboard3: Dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
@@ -333,11 +333,6 @@ class TestUpdateCache(APIBaseTest):
 
         DashboardTile.objects.create(insight=item1, dashboard=dashboard1)
 
-        # saving the dashboard overwrites the original filters_hash with one that includes the dashboard's filters
-        dashboard1.save()
-        item1.refresh_from_db()
-        self.assertNotEqual(item1.filters_hash, filters_hash_with_no_dashboard)
-
         # link another insight to a dashboard with a filter
         item2 = Insight.objects.create(filters=filter, team=self.team)
         DashboardTile.objects.create(insight=item2, dashboard=dashboard2)
@@ -350,9 +345,17 @@ class TestUpdateCache(APIBaseTest):
 
         update_cached_items()
 
-        self._assert_length_of_data_cached_for_insight(0, 15)
-        self._assert_length_of_data_cached_for_insight(1, 31)
-        self._assert_length_of_data_cached_for_insight(2, 8)
+        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item1, dashboard=dashboard1).filters_hash)
+        number_of_results = len(cache_result["result"][0]["data"])
+        self.assertEqual(number_of_results, 15)
+
+        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item2, dashboard=dashboard2).filters_hash)
+        results = len(cache_result["result"][0]["data"])
+        self.assertEqual(results, 31)
+
+        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item3, dashboard=dashboard3).filters_hash)
+        of_results = len(cache_result["result"][0]["data"])
+        self.assertEqual(of_results, 8)
 
         self.assertEqual(
             Insight.objects.all().order_by("id")[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
@@ -363,18 +366,6 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(
             Insight.objects.all().order_by("id")[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
         )
-
-        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-
-        # TODO: assert each items cache has the right number of days and the right filters hash
-
-    def _assert_length_of_data_cached_for_insight(self, insight_index: int, expected_number_of_results: int) -> None:
-        insights = Insight.objects.all().order_by("id")
-        cache_result = get_safe_cache(insights[insight_index].filters_hash)
-        number_of_results = len(cache_result["result"][0]["data"])
-        self.assertEqual(number_of_results, expected_number_of_results)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @skip(

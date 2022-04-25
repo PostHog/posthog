@@ -25,7 +25,7 @@ class DashboardTile(models.Model):
 
     def save(self, *args, **kwargs) -> None:
         has_no_filters_hash = self.filters_hash is None
-        if has_no_filters_hash:
+        if has_no_filters_hash and self.insight.filters != {}:
             self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
 
         super(DashboardTile, self).save(*args, **kwargs)

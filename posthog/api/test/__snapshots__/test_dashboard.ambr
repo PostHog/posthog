@@ -949,7 +949,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.33
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -959,7 +964,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.34
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -983,7 +993,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.36
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -993,7 +1008,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.37
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1017,7 +1037,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1064,7 +1089,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.40
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1088,7 +1118,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1098,7 +1133,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.43
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1122,7 +1162,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.45
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1132,7 +1177,12 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.46
   '
-  SELECT "posthog_dashboardtile"."filters_hash"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)

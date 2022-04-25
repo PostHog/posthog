@@ -58,8 +58,13 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     filter = get_filter(data=filter_dict, team=team)
 
     # Doing the filtering like this means we'll update _all_ Insights with the same filters hash
-    dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
+    insights = Insight.objects.filter(
+        Q(
+            Q(team_id=team_id, filters_hash=key)
+            | Q(team_id=team_id, id__in=DashboardTile.objects.filter(filters_hash=key))
+        )
+    )
+    insights.update(refreshing=True)
 
     try:
         if cache_type == CacheType.FUNNEL:
@@ -72,13 +77,14 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     except Exception as e:
         timer.stop()
         statsd.incr("update_cache_item_error")
-        dashboard_items.filter(refresh_attempt=None).update(refresh_attempt=0)
-        dashboard_items.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
+        insights.filter(refresh_attempt=None).update(refresh_attempt=0)
+        insights.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
         raise e
-
     timer.stop()
     statsd.incr("update_cache_item_success")
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+    # TODO what does last_refresh mean when an insight can be cached on multiple dashboards
+    insights.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+
     return result
 
 

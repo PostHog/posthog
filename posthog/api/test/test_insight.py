@@ -366,8 +366,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             }
         )
 
-        tile = DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=insight_id).first()
-        self.assertIsNotNone(tile)
+        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).first()
         self.assertIsNotNone(tile.filters_hash)
 
     def test_update_insight(self):
