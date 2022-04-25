@@ -12,7 +12,6 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import sane_repr
 
@@ -95,7 +94,7 @@ class Cohort(models.Model):
     # deprecated
     groups: models.JSONField = models.JSONField(default=list)
 
-    @cached_property
+    @property
     def properties(self):
         """
         Kinds of errors I've seen so far:
