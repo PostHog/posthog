@@ -24,7 +24,11 @@ export function CardContainer({
     return (
         <Col className="ingestion-card-container">
             <Card
-                headStyle={{ border: 'none', paddingBottom: 0 }}
+                headStyle={{
+                    border: 'none',
+                    paddingBottom: 0,
+                    ...(onboarding1 ? { position: 'sticky', zIndex: 5, top: 0, background: 'white' } : {}),
+                }}
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
                         {index !== 0 && (
