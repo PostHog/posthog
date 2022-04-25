@@ -60,20 +60,12 @@ export const ingestionLogic = kea<ingestionLogicType>({
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
-                const featFlags = featureFlagLogic.values.featureFlags
-                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
-                    return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
-                }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
         totalSteps: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
-                const featFlags = featureFlagLogic.values.featureFlags
-                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
-                    return 3
-                }
                 // if missing parts of the URL
                 if (verify) {
                     return 4 - (platform ? 0 : 1) - (framework ? 0 : 1)
