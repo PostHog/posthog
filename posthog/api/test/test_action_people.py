@@ -7,7 +7,7 @@ from ee.clickhouse.models.session_recording_event import create_session_recordin
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 
 def _create_action(**kwargs):
@@ -82,6 +82,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 team=secondTeam, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
             )
+
+        flush_persons_and_events()
         return sign_up_action, person
 
     def test_people_cumulative(self):
@@ -144,6 +146,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                     team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                 )
 
+        flush_persons_and_events()
+
     def test_people_endpoint_paginated(self):
 
         for index in range(0, 150):
@@ -199,6 +203,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
         )
 
+        flush_persons_and_events()
         return person1, person2, person3, person4, person5, person6, person7
 
     def test_hour_interval(self):
@@ -510,6 +515,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-05T12:00:00Z",
             properties={"event_prop": "prop3"},
         )
+        flush_persons_and_events()
         return (person1, person2, person3, person4)
 
     def test_people_csv(self):
