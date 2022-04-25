@@ -128,7 +128,6 @@ function VerifiedDomainsTable(): JSX.Element {
                 return is_verified ? (
                     <div className="flex-center">
                         <LemonSwitch
-                            style={{ marginLeft: 8 }}
                             checked={jit_provisioning_enabled}
                             disabled={updatingDomainLoading || !is_verified}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
