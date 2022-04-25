@@ -98,7 +98,7 @@ export class KafkaQueue implements Queue {
 
         // if consumerSleep > 0 it means we didn't process at least one message
         if (consumerSleep > 0) {
-            // pause the consumer for this partition until we can process at least one message
+            // pause the consumer for this partition until we can process all unprocessed messages from this batch
             await this.pause(batch.topic, batch.partition)
             setTimeout(() => {
                 this.resume(batch.topic, batch.partition)
