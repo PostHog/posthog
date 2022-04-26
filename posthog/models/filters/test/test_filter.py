@@ -330,9 +330,9 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 
 def _filter_persons(filter: Filter, team: Team):
+    flush_persons_and_events()
     # TODO: confirm what to do here?
     # Postgres only supports ANDing all properties :shrug:
-    flush_persons_and_events()
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]

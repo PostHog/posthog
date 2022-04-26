@@ -14,7 +14,13 @@ from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    test_with_materialized_columns,
+)
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -37,6 +43,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -62,6 +69,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
         )
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -81,6 +89,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         event2_uuid = _create_event(
             event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
         )
+        flush_persons_and_events()
 
         expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
 
@@ -135,7 +144,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_by_person(self):
         person = _create_person(
-            properties={"email": "tim@posthog.com"}, distinct_ids=["2", "some-random-uid"], team=self.team,
+            properties={"email": "tim@posthog.com"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+            immediate=True,
         )
 
         _create_event(event="random event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
@@ -143,6 +155,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="random event", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"}
         )
         _create_event(event="random event", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.pk}").json()
         self.assertEqual(len(response["results"]), 2)

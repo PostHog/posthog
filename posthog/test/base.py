@@ -20,6 +20,9 @@ from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 
+persons_cache_tests: List[Dict[str, Any]] = []
+events_cache_tests: List[Dict[str, Any]] = []
+
 
 def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
@@ -121,6 +124,15 @@ class TestMixin:
             _setup_test_data(self)
 
     def tearDown(self):
+        if len(persons_cache_tests) > 0:
+            raise Exception(
+                "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
+            )
+
+        if len(events_cache_tests) > 0:
+            raise Exception(
+                "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
+            )
         persons_cache_tests.clear()
         events_cache_tests.clear()
         super().tearDown()  # type: ignore
@@ -345,10 +357,6 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
     Can be used to test migrations where atomic=False.
     """
-
-
-persons_cache_tests: List[Dict[str, Any]] = []
-events_cache_tests: List[Dict[str, Any]] = []
 
 
 def flush_persons_and_events():

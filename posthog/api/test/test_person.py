@@ -157,8 +157,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
         )
-
         flush_persons_and_events()
+
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people_ch(pending_version=0)
 
