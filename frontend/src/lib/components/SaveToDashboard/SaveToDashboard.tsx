@@ -5,6 +5,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { urls } from '../../../scenes/urls'
 import { LemonButton } from '../LemonButton'
+import { IconGauge } from 'lib/components/icons'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
@@ -23,11 +24,17 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                     to={urls.dashboard(dashboards[0].id, insight.short_id)}
                     type="secondary"
                     className="btn-save"
+                    icon={<IconGauge />}
                 >
                     {dashboards.length > 1 ? 'On multiple dashboards' : `On dashboard: ${dashboards[0]?.name}`}
                 </LemonButton>
             ) : (
-                <LemonButton onClick={() => setOpenModal(true)} type="secondary" className="btn-save">
+                <LemonButton
+                    onClick={() => setOpenModal(true)}
+                    type="secondary"
+                    className="btn-save"
+                    icon={<IconGauge />}
+                >
                     Add to dashboard
                 </LemonButton>
             )}
