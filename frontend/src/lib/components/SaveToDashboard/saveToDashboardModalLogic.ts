@@ -28,7 +28,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     reducers: {
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
-        scrollIndex: [-1, { setScrollIndex: (_, { index }) => index }],
+        scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
     },
 
     selectors: {
