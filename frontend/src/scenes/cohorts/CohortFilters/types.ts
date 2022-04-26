@@ -1,7 +1,9 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
 import { BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType } from '~/types'
+import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export enum FilterTypes {
+export enum FilterType {
     Behavioral = 'behavioral',
     Aggregation = 'aggregation',
     Actors = 'actors',
@@ -10,7 +12,7 @@ export enum FilterTypes {
     MathOperator = 'mathOperator',
     Value = 'value',
     Text = 'text',
-    Events = 'events',
+    EventsAndActions = 'eventsAndActions',
     EventProperties = 'eventProperties',
     EventPropertyValues = 'eventPropertyValues',
     Number = 'number',
@@ -18,7 +20,7 @@ export enum FilterTypes {
     CohortValues = 'cohortValues',
 }
 
-export enum FilterGroupTypes {
+export enum FieldOptionsType {
     EventAggregation = 'eventAggregation',
     PropertyAggregation = 'propertyAggregation',
     Actors = 'actors',
@@ -27,25 +29,52 @@ export enum FilterGroupTypes {
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',
     DateOperators = 'dateOperators',
-    Operators = 'operators',
+    MathOperators = 'mathOperators',
     ValueOptions = 'valueOptions',
 }
 
-export interface GroupOption {
+export interface FieldValues {
     label: string
     values: LemonSelectOptions
-    type: FilterGroupTypes
+    type: FieldOptionsType
 }
 
 export type BehavioralFilterType = BehavioralEventType | BehavioralCohortType | BehavioralLifecycleType
 
-export interface Atom {
+export interface Field {
     key?: string
-    value?: string | null
-    type?: FilterTypes
+    value?: string | number | null
+    type: FilterType
 }
 
-export interface AtomGroup {
-    type?: BehavioralFilterType
-    atoms: Atom[]
+export interface Row {
+    type: BehavioralFilterType
+    fields: Field[]
 }
+
+// CohortField
+
+export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
+    cohortFilterLogicKey?: string
+}
+
+export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
+    placeholder?: string
+}
+
+export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    taxonomicGroupType?: TaxonomicFilterGroupType
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    fieldOptionGroupTypes: never
+    onTaxonomicGroupChange?: (group: TaxonomicFilterGroupType) => void
+}
+
+export interface CohortTextFieldProps {
+    value: string
+}
+
+export interface CohortNumberFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+}
+
+export type CohortFieldProps = CohortSelectorFieldProps | CohortNumberFieldProps | CohortTaxonomicFieldProps

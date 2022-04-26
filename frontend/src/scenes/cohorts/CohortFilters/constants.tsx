@@ -1,9 +1,13 @@
+import React from 'react'
 import {
-    AtomGroup,
     BehavioralFilterType,
-    FilterGroupTypes,
-    FilterTypes,
-    GroupOption,
+    CohortFieldProps,
+    CohortNumberFieldProps,
+    CohortTaxonomicFieldProps,
+    FieldOptionsType,
+    FieldValues,
+    FilterType,
+    Row,
 } from 'scenes/cohorts/CohortFilters/types'
 import {
     ActorGroupType,
@@ -17,11 +21,25 @@ import {
     TimeUnitType,
     ValueOptionType,
 } from '~/types'
+import {
+    CohortNumberField,
+    CohortSelectorField,
+    CohortTaxonomicField,
+    CohortTextField,
+} from 'scenes/cohorts/CohortFilters/CohortField'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
-    [FilterGroupTypes.EventAggregation]: {
+/*
+ * Cohort filters are broken down into 3 layers of components.
+ * Row                   (i.e. <Completed an event> <Pageview> in the last <30> <days>)
+ *   -> Field            (i.e. <Pageview>)
+ *     -> Field values  (i.e. <Pageview, Pageleave, Autocapture, etc.)
+ */
+
+export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
+    [FieldOptionsType.EventAggregation]: {
         label: 'Event Aggregation',
-        type: FilterGroupTypes.EventAggregation,
+        type: FieldOptionsType.EventAggregation,
         values: {
             [BaseMathType.Total]: {
                 label: 'Total',
@@ -37,9 +55,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.PropertyAggregation]: {
+    [FieldOptionsType.PropertyAggregation]: {
         label: 'Property Aggregation',
-        type: FilterGroupTypes.PropertyAggregation,
+        type: FieldOptionsType.PropertyAggregation,
         values: {
             [PropertyMathType.Average]: {
                 label: 'Average',
@@ -67,18 +85,18 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.Actors]: {
+    [FieldOptionsType.Actors]: {
         label: 'Actors',
-        type: FilterGroupTypes.Actors,
+        type: FieldOptionsType.Actors,
         values: {
             [ActorGroupType.Person]: {
                 label: 'Persons',
             },
         },
     },
-    [FilterGroupTypes.EventBehavioral]: {
+    [FieldOptionsType.EventBehavioral]: {
         label: 'Behavioral',
-        type: FilterGroupTypes.EventBehavioral,
+        type: FieldOptionsType.EventBehavioral,
         values: {
             [BehavioralEventType.PerformEvent]: {
                 label: 'Completed event',
@@ -100,9 +118,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.CohortBehavioral]: {
+    [FieldOptionsType.CohortBehavioral]: {
         label: 'Cohorts',
-        type: FilterGroupTypes.CohortBehavioral,
+        type: FieldOptionsType.CohortBehavioral,
         values: {
             [BehavioralCohortType.InCohort]: {
                 label: 'In cohort',
@@ -112,9 +130,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.LifecycleBehavioral]: {
+    [FieldOptionsType.LifecycleBehavioral]: {
         label: 'Lifecycle',
-        type: FilterGroupTypes.LifecycleBehavioral,
+        type: FieldOptionsType.LifecycleBehavioral,
         values: {
             [BehavioralLifecycleType.PerformEventFirstTime]: {
                 label: 'Completed an event for the first time',
@@ -130,9 +148,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.TimeUnits]: {
+    [FieldOptionsType.TimeUnits]: {
         label: 'Units',
-        type: FilterGroupTypes.TimeUnits,
+        type: FieldOptionsType.TimeUnits,
         values: {
             [TimeUnitType.Day]: {
                 label: 'days',
@@ -148,9 +166,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.DateOperators]: {
+    [FieldOptionsType.DateOperators]: {
         label: 'Date Operators',
-        type: FilterGroupTypes.DateOperators,
+        type: FieldOptionsType.DateOperators,
         values: {
             [DateOperatorType.BeforeTheLast]: {
                 label: 'before the last',
@@ -178,9 +196,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.Operators]: {
+    [FieldOptionsType.MathOperators]: {
         label: 'Operators',
-        type: FilterGroupTypes.Operators,
+        type: FieldOptionsType.MathOperators,
         values: {
             [OperatorType.Equals]: {
                 label: 'equals',
@@ -223,9 +241,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.ValueOptions]: {
+    [FieldOptionsType.ValueOptions]: {
         label: 'Value Options',
-        type: FilterGroupTypes.ValueOptions,
+        type: FieldOptionsType.ValueOptions,
         values: {
             [ValueOptionType.MostRecent]: {
                 label: 'most recent value',
@@ -240,307 +258,411 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
     },
 }
 
-export const FILTER_GRAMMARS: Record<BehavioralFilterType, AtomGroup> = {
+export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralEventType.PerformEvent]: {
         type: BehavioralEventType.PerformEvent,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.NotPerformedEvent]: {
         type: BehavioralEventType.NotPerformedEvent,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.PerformMultipleEvents]: {
         type: BehavioralEventType.PerformMultipleEvents,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.MathOperator,
+                type: FilterType.MathOperator,
             },
             {
-                type: FilterTypes.NumberTicker,
+                type: FilterType.NumberTicker,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'times in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.PerformSequenceEvents]: {
         type: BehavioralEventType.PerformSequenceEvents,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'followed by',
             },
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'within',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'of the initial event',
             },
         ],
     },
     [BehavioralEventType.HaveProperty]: {
         type: BehavioralEventType.HaveProperty,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.EventProperties,
+                type: FilterType.EventProperties,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'with the',
             },
             {
-                type: FilterTypes.Value,
+                type: FilterType.Value,
             },
             {
-                type: FilterTypes.MathOperator,
+                type: FilterType.MathOperator,
             },
             {
-                type: FilterTypes.EventPropertyValues,
+                type: FilterType.EventPropertyValues,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.NotHaveProperty]: {
         type: BehavioralEventType.NotHaveProperty,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.EventProperties,
+                type: FilterType.EventProperties,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'with the',
             },
             {
-                type: FilterTypes.Value,
+                type: FilterType.Value,
             },
             {
-                type: FilterTypes.MathOperator,
+                type: FilterType.MathOperator,
             },
             {
-                type: FilterTypes.EventPropertyValues,
+                type: FilterType.EventPropertyValues,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralCohortType.InCohort]: {
         type: BehavioralCohortType.InCohort,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.CohortValues,
+                type: FilterType.CohortValues,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralCohortType.NotInCohort]: {
         type: BehavioralCohortType.NotInCohort,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.CohortValues,
+                type: FilterType.CohortValues,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.PerformEventFirstTime]: {
         type: BehavioralLifecycleType.PerformEventFirstTime,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.PerformEventRegularly]: {
         type: BehavioralLifecycleType.PerformEventRegularly,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.MathOperator,
+                type: FilterType.MathOperator,
             },
             {
-                type: FilterTypes.NumberTicker,
+                type: FilterType.NumberTicker,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'times per',
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.StopPerformEvent]: {
         type: BehavioralLifecycleType.StopPerformEvent,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'but not in the previous',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.StartPerformEventAgain]: {
         type: BehavioralLifecycleType.StartPerformEventAgain,
-        atoms: [
+        fields: [
             {
-                type: FilterTypes.Events,
+                type: FilterType.EventsAndActions,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'in the last',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
             {
-                type: FilterTypes.Text,
+                type: FilterType.Text,
                 value: 'but not in the previous',
             },
             {
-                type: FilterTypes.Number,
+                type: FilterType.Number,
+                value: 30,
             },
             {
-                type: FilterTypes.TimeUnit,
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
             },
         ],
+    },
+}
+
+// Building blocks of a row
+export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
+    [FilterType.Behavioral]: function _renderField(p) {
+        return (
+            <CohortSelectorField
+                {...p}
+                fieldOptionGroupTypes={[
+                    FieldOptionsType.EventBehavioral,
+                    FieldOptionsType.CohortBehavioral,
+                    FieldOptionsType.LifecycleBehavioral,
+                ]}
+            />
+        )
+    },
+    [FilterType.Aggregation]: function _renderField(p) {
+        return (
+            <CohortSelectorField
+                {...p}
+                fieldOptionGroupTypes={[FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation]}
+            />
+        )
+    },
+    [FilterType.Actors]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.Actors]} />
+    },
+    [FilterType.TimeUnit]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.TimeUnits]} />
+    },
+    [FilterType.DateOperator]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.DateOperators]} />
+    },
+    [FilterType.MathOperator]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.MathOperators]} />
+    },
+    [FilterType.Value]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.ValueOptions]} />
+    },
+    [FilterType.Text]: function _renderField(p) {
+        return <CohortTextField value={String(p?.value ?? '')} />
+    },
+    [FilterType.EventsAndActions]: function _renderField(p) {
+        return (
+            <CohortTaxonomicField
+                {...(p as CohortTaxonomicFieldProps)}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+        )
+    },
+    [FilterType.EventProperties]: function _renderField(p) {
+        return (
+            <CohortTaxonomicField
+                {...(p as CohortTaxonomicFieldProps)}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.NumericalEventProperties,
+                ]}
+            />
+        )
+    },
+    [FilterType.EventPropertyValues]: function _renderField() {
+        return <span>TODO</span>
+    },
+    [FilterType.Number]: function _renderField(p) {
+        return <CohortNumberField {...(p as CohortNumberFieldProps)} />
+    },
+    [FilterType.NumberTicker]: function _renderField(p) {
+        return <CohortNumberField {...(p as CohortNumberFieldProps)} />
+    },
+    [FilterType.CohortValues]: function _renderField() {
+        return <span>TODO</span>
     },
 }
