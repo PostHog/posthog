@@ -1,19 +1,29 @@
 .add-to-dashboard-modal {
     .ant-modal-header {
-        border-bottom-width: 0px;
+        border-bottom-width: 0;
+        padding: 16px;
+    }
+
+    .ant-modal-footer {
+        border-top-width: 0;
         padding: 16px;
     }
 
     .ant-modal-body {
         padding: 0 16px 16px 16px;
-    }
 
-    .existing-links-info {
-        color: var(--muted-alt);
-        margin-top: 8px;
+        .list-wrapper {
+            min-height: 200px;
+            margin-top: 8px;
+        }
 
-        strong {
-            color: var(--text-default);
+        .existing-links-info {
+            color: var(--muted-alt);
+            margin-top: 8px;
+
+            strong {
+                color: var(--text-default);
+            }
         }
     }
 

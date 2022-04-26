@@ -75,22 +75,25 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             <div className={'existing-links-info'}>
                 This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards (remove all)
             </div>
-            <AutoSizer>
-                {({ height, width }) => (
-                    <List
-                        width={width}
-                        height={height}
-                        rowCount={nameSortedDashboards.length}
-                        overscanRowCount={100}
-                        rowHeight={36} // LemonRow heights
-                        rowRenderer={renderItem}
-                        onRowsRendered={(args) => {
-                            console.log({ ...args }, 'on rows rendered')
-                        }}
-                        scrollToIndex={-1}
-                    />
-                )}
-            </AutoSizer>
+            <div className="list-wrapper">
+                <AutoSizer>
+                    {({ height, width }) => (
+                        <List
+                            width={width}
+                            height={height}
+                            rowCount={nameSortedDashboards.length}
+                            overscanRowCount={100}
+                            rowHeight={36} // LemonRow heights
+                            rowRenderer={renderItem}
+                            onRowsRendered={(args) => {
+                                console.log({ ...args }, 'on rows rendered')
+                            }}
+                            scrollToIndex={-1}
+                        />
+                    )}
+                </AutoSizer>
+            </div>
+            <hr className="separator" />
         </Modal>
     )
 }
