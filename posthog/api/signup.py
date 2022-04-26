@@ -387,7 +387,7 @@ def process_social_domain_jit_provisioning_signup(email: str, full_name: str) ->
 @partial
 def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
-        logger.info(f"social_create_user_is_not_new", details=details)
+        logger.info(f"social_create_user_is_not_new")
         return {"is_new": False}
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
@@ -407,7 +407,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             {missing_attr: "This field is required and was not provided by the IdP."}, code="required"
         )
 
-    logger.info(f"social_create_user", full_name=full_name, email=email)
+    logger.info(f"social_create_user", full_name_len=len(full_name), email_len=len(email))
 
     if invite_id:
         from_invite = True
@@ -416,12 +416,17 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     else:
         # JIT Provisioning?
         user = process_social_domain_jit_provisioning_signup(email, full_name)
-        logger.info(f"social_create_user_jit_user", full_name=full_name, email=email, user=user.id if user else None)
+        logger.info(
+            f"social_create_user_jit_user",
+            full_name_len=len(full_name),
+            email_len=len(email),
+            user=user.id if user else None,
+        )
         if user:
             backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
 
         if not user:
-            logger.info(f"social_create_user_jit_failed", full_name=full_name, email=email)
+            logger.info(f"social_create_user_jit_failed", full_name_len=len(full_name), email_len=len(email))
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)
             if not organization_name or email_opt_in is None:
@@ -442,11 +447,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             serializer.is_valid(raise_exception=True)
             user = serializer.save()
             logger.info(
-                f"social_create_user_signup",
-                full_name=full_name,
-                email=email,
-                user=user.id,
-                organization_name=organization_name,
+                f"social_create_user_signup", full_name_len=len(full_name), email_len=len(email), user=user.id,
             )
 
     report_user_signed_up(
