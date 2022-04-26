@@ -159,8 +159,6 @@ class CohortQuery(EnterpriseEventQuery):
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
 
-        # print(f"Inner property groups: {self._inner_property_groups}, outer property groups: {self._outer_property_groups}")
-
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
         if not self._outer_property_groups:
