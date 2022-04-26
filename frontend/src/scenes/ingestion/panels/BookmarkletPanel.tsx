@@ -9,20 +9,19 @@ import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
             {currentTeam && (
-                <div style={{ padding: 16, paddingTop: 0 }}>
+                <div style={{ padding: '0px 16px' }}>
                     <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Just exploring?</h1>
                     <h2 style={{ fontSize: 20, fontWeight: 800 }}>
                         Immediately run PostHog on your website for some initial exploring
