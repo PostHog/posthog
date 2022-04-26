@@ -82,7 +82,6 @@ export class KafkaQueue implements Queue {
         }
         const batchStartTimer = new Date()
 
-        const promises = []
         let consumerSleep = 0
         for (const message of batch.messages) {
             // kafka timestamps are unix timestamps in string format
@@ -90,12 +89,11 @@ export class KafkaQueue implements Queue {
             const delayUntilTimeToProcess = processAt - Date.now()
 
             if (delayUntilTimeToProcess < 0) {
-                promises.push(this.eachMessageBuffer(message, resolveOffset))
+                await this.eachMessageBuffer(message, resolveOffset)
             } else {
                 consumerSleep = Math.max(consumerSleep, delayUntilTimeToProcess)
             }
         }
-        await Promise.all(promises)
 
         // if consumerSleep > 0 it means we didn't process at least one message
         if (consumerSleep > 0) {
