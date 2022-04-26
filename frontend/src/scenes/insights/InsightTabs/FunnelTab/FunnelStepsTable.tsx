@@ -163,7 +163,8 @@ export function FunnelStepsTable(): JSX.Element | null {
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
                     ): JSX.Element | string {
-                        return getSignificanceFromBreakdownStep(breakdown, step.order)?.total ? (
+                        const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
+                        return significance?.total ? (
                             <LemonRow
                                 className="significance-highlight"
                                 tooltip="Significantly different from other breakdown values"
@@ -190,7 +191,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
                               ): JSX.Element | string {
-                                  return getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
+                                  const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
+                                  // Only flag as significant here if not flagged already in "Conversion so far"
+                                  return !significance?.total && significance?.fromPrevious ? (
                                       <LemonRow
                                           className="significance-highlight"
                                           tooltip="Significantly different from other breakdown values"
