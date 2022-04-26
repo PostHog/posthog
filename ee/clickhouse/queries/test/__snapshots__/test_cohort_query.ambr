@@ -38,7 +38,7 @@
   WHERE 1 = 1
     AND (((performed_event_condition_level_level_level_0
            OR performed_event_condition_level_level_level_1)
-          AND (first_time_condition_level_level_level_0)))
+          AND (first_time_condition_level_level_level_0))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
@@ -83,7 +83,7 @@
     AND (((performed_event_condition_level_level_level_0
            OR performed_event_condition_level_level_level_1
            OR has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '')))
-          AND (first_time_condition_level_level_level_0)))
+          AND (first_time_condition_level_level_level_0))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestCohortQuery.test_person_props_only
