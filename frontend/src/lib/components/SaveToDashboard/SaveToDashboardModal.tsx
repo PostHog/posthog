@@ -51,6 +51,18 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         })
     }
 
+    async function addToDashboard(dashboardToAdd: number): Promise<void> {
+        updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardToAdd] }, () => {
+            reportSavedInsightToDashboard()
+            lemonToast.success('Insight added to dashboard', {
+                button: {
+                    label: 'View dashboard',
+                    action: () => router.actions.push(urls.dashboard(dashboardId)),
+                },
+            })
+        })
+    }
+
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const dashboard = orderedDashboards[rowIndex]
         const isAlreadyOnDashboard = currentDashboards.some(
@@ -59,7 +71,14 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         return (
             <div style={style} className="modal-row">
                 <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
-                <LemonButton type={isAlreadyOnDashboard ? 'primary' : 'secondary'} compact={true}>
+                <LemonButton
+                    type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                    compact={true}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        isAlreadyOnDashboard ? () => {} : addToDashboard(dashboard.id)
+                    }}
+                >
                     {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
                 </LemonButton>
             </div>
