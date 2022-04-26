@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
 import { IconMagnifier } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -24,7 +26,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         id: insight.short_id,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
-    // const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId, searchQuery } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     // const { addNewDashboard, setDashboardId } = useActions(logic)
@@ -44,6 +46,11 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             })
             closeModal()
         })
+    }
+
+    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
+        const dashboard = nameSortedDashboards[rowIndex]
+        return <div style={style}>{dashboard.name}</div>
     }
 
     return (
@@ -68,26 +75,22 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             <div className={'existing-links-info'}>
                 This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards (remove all)
             </div>
-            {/*<form onSubmit={(e) => void save(e)}>*/}
-            {/*    <label>Dashboard</label>*/}
-            {/*    <Select*/}
-            {/*        data-attr="add-to-dashboard-select"*/}
-            {/*        value={dashboardId}*/}
-            {/*        onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}*/}
-            {/*        style={{ width: '100%' }}*/}
-            {/*    >*/}
-            {/*        {nameSortedDashboards.map((dashboard, idx) => (*/}
-            {/*            <Select.Option*/}
-            {/*                data-attr={`add-to-dashboard-option-${idx}`}*/}
-            {/*                key={dashboard.id}*/}
-            {/*                value={dashboard.id}*/}
-            {/*            >*/}
-            {/*                {dashboard.name}*/}
-            {/*            </Select.Option>*/}
-            {/*        ))}*/}
-            {/*        <Select.Option value="new">+ New Dashboard</Select.Option>*/}
-            {/*    </Select>*/}
-            {/*</form>*/}
+            <AutoSizer>
+                {({ height, width }) => (
+                    <List
+                        width={width}
+                        height={height}
+                        rowCount={nameSortedDashboards.length}
+                        overscanRowCount={100}
+                        rowHeight={36} // LemonRow heights
+                        rowRenderer={renderItem}
+                        onRowsRendered={(args) => {
+                            console.log({ ...args }, 'on rows rendered')
+                        }}
+                        scrollToIndex={-1}
+                    />
+                )}
+            </AutoSizer>
         </Modal>
     )
 }
