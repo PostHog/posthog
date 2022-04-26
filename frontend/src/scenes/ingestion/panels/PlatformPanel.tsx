@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Col, Row } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { APP, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
+import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
 import { PlatformType } from 'scenes/ingestion/types'
 import { LemonButton } from 'lib/components/LemonButton'
-import posthogLogo from 'public/posthog-logo.png'
-import { Link } from 'lib/components/Link'
 import './Panels.scss'
+import { PanelSupport } from './PanelComponents'
 
 export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)
@@ -17,53 +16,45 @@ export function PlatformPanel(): JSX.Element {
     return (
         <>
             {onboarding1 ? (
-                <div style={{ minWidth: 300, width: '30vw' }}>
-                    <Row justify="center">
-                        <img src={posthogLogo} style={{ width: 157, height: 30 }} />
-                    </Row>
+                <div style={{ maxWidth: 400 }}>
                     <div className="welcome-panel">
                         <h1>Welcome to PostHog</h1>
-                        <p className="fw-500">
-                            First things first, where do you want to deploy PostHog? Or you can import existing data, if
-                            you prefer.
-                        </p>
-                        <Col>
+                        <p className="fw-500">First things first, where do you want to send events from?</p>
+                        <Col style={{ marginBottom: 16 }}>
                             {platforms.map((platform) => (
                                 <LemonButton
                                     key={platform}
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="platform-btn"
+                                    className="ingestion-btn"
                                     onClick={() => setPlatform(platform)}
                                 >
                                     {platform}
                                 </LemonButton>
                             ))}
                             <LemonButton
-                                onClick={() => setPlatform(APP)}
+                                onClick={() => setPlatform(THIRD_PARTY)}
                                 fullWidth
                                 center
                                 type="primary"
-                                className="platform-btn"
+                                className="ingestion-btn"
                             >
-                                {APP}
+                                {THIRD_PARTY}
                             </LemonButton>
                             <LemonButton
                                 type="secondary"
+                                className="ingestion-btn inverted"
                                 fullWidth
                                 center
                                 onClick={() => setPlatform(BOOKMARKLET)}
-                                style={{ color: 'black', borderColor: 'black' }}
                             >
                                 {BOOKMARKLET}
                             </LemonButton>
                         </Col>
-                        <Row justify="center" className="visit-support">
-                            <p style={{ marginBottom: 0 }}>
-                                Have questions? <Link>Visit support</Link>
-                            </p>
-                        </Row>
+                        <Col className="panel-footer">
+                            <PanelSupport />
+                        </Col>
                     </div>
                 </div>
             ) : (
