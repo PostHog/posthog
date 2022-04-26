@@ -62,6 +62,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
+        submitFeatureFlag,
     } = useActions(featureFlagLogic(logicProps))
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
@@ -114,7 +115,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     type="primary"
                                     data-attr="feature-flag-submit"
                                     loading={featureFlagLoading}
-                                    htmlType="submit"
+                                    onClick={submitFeatureFlag}
+                                    htmlType="button"
                                 >
                                     Save changes
                                 </LemonButton>

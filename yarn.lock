@@ -11091,11 +11091,13 @@ kea-window-values@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-alpha.9:
-  version "3.0.0-alpha.9"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.9.tgz#d8f45d8eb1d58596eb8e7821e3bf2e52ae2ca7ad"
-  integrity sha512-KMm4dEMElweOZnDnU5DuWFS0sO30OVbO/ngH1agUoaV9vNEYU8wzuShKeqmiixa9U5BjLbtFLFcPy+Vayatl6g==
+kea@^3.0.0-alpha.10:
+  version "3.0.0-alpha.10"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-alpha.10.tgz#609bab36f7925c686621858a92942c9c543340d0"
+  integrity sha512-REuAzwjhcx+oWf0gzshNFXrSZiHSG+x84xsNyyP0U/Q5hWuxdU+e1aQTUT4ILHbbwGtZFu9VtYiB9QHC8moquQ==
   dependencies:
+    redux "^4.2.0"
+    reselect "^4.1.5"
     use-sync-external-store "^1.0.0"
 
 killable@^1.0.1:
@@ -14607,6 +14609,11 @@ reselect@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/reselect/-/reselect-4.0.0.tgz#f2529830e5d3d0e021408b246a206ef4ea4437f7"
   integrity sha512-qUgANli03jjAyGlnbYVAV5vvnOmJnODyABz51RdBN7M4WaVu8mecZWgyQNkG8Yqe3KRGRt0l4K4B3XVEULC4CA==
+
+reselect@^4.1.5:
+  version "4.1.5"
+  resolved "https://registry.yarnpkg.com/reselect/-/reselect-4.1.5.tgz#852c361247198da6756d07d9296c2b51eddb79f6"
+  integrity sha512-uVdlz8J7OO+ASpBYoz1Zypgx0KasCY20H+N8JD13oUMtPvSHQuscrHop4KbXrbsBcdB9Ds7lVK7eRkBIfO43vQ==
 
 resize-observer-polyfill@^1.5.0, resize-observer-polyfill@^1.5.1:
   version "1.5.1"
