@@ -29,6 +29,7 @@ export interface LemonInputProps
     disabled?: boolean
 }
 
+/** A `LemonRow`-based `input` component for single-line text. */
 export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
     {
         className,

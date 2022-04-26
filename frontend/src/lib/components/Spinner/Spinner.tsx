@@ -12,6 +12,7 @@ export interface SpinnerProps {
     style?: React.CSSProperties
 }
 
+/** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
 export function Spinner({ size = 'md', type = 'primary', traceless = false, style }: SpinnerProps): JSX.Element {
     return (
         <svg

@@ -10,7 +10,7 @@ export interface LemonDividerProps {
     style?: React.CSSProperties
 }
 
-/** A separator ideal for being sandwiched between LemonRows.
+/** A separator, ideal for being sandwiched between `LemonRow`s.
  *
  * Horizontal by default but can be used in vertical form too.
  */

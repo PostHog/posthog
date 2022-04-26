@@ -12,7 +12,15 @@ const allIcons: IconDefinition[] = Object.entries(icons).map(([key, Icon]) => ({
 
 export default {
     title: 'Lemon UI/Icons',
-    parameters: { options: { showPanel: false } },
+    parameters: {
+        options: { showPanel: false },
+        docs: {
+            description: {
+                component:
+                    'Lemon Icons are generally Material Icons with some matching in-house additions. All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square.',
+            },
+        },
+    },
 } as Meta
 
 export function Icons(): JSX.Element {

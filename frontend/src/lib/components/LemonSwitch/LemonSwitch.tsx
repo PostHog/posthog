@@ -18,6 +18,10 @@ export interface LemonSwitchProps
 /** Counter used for collision-less automatic switch IDs. */
 let switchCounter = 0
 
+/** `LemonRow`-based switch component for boolean settings where the change is immediately applied.
+ *
+ * If part of a form, use `LemonCheckbox` instead.
+ */
 export function LemonSwitch({
     id: rawId,
     onChange,

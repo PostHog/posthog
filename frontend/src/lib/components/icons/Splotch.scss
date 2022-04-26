@@ -2,25 +2,26 @@
     width: 1.5rem;
     height: 1.5rem;
     padding: 0.25rem;
-    .paint {
-        width: 1rem;
-        height: 1rem;
-        border-radius: var(--radius);
-        &.blue {
-            background: var(--blue);
-        }
-        &.purple {
-            background: var(--purple);
-        }
-        &.green {
-            background: var(--green);
-        }
-        &.black {
-            background: var(--text-default);
-        }
-        &.white {
-            background: #fff;
-            border: 1px solid var(--border);
-        }
+}
+
+.Splotch__paint {
+    width: 1rem;
+    height: 1rem;
+    border-radius: var(--radius);
+    .Splotch--blue & {
+        background: var(--blue);
+    }
+    .Splotch--purple & {
+        background: var(--purple);
+    }
+    .Splotch--green & {
+        background: var(--green);
+    }
+    .Splotch--black & {
+        background: var(--text-default);
+    }
+    .Splotch--white & {
+        background: #fff;
+        border: 1px solid var(--border);
     }
 }
