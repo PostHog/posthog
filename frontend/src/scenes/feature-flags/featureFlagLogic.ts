@@ -81,7 +81,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
     forms: ({ actions }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
-            validator: ({ key, filters }) => ({
+            errors: ({ key, filters }) => ({
                 key: !key
                     ? 'You need to set a key'
                     : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)

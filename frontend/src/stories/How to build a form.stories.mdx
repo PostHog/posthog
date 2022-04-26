@@ -15,27 +15,27 @@ For example, this `featureFlagLogic` already has a loader called `featureFlag`. 
 creating a new `forms` object:
 
 ```ts
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
-    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
-    props: {} as FeatureFlagLogicProps,
-    key: ({ id }) => id ?? 'new',
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>([
+    path(['scenes', 'feature-flags', 'featureFlagLogic']),
+    props(){} as FeatureFlagLogicProps),
+    key(({ id }) => id ?? 'new'),
 
-    loaders: ({ values, props }) => ({
+    loaders(({ values, props }) => ({
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagModel,
             {
                 loadFeatureFlag: () => api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`),
             },
         ],
-    }),
+    })),
 
-    forms: ({ actions }) => ({
+    forms(({ actions }) => ({
         featureFlag: {
             // not really needed again since loader already defines it
             defaults: { ...NEW_FLAG } as FeatureFlagModel,
 
             // sync validation, will be shown as errors in the form
-            validator: (featureFlag) => ({
+            errors: (featureFlag) => ({
                 key: !featureFlag.key ? 'Must have a key' : undefined,
             }),
 
@@ -53,7 +53,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 router.actions.replace(urls.featureFlag(featureFlag.id))
             },
         },
-    }),
+    })),
 })
 ```
 

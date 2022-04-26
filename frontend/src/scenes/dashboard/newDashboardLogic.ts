@@ -42,7 +42,7 @@ export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
     forms: ({ actions }) => ({
         newDashboard: {
             defaults: defaultFormValues,
-            validator: ({ name, restrictionLevel }) => ({
+            errors: ({ name, restrictionLevel }) => ({
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),

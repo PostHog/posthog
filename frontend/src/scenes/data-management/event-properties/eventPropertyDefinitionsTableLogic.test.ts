@@ -10,6 +10,7 @@ import {
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
 
 describe('eventPropertyDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventPropertyDefinitionsTableLogic.build>
@@ -70,6 +71,7 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             },
         })
         initKeaTests()
+        teamLogic.mount()
         organizationLogic.mount()
         await expectLogic(organizationLogic)
             .toFinishAllListeners()
