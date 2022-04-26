@@ -21,7 +21,7 @@ class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
         sync_execute("TRUNCATE TABLE person_distinct_id2")
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
-    @pytest.mark.bla
+    @pytest.mark.async_migrations
     def test_is_required(self):
         from posthog.client import sync_execute
 
