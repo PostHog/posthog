@@ -23,6 +23,11 @@ jobs:
         name: Async Migrations tests
         runs-on: ubuntu-latest
         steps:
+            - name: 'Checkout repo'
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 1
+
             - name: Start stack with Docker Compose
               shell: bash
               run: |
