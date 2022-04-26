@@ -96,7 +96,6 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @alexkim205
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
@@ -110,6 +109,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    BILLING_LIMIT: 'billing-limit', // owner: @timgl
     UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
     HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
     PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra

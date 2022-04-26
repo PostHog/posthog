@@ -1,15 +1,20 @@
-import { Alert, Button, Card } from 'antd'
-import { useValues } from 'kea'
+import { Alert, Button, Card, InputNumber } from 'antd'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 import defaultImg from 'public/plan-default.svg'
-import { Link } from 'lib/components/Link'
-import { IconOpenInNew } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
-import { billingLogic, UTM_TAGS } from './billingLogic'
+import { billingLogic } from './billingLogic'
 import { PlanInterface } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
     const { billing } = useValues(billingLogic)
+    const { setBillingLimit } = useActions(billingLogic)
+    const [billingLimitValue, setbillingLimitValue] = React.useState(billing?.billing_limit || 0)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showBillingLimit = featureFlags[FEATURE_FLAGS.BILLING_LIMIT]
 
     return (
         <>
@@ -43,13 +48,36 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                             <h3 className="l3" style={{ marginBottom: 8 }}>
                                 {plan.name}
                             </h3>
-                            <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
-                                More plan details <IconOpenInNew />
-                            </Link>
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
+                            {showBillingLimit && (
+                                <div style={{ marginTop: 8, marginBottom: 8, alignItems: 'center', display: 'flex' }}>
+                                    Set monthly billing limit to{' '}
+                                    <InputNumber
+                                        style={{ width: 250, marginLeft: 8, marginRight: 8 }}
+                                        onChange={(value): void => {
+                                            setbillingLimitValue(value)
+                                        }}
+                                        value={billingLimitValue}
+                                        min={0}
+                                        step={10}
+                                        addonBefore="$"
+                                        addonAfter="USD / MONTH"
+                                    />{' '}
+                                    <Button
+                                        type="primary"
+                                        onClick={() => {
+                                            if (billing) {
+                                                setBillingLimit({ ...billing, billing_limit: billingLimitValue })
+                                            }
+                                        }}
+                                    >
+                                        Submit
+                                    </Button>
+                                </div>
+                            )}
                             <div className="text-muted mt">
                                 Click on <b>manage subscription</b> to cancel your billing agreement,{' '}
-                                <b>update your card</b> or other billing information,
+                                <b>update your card</b> or other billing information.
                             </div>
                         </div>
                         <div>

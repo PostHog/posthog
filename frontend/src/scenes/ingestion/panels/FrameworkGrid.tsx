@@ -108,12 +108,11 @@ function FrameworkTabs(): JSX.Element {
 
 export function FrameworkGrid(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
 
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
             onBack={() => {
                 setPlatform(null)
                 setFramework(null)
