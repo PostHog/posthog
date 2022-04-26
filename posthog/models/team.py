@@ -196,7 +196,7 @@ class Team(UUIDClassicModel):
     def _timezone_feature_flag_enabled(self) -> bool:
         distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
         return posthoganalytics.feature_enabled(
-            "timezone-for-charts", distinct_id, groups={"organization": self.organization_id}
+            "timezone-for-charts", distinct_id, groups={"organization": str(self.organization_id)}
         )
 
     def __str__(self):

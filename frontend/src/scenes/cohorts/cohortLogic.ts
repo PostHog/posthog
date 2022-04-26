@@ -155,6 +155,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
+                        actions.checkIfFinishedCalculating(cohort)
                         return processCohortOnSet(cohort)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
@@ -189,7 +190,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })
-                    actions.checkIfFinishedCalculating(cohort)
                     return cohort
                 },
             },
@@ -233,6 +233,10 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 }
             }
         },
+    }),
+
+    actionToUrl: ({ values }) => ({
+        saveCohortSuccess: () => urls.cohort(values.cohort.id),
     }),
 
     events: ({ values, actions, props }) => ({

@@ -130,6 +130,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CONVERSION_BUFFER_ENABLED: boolean
+    BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
 }
@@ -365,6 +367,7 @@ export type WorkerMethods = {
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
 }
 
 export type VMMethods = {
@@ -895,4 +898,14 @@ export enum OrganizationMembershipLevel {
 export enum PluginServerMode {
     Ingestion = 'INGESTION',
     Runner = 'RUNNER',
+}
+
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
 }

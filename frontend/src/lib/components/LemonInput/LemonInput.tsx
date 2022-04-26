@@ -5,7 +5,12 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export interface LemonInputPropsBase {
+export interface LemonInputProps
+    extends Omit<
+        React.InputHTMLAttributes<HTMLInputElement>,
+        'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
+    > {
+    ref?: React.Ref<HTMLInputElement>
     id?: string
     value?: string
     defaultValue?: string
@@ -22,15 +27,6 @@ export interface LemonInputPropsBase {
     sideIcon?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
-}
-
-export interface LemonInputProps
-    extends Omit<
-            React.InputHTMLAttributes<HTMLInputElement>,
-            'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
-        >,
-        LemonInputPropsBase {
-    ref?: React.Ref<HTMLInputElement>
 }
 
 export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
