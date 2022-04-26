@@ -573,12 +573,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         p1 = Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
+            properties={"$some_propX": "something", "$another_propX": "something"},
         )
         p2 = Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["2"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
+            properties={"$some_propX": "something", "$another_propX": "something"},
         )
 
         cohort1 = Cohort.objects.create(
@@ -586,8 +586,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[
                 {
                     "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
+                        {"key": "$some_propX", "value": "something", "type": "person"},
+                        {"key": "$another_propX", "value": "something", "type": "person"},
                     ]
                 }
             ],
@@ -596,7 +596,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch(pending_version=0)
 
-        p2.properties = {"$some_prop": "another", "$another_prop": "another"}
+        p2.properties = {"$some_propX": "another", "$another_propX": "another"}
         p2.save()
 
         cohort1.calculate_people_ch(pending_version=0)
