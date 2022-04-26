@@ -145,11 +145,11 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    raise ValueError("Cohort group needs properties or action_id or event_id")
+                    return PropertyGroup(PropertyOperatorType.OR, [])
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        raise ValueError("Cohort has no properties")
+        return PropertyGroup(PropertyOperatorType.OR, [])
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types

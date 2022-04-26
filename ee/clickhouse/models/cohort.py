@@ -38,7 +38,10 @@ def format_person_query(
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
 
-    # TODO: figure out how to handle empty cohorts, raise here or not?
+    if not cohort.properties.values:
+        # No person can match an empty cohort
+        return "0 = 19", {}
+
     from ee.clickhouse.queries.cohort_query import CohortQuery
 
     query, params = CohortQuery(
