@@ -1,7 +1,6 @@
 import random
 from datetime import timedelta
 from time import sleep
-from uuid import uuid4
 
 from freezegun import freeze_time
 
@@ -10,15 +9,14 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
-from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event
 
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
@@ -26,14 +24,7 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
 ]
 
 
-def _create_event(**kwargs):
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return pk
-
-
-class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
+class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         self.recreate_database()
         return super().setUp()
