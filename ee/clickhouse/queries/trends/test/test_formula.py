@@ -133,9 +133,6 @@ class TestFormula(APIBaseTest):
         data = self._run({"date_from": "-2m", "interval": "month"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(data, [0.0, 0.0, 2160.0])
 
-    def test_interval_rounding(self):
-        pass
-
     def test_formula(self):
         self.assertEqual(self._run({"formula": "A - B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0])
         self.assertEqual(self._run({"formula": "A * B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0])
