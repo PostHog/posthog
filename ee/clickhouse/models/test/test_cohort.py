@@ -651,8 +651,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         ]
         cohort1.save()
 
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            cohort1.calculate_people_ch(pending_version=0)
+        cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",

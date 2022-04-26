@@ -96,13 +96,6 @@ class Cohort(models.Model):
 
     @property
     def properties(self):
-        """
-        Kinds of errors I've seen so far:
-        - [X] negation for the case when count=0 and operator=lte or eq
-        - [ ] Wherever we freezetime, things don't work anymore because that doesn't trickle down to clickhouse, and our new CH queries use now()
-        - [X] cohorts within cohorts
-        - [ ] Cohorts with start_date / end_date. This isn't supported in new version really, but also, on metabase, no cohorts have this. So will deprecate this fully now.
-        """
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
