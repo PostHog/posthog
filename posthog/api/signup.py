@@ -416,12 +416,12 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     else:
         # JIT Provisioning?
         user = process_social_domain_jit_provisioning_signup(email, full_name)
-        logger.info(f"social_create_user_jit_user", full_name=full_name, email=email, user=user.id)
+        logger.info(f"social_create_user_jit_user", full_name=full_name, email=email, user=user.id if user else None)
         if user:
             backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
 
         if not user:
-            logger.info(f"social_create_user_jit_failed", full_name=full_name, email=email, user=user.id)
+            logger.info(f"social_create_user_jit_failed", full_name=full_name, email=email)
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)
             if not organization_name or email_opt_in is None:
