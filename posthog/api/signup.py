@@ -6,7 +6,6 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
@@ -318,9 +317,7 @@ def finish_social_signup(request):
     return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
 
 
-def process_social_invite_signup(
-    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str
-) -> Union[HttpResponse, User]:
+def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization",
@@ -346,9 +343,9 @@ def process_social_invite_signup(
     return user
 
 
-def process_social_domain_jit_provisioning_signup(email: str, full_name: str) -> Optional[User]:
-    user: Optional[User] = None
-
+def process_social_domain_jit_provisioning_signup(
+    email: str, full_name: str, user: Optional[User] = None
+) -> Optional[User]:
     # Check if the user is on a whitelisted domain
     domain = email.split("@")[-1]
     try:
@@ -365,16 +362,26 @@ def process_social_domain_jit_provisioning_signup(email: str, full_name: str) ->
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
-            user = User.objects.create_and_join(
-                organization=domain_instance.organization, email=email, password=None, first_name=full_name
-            )
-            user.join(organization=domain_instance.organization)
-            logger.info(
-                f"process_social_domain_jit_provisioning_join_complete",
-                domain=domain,
-                user=user.email,
-                organization=domain_instance.organization.id,
-            )
+            if not user:
+                user = User.objects.create_and_join(
+                    organization=domain_instance.organization, email=email, password=None, first_name=full_name
+                )
+                user.join(organization=domain_instance.organization)
+                logger.info(
+                    f"process_social_domain_jit_provisioning_join_complete",
+                    domain=domain,
+                    user=user.email,
+                    organization=domain_instance.organization.id,
+                )
+            else:
+                if not user.organizations.filter(pk=domain_instance.organization.pk).exists():
+                    user.join(organization=domain_instance.organization)
+                    logger.info(
+                        f"process_social_domain_jit_provisioning_join_existing",
+                        domain=domain,
+                        user=user.email,
+                        organization=domain_instance.organization.id,
+                    )
 
     return user
 
@@ -383,7 +390,9 @@ def process_social_domain_jit_provisioning_signup(email: str, full_name: str) ->
 def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
     if user:
         logger.info(f"social_create_user_is_not_new")
+        process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
         return {"is_new": False}
+
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
     full_name = (
