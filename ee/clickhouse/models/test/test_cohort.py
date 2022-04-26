@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from django.utils import timezone
+from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.event import create_event
@@ -570,34 +571,36 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
     def test_cohortpeople_prop_changed(self):
-        p1 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["1"],
-            properties={"$some_propX": "something", "$another_propX": "something"},
-        )
-        p2 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["2"],
-            properties={"$some_propX": "something", "$another_propX": "something"},
-        )
+        with freeze_time((datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")):
+            p1 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["1"],
+                properties={"$some_propX": "something", "$another_propX": "something"},
+            )
+            p2 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["2"],
+                properties={"$some_propX": "something", "$another_propX": "something"},
+            )
 
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {"key": "$some_propX", "value": "something", "type": "person"},
-                        {"key": "$another_propX", "value": "something", "type": "person"},
-                    ]
-                }
-            ],
-            name="cohort1",
-        )
+            cohort1 = Cohort.objects.create(
+                team=self.team,
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "$some_propX", "value": "something", "type": "person"},
+                            {"key": "$another_propX", "value": "something", "type": "person"},
+                        ]
+                    }
+                ],
+                name="cohort1",
+            )
 
         cohort1.calculate_people_ch(pending_version=0)
 
-        p2.properties = {"$some_propX": "another", "$another_propX": "another"}
-        p2.save()
+        with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
+            p2.properties = {"$some_propX": "another", "$another_propX": "another"}
+            p2.save()
 
         cohort1.calculate_people_ch(pending_version=0)
 
