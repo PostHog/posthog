@@ -1,6 +1,5 @@
 import React from 'react'
-import { ComponentMeta } from '@storybook/react'
-
+import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
 export default {
@@ -8,13 +7,14 @@ export default {
     component: LemonCheckbox,
 } as ComponentMeta<typeof LemonCheckbox>
 
-export function WithoutLabel(args: LemonCheckboxProps): JSX.Element {
-    return <LemonCheckbox {...args} />
+const Template: ComponentStory<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
+    return <LemonCheckbox {...props} />
 }
 
-export function WithLabel(args: LemonCheckboxProps): JSX.Element {
-    return <LemonCheckbox {...args} />
+export const Basic = Template.bind({})
+Basic.args = {
+    label: 'Check this out',
 }
-WithLabel.args = {
-    label: 'Check this',
-}
+
+export const Standalone = Template.bind({})
+Standalone.args = {}
