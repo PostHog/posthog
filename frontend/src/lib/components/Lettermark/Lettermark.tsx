@@ -3,6 +3,7 @@ import React from 'react'
 import './Lettermark.scss'
 
 export enum LettermarkColor {
+    Default = 'default',
     Gray = 'gray',
 }
 
@@ -16,7 +17,7 @@ export interface LettermarkProps {
  *
  * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
  */
-export function Lettermark({ name, color }: LettermarkProps): JSX.Element {
+export function Lettermark({ name, color = LettermarkColor.Default }: LettermarkProps): JSX.Element {
     const representation = name
         ? typeof name === 'number'
             ? String(Math.floor(name))
@@ -24,7 +25,10 @@ export function Lettermark({ name, color }: LettermarkProps): JSX.Element {
         : '?'
 
     return (
-        <div className={clsx('Lettermark', color && `Lettermark--${color}`)} title={String(name)}>
+        <div
+            className={clsx('Lettermark', color && color !== LettermarkColor.Default && `Lettermark--${color}`)}
+            title={String(name)}
+        >
             {representation}
         </div>
     )
