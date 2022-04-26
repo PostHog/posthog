@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 import structlog
 from django.conf import settings
@@ -95,7 +95,7 @@ class Cohort(models.Model):
     groups: models.JSONField = models.JSONField(default=list)
 
     @property
-    def properties(self):
+    def properties(self) -> PropertyGroup:
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -145,11 +145,11 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.OR, [])
+                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        return PropertyGroup(PropertyOperatorType.OR, [])
+        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types
