@@ -164,7 +164,7 @@ class CohortQuery(EnterpriseEventQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioural stuff to do
             # thus, use personQuery directly
-            return self._person_query.get_query()
+            return self._person_query.get_query(prepend=self._cohort_pk)
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()
@@ -176,7 +176,7 @@ class CohortQuery(EnterpriseEventQuery):
         subq.append((behavior_subquery, behavior_query_alias))
         self.params.update(behavior_subquery_params)
 
-        person_query, person_params, person_query_alias = self._get_persons_query()
+        person_query, person_params, person_query_alias = self._get_persons_query(prepend=str(self._cohort_pk))
         subq.append((person_query, person_query_alias))
         self.params.update(person_params)
 
@@ -244,10 +244,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
-    def _get_persons_query(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_persons_query(self, prepend: str = "") -> Tuple[str, Dict[str, Any], str]:
         query, params = "", {}
         if self._should_join_persons:
-            person_query, person_params = self._person_query.get_query()
+            person_query, person_params = self._person_query.get_query(prepend=prepend)
             person_query = f"SELECT *, id AS person_id FROM ({person_query})"
 
             query, params = person_query, person_params
