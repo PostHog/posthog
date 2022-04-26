@@ -345,17 +345,16 @@ class TestUpdateCache(APIBaseTest):
 
         update_cached_items()
 
-        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item1, dashboard=dashboard1).filters_hash)
-        number_of_results = len(cache_result["result"][0]["data"])
-        self.assertEqual(number_of_results, 15)
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item1, dashboard=dashboard1), number_of_days_in_results=15
+        )
 
-        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item2, dashboard=dashboard2).filters_hash)
-        results = len(cache_result["result"][0]["data"])
-        self.assertEqual(results, 31)
-
-        cache_result = get_safe_cache(DashboardTile.objects.get(insight=item3, dashboard=dashboard3).filters_hash)
-        of_results = len(cache_result["result"][0]["data"])
-        self.assertEqual(of_results, 8)
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item2, dashboard=dashboard2), number_of_days_in_results=31
+        )
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item3, dashboard=dashboard3), number_of_days_in_results=8
+        )
 
         self.assertEqual(
             Insight.objects.all().order_by("id")[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
@@ -366,6 +365,11 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(
             Insight.objects.all().order_by("id")[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
         )
+
+    def _assert_number_of_days_in_results(self, dashboard_tile: DashboardTile, number_of_days_in_results):
+        cache_result = get_safe_cache(dashboard_tile.filters_hash)
+        number_of_results = len(cache_result["result"][0]["data"])
+        self.assertEqual(number_of_results, number_of_days_in_results)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @skip(
