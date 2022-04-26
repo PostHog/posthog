@@ -283,13 +283,13 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
         size_before=before_count[0][0],
     )
 
-    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
-        distinct_query="AND " + cohort_filter,
-        query="",
-        offset="",
-        limit="",
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
-    )
+    # cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
+    #     distinct_query="AND " + cohort_filter,
+    #     query="",
+    #     offset="",
+    #     limit="",
+    #     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+    # )
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

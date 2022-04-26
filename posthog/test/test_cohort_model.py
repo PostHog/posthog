@@ -34,15 +34,15 @@ class TestCohort(BaseTest):
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_propX": "something"}
         )
         person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_propX": "something"}
         )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            groups=[{"properties": [{"key": "$some_propX", "value": "something", "type": "person"}]}],
             name="cohort1",
         )
 
@@ -58,7 +58,9 @@ class TestCohort(BaseTest):
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]}],
+            name="cohort1",
         )
 
         cohort2.calculate_people_ch(pending_version=0)
@@ -73,7 +75,9 @@ class TestCohort(BaseTest):
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
         )
 
         cohort.calculate_people_ch(pending_version=0)
@@ -133,6 +137,7 @@ class TestCohort(BaseTest):
                                 "operator_value": "3",
                                 "time_interval": "day",
                                 "time_value": "4",
+                                "negation": False,
                             }
                         ],
                     },
