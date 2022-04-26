@@ -54,12 +54,7 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                     className="StepBars__bar"
                     style={
                         {
-                            '--series-color': getSeriesColor(
-                                breakdownIndex,
-                                step.nested_breakdown?.length === 1,
-                                undefined,
-                                step.nested_breakdown?.length
-                            ),
+                            '--series-color': getSeriesColor(breakdownIndex, undefined, step.nested_breakdown?.length),
                             '--conversion-rate': `${breakdown.conversionRates.fromBasisStep * 100}%`,
                         } as StepBarCSSProperties
                     }

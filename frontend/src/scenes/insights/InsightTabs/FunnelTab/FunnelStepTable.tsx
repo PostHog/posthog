@@ -64,7 +64,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                     getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
                                 ]
                         )
-                        const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
+                        const color = getSeriesColor(breakdown?.breakdownIndex)
 
                         return renderGraphAndHeader(
                             rowIndex,
@@ -124,7 +124,7 @@ export function FunnelStepTable(): JSX.Element | null {
 
                 _columns.push({
                     render: function RenderLabel({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
-                        const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
+                        const color = getSeriesColor(breakdown?.breakdownIndex)
 
                         return renderGraphAndHeader(
                             rowIndex,
@@ -382,7 +382,7 @@ export function FunnelStepTable(): JSX.Element | null {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
-                    const color = getSeriesColor(step?.breakdownIndex, flattenedBreakdowns.length === 1)
+                    const color = getSeriesColor(step?.breakdownIndex)
 
                     // Breakdown parent
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {

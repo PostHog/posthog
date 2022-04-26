@@ -59,15 +59,7 @@ export function getChartColors(numSeries?: number, injectLightColors: boolean = 
     return colors
 }
 
-export function getSeriesColor(
-    index?: number,
-    isSingleSeries: boolean = false,
-    fallbackColor?: string,
-    numSeries?: number
-): string {
-    if (isSingleSeries) {
-        return 'var(--primary)'
-    }
+export function getSeriesColor(index?: number, fallbackColor?: string, numSeries?: number): string {
     if (typeof index === 'number' && index >= 0) {
         return getChartColors(numSeries)[index]
     }

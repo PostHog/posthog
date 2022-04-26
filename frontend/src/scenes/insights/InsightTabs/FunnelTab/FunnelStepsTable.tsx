@@ -190,14 +190,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             dataSource={flattenedBreakdowns}
             columns={columnsGrouped}
             loading={insightLoading}
-            rowRibbonColor={(series) =>
-                getSeriesColor(
-                    series?.breakdownIndex,
-                    flattenedBreakdowns.length === 1,
-                    undefined,
-                    flattenedBreakdowns.length
-                )
-            }
+            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex, undefined, flattenedBreakdowns.length)}
             rowKey="breakdownIndex"
         />
     )

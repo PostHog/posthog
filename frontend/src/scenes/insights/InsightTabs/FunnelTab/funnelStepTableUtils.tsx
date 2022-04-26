@@ -15,7 +15,7 @@ import { BreakdownBarGroupWrapper } from 'scenes/insights/InsightTabs/FunnelTab/
 import { getSeriesColor } from 'lib/colors'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
-    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, false, fallbackColor)
+    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, fallbackColor)
 }
 
 export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
