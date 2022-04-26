@@ -15,8 +15,8 @@ import { countryVectors } from './countryVectors'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
-/** --primary in HSL for saturation mixing */
-const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
+/** --data-lilac in HSL for saturation mixing */
+const LILAC_HSL: [number, number, number] = [248, 88, 70]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const TOOLTIP_OFFSET_PX = 8
 
@@ -132,7 +132,7 @@ const WorldMapSVG = React.memo(
                         const saturation =
                             SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
                         const fill = aggregatedValue
-                            ? `hsl(${PRIMARY_HSL[0]} ${PRIMARY_HSL[1]}% ${100 - (100 - PRIMARY_HSL[2]) * saturation}%)`
+                            ? `hsl(${LILAC_HSL[0]} ${LILAC_HSL[1]}% ${100 - (100 - LILAC_HSL[2]) * saturation}%)`
                             : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,

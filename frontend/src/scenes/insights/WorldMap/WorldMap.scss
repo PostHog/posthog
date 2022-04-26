@@ -2,13 +2,15 @@
     padding: 1rem 0;
     width: 100%;
     color: hsl(0, 0, 85%); // Alpha-less equivalent of --border
-    .landxx {
+    > * {
+        // Each top-level WorldMap SVG element is a territory
+        transition: 100ms ease;
         fill: currentColor;
         stroke: var(--bg-light);
         stroke-width: 0.125rem;
         fill-rule: evenodd;
         &:hover {
-            color: var(--primary-active) !important;
+            color: var(--data-lilac-hover) !important;
         }
     }
 }
