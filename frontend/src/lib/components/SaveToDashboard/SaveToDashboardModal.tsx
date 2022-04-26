@@ -57,10 +57,23 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             lemonToast.success('Insight added to dashboard', {
                 button: {
                     label: 'View dashboard',
-                    action: () => router.actions.push(urls.dashboard(dashboardId)),
+                    action: () => router.actions.push(urls.dashboard(dashboardToAdd)),
                 },
             })
         })
+    }
+
+    async function removeFromDashboard(dashboardToRemove: number): Promise<void> {
+        updateInsight(
+            {
+                ...insight,
+                dashboards: (insight.dashboards || []).filter((d) => d !== dashboardToRemove),
+            },
+            () => {
+                reportSavedInsightToDashboard()
+                lemonToast.success('Insight removed from dashboard')
+            }
+        )
     }
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
@@ -76,7 +89,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                     compact={true}
                     onClick={(e) => {
                         e.preventDefault()
-                        isAlreadyOnDashboard ? () => {} : addToDashboard(dashboard.id)
+                        isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
                     }}
                 >
                     {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
