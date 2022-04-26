@@ -329,14 +329,9 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
-            return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
+            raise ValidationError("Team does not exist", code="invalid_invite", params={"source": "social_create_user"})
 
-    try:
-        invite.validate(user=None, email=email)
-    except exceptions.ValidationError as e:
-        return redirect(
-            f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
-        )
+    invite.validate(user=None, email=email)
 
     try:
         user = strategy.create_user(email=email, first_name=full_name, password=None)
@@ -344,7 +339,7 @@ def process_social_invite_signup(
         capture_exception(e)
         message = "Account unable to be created. This account may already exist. Please try again"
         " or use different credentials."
-        return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
+        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
     invite.use(user, prevalidated=True)
 
