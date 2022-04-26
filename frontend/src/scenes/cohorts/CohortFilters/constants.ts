@@ -128,9 +128,6 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             [BehavioralLifecycleType.StartPerformEventAgain]: {
                 label: 'Started doing an event again',
             },
-            [BehavioralLifecycleType.PerformEventOnce]: {
-                label: 'Completed an event once',
-            },
         },
     },
     [FilterGroupTypes.TimeUnits]: {
@@ -407,6 +404,143 @@ export const FILTER_GRAMMARS: Record<BehavioralFilterType, AtomGroup> = {
     },
     [BehavioralCohortType.InCohort]: {
         type: BehavioralCohortType.InCohort,
-        atoms: [],
+        atoms: [
+            {
+                type: FilterTypes.CohortValues,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralCohortType.NotInCohort]: {
+        type: BehavioralCohortType.NotInCohort,
+        atoms: [
+            {
+                type: FilterTypes.CohortValues,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralLifecycleType.PerformEventFirstTime]: {
+        type: BehavioralLifecycleType.PerformEventFirstTime,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralLifecycleType.PerformEventRegularly]: {
+        type: BehavioralLifecycleType.PerformEventRegularly,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.MathOperator,
+            },
+            {
+                type: FilterTypes.NumberTicker,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'times per',
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralLifecycleType.StopPerformEvent]: {
+        type: BehavioralLifecycleType.StopPerformEvent,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'but not in the previous',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralLifecycleType.StartPerformEventAgain]: {
+        type: BehavioralLifecycleType.StartPerformEventAgain,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'but not in the previous',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
     },
 }

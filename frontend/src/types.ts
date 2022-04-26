@@ -1733,7 +1733,6 @@ export enum BehavioralLifecycleType {
     PerformEventRegularly = 'performed_event_regularly',
     StopPerformEvent = 'stopped_performing_event',
     StartPerformEventAgain = 'restarted_performing_event',
-    PerformEventOnce = 'performed_event_once',
 }
 
 export enum TimeUnitType {

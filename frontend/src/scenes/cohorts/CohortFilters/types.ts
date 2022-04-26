@@ -15,6 +15,7 @@ export enum FilterTypes {
     EventPropertyValues = 'eventPropertyValues',
     Number = 'number',
     NumberTicker = 'numberTicker',
+    CohortValues = 'cohortValues',
 }
 
 export enum FilterGroupTypes {

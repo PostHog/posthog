@@ -122,9 +122,6 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             [BehavioralLifecycleType.StartPerformEventAgain]: {
                 label: 'Started doing an event again',
             },
-            [BehavioralLifecycleType.PerformEventOnce]: {
-                label: 'Completed an event once',
-            },
         },
     },
     [FilterGroupTypes.TimeUnits]: {
