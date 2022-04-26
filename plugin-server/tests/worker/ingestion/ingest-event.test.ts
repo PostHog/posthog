@@ -140,6 +140,10 @@ describe('ingestEvent', () => {
             hub.CONVERSION_BUFFER_ENABLED = false
         })
 
+        afterAll(() => {
+            jest.clearAllMocks()
+        })
+
         it('events from recently created persons are sent to the buffer', async () => {
             hub.eventsProcessor.produceEventToBuffer = jest.fn()
 
