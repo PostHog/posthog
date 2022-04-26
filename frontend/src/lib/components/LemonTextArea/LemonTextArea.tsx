@@ -104,7 +104,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
     return (
         <LemonRow {...rowProps}>
-            <TextareaAutosize minRows={5} {...props} ref={textRef} />
+            <TextareaAutosize minRows={3} {...props} ref={textRef} />
         </LemonRow>
     )
 })

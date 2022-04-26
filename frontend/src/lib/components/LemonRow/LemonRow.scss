@@ -129,10 +129,6 @@
     font-size: 1.5rem;
     color: var(--muted-alt);
 
-    .LemonRow--full-width &:not(:first-child):last-child {
-        margin-right: -0.5rem;
-    }
-
     &.LemonRow__icon--relaxed-width {
         width: auto;
     }
