@@ -104,6 +104,12 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         required=False,
         queryset=Dashboard.objects.filter(deleted=False),
     )
+    filters_hash = serializers.CharField(
+        read_only=True,
+        help_text="""A hash of the filters that generate this insight.
+        Used as a cache key for this result.
+        A different hash will be returned if loading the insight on a dashboard that has filters.""",
+    )
 
     class Meta:
         model = Insight

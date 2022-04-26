@@ -373,7 +373,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.",},
+            {"name": "insight new name", "description": "Internal system metrics."},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -388,6 +388,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
+
+    def test_cannot_set_filters_hash_via_api(self):
+        insight_id, insight = self._create_insight({"name": "should not update the filters_hash"})
+        original_filters_hash = insight["filters_hash"]
+        self.assertIsNotNone(original_filters_hash)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters_hash": "should not update the value"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
