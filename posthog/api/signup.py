@@ -366,22 +366,20 @@ def process_social_domain_jit_provisioning_signup(
                 user = User.objects.create_and_join(
                     organization=domain_instance.organization, email=email, password=None, first_name=full_name
                 )
-                user.join(organization=domain_instance.organization)
                 logger.info(
                     f"process_social_domain_jit_provisioning_join_complete",
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization.id,
                 )
-            else:
-                if not user.organizations.filter(pk=domain_instance.organization.pk).exists():
-                    user.join(organization=domain_instance.organization)
-                    logger.info(
-                        f"process_social_domain_jit_provisioning_join_existing",
-                        domain=domain,
-                        user=user.email,
-                        organization=domain_instance.organization.id,
-                    )
+            elif not user.organizations.filter(pk=domain_instance.organization.pk).exists():
+                user.join(organization=domain_instance.organization)
+                logger.info(
+                    f"process_social_domain_jit_provisioning_join_existing",
+                    domain=domain,
+                    user=user.email,
+                    organization=domain_instance.organization.id,
+                )
 
     return user
 
