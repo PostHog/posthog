@@ -1,6 +1,19 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, PropsWithChildren } from 'react'
 import './icons.scss'
+
+interface IconWithCountProps {
+    count: number
+}
+
+export function IconWithCount({ count, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+    return (
+        <div style={{ position: 'relative' }}>
+            {children}
+            <div className="icon-count-bubble">{count}</div>
+        </div>
+    )
+}
 
 export function IconJavascript({ style }: { style?: CSSProperties }): JSX.Element {
     return (

@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as icons from './icons'
 import { Meta } from '@storybook/react'
 import { Table } from 'antd'
+import { IconGauge, IconWithCount } from './icons'
 
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
@@ -45,5 +46,22 @@ export function Icons(): JSX.Element {
                 },
             ]}
         />
+    )
+}
+
+export function CountedIcon(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+                boxSizing: 'content-box',
+            }}
+        >
+            <IconWithCount count={3}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
     )
 }
