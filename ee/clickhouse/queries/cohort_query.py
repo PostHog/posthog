@@ -344,9 +344,6 @@ class CohortQuery(EnterpriseEventQuery):
             # we treat it as satisfied for all persons
             return "11 = 11", {}
         else:
-            # TODO: format_filter_query uses the deprecated way of building cohorts
-            # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
-            # This function will only work for old cohorts right now
             person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
             return f"id IN ({person_id_query})", cohort_filter_params
 
