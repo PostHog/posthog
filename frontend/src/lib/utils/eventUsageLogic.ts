@@ -318,6 +318,8 @@ export const eventUsageLogic = kea<
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
+        reportRemovedInsightFromDashboard: true,
+        reportRemovedInsightFromAllDashboards: true,
         reportInsightsTabReset: true,
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
@@ -782,6 +784,12 @@ export const eventUsageLogic = kea<
         },
         reportSavedInsightToDashboard: async () => {
             posthog.capture('saved insight to dashboard')
+        },
+        reportRemovedInsightFromDashboard: async () => {
+            posthog.capture('removed insight from dashboard')
+        },
+        reportRemovedInsightFromAllDashboards: async () => {
+            posthog.capture('removed insight from all dashboards')
         },
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')

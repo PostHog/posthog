@@ -1,4 +1,9 @@
 .add-to-dashboard-modal {
+    .clickable-text {
+        cursor: pointer;
+        color: var(--primary);
+    }
+
     .ant-modal-content {
         padding: 16px;
     }

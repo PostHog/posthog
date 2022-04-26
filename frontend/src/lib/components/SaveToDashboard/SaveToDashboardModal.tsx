@@ -33,7 +33,8 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     const { dashboardId, searchQuery, currentDashboards, orderedDashboards } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     // const { addNewDashboard, setDashboardId } = useActions(logic)
-    const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
+    const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard, reportRemovedInsightFromAllDashboards } =
+        useActions(eventUsageLogic)
     const { insightLoading } = useValues(insightLogic)
     const { updateInsight } = useActions(insightLogic)
 
@@ -70,8 +71,21 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 dashboards: (insight.dashboards || []).filter((d) => d !== dashboardToRemove),
             },
             () => {
-                reportSavedInsightToDashboard()
+                reportRemovedInsightFromDashboard()
                 lemonToast.success('Insight removed from dashboard')
+            }
+        )
+    }
+
+    async function removeFromAllDashboards(): Promise<void> {
+        updateInsight(
+            {
+                ...insight,
+                dashboards: [],
+            },
+            () => {
+                reportRemovedInsightFromAllDashboards()
+                lemonToast.success('Insight removed from all dashboards')
             }
         )
     }
@@ -127,7 +141,16 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 onChange={(newValue) => setSearchQuery(newValue)}
             />
             <div className={'existing-links-info'}>
-                This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards (remove all)
+                This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards
+                {insight.dashboards?.length ? (
+                    <>
+                        &nbsp;(
+                        <span className="clickable-text" onClick={() => removeFromAllDashboards()}>
+                            remove all
+                        </span>
+                        )
+                    </>
+                ) : null}
             </div>
             <div className="list-wrapper">
                 <AutoSizer>
