@@ -208,7 +208,15 @@ class CohortQuery(EnterpriseEventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 # TODO: decide when to use inner join
-                q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                if (
+                    subq_alias == self.PERSON_TABLE_ALIAS
+                    and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                    and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                ):
+                    q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                else:
+                    q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+
                 fields = if_condition(
                     f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
                     f"{subq_alias}.person_id",

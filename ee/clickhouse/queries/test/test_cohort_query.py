@@ -137,6 +137,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         # Since all props should be pushed down here, there should be no full outer join!
+        self.assertTrue("FULL OUTER JOIN" not in q)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1068,6 +1069,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    @snapshot_clickhouse_queries
     def test_cohort_filter_with_extra(self):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"}
