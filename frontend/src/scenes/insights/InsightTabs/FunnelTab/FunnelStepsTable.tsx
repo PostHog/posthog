@@ -93,23 +93,8 @@ export function FunnelStepsTable(): JSX.Element | null {
                 },
                 {
                     title: 'Total conversion',
-                    render: function RenderTotalConversion(
-                        _: void,
-                        breakdown: FlattenedFunnelStepByBreakdown
-                    ): JSX.Element | string {
-                        return getSignificanceFromBreakdownStep(breakdown, 0)?.total ? (
-                            <LemonRow
-                                className="significance-highlight"
-                                tooltip="Significantly different from other breakdown values"
-                                icon={<IconFlag />}
-                                compact
-                            >
-                                {formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true)}
-                            </LemonRow>
-                        ) : (
-                            formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true)
-                        )
-                    },
+                    render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
+                        formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true),
                     align: 'right',
                 },
             ],
@@ -126,7 +111,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             ),
             children: [
                 {
-                    title: 'Completed',
+                    title: stepIndex === 0 ? 'Entered' : 'Converted',
                     render: function RenderCompleted(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -146,38 +131,11 @@ export function FunnelStepsTable(): JSX.Element | null {
 
                     align: 'right',
                 },
-                {
-                    title: 'Rate',
-                    render: function RenderRate(
-                        _: void,
-                        breakdown: FlattenedFunnelStepByBreakdown
-                    ): JSX.Element | string {
-                        return getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
-                            <LemonRow
-                                className="significance-highlight"
-                                tooltip="Significantly different from other breakdown values"
-                                icon={<IconFlag />}
-                                compact
-                            >
-                                {formatDisplayPercentage(
-                                    breakdown.steps?.[step.order]?.conversionRates.fromBasisStep ?? 0,
-                                    true
-                                )}
-                            </LemonRow>
-                        ) : (
-                            formatDisplayPercentage(
-                                breakdown.steps?.[step.order]?.conversionRates.fromBasisStep ?? 0,
-                                true
-                            )
-                        )
-                    },
-                    align: 'right',
-                },
                 ...(stepIndex === 0
                     ? []
                     : [
                           {
-                              title: 'Dropped',
+                              title: 'Dropped off',
                               render: function RenderDropped(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
@@ -198,23 +156,69 @@ export function FunnelStepsTable(): JSX.Element | null {
                               },
                               align: 'right',
                           },
+                      ]),
+                {
+                    title: 'Conversion so far',
+                    render: function RenderRate(
+                        _: void,
+                        breakdown: FlattenedFunnelStepByBreakdown
+                    ): JSX.Element | string {
+                        return getSignificanceFromBreakdownStep(breakdown, step.order)?.total ? (
+                            <LemonRow
+                                className="significance-highlight"
+                                tooltip="Significantly different from other breakdown values"
+                                icon={<IconFlag />}
+                                compact
+                            >
+                                {formatDisplayPercentage(
+                                    breakdown.steps?.[step.order]?.conversionRates.total ?? 0,
+                                    true
+                                )}
+                            </LemonRow>
+                        ) : (
+                            formatDisplayPercentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, true)
+                        )
+                    },
+                    align: 'right',
+                },
+                ...(stepIndex === 0
+                    ? []
+                    : [
                           {
-                              title: 'Rate',
-                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                                  formatDisplayPercentage(
-                                      1 - (breakdown.steps?.[stepIndex]?.conversionRates.fromBasisStep ?? 0),
-                                      true
-                                  ),
+                              title: 'Conversion from previous',
+                              render: function RenderRate(
+                                  _: void,
+                                  breakdown: FlattenedFunnelStepByBreakdown
+                              ): JSX.Element | string {
+                                  return getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
+                                      <LemonRow
+                                          className="significance-highlight"
+                                          tooltip="Significantly different from other breakdown values"
+                                          icon={<IconFlag />}
+                                          compact
+                                      >
+                                          {formatDisplayPercentage(
+                                              breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                              true
+                                          )}
+                                      </LemonRow>
+                                  ) : (
+                                      formatDisplayPercentage(
+                                          breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                          true
+                                      )
+                                  )
+                              },
                               align: 'right',
                           },
                           {
-                              title: 'Avg. time',
+                              title: 'Avg. time',
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
                                       ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, 3)
                                       : '–',
                               align: 'right',
-                              className: 'nowrap',
+                              width: 0,
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],

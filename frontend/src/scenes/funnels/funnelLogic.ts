@@ -827,7 +827,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                         (stepsInBreakdown[0]?.count ?? 1),
                                 },
                                 significant: stepsInBreakdown.some(
-                                    (step) => step.significant?.total || step.significant?.fromBasisStep
+                                    (step) => step.significant?.total || step.significant?.fromPrevious
                                 ),
                             })
                         })
