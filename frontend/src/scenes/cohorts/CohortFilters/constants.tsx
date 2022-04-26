@@ -307,6 +307,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.MathOperator,
+                value: OperatorType.Equals,
             },
             {
                 type: FilterType.NumberTicker,
@@ -380,9 +381,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Value,
+                value: ValueOptionType.MostRecent,
             },
             {
                 type: FilterType.MathOperator,
+                value: OperatorType.Equals,
             },
             {
                 type: FilterType.EventPropertyValues,
@@ -413,9 +416,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Value,
+                value: ValueOptionType.MostRecent,
             },
             {
                 type: FilterType.MathOperator,
+                value: OperatorType.Equals,
             },
             {
                 type: FilterType.EventPropertyValues,
@@ -502,6 +507,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.MathOperator,
+                value: OperatorType.Equals,
             },
             {
                 type: FilterType.NumberTicker,
