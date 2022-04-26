@@ -217,6 +217,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
                     dashboard_tile.save(update_fields=["filters_hash"])
                     cache_key = generated_filters_hash
 
+        self.context.update({"filters_hash": cache_key})
         result = get_safe_cache(cache_key)
         if not result or result.get("task_id", None):
             return None
@@ -244,24 +245,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        representation = self._choose_filters_hash(dashboard, instance, representation)
 
-        return representation
-
-    def _choose_filters_hash(self, dashboard, instance, representation):
-        if dashboard is not None:
-            try:
-                dashboard_context_filters_hash = DashboardTile.objects.get(
-                    dashboard__id=dashboard.id, insight=instance
-                ).filters_hash
-                representation["filters_hash"] = dashboard_context_filters_hash
-            except DashboardTile.DoesNotExist as e:
-                logger.error(
-                    "insight_on_dashboard.could_not_load_filters_hash",
-                    insight=instance.id,
-                    dashboard=dashboard.id,
-                    exception=e,
-                )
+        context_cache_key = self.context.get("filters_hash")
+        representation["filters_hash"] = context_cache_key if context_cache_key is not None else instance.filters_hash
 
         return representation
 
