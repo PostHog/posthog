@@ -10,7 +10,7 @@ export interface CohortSelectorLogicProps {
     cohortFilterLogicKey: string
     value: string | number | null
     groupTypes?: FilterGroupTypes[]
-    onChange?: (value: string, option?: LemonSelectOption, group?: LemonSelectOptions) => void
+    onChange?: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => void
 }
 
 export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLogicProps>>({
@@ -22,7 +22,7 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
     },
     actions: {
         setValue: (value: string | number | null) => ({ value }),
-        onChange: (value: string, option?: LemonSelectOption, group?: LemonSelectOptions) => ({
+        onChange: (value: string | number | null, option: LemonSelectOption, group: LemonSelectOptions) => ({
             value,
             option,
             group,
