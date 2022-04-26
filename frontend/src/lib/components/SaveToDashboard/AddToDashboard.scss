@@ -1,6 +1,20 @@
 .add-to-dashboard-modal {
     .ant-modal-header {
         border-bottom-width: 0px;
+        padding: 16px;
+    }
+
+    .ant-modal-body {
+        padding: 0 16px 16px 16px;
+    }
+
+    .existing-links-info {
+        color: var(--muted-alt);
+        margin-top: 8px;
+
+        strong {
+            color: var(--text-default);
+        }
     }
 
     .ant-modal-title {

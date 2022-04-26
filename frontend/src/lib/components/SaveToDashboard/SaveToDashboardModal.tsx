@@ -10,6 +10,8 @@ import { lemonToast } from '../lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
+import { IconMagnifier } from 'lib/components/icons'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -23,7 +25,8 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
     // const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { dashboardId } = useValues(logic)
+    const { dashboardId, searchQuery } = useValues(logic)
+    const { setSearchQuery } = useActions(logic)
     // const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
     const { insightLoading } = useValues(insightLogic)
@@ -54,7 +57,17 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             wrapClassName="add-to-dashboard-modal"
             footer={[]}
         >
-            Hello World
+            <LemonInput
+                data-attr="dashboard-searchfield"
+                placeholder={`Search for dashboards...`}
+                value={searchQuery}
+                className={searchQuery && 'LemonInput--with-input'}
+                icon={<IconMagnifier />}
+                onChange={(newValue) => setSearchQuery(newValue)}
+            />
+            <div className={'existing-links-info'}>
+                This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards (remove all)
+            </div>
             {/*<form onSubmit={(e) => void save(e)}>*/}
             {/*    <label>Dashboard</label>*/}
             {/*    <Select*/}

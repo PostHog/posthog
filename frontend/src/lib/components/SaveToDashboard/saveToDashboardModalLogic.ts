@@ -17,10 +17,12 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
+        setSearchQuery: (query: string) => ({ query }),
     },
 
     reducers: {
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
+        searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
     },
 
     selectors: {
