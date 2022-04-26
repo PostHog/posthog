@@ -34,8 +34,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     const { addNewDashboard } = useActions(logic)
-    const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard, reportRemovedInsightFromAllDashboards } =
-        useActions(eventUsageLogic)
+    const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard } = useActions(eventUsageLogic)
     const { insightLoading } = useValues(insightLogic)
     const { updateInsight } = useActions(insightLogic)
 
@@ -60,19 +59,6 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             () => {
                 reportRemovedInsightFromDashboard()
                 lemonToast.success('Insight removed from dashboard')
-            }
-        )
-    }
-
-    async function removeFromAllDashboards(): Promise<void> {
-        updateInsight(
-            {
-                ...insight,
-                dashboards: [],
-            },
-            () => {
-                reportRemovedInsightFromAllDashboards()
-                lemonToast.success('Insight removed from all dashboards')
             }
         )
     }
@@ -128,15 +114,6 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             />
             <div className={'existing-links-info'}>
                 This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards
-                {insight.dashboards?.length ? (
-                    <>
-                        &nbsp;(
-                        <span className="clickable-text" onClick={() => removeFromAllDashboards()}>
-                            remove all
-                        </span>
-                        )
-                    </>
-                ) : null}
             </div>
             <div className="list-wrapper">
                 <AutoSizer>
