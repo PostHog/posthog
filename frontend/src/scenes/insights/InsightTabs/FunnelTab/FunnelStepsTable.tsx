@@ -6,7 +6,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/compone
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
-import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
+import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
@@ -14,6 +14,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { LemonRow } from 'lib/components/LemonRow'
 import { humanFriendlyDuration } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { IconFlag } from 'lib/components/icons'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -92,8 +93,23 @@ export function FunnelStepsTable(): JSX.Element | null {
                 },
                 {
                     title: 'Total conversion',
-                    render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true),
+                    render: function RenderTotalConversion(
+                        _: void,
+                        breakdown: FlattenedFunnelStepByBreakdown
+                    ): JSX.Element | string {
+                        return getSignificanceFromBreakdownStep(breakdown, 0)?.total ? (
+                            <LemonRow
+                                className="significance-highlight"
+                                tooltip="Significantly different from other breakdown values"
+                                icon={<IconFlag />}
+                                compact
+                            >
+                                {formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true)}
+                            </LemonRow>
+                        ) : (
+                            formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true)
+                        )
+                    },
                     align: 'right',
                 },
             ],
@@ -132,8 +148,29 @@ export function FunnelStepsTable(): JSX.Element | null {
                 },
                 {
                     title: 'Rate',
-                    render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        formatDisplayPercentage(breakdown.steps?.[stepIndex]?.conversionRates.fromPrevious ?? 0, true),
+                    render: function RenderRate(
+                        _: void,
+                        breakdown: FlattenedFunnelStepByBreakdown
+                    ): JSX.Element | string {
+                        return getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
+                            <LemonRow
+                                className="significance-highlight"
+                                tooltip="Significantly different from other breakdown values"
+                                icon={<IconFlag />}
+                                compact
+                            >
+                                {formatDisplayPercentage(
+                                    breakdown.steps?.[step.order]?.conversionRates.fromBasisStep ?? 0,
+                                    true
+                                )}
+                            </LemonRow>
+                        ) : (
+                            formatDisplayPercentage(
+                                breakdown.steps?.[step.order]?.conversionRates.fromBasisStep ?? 0,
+                                true
+                            )
+                        )
+                    },
                     align: 'right',
                 },
                 ...(stepIndex === 0
@@ -165,7 +202,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                               title: 'Rate',
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   formatDisplayPercentage(
-                                      1 - (breakdown.steps?.[stepIndex]?.conversionRates.fromPrevious ?? 0),
+                                      1 - (breakdown.steps?.[stepIndex]?.conversionRates.fromBasisStep ?? 0),
                                       true
                                   ),
                               align: 'right',
@@ -189,6 +226,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             dataSource={flattenedBreakdowns}
             columns={columnsGrouped}
             loading={insightLoading}
+            rowKey="breakdownIndex"
             rowRibbonColor={(series) =>
                 getSeriesColor(
                     series?.breakdownIndex,
@@ -197,7 +235,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     flattenedBreakdowns.length
                 )
             }
-            rowKey="breakdownIndex"
+            rowStatus={(record) => (record.significant ? 'highlighted' : undefined)}
         />
     )
 }

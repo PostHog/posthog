@@ -437,9 +437,9 @@ export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Ele
 }
 
 /** Material Design Assistant Photo icon. */
-export function IconFlag(): JSX.Element {
+export function IconFlag(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m12.36 6 .08.39.32 1.61h5.24v6h-3.36l-.08-.39-.32-1.61h-7.24v-6zm1.64-2h-9v17h2v-7h5.6l.4 2h7v-10h-5.6z"
                 fill="currentColor"
