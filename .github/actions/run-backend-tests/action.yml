@@ -82,7 +82,7 @@ runs:
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
-              pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
+              pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' }}
