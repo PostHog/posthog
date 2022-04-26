@@ -69,7 +69,7 @@ import { lemonToast } from 'lib/components/lemonToast'
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
  * which gives a ballpark of 1 highlighting every 10 breakdown values
  */
-const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.2
+const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
