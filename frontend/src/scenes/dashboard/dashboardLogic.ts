@@ -116,10 +116,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         return dashboard
                     } catch (error: any) {
+                        actions.setReceivedErrorsFromAPI(true)
                         if (error.status === 404) {
                             return []
                         }
-                        actions.setReceivedErrorsFromAPI(true)
                         throw error
                     }
                 },
