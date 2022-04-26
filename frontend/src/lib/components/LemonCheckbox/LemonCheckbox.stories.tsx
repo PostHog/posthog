@@ -16,5 +16,11 @@ Basic.args = {
     label: 'Check this out',
 }
 
+export const Disabled = Template.bind({})
+Disabled.args = {
+    label: "You can't check this out",
+    disabled: true,
+}
+
 export const Standalone = Template.bind({})
 Standalone.args = {}

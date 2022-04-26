@@ -3,7 +3,7 @@
 .LemonSwitch {
     width: fit-content;
     font-weight: 500;
-    &.LemonSwitch--disabled {
+    &.LemonRow--disabled {
         opacity: var(--opacity-disabled);
     }
 }
@@ -18,7 +18,7 @@
     background: none;
     border: none;
     cursor: pointer;
-    .LemonSwitch--disabled & {
+    .LemonRow--disabled & {
         cursor: not-allowed;
     }
 }
@@ -70,7 +70,7 @@
 
 .LemonSwitch__label {
     cursor: pointer;
-    .LemonSwitch--disabled & {
+    .LemonRow--disabled & {
         cursor: not-allowed;
     }
 }

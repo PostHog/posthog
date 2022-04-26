@@ -39,10 +39,10 @@ export function LemonSwitch({
             className={clsx(
                 'LemonSwitch',
                 checked && 'LemonSwitch--checked',
-                disabled && 'LemonSwitch--disabled',
                 !disabled && isActive && 'LemonSwitch--active',
                 alt && 'LemonSwitch--alt'
             )}
+            disabled={disabled}
             sideIcon={
                 <button
                     id={id}

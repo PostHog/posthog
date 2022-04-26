@@ -26,7 +26,7 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonRow'
 import { Link } from '../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
@@ -332,7 +332,7 @@ function InsightMeta({
                                                         Move to
                                                     </LemonButtonWithPopup>
                                                 )}
-                                                <LemonSpacer />
+                                                <LemonDivider />
                                                 {editable && (
                                                     <LemonButton
                                                         type="stealth"
@@ -352,7 +352,7 @@ function InsightMeta({
                                                 </LemonButton>
                                                 {editable && (
                                                     <>
-                                                        <LemonSpacer />
+                                                        <LemonDivider />
                                                         {removeFromDashboard ? (
                                                             <LemonButton
                                                                 type="stealth"
@@ -398,7 +398,7 @@ function InsightMeta({
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
                         <InsightDetails insight={insight} ref={detailsRef} />
                     </Transition>

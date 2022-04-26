@@ -59,12 +59,13 @@ export function LemonCheckbox({
                 'LemonCheckbox',
                 localChecked && 'LemonCheckbox--checked',
                 wasIndeterminateLast && 'LemonCheckbox--indeterminate',
-                disabled && 'LemonCheckbox--disabled',
                 className
             )}
+            disabled={disabled}
             icon={
                 <>
                     <input
+                        className="LemonCheckbox__input"
                         type="checkbox"
                         checked={localChecked}
                         defaultChecked={defaultChecked}
@@ -88,7 +89,11 @@ export function LemonCheckbox({
             }
             {...rowProps}
         >
-            {label && <label htmlFor={id}>{label}</label>}
+            {label && (
+                <label className="LemonCheckbox__label" htmlFor={id}>
+                    {label}
+                </label>
+            )}
         </LemonRow>
     )
 }

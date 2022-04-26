@@ -1,6 +1,6 @@
 import React from 'react'
 import './CompactList.scss'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonRow'
 import { LemonButton } from '../LemonButton'
 import { Skeleton } from 'antd'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
@@ -29,7 +29,7 @@ export function CompactList({
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
             </div>
             <div className="spacer-container">
-                <LemonSpacer />
+                <LemonDivider />
             </div>
             <div className="scrollable-list">
                 {loading ? (

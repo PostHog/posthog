@@ -60,6 +60,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         fullWidth = false,
         center = false,
         outlined = false,
+        disabled = false,
         ...props
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
@@ -78,6 +79,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 compact && 'LemonRow--compact',
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
+                disabled && 'LemonRow--disabled',
                 outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center'
             ),
@@ -115,21 +117,3 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
 })
-
-export interface LemonSpacerProps {
-    /** Twice the default amount of margin. */
-    large?: boolean
-    /** Whether the spacer should be vertical instead of horizontal. */
-    vertical?: boolean
-    style?: React.CSSProperties
-}
-
-/** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false, vertical = false, style }: LemonSpacerProps): JSX.Element {
-    return (
-        <div
-            className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')}
-            style={style}
-        />
-    )
-}

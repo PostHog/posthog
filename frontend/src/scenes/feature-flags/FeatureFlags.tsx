@@ -12,7 +12,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { More } from 'lib/components/LemonButton/More'
@@ -119,7 +119,7 @@ function OverViewTab(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
                                         type="stealth"

@@ -10,7 +10,7 @@ import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/ma
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
-import { LemonRow, LemonSpacer } from '../LemonRow'
+import { LemonRow, LemonDivider } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
@@ -164,7 +164,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                 Formula:<code>{filters.formula}</code>
                             </span>
                         </LemonRow>
-                        <LemonSpacer />
+                        <LemonDivider />
                     </>
                 )}
                 <div className="InsightDetails__series">
@@ -177,7 +177,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                     <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
                                     {localFilters.slice(1).map((filter, index) => (
                                         <>
-                                            <LemonSpacer />
+                                            <LemonDivider />
                                             <SeriesDisplay
                                                 key={index}
                                                 filter={filter}
