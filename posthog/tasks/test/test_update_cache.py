@@ -366,7 +366,7 @@ class TestUpdateCache(APIBaseTest):
             Insight.objects.all().order_by("id")[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
         )
 
-    def _assert_number_of_days_in_results(self, dashboard_tile: DashboardTile, number_of_days_in_results) -> None:
+    def _assert_number_of_days_in_results(self, dashboard_tile: DashboardTile, number_of_days_in_results: int) -> None:
         cache_result = get_safe_cache(dashboard_tile.filters_hash)
         number_of_results = len(cache_result["result"][0]["data"])
         self.assertEqual(number_of_results, number_of_days_in_results)
