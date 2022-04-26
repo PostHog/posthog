@@ -29,7 +29,7 @@ INSERT INTO cohortpeople
 SELECT person_id as id, cohort_id, %(team_id)s as team_id,  -1 as _sign
 FROM cohortpeople
 JOIN (
-    SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+    SELECT id, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person ON (person.id = cohortpeople.person_id)
 WHERE cohort_id = %(cohort_id)s
 AND
