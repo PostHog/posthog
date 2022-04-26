@@ -26,7 +26,7 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonDivider } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
