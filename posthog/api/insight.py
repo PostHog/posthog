@@ -250,13 +250,12 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def _choose_filters_hash(self, dashboard, instance, representation):
         if dashboard is not None:
-            # noinspection PyBroadException
             try:
                 dashboard_context_filters_hash = DashboardTile.objects.get(
                     dashboard__id=dashboard.id, insight=instance
                 ).filters_hash
                 representation["filters_hash"] = dashboard_context_filters_hash
-            except Exception as e:
+            except DashboardTile.DoesNotExist as e:
                 logger.error(
                     "insight_on_dashboard.could_not_load_filters_hash",
                     insight=instance.id,
