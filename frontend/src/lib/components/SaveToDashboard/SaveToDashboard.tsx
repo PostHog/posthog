@@ -5,7 +5,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { urls } from '../../../scenes/urls'
 import { LemonButton } from '../LemonButton'
-import { IconGauge } from 'lib/components/icons'
+import { IconGauge, IconWithCount } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
@@ -16,10 +18,26 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const multiDashboardInsights = featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
+
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             <SaveToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
-            {dashboards.length > 0 ? (
+            {multiDashboardInsights ? (
+                <LemonButton
+                    onClick={() => setOpenModal(true)}
+                    type="secondary"
+                    className="btn-save"
+                    icon={
+                        <IconWithCount count={dashboards.length} showZero={false}>
+                            <IconGauge />
+                        </IconWithCount>
+                    }
+                >
+                    Add to dashboard
+                </LemonButton>
+            ) : dashboards.length > 0 ? (
                 <LemonButton
                     to={urls.dashboard(dashboards[0].id, insight.short_id)}
                     type="secondary"
