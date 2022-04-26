@@ -1,0 +1,14 @@
+.add-to-dashboard-modal {
+    .ant-modal-header {
+        border-bottom-width: 0px;
+    }
+
+    .ant-modal-title {
+        font-weight: 600;
+        font-size: 11px;
+        line-height: 24px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+}
