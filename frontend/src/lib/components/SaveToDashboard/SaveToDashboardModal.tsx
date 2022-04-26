@@ -16,6 +16,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
+import clsx from 'clsx'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -30,27 +31,13 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
 
-    const { dashboardId, searchQuery, currentDashboards, orderedDashboards } = useValues(logic)
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
-    // const { addNewDashboard, setDashboardId } = useActions(logic)
+    const { addNewDashboard } = useActions(logic)
     const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard, reportRemovedInsightFromAllDashboards } =
         useActions(eventUsageLogic)
     const { insightLoading } = useValues(insightLogic)
     const { updateInsight } = useActions(insightLogic)
-
-    async function save(event: MouseEvent | FormEvent): Promise<void> {
-        event.preventDefault()
-        updateInsight({ ...insight, dashboards: [dashboardId] }, () => {
-            reportSavedInsightToDashboard()
-            lemonToast.success('Insight added to dashboard', {
-                button: {
-                    label: 'View dashboard',
-                    action: () => router.actions.push(urls.dashboard(dashboardId)),
-                },
-            })
-            closeModal()
-        })
-    }
 
     async function addToDashboard(dashboardToAdd: number): Promise<void> {
         updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardToAdd] }, () => {
@@ -96,7 +83,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             (currentDashboard: DashboardType) => currentDashboard.id === dashboard.id
         )
         return (
-            <div style={style} className="modal-row">
+            <div style={style} className={clsx('modal-row', rowIndex === scrollIndex && 'highlighted')}>
                 <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
                 <LemonButton
                     type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
@@ -114,7 +101,6 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
 
     return (
         <Modal
-            onOk={(e) => void save(e)}
             onCancel={closeModal}
             afterClose={closeModal}
             confirmLoading={insightLoading}
@@ -123,7 +109,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             wrapClassName="add-to-dashboard-modal"
             footer={
                 <div className="modal-row">
-                    <LemonButton type="secondary" compact={true}>
+                    <LemonButton type="secondary" compact={true} onClick={() => addNewDashboard()}>
                         Add to a new dashboard
                     </LemonButton>
                     <LemonButton type="secondary" compact={true} onClick={() => closeModal()}>
@@ -165,7 +151,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                             onRowsRendered={(args) => {
                                 console.log({ ...args }, 'on rows rendered')
                             }}
-                            scrollToIndex={-1}
+                            scrollToIndex={scrollIndex}
                         />
                     )}
                 </AutoSizer>

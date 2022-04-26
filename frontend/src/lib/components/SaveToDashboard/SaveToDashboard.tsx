@@ -23,20 +23,22 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
 
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
-            <AddToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
             {multiDashboardInsights ? (
-                <LemonButton
-                    onClick={() => setOpenModal(true)}
-                    type="secondary"
-                    className="btn-save"
-                    icon={
-                        <IconWithCount count={dashboards.length} showZero={false}>
-                            <IconGauge />
-                        </IconWithCount>
-                    }
-                >
-                    Add to dashboard
-                </LemonButton>
+                <>
+                    <AddToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
+                    <LemonButton
+                        onClick={() => setOpenModal(true)}
+                        type="secondary"
+                        className="btn-save"
+                        icon={
+                            <IconWithCount count={dashboards.length} showZero={false}>
+                                <IconGauge />
+                            </IconWithCount>
+                        }
+                    >
+                        Add to dashboard
+                    </LemonButton>
+                </>
             ) : (
                 <>
                     <SaveToDashboardModal

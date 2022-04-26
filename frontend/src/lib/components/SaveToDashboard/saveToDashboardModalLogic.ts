@@ -22,11 +22,13 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         setDashboardId: (id: number) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
         setInsight: (insight: InsightType) => ({ insight }),
+        setScrollIndex: (index: number) => ({ index }),
     },
 
     reducers: {
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
+        scrollIndex: [-1, { setScrollIndex: (_, { index }) => index }],
     },
 
     selectors: {
@@ -72,7 +74,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         ],
     },
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setDashboardId: ({ id }) => {
             dashboardsModel.actions.setLastDashboardId(id)
         },
@@ -90,6 +92,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
+            actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
     }),
 })
