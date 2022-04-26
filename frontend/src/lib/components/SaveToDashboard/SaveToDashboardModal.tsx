@@ -80,7 +80,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                     <LemonButton type="secondary" compact={true}>
                         Add to a new dashboard
                     </LemonButton>
-                    <LemonButton type="secondary" compact={true}>
+                    <LemonButton type="secondary" compact={true} onClick={() => closeModal()}>
                         Close
                     </LemonButton>
                 </div>
