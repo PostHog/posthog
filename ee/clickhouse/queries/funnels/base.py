@@ -45,7 +45,6 @@ class ClickhouseFunnelBase(ABC):
         team: Team,
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
-        extra_event_fields: List[ColumnName] = [],
         base_uri: str = "/",
     ) -> None:
         self._filter = filter
@@ -77,10 +76,10 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({OFFSET: self._filter.offset})
 
-        self._extra_event_fields: List[ColumnName] = extra_event_fields
+        self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
-            self._extra_event_fields.append("uuid")
+            self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
         self._update_filters()
