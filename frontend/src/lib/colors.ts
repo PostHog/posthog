@@ -1,23 +1,23 @@
 /* Insight series colors. */
 const dataColorVars = [
     'data-lilac',
+    'data-orange',
     'data-blue',
+    'data-green',
+    'data-vermilion',
     'data-spruce',
     'data-magenta',
-    'data-vermilion',
     'data-brown',
-    'data-green',
-    'data-purple',
     'data-orchid',
-    'data-orange',
     'data-teal',
+    'data-purple',
     'data-mint',
     'data-grape',
     'data-yellow',
     'data-aquamarine',
-    'data-tan',
     'data-pink',
     'data-olivine',
+    'data-tan',
 ]
 
 export const tagColors = [
@@ -86,7 +86,7 @@ export function getBarColorFromStatus(status: string, hover?: boolean): string {
         case 'dormant':
             return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
         default:
-            return 'black'
+            throw new Error(`Unknown lifecycle status: ${status}`)
     }
 }
 
