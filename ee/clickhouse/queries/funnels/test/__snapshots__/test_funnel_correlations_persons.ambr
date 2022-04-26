@@ -1,0 +1,785 @@
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            final_matching_events as matching_events,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
+               groupArray(10)(step_0_matching_event) as step_0_matching_events,
+               groupArray(10)(step_1_matching_event) as step_1_matching_events,
+               groupArray(10)(final_matching_event) as final_matching_events ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time,
+                                  ("latest_0",
+                                   "uuid_0",
+                                   "$session_id_0",
+                                   "$window_id_0") as step_0_matching_event,
+                                  ("latest_1",
+                                   "uuid_1",
+                                   "$session_id_1",
+                                   "$window_id_1") as step_1_matching_event,
+                                  if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 < latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                     ("latest_0",
+                      "uuid_0",
+                      "$session_id_0",
+                      "$window_id_0") as step_0_matching_event,
+                     ("latest_1",
+                      "uuid_1",
+                      "$session_id_1",
+                      "$window_id_1") as step_1_matching_event,
+                     if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        "uuid_0",
+                        "$session_id_0",
+                        "$window_id_0",
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                           last_value("uuid_1") over (PARTITION by aggregation_target
+                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
+                                                                     last_value("$session_id_1") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
+                                                                                                      last_value("$window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1"
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(step_0 = 1, "uuid", null) as "uuid_0",
+                           if(step_0 = 1, "$session_id", null) as "$session_id_0",
+                           if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                           if(event = 'insight analyzed', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(step_1 = 1, "uuid", null) as "uuid_1",
+                           if(step_1 = 1, "$session_id", null) as "$session_id_1",
+                           if(step_1 = 1, "$window_id", null) as "$window_id_1"
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              e."$session_id" as "$session_id",
+                              e."$window_id" as "$window_id"
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'insight analyzed']
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       toDateTime('2021-01-08 23:59:59') AS date_to,
+       toDateTime('2021-01-01 00:00:00') AS date_from,
+       2 AS target_step,
+       ['$pageview', 'insight analyzed'] as funnel_step_names
+  SELECT actors.actor_id AS actor_id ,
+         any(actors.matching_events) AS matching_events
+  FROM events AS event
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
+  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
+  WHERE event.timestamp >= date_from
+    AND event.timestamp < date_to
+    AND event.team_id = 2
+    AND event.timestamp > actors.first_timestamp
+    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND event.event NOT IN funnel_step_names
+    AND event.event = 'insight loaded'
+    AND actors.steps = target_step
+  GROUP BY actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s2']
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            final_matching_events as matching_events,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) step_2_median_conversion_time_inner,
+               groupArray(10)(step_0_matching_event) as step_0_matching_events,
+               groupArray(10)(step_1_matching_event) as step_1_matching_events,
+               groupArray(10)(step_2_matching_event) as step_2_matching_events,
+               groupArray(10)(final_matching_event) as final_matching_events ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_2, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time,
+                                  step_2_conversion_time,
+                                  ("latest_0",
+                                   "uuid_0",
+                                   "$session_id_0",
+                                   "$window_id_0") as step_0_matching_event,
+                                  ("latest_1",
+                                   "uuid_1",
+                                   "$session_id_1",
+                                   "$window_id_1") as step_1_matching_event,
+                                  ("latest_2",
+                                   "uuid_2",
+                                   "$session_id_2",
+                                   "$window_id_2") as step_2_matching_event,
+                                  if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event ,
+                                  latest_0,
+                                  latest_2,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 < latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                        AND latest_1 < latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1
+                                                                          AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                     if(isNotNull(latest_2)
+                        AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
+                     ("latest_0",
+                      "uuid_0",
+                      "$session_id_0",
+                      "$window_id_0") as step_0_matching_event,
+                     ("latest_1",
+                      "uuid_1",
+                      "$session_id_1",
+                      "$window_id_1") as step_1_matching_event,
+                     ("latest_2",
+                      "uuid_2",
+                      "$session_id_2",
+                      "$window_id_2") as step_2_matching_event,
+                     if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        "uuid_0",
+                        "$session_id_0",
+                        "$window_id_0",
+                        step_1,
+                        latest_1,
+                        "uuid_1",
+                        "$session_id_1",
+                        "$window_id_1",
+                        step_2,
+                        min(latest_2) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
+                                           last_value("uuid_2") over (PARTITION by aggregation_target
+                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
+                                                                     last_value("$session_id_2") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
+                                                                                                      last_value("$window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           "uuid_0",
+                           "$session_id_0",
+                           "$window_id_0",
+                           step_1,
+                           latest_1,
+                           "uuid_1",
+                           "$session_id_1",
+                           "$window_id_1",
+                           step_2,
+                           if(latest_2 < latest_1, NULL, latest_2) as latest_2,
+                           if(latest_2 < latest_1, NULL, "uuid_2") as "uuid_2",
+                           if(latest_2 < latest_1, NULL, "$session_id_2") as "$session_id_2",
+                           if(latest_2 < latest_1, NULL, "$window_id_2") as "$window_id_2"
+                    FROM
+                      (SELECT aggregation_target,
+                              timestamp,
+                              step_0,
+                              latest_0,
+                              "uuid_0",
+                              "$session_id_0",
+                              "$window_id_0",
+                              step_1,
+                              min(latest_1) over (PARTITION by aggregation_target
+                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                 last_value("uuid_1") over (PARTITION by aggregation_target
+                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
+                                                                           last_value("$session_id_1") over (PARTITION by aggregation_target
+                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
+                                                                                                            last_value("$window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1",
+                                                                                                                                            step_2,
+                                                                                                                                            min(latest_2) over (PARTITION by aggregation_target
+                                                                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
+                                                                                                                                                               last_value("uuid_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
+                                                                                                                                                                                         last_value("$session_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
+                                                                                                                                                                                                                          last_value("$window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                       FROM
+                         (SELECT aggregation_target,
+                                 timestamp,
+                                 if(event = '$pageview', 1, 0) as step_0,
+                                 if(step_0 = 1, timestamp, null) as latest_0,
+                                 if(step_0 = 1, "uuid", null) as "uuid_0",
+                                 if(step_0 = 1, "$session_id", null) as "$session_id_0",
+                                 if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                                 if(event = 'insight analyzed', 1, 0) as step_1,
+                                 if(step_1 = 1, timestamp, null) as latest_1,
+                                 if(step_1 = 1, "uuid", null) as "uuid_1",
+                                 if(step_1 = 1, "$session_id", null) as "$session_id_1",
+                                 if(step_1 = 1, "$window_id", null) as "$window_id_1",
+                                 if(event = 'insight updated', 1, 0) as step_2,
+                                 if(step_2 = 1, timestamp, null) as latest_2,
+                                 if(step_2 = 1, "uuid", null) as "uuid_2",
+                                 if(step_2 = 1, "$session_id", null) as "$session_id_2",
+                                 if(step_2 = 1, "$window_id", null) as "$window_id_2"
+                          FROM
+                            (SELECT e.event as event,
+                                    e.team_id as team_id,
+                                    e.distinct_id as distinct_id,
+                                    e.timestamp as timestamp,
+                                    pdi.person_id as aggregation_target,
+                                    e.uuid AS uuid,
+                                    e."$session_id" as "$session_id",
+                                    e."$window_id" as "$window_id"
+                             FROM events e
+                             INNER JOIN
+                               (SELECT distinct_id,
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                             WHERE team_id = 2
+                               AND event IN ['$pageview', 'insight analyzed', 'insight updated']
+                               AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                               AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                          WHERE (step_0 = 1
+                                 OR step_1 = 1
+                                 OR step_2 = 1) ))))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2, 3]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       toDateTime('2021-01-08 23:59:59') AS date_to,
+       toDateTime('2021-01-01 00:00:00') AS date_from,
+       3 AS target_step,
+       ['$pageview', 'insight analyzed', 'insight updated'] as funnel_step_names
+  SELECT actors.actor_id AS actor_id ,
+         any(actors.matching_events) AS matching_events
+  FROM events AS event
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
+  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
+  WHERE event.timestamp >= date_from
+    AND event.timestamp < date_to
+    AND event.team_id = 2
+    AND event.timestamp > actors.first_timestamp
+    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND event.event NOT IN funnel_step_names
+    AND event.event = 'insight loaded'
+    AND actors.steps <> target_step
+  GROUP BY actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s2']
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            final_matching_events as matching_events,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
+               groupArray(10)(step_0_matching_event) as step_0_matching_events,
+               groupArray(10)(step_1_matching_event) as step_1_matching_events,
+               groupArray(10)(final_matching_event) as final_matching_events ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time,
+                                  ("latest_0",
+                                   "uuid_0",
+                                   "$session_id_0",
+                                   "$window_id_0") as step_0_matching_event,
+                                  ("latest_1",
+                                   "uuid_1",
+                                   "$session_id_1",
+                                   "$window_id_1") as step_1_matching_event,
+                                  if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 < latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                     ("latest_0",
+                      "uuid_0",
+                      "$session_id_0",
+                      "$window_id_0") as step_0_matching_event,
+                     ("latest_1",
+                      "uuid_1",
+                      "$session_id_1",
+                      "$window_id_1") as step_1_matching_event,
+                     if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        "uuid_0",
+                        "$session_id_0",
+                        "$window_id_0",
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                           last_value("uuid_1") over (PARTITION by aggregation_target
+                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
+                                                                     last_value("$session_id_1") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
+                                                                                                      last_value("$window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1"
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(step_0 = 1, "uuid", null) as "uuid_0",
+                           if(step_0 = 1, "$session_id", null) as "$session_id_0",
+                           if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                           if(event = 'insight analyzed', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(step_1 = 1, "uuid", null) as "uuid_1",
+                           if(step_1 = 1, "$session_id", null) as "$session_id_1",
+                           if(step_1 = 1, "$window_id", null) as "$window_id_1"
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              e."$session_id" as "$session_id",
+                              e."$window_id" as "$window_id"
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'insight analyzed']
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id ,
+         any(funnel_actors.matching_events) AS matching_events
+  FROM funnel_actors
+  JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s2']
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            final_matching_events as matching_events,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp,
+               groupArray(10)(step_0_matching_event) as step_0_matching_events,
+               groupArray(10)(step_1_matching_event) as step_1_matching_events,
+               groupArray(10)(final_matching_event) as final_matching_events
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0,
+                                  ("latest_0",
+                                   "uuid_0",
+                                   "$session_id_0",
+                                   "$window_id_0") as step_0_matching_event,
+                                  ("latest_1",
+                                   "uuid_1",
+                                   "$session_id_1",
+                                   "$window_id_1") as step_1_matching_event,
+                                  if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+           FROM
+             (SELECT *,
+                     if(latest_0 < latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                     ("latest_0",
+                      "uuid_0",
+                      "$session_id_0",
+                      "$window_id_0") as step_0_matching_event,
+                     ("latest_1",
+                      "uuid_1",
+                      "$session_id_1",
+                      "$window_id_1") as step_1_matching_event,
+                     if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        "uuid_0",
+                        "$session_id_0",
+                        "$window_id_0",
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                           min("uuid_1") over (PARTITION by aggregation_target
+                                                               ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "uuid_1",
+                                                              min("$session_id_1") over (PARTITION by aggregation_target
+                                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$session_id_1",
+                                                                                        min("$window_id_1") over (PARTITION by aggregation_target
+                                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$window_id_1"
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(step_0 = 1, "uuid", null) as "uuid_0",
+                           if(step_0 = 1, "$session_id", null) as "$session_id_0",
+                           if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                           if(event = 'insight analyzed', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(step_1 = 1, "uuid", null) as "uuid_1",
+                           if(step_1 = 1, "$session_id", null) as "$session_id_1",
+                           if(step_1 = 1, "$window_id", null) as "$window_id_1"
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              e."$session_id" as "$session_id",
+                              e."$window_id" as "$window_id"
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                    WHERE (1=1) ))
+              WHERE step_0 = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id ,
+         any(funnel_actors.matching_events) AS matching_events
+  FROM funnel_actors
+  JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s2']
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            final_matching_events as matching_events,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp,
+               groupArray(10)(step_0_matching_event) as step_0_matching_events,
+               groupArray(10)(step_1_matching_event) as step_1_matching_events,
+               groupArray(10)(final_matching_event) as final_matching_events
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0,
+                                  ("latest_0",
+                                   "uuid_0",
+                                   "$session_id_0",
+                                   "$window_id_0") as step_0_matching_event,
+                                  ("latest_1",
+                                   "uuid_1",
+                                   "$session_id_1",
+                                   "$window_id_1") as step_1_matching_event,
+                                  if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+           FROM
+             (SELECT *,
+                     if(latest_0 < latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                     ("latest_0",
+                      "uuid_0",
+                      "$session_id_0",
+                      "$window_id_0") as step_0_matching_event,
+                     ("latest_1",
+                      "uuid_1",
+                      "$session_id_1",
+                      "$window_id_1") as step_1_matching_event,
+                     if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) as final_matching_event
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        "uuid_0",
+                        "$session_id_0",
+                        "$window_id_0",
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                           min("uuid_1") over (PARTITION by aggregation_target
+                                                               ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "uuid_1",
+                                                              min("$session_id_1") over (PARTITION by aggregation_target
+                                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$session_id_1",
+                                                                                        min("$window_id_1") over (PARTITION by aggregation_target
+                                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$window_id_1"
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(step_0 = 1, "uuid", null) as "uuid_0",
+                           if(step_0 = 1, "$session_id", null) as "$session_id_0",
+                           if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                           if(event = 'insight analyzed', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(step_1 = 1, "uuid", null) as "uuid_1",
+                           if(step_1 = 1, "$session_id", null) as "$session_id_1",
+                           if(step_1 = 1, "$window_id", null) as "$window_id_1"
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              e."$session_id" as "$session_id",
+                              e."$window_id" as "$window_id"
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                    WHERE (1=1) ))
+              WHERE step_0 = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id ,
+         any(funnel_actors.matching_events) AS matching_events
+  FROM funnel_actors
+  JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
+  WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s3']
+  '
+---
