@@ -169,9 +169,7 @@ class CohortQuery(EnterpriseEventQuery):
         subq = []
 
         if self.sequence_filters_to_query:
-            sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query(
-                self.sequence_filters_to_query
-            )
+            sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query()
             subq.append((sequence_query, sequence_query_alias))
             self.params.update(sequence_params)
         else:
@@ -498,7 +496,7 @@ class CohortQuery(EnterpriseEventQuery):
             lookup[str(prop.to_dict())] = f"{idx}"
         return lookup
 
-    def _get_sequence_query(self, prop: List[Property]) -> Tuple[str, Dict[str, Any], str]:
+    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         params = {}
 
         names = ["person_id", "event", "properties", "distinct_id", "timestamp"]
