@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import React, { useMemo } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -39,9 +38,11 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 
 function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
+    const { openPersonsModalForStep } = useActions(funnelLogic)
+
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
-            <div className="StepBars__background">
+            <div className="StepBars__grid">
                 {Array(5)
                     .fill(null)
                     .map((_, i) => (
@@ -63,7 +64,16 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                             '--conversion-rate': `${breakdown.conversionRates.fromBasisStep * 100}%`,
                         } as StepBarCSSProperties
                     }
-                />
+                >
+                    <div
+                        className="StepBars__backdrop"
+                        onClick={() => openPersonsModalForStep({ step: breakdown, converted: false })}
+                    />
+                    <div
+                        className="StepBars__fill"
+                        onClick={() => openPersonsModalForStep({ step: breakdown, converted: true })}
+                    />
+                </div>
             ))}
         </div>
     )
@@ -76,10 +86,8 @@ interface StepLegendProps extends ChartParams {
 }
 
 function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { aggregationTargetLabel } = useValues(logic)
-    const { openPersonsModalForStep } = useActions(logic)
+    const { aggregationTargetLabel } = useValues(funnelLogic)
+    const { openPersonsModalForStep } = useActions(funnelLogic)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -140,10 +148,9 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
+/** Funnel results in bar form. Requires `funnelLogic` to be bound. */
 export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { visibleStepsWithConversionMetrics } = useValues(logic)
+    const { visibleStepsWithConversionMetrics } = useValues(funnelLogic)
 
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
