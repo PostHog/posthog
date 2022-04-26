@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortNumberField, CohortNumberFieldProps } from './CohortField'
+import { CohortNumberField } from './CohortField'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
-import { FilterType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
 export default {
     title: 'Filters/Cohort Filters/Fields/Number',

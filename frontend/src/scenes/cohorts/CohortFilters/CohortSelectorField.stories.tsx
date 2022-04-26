@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortSelectorField, CohortSelectorFieldProps } from './CohortField'
-import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortSelectorField } from './CohortField'
+import { CohortSelectorFieldProps, FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
 
 export default {
     title: 'Filters/Cohort Filters/Fields/Select',

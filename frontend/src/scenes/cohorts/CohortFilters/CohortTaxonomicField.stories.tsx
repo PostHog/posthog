@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortTaxonomicField, CohortTaxonomicFieldProps } from './CohortField'
+import { CohortTaxonomicField } from './CohortField'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { useMountedLogic } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
-import { FilterType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
 export default {
     title: 'Filters/Cohort Filters/Fields/Taxonomic',

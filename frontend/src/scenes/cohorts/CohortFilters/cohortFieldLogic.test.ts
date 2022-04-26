@@ -49,7 +49,7 @@ describe('cohortFieldLogic', () => {
                     fieldOptionGroupTypes: [key as FieldOptionsType],
                 })
                 await expectLogic(logic).toMatchValues({
-                    groups: [value],
+                    fieldOptionGroups: [value],
                 })
             })
         }
