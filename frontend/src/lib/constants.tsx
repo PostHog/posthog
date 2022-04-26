@@ -112,7 +112,6 @@ export const FEATURE_FLAGS = {
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
     HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
-    PERSON_ACTIVITY_LOG: '8545-person-activity-log', // owner: @pauldambra
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
