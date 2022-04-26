@@ -78,7 +78,6 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run async migrations tests
-              if: ${{ inputs.foss == 'true' }}
               shell: bash
               run: |
                   pytest -m "async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
