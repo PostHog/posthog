@@ -125,16 +125,16 @@ class TestMixin:
 
     def tearDown(self):
         if len(persons_cache_tests) > 0:
+            persons_cache_tests.clear()
             raise Exception(
                 "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
             )
 
         if len(events_cache_tests) > 0:
+            events_cache_tests.clear()
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
-        persons_cache_tests.clear()
-        events_cache_tests.clear()
         super().tearDown()  # type: ignore
 
     def validate_basic_html(self, html_message, site_url, preheader=None):

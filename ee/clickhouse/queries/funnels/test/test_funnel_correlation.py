@@ -13,7 +13,13 @@ from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    test_with_materialized_columns,
+)
 
 
 def _create_action(**kwargs):
@@ -741,6 +747,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             team=self.team, event="paid", distinct_id=f"user_1", timestamp="2020-01-04T14:00:00Z",
         )
+        flush_persons_and_events()
 
         with self.assertRaises(ValidationError):
             correlation._run()
