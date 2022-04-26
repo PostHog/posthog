@@ -57,7 +57,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             (currentDashboard: DashboardType) => currentDashboard.id === dashboard.id
         )
         return (
-            <div style={style} className="dashboard-list-item">
+            <div style={style} className="modal-row">
                 <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
                 <LemonButton type={isAlreadyOnDashboard ? 'primary' : 'secondary'} compact={true}>
                     {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
@@ -75,7 +75,16 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             visible={visible}
             title="add to dashboard"
             wrapClassName="add-to-dashboard-modal"
-            footer={[]}
+            footer={
+                <div className="modal-row">
+                    <LemonButton type="secondary" compact={true}>
+                        Add to a new dashboard
+                    </LemonButton>
+                    <LemonButton type="secondary" compact={true}>
+                        Close
+                    </LemonButton>
+                </div>
+            }
         >
             <LemonInput
                 data-attr="dashboard-searchfield"
