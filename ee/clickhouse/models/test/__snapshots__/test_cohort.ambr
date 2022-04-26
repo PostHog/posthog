@@ -28,28 +28,6 @@
      HAVING sum(sign) > 0)
   '
 ---
-# name: TestCohort.test_cohortpeople_action_count.10
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.11
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
-  '
----
 # name: TestCohort.test_cohortpeople_action_count.2
   '
   SELECT person_id
@@ -129,21 +107,6 @@
   SELECT person_id
   FROM cohortpeople
   where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.9
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
   '
 ---
 # name: TestCohort.test_static_cohort_precalculated
