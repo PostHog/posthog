@@ -367,6 +367,7 @@ export type WorkerMethods = {
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
 }
 
 export type VMMethods = {
