@@ -2,15 +2,15 @@ import { kea } from 'kea'
 import { LemonSelectOption, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { FilterGroupTypes, GroupOption } from 'scenes/cohorts/CohortFilters/types'
 import type { cohortSelectorLogicType } from './cohortSelectorLogicType'
-import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/options'
+import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType } from '~/types'
 
 export interface CohortSelectorLogicProps {
     cohortFilterLogicKey: string
-    value: keyof LemonSelectOptions | null
-    groupTypes: FilterGroupTypes[]
-    onChange?: (value: keyof LemonSelectOptions, option: LemonSelectOption, group: LemonSelectOptions) => void
+    value: string | number | null
+    groupTypes?: FilterGroupTypes[]
+    onChange?: (value: string, option?: LemonSelectOption, group?: LemonSelectOptions) => void
 }
 
 export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLogicProps>>({
@@ -21,8 +21,8 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
     },
     actions: {
-        setValue: (value: keyof LemonSelectOptions | null) => ({ value }),
-        onChange: (value: keyof LemonSelectOptions, option: LemonSelectOption, group: LemonSelectOptions) => ({
+        setValue: (value: string | number | null) => ({ value }),
+        onChange: (value: string, option?: LemonSelectOption, group?: LemonSelectOptions) => ({
             value,
             option,
             group,
@@ -30,7 +30,7 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
     },
     reducers: {
         value: [
-            null as keyof LemonSelectOptions | null,
+            null as string | number | null,
             {
                 setValue: (_, { value }) => value,
             },

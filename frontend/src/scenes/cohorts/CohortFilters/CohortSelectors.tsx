@@ -5,6 +5,7 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonButton } from 'lib/components/LemonButton'
 import { cohortSelectorLogic, CohortSelectorLogicProps } from 'scenes/cohorts/CohortFilters/cohortSelectorLogic'
 import { useActions, useValues } from 'kea'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export interface CohortSelectorProps extends CohortSelectorLogicProps {
     placeholder: string
@@ -69,5 +70,41 @@ export function CohortSelector({
         >
             {currentOption?.label || <span className="text-muted">{placeholder}</span>}
         </LemonButtonWithPopup>
+    )
+}
+
+export interface CohortSelectorNumberProps extends CohortSelectorLogicProps {
+    placeholder: string
+}
+
+export function CohortSelectorNumber({
+    cohortFilterLogicKey: _cohortFilterLogicKey,
+    value,
+    onChange: _onChange,
+}: CohortSelectorNumberProps): JSX.Element {
+    const cohortFilterLogicKey = useMemo(
+        () => _cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
+        [_cohortFilterLogicKey]
+    )
+    const logicProps = {
+        cohortFilterLogicKey,
+        value,
+        onChange: _onChange,
+    }
+    const logic = cohortSelectorLogic(logicProps)
+    const { setValue, onChange } = useActions(logic)
+
+    useEffect(() => {
+        setValue(value)
+    }, [value])
+
+    return (
+        <LemonInput
+            type="number"
+            value={value ?? undefined}
+            onChange={(nextNumber) => {
+                onChange(nextNumber)
+            }}
+        />
     )
 }

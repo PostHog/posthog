@@ -1,4 +1,10 @@
-import { FilterGroupTypes, GroupOption } from 'scenes/cohorts/CohortFilters/types'
+import {
+    AtomGroup,
+    BehavioralFilterType,
+    FilterGroupTypes,
+    FilterTypes,
+    GroupOption,
+} from 'scenes/cohorts/CohortFilters/types'
 import {
     ActorGroupType,
     BaseMathType,
@@ -234,5 +240,173 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
                 label: 'value on the date',
             },
         },
+    },
+}
+
+export const FILTER_GRAMMARS: Record<BehavioralFilterType, AtomGroup> = {
+    [BehavioralEventType.PerformEvent]: {
+        type: BehavioralEventType.PerformEvent,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralEventType.NotPerformedEvent]: {
+        type: BehavioralEventType.NotPerformedEvent,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralEventType.PerformMultipleEvents]: {
+        type: BehavioralEventType.PerformMultipleEvents,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.MathOperator,
+            },
+            {
+                type: FilterTypes.NumberTicker,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'times in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralEventType.PerformSequenceEvents]: {
+        type: BehavioralEventType.PerformSequenceEvents,
+        atoms: [
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'followed by',
+            },
+            {
+                type: FilterTypes.Events,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'within',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'of the initial event',
+            },
+        ],
+    },
+    [BehavioralEventType.HaveProperty]: {
+        type: BehavioralEventType.HaveProperty,
+        atoms: [
+            {
+                type: FilterTypes.EventProperties,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'with the',
+            },
+            {
+                type: FilterTypes.Value,
+            },
+            {
+                type: FilterTypes.MathOperator,
+            },
+            {
+                type: FilterTypes.EventPropertyValues,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralEventType.NotHaveProperty]: {
+        type: BehavioralEventType.NotHaveProperty,
+        atoms: [
+            {
+                type: FilterTypes.EventProperties,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'with the',
+            },
+            {
+                type: FilterTypes.Value,
+            },
+            {
+                type: FilterTypes.MathOperator,
+            },
+            {
+                type: FilterTypes.EventPropertyValues,
+            },
+            {
+                type: FilterTypes.Text,
+                value: 'in the last',
+            },
+            {
+                type: FilterTypes.Number,
+            },
+            {
+                type: FilterTypes.TimeUnit,
+            },
+        ],
+    },
+    [BehavioralCohortType.InCohort]: {
+        type: BehavioralCohortType.InCohort,
+        atoms: [],
     },
 }

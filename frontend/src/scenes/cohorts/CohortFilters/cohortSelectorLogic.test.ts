@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { groupsModel } from '~/models/groupsModel'
 import { MOCK_GROUP_TYPES } from 'lib/api.mock'
 import { FilterGroupTypes } from 'scenes/cohorts/CohortFilters/types'
-import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/options'
+import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/constants'
 
 describe('cohortSelectorLogic', () => {
     let logic: ReturnType<typeof cohortSelectorLogic.build>
