@@ -1251,3 +1251,85 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_multiple_performed_event_sequence(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _make_event_sequence(self.team, "p1", 2, [1, 1])
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=9),
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=9),
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioural",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "week",
+                            "time_value": 2,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 2,
+                            "seq_event": "$new_view",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioural",
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
