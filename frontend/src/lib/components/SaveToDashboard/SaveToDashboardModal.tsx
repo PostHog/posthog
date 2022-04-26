@@ -4,7 +4,6 @@ import { Select, Modal } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { InsightModel } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from '../lemonToast'
 import { router } from 'kea-router'
@@ -14,6 +13,9 @@ import { IconMagnifier } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { LemonButton } from 'lib/components/LemonButton'
+import { Link } from 'lib/components/Link'
+import { DashboardType, InsightModel } from '~/types'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -24,10 +26,11 @@ interface SaveToDashboardModalProps {
 export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({
         id: insight.short_id,
+        insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { dashboardId, searchQuery } = useValues(logic)
+
+    const { dashboardId, searchQuery, currentDashboards, orderedDashboards } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     // const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
@@ -49,8 +52,18 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     }
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const dashboard = nameSortedDashboards[rowIndex]
-        return <div style={style}>{dashboard.name}</div>
+        const dashboard = orderedDashboards[rowIndex]
+        const isAlreadyOnDashboard = currentDashboards.some(
+            (currentDashboard: DashboardType) => currentDashboard.id === dashboard.id
+        )
+        return (
+            <div style={style} className="dashboard-list-item">
+                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+                <LemonButton type={isAlreadyOnDashboard ? 'primary' : 'secondary'} compact={true}>
+                    {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -81,9 +94,9 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                         <List
                             width={width}
                             height={height}
-                            rowCount={nameSortedDashboards.length}
+                            rowCount={orderedDashboards.length}
                             overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
+                            rowHeight={40}
                             rowRenderer={renderItem}
                             onRowsRendered={(args) => {
                                 console.log({ ...args }, 'on rows rendered')
@@ -101,6 +114,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({
         id: insight.short_id,
+        insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
     const { nameSortedDashboards } = useValues(dashboardsModel)

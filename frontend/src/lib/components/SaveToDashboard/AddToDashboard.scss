@@ -13,7 +13,7 @@
         padding: 0 16px 16px 16px;
 
         .list-wrapper {
-            min-height: 200px;
+            min-height: 220px;
             margin-top: 8px;
         }
 
@@ -24,6 +24,13 @@
             strong {
                 color: var(--text-default);
             }
+        }
+
+        .dashboard-list-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            justify-content: space-between;
         }
     }
 

@@ -5,11 +5,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { DashboardType, InsightModel, InsightType } from '~/types'
+import Fuse from 'fuse.js'
 
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     path: (key) => ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic', key],
     props: {} as {
         id?: string
+        insight: Partial<InsightModel>
         fromDashboard?: number
     },
     key: ({ id }) => id || 'none',
@@ -18,6 +21,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
+        setInsight: (insight: InsightType) => ({ insight }),
     },
 
     reducers: {
@@ -35,6 +39,36 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
             ],
             (_dashboardId, lastDashboardId, dashboards, fromDashboard) =>
                 _dashboardId || fromDashboard || lastDashboardId || (dashboards.length > 0 ? dashboards[0].id : null),
+        ],
+        dashboardsFuse: [
+            () => [dashboardsModel.selectors.nameSortedDashboards],
+            (nameSortedDashboards) => {
+                return new Fuse(nameSortedDashboards || [], {
+                    keys: ['name', 'description', 'tags'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+        filteredDashboards: [
+            (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
+            (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardType[] =>
+                searchQuery.length
+                    ? dashboardsFuse.search(searchQuery).map((r: Fuse.FuseResult<DashboardType>) => r.item)
+                    : nameSortedDashboards,
+        ],
+        currentDashboards: [
+            (s) => [s.filteredDashboards, (_, props) => props.insight],
+            (filteredDashboards, insight): DashboardType[] =>
+                filteredDashboards.filter((d: DashboardType) => insight.dashboards?.includes(d.id)),
+        ],
+        availableDashboards: [
+            (s) => [s.filteredDashboards, (_, props) => props.insight],
+            (filteredDashboards, insight): DashboardType[] =>
+                filteredDashboards.filter((d: DashboardType) => !insight.dashboards?.includes(d.id)),
+        ],
+        orderedDashboards: [
+            (s) => [s.currentDashboards, s.availableDashboards],
+            (currentDashboards, availableDashboards): DashboardType[] => [...currentDashboards, ...availableDashboards],
         ],
     },
 
