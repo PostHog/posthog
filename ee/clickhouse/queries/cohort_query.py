@@ -4,8 +4,6 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -170,9 +168,9 @@ class CohortQuery(EnterpriseEventQuery):
 
         subq = []
 
-        if self.sequence_filter_to_query:
+        if self.sequence_filters_to_query:
             sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query(
-                self.sequence_filter_to_query
+                self.sequence_filters_to_query
             )
             subq.append((sequence_query, sequence_query_alias))
             self.params.update(sequence_params)
@@ -478,59 +476,107 @@ class CohortQuery(EnterpriseEventQuery):
         return column_name, {f"{date_param}": date_value, **entity_params}
 
     @cached_property
-    def sequence_filter_to_query(self) -> Optional[Property]:
+    def sequence_filters_to_query(self) -> List[Property]:
+        props = []
         for prop in self._filter.property_groups.flat:
             if prop.value == "performed_event_sequence":
-                return prop
-        return None
+                props.append(prop)
+        return props
 
-    def _get_sequence_query(self, prop: Property) -> Tuple[str, Dict[str, Any], str]:
-        query, params = "", {}
+    @cached_property
+    def sequence_filters_lookup(self) -> Dict[str, str]:
+        lookup = {}
+        for idx, prop in enumerate(self.sequence_filters_to_query):
+            lookup[str(prop.to_dict())] = f"{idx}"
+        return lookup
+
+    def _get_sequence_query(self, prop: List[Property]) -> Tuple[str, Dict[str, Any], str]:
+        params = {}
+
+        names = ["person_id", "event", "properties", "distinct_id", "timestamp"]
+
+        _inner_fields = []
+        _intermediate_fields = []
+        _outer_fields = []
+
+        _inner_fields.extend(names)
+        _intermediate_fields.extend(names)
+
+        for idx, prop in enumerate(self.sequence_filters_to_query):
+            step_cols, intermediate_cols, aggregate_cols, seq_params = self._get_sequence_filter(prop, idx)
+            _inner_fields.extend(step_cols)
+            _intermediate_fields.extend(intermediate_cols)
+            _outer_fields.extend(aggregate_cols)
+            params.update(seq_params)
+
+        date_condition, date_params = self._get_date_condition()
+        params.update(date_params)
+
+        new_query = f"""
+        SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
+        {self._get_distinct_id_query()}
+        WHERE team_id = %(team_id)s
+        AND event IN %(events)s
+        {date_condition}
+        """
+
+        intermediate_query = f"""
+        SELECT {", ".join(_intermediate_fields)} FROM ({new_query})
+        """
+
+        _outer_fields.append("person_id")
+        _outer_fields.extend(self._fields)
+
+        outer_query = f"""
+        SELECT {", ".join(_outer_fields)} FROM ({intermediate_query})
+        GROUP BY person_id
+        """
+
+        return outer_query, {"team_id": self._team_id, "events": self._events, **params}, self.FUNNEL_QUERY_ALIAS
+
+    def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
         event = validate_entity((prop.event_type, prop.key))
+        entity_query, entity_params = self._get_entity(event, "event_sequence", idx)
         seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
+
+        seq_entity_query, seq_entity_params = self._get_entity(seq_event, "seq_event_sequence", idx)
 
         time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         time_interval = validate_interval(prop.time_interval)
         seq_date_value = parse_and_validate_positive_integer(prop.seq_time_value, "time_value")
         seq_date_interval = validate_interval(prop.seq_time_interval)
+        self._check_earliest_date((time_value, time_interval))
 
-        events, actions = convert_to_entity_params([event, seq_event])
-        new_filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "funnel_window_interval": seq_date_value,
-                "funnel_window_interval_unit": seq_date_interval,
-                "events": events,
-                "actions": actions,
-                "filter_test_accounts": self._filter.filter_test_accounts,
-                "display": "FunnelViz",
-                "funnel_viz_type": "steps",
-                "date_from": get_relative_date_arg((time_value, time_interval)),
-            }
+        event_prepend = f"event_{idx}"
+
+        duplicate_event = 0
+        if event == seq_event:
+            duplicate_event = 1
+
+        aggregate_cols = []
+        aggregate_condition = f"max(if({event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
+        aggregate_cols.append(aggregate_condition)
+
+        condition_cols = []
+        timestamp_condition = f"min({event_prepend}_latest_1) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) {event_prepend}_latest_1"
+        condition_cols.append(f"{event_prepend}_latest_0")
+        condition_cols.append(timestamp_condition)
+
+        step_cols = []
+        step_cols.append(
+            f"if({entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_0"
         )
+        step_cols.append(f"if({event_prepend}_step_0 = 1, timestamp, null) AS {event_prepend}_latest_0")
 
-        team = Team.objects.get(id=self._team_id)
-        names = ["event", "properties", "distinct_id"]
-
-        funnel_builder = ClickhouseFunnel(new_filter, team)
-
-        # TODO: pass in dynamic event param
-        funnel_query = funnel_builder.build_step_subquery(2, 2, event_names_alias="events", extra_fields=names)
-        funnel_condition = f", max(if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) AS {self.SEQUENCE_FIELD_ALIAS}"
-        parsed_extra_fields = f", {', '.join(self._fields)}" if self._fields else ""
-
-        query = f"""
-        SELECT aggregation_target AS person_id {funnel_condition} {parsed_extra_fields}  FROM (
-            {funnel_query}
+        step_cols.append(
+            f"if({seq_entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_1"
         )
-        GROUP BY person_id
-        """
-        params.update(funnel_builder.params)
+        step_cols.append(f"if({event_prepend}_step_1 = 1, timestamp, null) AS {event_prepend}_latest_1")
 
-        return query, params, self.FUNNEL_QUERY_ALIAS
+        return step_cols, condition_cols, aggregate_cols, {**entity_params, **seq_entity_params}
 
     def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"{self.SEQUENCE_FIELD_ALIAS} = 2", {}
+        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]} = 2", {}
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)

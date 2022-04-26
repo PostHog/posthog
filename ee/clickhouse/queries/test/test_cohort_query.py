@@ -1133,6 +1133,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(sorted([p1.uuid, p2.uuid]), sorted([r[0] for r in res]))
 
+    @snapshot_clickhouse_queries
     def test_performed_event_sequence(self):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
