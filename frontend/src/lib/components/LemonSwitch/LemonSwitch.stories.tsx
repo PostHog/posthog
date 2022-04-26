@@ -25,7 +25,7 @@ export const Primary = Template.bind({})
 Primary.args = { type: 'primary' }
 
 export const Disabled = Template.bind({})
-Disabled.args = { disabled: true }
+Disabled.args = { disabled: true, label: "Can't switch this" }
 
 export const Standalone = Template.bind({})
 Standalone.args = { label: undefined }
