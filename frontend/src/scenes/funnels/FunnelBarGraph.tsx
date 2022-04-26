@@ -287,6 +287,7 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
+/** @deprecated */
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dashboardItemId } = insightProps
