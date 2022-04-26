@@ -3,6 +3,7 @@
 .welcome-panel {
     border-radius: $radius;
     padding: 40px;
+    padding-bottom: $default_spacing;
     background-color: white;
     box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
 
@@ -69,7 +70,7 @@
 .ingestion-card-container {
     @extend %mixin-elevated;
     max-width: 65vw;
-    max-height: 75vh;
+    max-height: 80vh;
     border-radius: $radius;
     display: flex;
     flex-direction: column;

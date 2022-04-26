@@ -20,7 +20,7 @@ export function FrameworkPanel(): JSX.Element {
             }}
         >
             {onboarding1 ? (
-                <div style={{ maxWidth: 400 }}>
+                <div style={{ maxWidth: 400, marginLeft: 24, marginRight: 24 }}>
                     <h1 style={{ fontSize: 28, fontWeight: 800 }}>
                         {platform === BACKEND ? 'Choose the framework your app is built in' : 'Pick a mobile platform'}
                     </h1>
