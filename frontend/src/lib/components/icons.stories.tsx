@@ -49,7 +49,8 @@ export function Icons(): JSX.Element {
     )
 }
 
-export function CountedIcon(): JSX.Element {
+export function IconWithCountBubble(): JSX.Element {
+    const betweenOneAndTwenty = Math.floor(Math.random() * (20 - 1 + 1)) + 1
     return (
         <span
             style={{
@@ -59,7 +60,41 @@ export function CountedIcon(): JSX.Element {
                 boxSizing: 'content-box',
             }}
         >
-            <IconWithCount count={3}>
+            <IconWithCount count={betweenOneAndTwenty}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithCountHidingZero(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+                boxSizing: 'content-box',
+            }}
+        >
+            <IconWithCount count={0} showZero={false}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithCountShowingZero(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+                boxSizing: 'content-box',
+            }}
+        >
+            <IconWithCount count={0} showZero={true}>
                 <IconGauge />
             </IconWithCount>
         </span>

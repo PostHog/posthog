@@ -4,13 +4,14 @@ import './icons.scss'
 
 interface IconWithCountProps {
     count: number
+    showZero?: boolean
 }
 
-export function IconWithCount({ count, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <div style={{ position: 'relative' }}>
             {children}
-            <div className="icon-count-bubble">{count}</div>
+            {count > 0 || showZero ? <div className="icon-count-bubble">{count}</div> : null}
         </div>
     )
 }
