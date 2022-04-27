@@ -132,6 +132,16 @@ type PersonData = {
     properties: Properties
 }
 
+type GroupIdentifier = {
+    index: number
+    key: string
+}
+
+type GroupProperties = {
+    identifier: GroupIdentifier
+    properties: Properties | null
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -157,7 +167,7 @@ export class DB {
     writeToPersonUniqueId?: boolean
 
     /** How many seconds to keep person info in Redis cache */
-    PERSON_INFO_CACHE_TTL: number
+    PERSONS_AND_GROUPS_CACHE_TTL: number
 
     /** Which teams is person info caching enabled on */
     personInfoCachingEnabledTeams: Set<number>
@@ -177,7 +187,7 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
-        this.PERSON_INFO_CACHE_TTL = personInfoCacheTtl
+        this.PERSONS_AND_GROUPS_CACHE_TTL = personInfoCacheTtl
         this.personInfoCachingEnabledTeams = personInfoCachingEnabledTeams
     }
 
@@ -428,11 +438,11 @@ export class DB {
         })
     }
 
-    // Person
     REDIS_PERSON_ID_PREFIX = 'person_id'
     REDIS_PERSON_UUID_PREFIX = 'person_uuid'
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
+    REDIS_GROUP_PROPERTIES_PREFIX = 'group_props'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -450,15 +460,27 @@ export class DB {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
     }
 
+    private getGroupPropertiesCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+        return `${this.REDIS_GROUP_PROPERTIES_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
+    }
+
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.PERSON_INFO_CACHE_TTL)
+            await this.redisSet(
+                this.getPersonIdCacheKey(teamId, distinctId),
+                personId,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
         }
     }
 
     private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(this.getPersonCreatedAtCacheKey(teamId, personId), uuid, this.PERSON_INFO_CACHE_TTL)
+            await this.redisSet(
+                this.getPersonCreatedAtCacheKey(teamId, personId),
+                uuid,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
         }
     }
 
@@ -467,7 +489,7 @@ export class DB {
             await this.redisSet(
                 this.getPersonCreatedAtCacheKey(teamId, personId),
                 createdAtIso,
-                this.PERSON_INFO_CACHE_TTL
+                this.PERSONS_AND_GROUPS_CACHE_TTL
             )
         }
     }
@@ -481,7 +503,22 @@ export class DB {
             await this.redisSet(
                 this.getPersonPropertiesCacheKey(teamId, personId),
                 properties,
-                this.PERSON_INFO_CACHE_TTL
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
+        }
+    }
+
+    private async updateGroupPropertiesCache(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        properties: Properties
+    ): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getGroupPropertiesCacheKey(teamId, groupTypeIndex, groupKey),
+                properties,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
             )
         }
     }
@@ -559,6 +596,100 @@ export class DB {
             return await this.getPersonDataByPersonId(teamId, personId)
         }
         return null
+    }
+
+    // public async getGroupProperty(teamId: number, groupTypeIndex: number, groupKey: string): Promise<Properties | null> {
+    //     if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+    //         return null
+    //     }
+    //     const props = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
+    //     if (personId) {
+    //         this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
+    //         return Number(personId)
+    //     }
+    //     this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
+    //     // Query from postgres and update cache
+    //     const result = await this.postgresQuery(
+    //         'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$2 LIMIT 1',
+    //         [teamId, distinctId],
+    //         'fetchPersonId'
+    //     )
+    //     if (result.rows.length > 0) {
+    //         const personId = Number(result.rows[0].person_id)
+    //         await this.updatePersonIdCache(teamId, distinctId, personId)
+    //         return personId
+    //     }
+    //     return null
+    // }
+
+    private async getGroupProperty(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
+        const props = await this.redisGet(
+            this.getGroupPropertiesCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
+            null
+        )
+        return { identifier: groupIdentifier, properties: props !== null ? (props as Properties) : null }
+    }
+
+    // TODO: add test for this
+    private async getGroupPropertiesFromDbAndUpdateCache(
+        teamId: number,
+        groupIdentifiers: GroupIdentifier[]
+    ): Promise<Record<string, string>> {
+        const query_options: string[] = []
+        const args: any[] = [teamId]
+        let index = 2
+        for (const gi of groupIdentifiers) {
+            query_options.push(`(group_type_index = ${index} group_key = ${index + 1} AND)`)
+            index += 2
+            args.push([gi.index, gi.key])
+        }
+        const result = await this.postgresQuery(
+            'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
+                query_options.join(' OR ')
+            ),
+            args,
+            'fetchGroupProperties'
+        )
+        const promises = []
+        const res: Record<string, string> = {}
+        for (const row in result.rows) {
+            // TODO: why do you think its a string???
+            const index = Number(row.group_type_index)
+            const key = String(row.group_key)
+            const properties = row.group_properties as Properties
+            promises.push(this.updateGroupPropertiesCache(teamId, index, key, properties))
+            res[`group${index}_properties`] = JSON.stringify(properties)
+        }
+        await Promise.all(promises)
+        return res
+    }
+
+    public async getGroupProperties(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+            return {}
+        }
+        // TODO: what if the group isn't identified, i.e. there is no extra info??? - I assume we'll have stored an empty properties list then - todo verify
+        // Same for what if there aren't any person properties - will we always query postgres then?
+        const promises = groups.map((groupIdentifier) => {
+            return this.getGroupProperty(teamId, groupIdentifier)
+        })
+        const cachedRes = await Promise.all(promises) // TODO: would be nice if GroupIdentifier was the map index so I can update it more easily later for nulls
+        const useFromCache = cachedRes.filter((gp) => gp.properties !== null)
+        let res: Record<string, string> = {}
+        useFromCache.forEach((gp) => {
+            res[`group${gp.identifier.index}_properties`] = JSON.stringify(gp.properties)
+        })
+
+        // Lookup the properties from DB if they weren't in cache and update the cache
+        const lookupFromDb = cachedRes.filter((gp) => gp.properties === null)
+        if (lookupFromDb) {
+            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(
+                teamId,
+                lookupFromDb.map((gp) => gp.identifier)
+            )
+            res = { ...res, ...fromDb }
+        }
+        return res
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -1642,6 +1773,7 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
+        await this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
     }
 
     public async updateGroup(
@@ -1678,6 +1810,7 @@ export class DB {
             'upsertGroup',
             client
         )
+        await this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
     }
 
     public async upsertGroupClickhouse(

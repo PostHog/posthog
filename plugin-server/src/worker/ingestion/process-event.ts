@@ -592,6 +592,12 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const personInfo = await this.db.getPersonData(teamId, distinctId)
+        const groupProperties = await this.db.getGroupProperties(
+            teamId,
+            [0, 1, 2, 3, 4].map((index) => {
+                return properties[`$group${index}`]
+            })
+        )
 
         const eventPayload: IEvent = {
             uuid,
@@ -616,6 +622,7 @@ export class EventsProcessor {
                           ...eventPayload,
                           person_id: personInfo?.uuid,
                           person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
+                          ...groupProperties,
                       })
                   )
 
