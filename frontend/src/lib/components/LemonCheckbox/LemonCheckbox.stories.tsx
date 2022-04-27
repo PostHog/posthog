@@ -1,16 +1,26 @@
 import React from 'react'
-import { ComponentMeta } from '@storybook/react'
-
+import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
 export default {
-    title: 'Components/Lemon Checkbox',
+    title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
-    args: {
-        label: 'Tick this',
-    },
 } as ComponentMeta<typeof LemonCheckbox>
 
-export function LemonCheckbox_(args: LemonCheckboxProps): JSX.Element {
-    return <LemonCheckbox {...args} />
+const Template: ComponentStory<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
+    return <LemonCheckbox {...props} />
 }
+
+export const Basic = Template.bind({})
+Basic.args = {
+    label: 'Check this out',
+}
+
+export const Disabled = Template.bind({})
+Disabled.args = {
+    label: "You can't check this out",
+    disabled: true,
+}
+
+export const Standalone = Template.bind({})
+Standalone.args = {}

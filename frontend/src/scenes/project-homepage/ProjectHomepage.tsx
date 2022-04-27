@@ -10,7 +10,7 @@ import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
@@ -107,7 +107,7 @@ export function ProjectHomepage(): JSX.Element {
                                 Change dashboard
                             </LemonButton>
                         </Row>
-                        <LemonSpacer large />
+                        <LemonDivider large />
                     </div>
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}

@@ -9,6 +9,7 @@ export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
     limit?: number
 }
 
+/** Bubbles are a compact way of listing PostHog users – usually in a collaborative context, such as dashboard collaborators. */
 export function ProfileBubbles({ people, tooltip, limit = 6, ...divProps }: ProfileBubblesProps): JSX.Element {
     const overflowing = people.length > limit
 

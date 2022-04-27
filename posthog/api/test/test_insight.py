@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.case import skip
 from unittest.mock import patch
-from uuid import uuid4
 
 import pytz
 from django.db import DEFAULT_DB_ALIAS, connections
@@ -13,7 +12,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
@@ -29,17 +27,7 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -813,8 +801,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Breakdown with ints in funnels
-        cohort_one_id = self._create_one_person_cohort({"prop": 5})
-        cohort_two_id = self._create_one_person_cohort({"prop": 6})
+        cohort_one_id = self._create_one_person_cohort([{"key": "prop", "value": 5, "type": "person"}])
+        cohort_two_id = self._create_one_person_cohort([{"key": "prop", "value": 6, "type": "person"}])
 
         events = [
             {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
@@ -827,7 +815,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
-    def _create_one_person_cohort(self, properties: Dict[str, Any]) -> int:
+    def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": properties}]},

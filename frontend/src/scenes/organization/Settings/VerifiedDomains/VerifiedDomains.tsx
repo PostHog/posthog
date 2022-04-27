@@ -127,12 +127,12 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
                 return is_verified ? (
                     <div className="flex-center">
-                        Enable automatic provisioning
                         <LemonSwitch
-                            style={{ marginLeft: 8 }}
                             checked={jit_provisioning_enabled}
                             disabled={updatingDomainLoading || !is_verified}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
+                            label={jit_provisioning_enabled ? 'Enabled' : 'Disabled'}
+                            style={{ padding: 0, fontWeight: 400 }}
                         />
                     </div>
                 ) : (

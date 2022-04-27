@@ -1,0 +1,23 @@
+.LemonDivider {
+    width: 100%;
+    height: 1px;
+    opacity: 0.17;
+    background: currentColor;
+    margin: 0.5rem 0;
+    flex-shrink: 0;
+
+    &--large {
+        margin: 1rem 0;
+    }
+
+    &--vertical {
+        width: 1px;
+        height: auto;
+        margin: 0.5rem;
+        align-self: stretch;
+
+        &--large {
+            margin: 0.5rem 1rem;
+        }
+    }
+}
