@@ -208,6 +208,56 @@
     AND ((steps_0)) SETTINGS allow_experimental_window_functions = 1
   '
 ---
+# name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event
+  '
+  
+  SELECT funnel_query.person_id AS id
+  FROM
+    (SELECT max(if(event_0_latest_0 < event_0_latest_1
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) AS steps_0,
+            person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$new_view') >= 1 AS performed_event_multiple_condition_level_level_1
+     FROM
+       (SELECT person_id,
+               event,
+               properties,
+               distinct_id,
+               timestamp,
+               event_0_latest_0,
+               min(event_0_latest_1) over (PARTITION by person_id
+                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+        FROM
+          (SELECT person_id,
+                  event,
+                  properties,
+                  distinct_id,
+                  timestamp,
+                  if(event = '$pageview'
+                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                  if(event = '$pageview'
+                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+           FROM events AS e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 2
+             AND event IN ['$new_view', '$pageview', '$pageview']
+             AND timestamp <= now()
+             AND timestamp >= now() - INTERVAL 1 week ))
+     GROUP BY person_id) funnel_query
+  WHERE 1 = 1
+    AND ((steps_0 = 2
+          OR performed_event_multiple_condition_level_level_1)) SETTINGS allow_experimental_window_functions = 1
+  '
+---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
   '
   
