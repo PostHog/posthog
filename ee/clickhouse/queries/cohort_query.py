@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
@@ -125,6 +125,7 @@ class CohortQuery(EnterpriseEventQuery):
         team: Team,
         *,
         cohort_pk: Optional[int] = None,
+        cohorts_seen: Optional[Set[int]] = None,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -140,6 +141,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
+        self._cohorts_seen = cohorts_seen
         super().__init__(
             filter=filter,
             team=team,
@@ -339,12 +341,17 @@ class CohortQuery(EnterpriseEventQuery):
         except Cohort.DoesNotExist:
             return "0 = 14", {}
 
-        if prop_cohort.pk == self._cohort_pk:
-            # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
+        if prop_cohort.pk == self._cohort_pk or (self._cohorts_seen and prop_cohort.pk in self._cohorts_seen):
+            # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort eventually),
             # we treat it as satisfied for all persons
             return "11 = 11", {}
         else:
-            person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
+            cohorts_seen = [*self._cohorts_seen] if self._cohorts_seen is not None else []
+            if self._cohort_pk is not None:
+                cohorts_seen.append(self._cohort_pk)
+            person_id_query, cohort_filter_params = format_filter_query(
+                prop_cohort, idx, "person_id", cohorts_seen=set(cohorts_seen)
+            )
             return f"id IN ({person_id_query})", cohort_filter_params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
