@@ -226,7 +226,9 @@ class TestFormula(APIBaseTest):
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
-            team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
         response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])

@@ -801,8 +801,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Breakdown with ints in funnels
-        cohort_one_id = self._create_one_person_cohort({"prop": 5})
-        cohort_two_id = self._create_one_person_cohort({"prop": 6})
+        cohort_one_id = self._create_one_person_cohort([{"key": "prop", "value": 5, "type": "person"}])
+        cohort_two_id = self._create_one_person_cohort([{"key": "prop", "value": 6, "type": "person"}])
 
         events = [
             {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
@@ -815,7 +815,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
-    def _create_one_person_cohort(self, properties: Dict[str, Any]) -> int:
+    def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": properties}]},

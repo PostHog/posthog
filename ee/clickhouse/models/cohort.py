@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import structlog
 from dateutil import parser
@@ -38,38 +38,57 @@ logger = structlog.get_logger(__name__)
 
 
 def format_person_query(
-    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
+    cohort: Cohort,
+    index: int,
+    *,
+    custom_match_field: str = "person_id",
+    cohorts_seen: Optional[Set[int]] = None,
+    using_new_query: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
-    filters = []
-    params: Dict[str, Any] = {}
-
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
 
-    or_queries = []
-    groups = cohort.groups
+    if using_new_query:
+        if not cohort.properties.values:
+            # No person can match an empty cohort
+            return "0 = 19", {}
 
-    if not groups:
-        # No person can match a cohort that has no match groups
-        return "0 = 19", {}
+        from ee.clickhouse.queries.cohort_query import CohortQuery
 
-    for group_idx, group in enumerate(groups):
-        if group.get("action_id") or group.get("event_id"):
-            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
-            params = {**params, **entity_params}
-            filters.append(entity_query)
+        query, params = CohortQuery(
+            Filter(data={"properties": cohort.properties}), cohort.team, cohort_pk=cohort.pk, cohorts_seen=cohorts_seen
+        ).get_query()
 
-        elif group.get("properties"):
-            prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
-            or_queries.append(prop_query)
-            params = {**params, **prop_params}
+        return f"{custom_match_field} IN ({query})", params
 
-    if len(or_queries) > 0:
-        query = "AND ({})".format(" OR ".join(or_queries))
-        filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
+    else:
+        filters = []
+        params = {}
 
-    joined_filter = " OR ".join(filters)
-    return joined_filter, params
+        or_queries = []
+        groups = cohort.groups
+
+        if not groups:
+            # No person can match a cohort that has no match groups
+            return "0 = 19", {}
+
+        for group_idx, group in enumerate(groups):
+            if group.get("action_id") or group.get("event_id"):
+                entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
+                params = {**params, **entity_params}
+                filters.append(entity_query)
+
+            elif group.get("properties"):
+                prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
+                or_queries.append(prop_query)
+                params = {**params, **prop_params}
+
+        if len(or_queries) > 0:
+            query = "AND ({})".format(" OR ".join(or_queries))
+            filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
+
+        joined_filter = " OR ".join(filters)
+        return joined_filter, params
 
 
 def format_static_cohort_query(
@@ -239,8 +258,16 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index)
+def format_filter_query(
+    cohort: Cohort,
+    index: int = 0,
+    id_column: str = "distinct_id",
+    cohorts_seen: Optional[Set[int]] = None,
+    using_new_query: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    person_query, params = format_cohort_subquery(
+        cohort, index, cohorts_seen=cohorts_seen, using_new_query=using_new_query
+    )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
@@ -250,12 +277,24 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
-def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+def format_cohort_subquery(
+    cohort: Cohort,
+    index: int,
+    custom_match_field="person_id",
+    cohorts_seen: Optional[Set[int]] = None,
+    using_new_query: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
         format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
         if is_precalculated
-        else format_person_query(cohort, index, custom_match_field=custom_match_field)
+        else format_person_query(
+            cohort,
+            index,
+            custom_match_field=custom_match_field,
+            cohorts_seen=cohorts_seen,
+            using_new_query=using_new_query,
+        )
     )
     return person_query, params
 
@@ -294,6 +333,21 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
+    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id", using_new_query=True)
+
+    count = sync_execute(
+        f"""
+        SELECT COUNT(1)
+        FROM person
+        WHERE {cohort_filter}
+        """,
+        {**cohort_params, "team_id": cohort.team_id, "cohort_id": cohort.pk},
+    )[0][0]
+
+    return count
 
 
 def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
