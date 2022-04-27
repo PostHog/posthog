@@ -141,6 +141,19 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             step,
             converted,
         }),
+        openPersonsModalForSeries: ({
+            step,
+            series,
+            converted,
+        }: {
+            step: FunnelStep
+            series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+            converted: boolean
+        }) => ({
+            step,
+            series,
+            converted,
+        }),
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
             success,
@@ -1211,6 +1224,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         openPersonsModalForStep: ({ step, converted }) => {
+            // DEPRECATED
             if (!values.isModalActive) {
                 return
             }
@@ -1224,6 +1238,20 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.
                 funnelStep: converted ? step.order : -step.order,
+                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
+                label: step.name,
+                seriesId: step.order,
+            })
+        },
+        openPersonsModalForSeries: ({ step, series, converted }) => {
+            // Version of openPersonsModalForStep that accurately handles breakdown series
+            const breakdownValues = getBreakdownStepValues(series, series.order)
+            personsModalLogic.actions.loadPeopleFromUrl({
+                url: converted ? series.converted_people_url : series.dropped_people_url,
+                // NOTE: although we have the url that contains all of the info needed
+                // to return people, we currently still need to pass something in for the
+                // purpose of the modal displaying the label.
+                funnelStep: converted ? step.order + 1 : -(step.order + 1),
                 breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
                 seriesId: step.order,

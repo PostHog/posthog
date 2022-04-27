@@ -38,7 +38,7 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 
 function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { openPersonsModalForSeries } = useActions(funnelLogic)
 
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
@@ -62,11 +62,11 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                 >
                     <div
                         className="StepBars__backdrop"
-                        onClick={() => openPersonsModalForStep({ step: breakdown, converted: false })}
+                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: false })}
                     />
                     <div
                         className="StepBars__fill"
-                        onClick={() => openPersonsModalForStep({ step: breakdown, converted: true })}
+                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: true })}
                     />
                 </div>
             ))}

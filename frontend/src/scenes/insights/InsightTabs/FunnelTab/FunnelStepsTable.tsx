@@ -21,7 +21,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     const logic = funnelLogic(insightProps)
     const { insightLoading, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
         useValues(logic)
-    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForStep } = useActions(logic)
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
 
     const isOnlySeries = flattenedBreakdowns.length === 1
@@ -120,7 +120,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                         return (
                             stepSeries && (
                                 <ValueInspectorButton
-                                    onClick={() => openPersonsModalForStep({ step: stepSeries, converted: true })}
+                                    onClick={() =>
+                                        openPersonsModalForSeries({ step, series: stepSeries, converted: true })
+                                    }
                                     style={{ padding: 0 }}
                                 >
                                     {humanFriendlyNumber(stepSeries.count ?? 0)}
@@ -145,7 +147,11 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       stepSeries && (
                                           <ValueInspectorButton
                                               onClick={() =>
-                                                  openPersonsModalForStep({ step: stepSeries, converted: false })
+                                                  openPersonsModalForSeries({
+                                                      step,
+                                                      series: stepSeries,
+                                                      converted: false,
+                                                  })
                                               }
                                               style={{ padding: 0 }}
                                           >
