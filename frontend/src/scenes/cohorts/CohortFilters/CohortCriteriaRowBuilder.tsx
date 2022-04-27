@@ -27,16 +27,19 @@ export function CohortCriteriaRowBuilder({
                     onChange: (val) => onChangeType(val as BehavioralFilterType),
                 })}
             </Col>
-            {rowShape.fields.map((field, i) => (
-                <Col key={i} className="CohortCriteriaRow__CohortField">
-                    {renderField[field.type]({
-                        value: null,
-                        ...field,
-                        ...(groupedValues?.[i] ?? {}),
-                        groupedValues,
-                    } as CohortFieldProps)}
-                </Col>
-            ))}
+            {rowShape.fields.map(
+                (field, i) =>
+                    !field.hide && (
+                        <Col key={i} className="CohortCriteriaRow__CohortField">
+                            {renderField[field.type]({
+                                value: null,
+                                ...field,
+                                ...(groupedValues?.[i] ?? {}),
+                                groupedValues,
+                            } as CohortFieldProps)}
+                        </Col>
+                    )
+            )}
         </Row>
     )
 }

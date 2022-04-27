@@ -15,9 +15,11 @@ export enum FilterType {
     EventsAndActions = 'eventsAndActions',
     EventProperties = 'eventProperties',
     EventPropertyValues = 'eventPropertyValues',
+    EventType = 'eventType',
     Number = 'number',
     NumberTicker = 'numberTicker',
     CohortValues = 'cohortValues',
+    CohortId = 'cohortId',
 }
 
 export enum FieldOptionsType {
@@ -41,15 +43,24 @@ export interface FieldValues {
 
 export type BehavioralFilterType = BehavioralEventType | BehavioralCohortType | BehavioralLifecycleType
 
+export enum BehavioralFilterKey {
+    Behavioral = 'behavioral',
+    Cohort = 'cohort',
+    Person = 'person',
+}
+
 export interface Field {
     key?: string
     value?: string | number | null
     type: FilterType
+    hide?: boolean // If field is hidden, key is included in final payload but no component is rendered
 }
 
 export interface Row {
-    type: BehavioralFilterType
+    type: BehavioralFilterKey
+    value: BehavioralFilterType
     fields: Field[]
+    negation?: boolean
 }
 
 // CohortField

@@ -1,5 +1,6 @@
 import React from 'react'
 import {
+    BehavioralFilterKey,
     BehavioralFilterType,
     CohortFieldProps,
     CohortNumberFieldProps,
@@ -101,14 +102,17 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [BehavioralEventType.PerformEvent]: {
                 label: 'Completed event',
             },
+            [BehavioralEventType.NotPerformedEvent]: {
+                label: 'Did not complete event',
+            },
             [BehavioralEventType.PerformMultipleEvents]: {
                 label: 'Completed an event multiple times',
             },
             [BehavioralEventType.PerformSequenceEvents]: {
                 label: 'Completed a sequence of events',
             },
-            [BehavioralEventType.NotPerformedEvent]: {
-                label: 'Did not complete event',
+            [BehavioralEventType.NotPerformSequenceEvents]: {
+                label: 'Did not complete a sequence of events',
             },
             [BehavioralEventType.HaveProperty]: {
                 label: 'Have the property',
@@ -260,52 +264,78 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
 
 export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralEventType.PerformEvent]: {
-        type: BehavioralEventType.PerformEvent,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralEventType.PerformEvent,
         fields: [
             {
-                type: FilterType.EventsAndActions,
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.NotPerformedEvent]: {
-        type: BehavioralEventType.NotPerformedEvent,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        negation: true,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.PerformMultipleEvents]: {
-        type: BehavioralEventType.PerformMultipleEvents,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralEventType.PerformMultipleEvents,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
+            },
+            {
+                key: 'operator',
                 type: FilterType.MathOperator,
                 value: OperatorType.Equals,
             },
@@ -313,34 +343,47 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.NumberTicker,
             },
             {
+                key: 'operator_value',
                 type: FilterType.Text,
                 value: 'times in the last',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.PerformSequenceEvents]: {
-        type: BehavioralEventType.PerformSequenceEvents,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralEventType.PerformSequenceEvents,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
@@ -349,6 +392,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 value: 'followed by',
             },
             {
+                key: 'seq_event',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -360,156 +404,187 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 value: 30,
             },
             {
+                key: 'seq_time_value',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
             {
+                key: 'seq_time_interval',
+                type: FilterType.Text,
+                value: 'of the initial event',
+            },
+        ],
+    },
+    [BehavioralEventType.NotPerformSequenceEvents]: {
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralEventType.PerformSequenceEvents,
+        negation: true,
+        fields: [
+            {
+                key: 'key',
+                type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
+            },
+            {
+                type: FilterType.Text,
+                value: 'in the last',
+            },
+            {
+                key: 'time_value',
+                type: FilterType.Number,
+                value: 30,
+            },
+            {
+                key: 'time_interval',
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
+            },
+            {
+                type: FilterType.Text,
+                value: 'followed by',
+            },
+            {
+                key: 'seq_event',
+                type: FilterType.EventsAndActions,
+            },
+            {
+                type: FilterType.Text,
+                value: 'within',
+            },
+            {
+                type: FilterType.Number,
+                value: 30,
+            },
+            {
+                key: 'seq_time_value',
+                type: FilterType.TimeUnit,
+                value: TimeUnitType.Day,
+            },
+            {
+                key: 'seq_time_interval',
                 type: FilterType.Text,
                 value: 'of the initial event',
             },
         ],
     },
     [BehavioralEventType.HaveProperty]: {
-        type: BehavioralEventType.HaveProperty,
+        type: BehavioralFilterKey.Person,
+        value: BehavioralEventType.HaveProperty,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventProperties,
             },
             {
-                type: FilterType.Text,
-                value: 'with the',
-            },
-            {
-                type: FilterType.Value,
-                value: ValueOptionType.MostRecent,
-            },
-            {
+                key: 'operator',
                 type: FilterType.MathOperator,
                 value: OperatorType.Equals,
             },
             {
+                key: 'value',
                 type: FilterType.EventPropertyValues,
-            },
-            {
-                type: FilterType.Text,
-                value: 'in the last',
-            },
-            {
-                type: FilterType.Number,
-                value: 30,
-            },
-            {
-                type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralEventType.NotHaveProperty]: {
-        type: BehavioralEventType.NotHaveProperty,
+        type: BehavioralFilterKey.Person,
+        value: BehavioralEventType.HaveProperty,
+        negation: true,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventProperties,
             },
             {
-                type: FilterType.Text,
-                value: 'with the',
-            },
-            {
-                type: FilterType.Value,
-                value: ValueOptionType.MostRecent,
-            },
-            {
+                key: 'operator',
                 type: FilterType.MathOperator,
                 value: OperatorType.Equals,
             },
             {
+                key: 'value',
                 type: FilterType.EventPropertyValues,
-            },
-            {
-                type: FilterType.Text,
-                value: 'in the last',
-            },
-            {
-                type: FilterType.Number,
-                value: 30,
-            },
-            {
-                type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralCohortType.InCohort]: {
-        type: BehavioralCohortType.InCohort,
+        type: BehavioralFilterKey.Cohort,
+        value: BehavioralCohortType.InCohort,
         fields: [
+            { key: 'key', type: FilterType.CohortId, value: 'id', hide: true },
             {
+                key: 'value',
                 type: FilterType.CohortValues,
-            },
-            {
-                type: FilterType.Text,
-                value: 'in the last',
-            },
-            {
-                type: FilterType.Number,
-                value: 30,
-            },
-            {
-                type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralCohortType.NotInCohort]: {
-        type: BehavioralCohortType.NotInCohort,
+        type: BehavioralFilterKey.Cohort,
+        negation: true,
+        value: BehavioralCohortType.InCohort,
         fields: [
+            { key: 'key', type: FilterType.CohortId, value: 'id', hide: true },
             {
+                key: 'value',
                 type: FilterType.CohortValues,
-            },
-            {
-                type: FilterType.Text,
-                value: 'in the last',
-            },
-            {
-                type: FilterType.Number,
-                value: 30,
-            },
-            {
-                type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.PerformEventFirstTime]: {
-        type: BehavioralLifecycleType.PerformEventFirstTime,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralLifecycleType.PerformEventFirstTime,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
         ],
     },
     [BehavioralLifecycleType.PerformEventRegularly]: {
-        type: BehavioralLifecycleType.PerformEventRegularly,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralLifecycleType.PerformEventRegularly,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
+            },
+            {
+                key: 'operator',
                 type: FilterType.MathOperator,
                 value: OperatorType.Equals,
             },
             {
+                key: 'operator_value',
                 type: FilterType.NumberTicker,
             },
             {
@@ -517,84 +592,128 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 value: 'times per',
             },
             {
+                key: 'time_value',
+                type: FilterType.Number,
+                value: 1,
+            },
+            {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                value: 'period for at least',
             },
             {
+                key: 'min_periods',
                 type: FilterType.Number,
-                value: 30,
+                value: 3,
             },
             {
-                type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                type: FilterType.Text,
+                value: 'of the last',
+            },
+            {
+                key: 'total_periods',
+                type: FilterType.Number,
+                value: 5,
             },
         ],
     },
     [BehavioralLifecycleType.StopPerformEvent]: {
-        type: BehavioralLifecycleType.StopPerformEvent,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralLifecycleType.StopPerformEvent,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'seq_time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'seq_time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'but not in the previous',
+                value: 'but had done it in the',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
+            },
+            {
+                type: FilterType.Text,
+                value: 'prior to now',
             },
         ],
     },
     [BehavioralLifecycleType.StartPerformEventAgain]: {
-        type: BehavioralLifecycleType.StartPerformEventAgain,
+        type: BehavioralFilterKey.Behavioral,
+        value: BehavioralLifecycleType.StartPerformEventAgain,
         fields: [
             {
+                key: 'key',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                key: 'event_type',
+                type: FilterType.EventType,
+                value: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
                 value: 'in the last',
             },
             {
+                key: 'seq_time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'seq_time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'but not in the previous',
+                value: 'but had not done it in the',
             },
             {
+                key: 'time_value',
                 type: FilterType.Number,
                 value: 30,
             },
             {
+                key: 'time_interval',
                 type: FilterType.TimeUnit,
                 value: TimeUnitType.Day,
+            },
+            {
+                type: FilterType.Text,
+                value: 'prior to now',
             },
         ],
     },
@@ -675,5 +794,11 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 placeholder="Choose cohort"
             />
         )
+    },
+    [FilterType.EventType]: function _renderField() {
+        return <></>
+    },
+    [FilterType.CohortId]: function _renderField() {
+        return <></>
     },
 }
