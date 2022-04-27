@@ -30,7 +30,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_PASSWORD: null,
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
-        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: false,
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
         KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
@@ -89,6 +89,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
+        CONVERSION_BUFFER_ENABLED: false,
+        CONVERSION_BUFFER_ENABLED_TEAMS: '',
+        BUFFER_CONVERSION_SECONDS: 60,
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
     }
