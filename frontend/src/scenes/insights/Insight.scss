@@ -286,3 +286,12 @@ $funnel_canvas_background: #fff;
         }
     }
 }
+
+.significance-highlight {
+    display: inline-flex;
+    background: var(--primary);
+    color: var(--bg-light);
+    .LemonRow__icon {
+        color: var(--bg-light);
+    }
+}

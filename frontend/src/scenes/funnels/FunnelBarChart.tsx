@@ -102,7 +102,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
 
     return (
         <div className="StepLegend">
-            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} double />}>
+            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>
             <LemonRow icon={<IconTrendingFlat />} status="success" title="Users who converted in this step">

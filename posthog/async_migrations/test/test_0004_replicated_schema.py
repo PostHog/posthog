@@ -28,7 +28,6 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-@pytest.mark.ee
 class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.recreate_database()
@@ -49,6 +48,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)
 
+    @pytest.mark.async_migrations
     def test_is_required(self):
         from posthog.client import sync_execute
 
@@ -61,6 +61,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         self.assertFalse(migration.is_required())
 
+    @pytest.mark.async_migrations
     def test_migration(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 
@@ -83,6 +84,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(self.get_event_table_row_count(), 2)
 
+    @pytest.mark.async_migrations
     def test_rollback(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 
