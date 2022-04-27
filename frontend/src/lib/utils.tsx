@@ -181,14 +181,6 @@ export function TableRowLoading({
     )
 }
 
-export function SceneLoading(): JSX.Element {
-    return (
-        <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-            <Spinner size="lg" />
-        </div>
-    )
-}
-
 export function deleteWithUndo({
     undo = false,
     ...props

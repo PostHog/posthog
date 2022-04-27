@@ -60,10 +60,6 @@ export const ingestionLogic = kea<ingestionLogicType>({
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
-                const featFlags = featureFlagLogic.values.featureFlags
-                if (featFlags[FEATURE_FLAGS.INGESTION_GRID]) {
-                    return (framework && platform ? 1 : 0) + (verify ? 1 : 0)
-                }
                 if (verify) {
                     return 3
                 }

@@ -11,6 +11,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.models.utils import sane_repr
+from posthog.settings.base_variables import TEST
 
 from .person import Person
 
@@ -188,6 +189,12 @@ class Cohort(models.Model):
         """
         batchsize = 1000
         from ee.clickhouse.models.cohort import insert_static_cohort
+
+        if TEST:
+            from posthog.test.base import flush_persons_and_events
+
+            # Make sure persons are created in tests before running this
+            flush_persons_and_events()
 
         try:
             cursor = connection.cursor()
