@@ -82,7 +82,7 @@ interface StepLegendProps extends ChartParams {
 
 function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { openPersonsModalForSeries } = useActions(funnelLogic)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -103,7 +103,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             <LemonRow icon={<IconTrendingFlat />} status="success" title="Users who converted in this step">
                 {showPersonsModal ? (
                     <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: true })}
+                        onClick={() => openPersonsModalForSeries({ step, series: null, converted: true })}
                         style={{ padding: 0 }}
                     >
                         {convertedCountPresentation}
@@ -120,7 +120,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             >
                 {showPersonsModal ? (
                     <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: false })}
+                        onClick={() => openPersonsModalForSeries({ step, series: null, converted: false })}
                         style={{ padding: 0 }}
                     >
                         {droppedOffCountPresentation}
