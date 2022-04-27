@@ -1,23 +1,13 @@
 import dataclasses
 from typing import List
-from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
-from posthog.models.person import Person
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event, _create_person
 from posthog.test.test_event_model import filter_by_actions_factory
-
-
-def _create_event(**kwargs) -> str:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return str(pk)
 
 
 @dataclasses.dataclass
@@ -39,11 +29,6 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
     """
     events = sync_execute(query, {"team_id": action.team_id, **params})
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
-
-
-def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
 
 
 EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"

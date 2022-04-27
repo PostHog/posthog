@@ -1,18 +1,11 @@
 import json
-from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Element, ElementGroup, Organization
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event
 
 
 class TestElement(ClickhouseTestMixin, APIBaseTest):

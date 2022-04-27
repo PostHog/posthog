@@ -12,7 +12,8 @@ from ee.clickhouse.sql.session_recording_events import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.client import ch_pool, sync_execute
+from posthog.client import ch_pool
+from posthog.conftest import run_clickhouse_statement_in_parallel
 from posthog.settings import CLICKHOUSE_REPLICATION
 from posthog.test.base import BaseTest, QueryMatchingTest
 
@@ -61,29 +62,40 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute(DROP_EVENTS_TABLE_SQL())
-        sync_execute(EVENTS_TABLE_SQL())
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL())
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+        run_clickhouse_statement_in_parallel(
+            [
+                DROP_EVENTS_TABLE_SQL(),
+                DROP_PERSON_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            ]
+        )
+        run_clickhouse_statement_in_parallel(
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+        )
         if CLICKHOUSE_REPLICATION:
-            sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
-            sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+            run_clickhouse_statement_in_parallel(
+                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            )
 
     def tearDown(self):
         super().tearDown()
-        sync_execute(DROP_EVENTS_TABLE_SQL())
-        sync_execute(EVENTS_TABLE_SQL())
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL())
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+
+        run_clickhouse_statement_in_parallel(
+            [
+                DROP_EVENTS_TABLE_SQL(),
+                DROP_PERSON_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            ]
+        )
+        run_clickhouse_statement_in_parallel(
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+        )
         if CLICKHOUSE_REPLICATION:
-            sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
-            sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+            run_clickhouse_statement_in_parallel(
+                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            )
 
 
 def snapshot_clickhouse_queries(fn):

@@ -1,11 +1,9 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
-from uuid import uuid4
 
 from django.test.client import Client
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -14,8 +12,8 @@ from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stic
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person import Person
 from posthog.queries.util import get_earliest_timestamp
+from posthog.test.base import _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -25,16 +23,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=event_name)
     return action
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
 
 
 def get_people_from_url_ok(client: Client, url: str):
@@ -85,9 +73,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
             week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
             week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
 
-        assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.pk)])
+        assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.uuid)])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
-        assert sorted([p["id"] for p in week3_actors]) == sorted([str(p3.pk)])
+        assert sorted([p["id"] for p in week3_actors]) == sorted([str(p3.uuid)])
 
     @snapshot_clickhouse_queries
     def test_aggregate_by_groups(self):
