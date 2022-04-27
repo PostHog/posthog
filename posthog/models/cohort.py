@@ -109,7 +109,7 @@ class Cohort(models.Model):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
                     try:
-                        count = int(group.get("count", 0))
+                        count = int(group.get("count") or 0)
                     except ValueError:
                         count = 0
 

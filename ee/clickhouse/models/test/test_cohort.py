@@ -728,12 +728,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        cohort1.calculate_people_ch(pending_version=0)
+        with self.assertRaises(ValueError):
+            cohort1.calculate_people_ch(pending_version=0)
 
         count_result = sync_execute(
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
-        self.assertEqual(count_result, 2)
+        self.assertEqual(count_result, 0)
 
     def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
