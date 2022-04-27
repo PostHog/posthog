@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, flush_persons_and_events, test_with_materialized_columns
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
@@ -1309,6 +1309,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_response_empty_if_no_events(self):
             self._create_events()
+            flush_persons_and_events()
             response = trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
             self.assertEqual(response, [])
 

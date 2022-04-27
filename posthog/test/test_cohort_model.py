@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from posthog.client import sync_execute
@@ -66,7 +68,8 @@ class TestCohort(BaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
-    def test_batch_delete_cohort_people(self):
+    @patch("time.sleep", return_value=None)
+    def test_batch_delete_cohort_people(self, patch_sleep):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )

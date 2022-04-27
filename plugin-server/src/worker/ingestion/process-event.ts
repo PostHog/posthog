@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
@@ -18,7 +19,6 @@ import {
     PropertyUpdateOperation,
     SessionRecordingEvent,
     Team,
-    TeamId,
     TimestampFormat,
 } from '../../types'
 import { Client } from '../../utils/celery/client'
@@ -591,6 +591,8 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
+        const personInfo = await this.db.getPersonData(teamId, distinctId)
+
         const eventPayload: IEvent = {
             uuid,
             event: safeClickhouseString(event),
@@ -606,9 +608,16 @@ export class EventsProcessor {
 
         if (this.kafkaProducer) {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+            // proto ingestion is deprecated and we won't support new additions to the schema
             const message = useExternalSchemas
                 ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-                : Buffer.from(JSON.stringify(eventPayload))
+                : Buffer.from(
+                      JSON.stringify({
+                          ...eventPayload,
+                          person_id: personInfo?.uuid,
+                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
+                      })
+                  )
 
             await this.kafkaProducer.queueMessage({
                 topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
@@ -648,11 +657,15 @@ export class EventsProcessor {
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
         if (this.kafkaProducer) {
+            const partitionKeyHash = crypto.createHash('sha256')
+            partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+            const partitionKey = partitionKeyHash.digest('hex')
+
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_BUFFER,
                 messages: [
                     {
-                        key: bufferEvent.eventUuid,
+                        key: partitionKey,
                         value: Buffer.from(JSON.stringify(bufferEvent)),
                     },
                 ],

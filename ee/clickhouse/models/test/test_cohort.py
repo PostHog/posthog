@@ -1,11 +1,10 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -18,13 +17,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
-
-
-def _create_event(**kwargs) -> None:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
+from posthog.test.base import BaseTest, _create_event
 
 
 def _create_action(**kwargs):
@@ -345,7 +338,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
-    def test_cohortpeople_basic_paginating(self):
+    @patch("time.sleep", return_value=None)
+    def test_cohortpeople_basic_paginating(self, mock_sleep):
         for i in range(15):
             Person.objects.create(
                 team_id=self.team.pk,

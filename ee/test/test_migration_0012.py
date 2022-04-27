@@ -102,3 +102,4 @@ class TagsTestCase(TestMigrations):
         ).delete()
         EnterpriseEventDefinition.objects.filter(id=self.event_definition.id).delete()
         Team.objects.get(id=self.team2.id).delete()
+        super().tearDown()

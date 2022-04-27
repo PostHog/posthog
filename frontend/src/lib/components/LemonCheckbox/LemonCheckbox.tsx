@@ -24,6 +24,11 @@ export interface BoxCSSProperties extends React.CSSProperties {
 /** Counter used for collision-less automatic checkbox IDs. */
 let checkboxCounter = 0
 
+/** `LemonRow`-based checkbox component for use in lists or forms.
+ *
+ * As opposed to switches, checkboxes don't always have to result in the change being applied immediately.
+ * E.g. the change may only be applied when the user clicks "Save" in a form.
+ */
 export function LemonCheckbox({
     checked,
     defaultChecked,
@@ -59,12 +64,13 @@ export function LemonCheckbox({
                 'LemonCheckbox',
                 localChecked && 'LemonCheckbox--checked',
                 wasIndeterminateLast && 'LemonCheckbox--indeterminate',
-                disabled && 'LemonCheckbox--disabled',
                 className
             )}
+            disabled={disabled}
             icon={
                 <>
                     <input
+                        className="LemonCheckbox__input"
                         type="checkbox"
                         checked={localChecked}
                         defaultChecked={defaultChecked}
@@ -88,7 +94,11 @@ export function LemonCheckbox({
             }
             {...rowProps}
         >
-            {label && <label htmlFor={id}>{label}</label>}
+            {label && (
+                <label className="LemonCheckbox__label" htmlFor={id}>
+                    {label}
+                </label>
+            )}
         </LemonRow>
     )
 }

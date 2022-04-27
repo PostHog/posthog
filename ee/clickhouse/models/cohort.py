@@ -61,33 +61,34 @@ def format_person_query(
 
         return f"{custom_match_field} IN ({query})", params
 
-    filters = []
-    params: Dict[str, Any] = {}
+    else:
+        filters = []
+        params = {}
 
-    or_queries = []
-    groups = cohort.groups
+        or_queries = []
+        groups = cohort.groups
 
-    if not groups:
-        # No person can match a cohort that has no match groups
-        return "0 = 19", {}
+        if not groups:
+            # No person can match a cohort that has no match groups
+            return "0 = 19", {}
 
-    for group_idx, group in enumerate(groups):
-        if group.get("action_id") or group.get("event_id"):
-            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
-            params = {**params, **entity_params}
-            filters.append(entity_query)
+        for group_idx, group in enumerate(groups):
+            if group.get("action_id") or group.get("event_id"):
+                entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
+                params = {**params, **entity_params}
+                filters.append(entity_query)
 
-        elif group.get("properties"):
-            prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
-            or_queries.append(prop_query)
-            params = {**params, **prop_params}
+            elif group.get("properties"):
+                prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
+                or_queries.append(prop_query)
+                params = {**params, **prop_params}
 
-    if len(or_queries) > 0:
-        query = "AND ({})".format(" OR ".join(or_queries))
-        filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
+        if len(or_queries) > 0:
+            query = "AND ({})".format(" OR ".join(or_queries))
+            filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
-    joined_filter = " OR ".join(filters)
-    return joined_filter, params
+        joined_filter = " OR ".join(filters)
+        return joined_filter, params
 
 
 def format_static_cohort_query(
@@ -358,6 +359,14 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
         team_id=cohort.team_id,
         cohort_id=cohort.pk,
         size_before=before_count[0][0],
+    )
+
+    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
+        distinct_query="AND " + cohort_filter,
+        query="",
+        offset="",
+        limit="",
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)

@@ -1,19 +1,12 @@
 from typing import Dict, Optional
-from uuid import uuid4
 
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event
 
 
 class TestFormula(APIBaseTest):
@@ -139,9 +132,6 @@ class TestFormula(APIBaseTest):
     def test_month_interval(self):
         data = self._run({"date_from": "-2m", "interval": "month"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(data, [0.0, 0.0, 2160.0])
-
-    def test_interval_rounding(self):
-        pass
 
     def test_formula(self):
         self.assertEqual(self._run({"formula": "A - B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0])

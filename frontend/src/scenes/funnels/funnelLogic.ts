@@ -65,10 +65,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 
+/* Chosen via heuristics by eyeballing some values
+ * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+ * which gives a ballpark of 1 highlighting every 10 breakdown values
+ */
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
-// Chosen via heuristics by eyeballing some values
-// Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
-// which gives a ballpark of 1 highlighting every 10 breakdown values
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -825,8 +826,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                         (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
                                         (stepsInBreakdown[0]?.count ?? 1),
                                 },
-                                significant: stepsInBreakdown.some((step) =>
-                                    step.significant ? Object.values(step.significant).some((val) => val) : false
+                                significant: stepsInBreakdown.some(
+                                    (step) => step.significant?.total || step.significant?.fromPrevious
                                 ),
                             })
                         })
