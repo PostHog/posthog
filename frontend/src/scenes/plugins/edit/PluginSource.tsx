@@ -125,7 +125,7 @@ export function PluginSource(): JSX.Element {
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />
                         </Form.Item>
-                        <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
+                        <Form.Item label="Source Code" name="source">
                             <MonacoEditor
                                 language="typescript"
                                 theme="vs-dark"
@@ -137,7 +137,7 @@ export function PluginSource(): JSX.Element {
                         </Form.Item>
                         <Form.Item label="Frontend TSX" name="source_frontend">
                             <MonacoEditor
-                                language="javascript"
+                                language="typescript"
                                 theme="vs-dark"
                                 height={400}
                                 options={{
@@ -150,7 +150,7 @@ export function PluginSource(): JSX.Element {
                             name="source_decide"
                         >
                             <MonacoEditor
-                                language="javascript"
+                                language="typescript"
                                 theme="vs-dark"
                                 height={400}
                                 options={{
