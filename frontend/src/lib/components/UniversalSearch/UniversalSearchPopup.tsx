@@ -141,7 +141,7 @@ export function UniversalSearchPopup({
         taxonomicFilterLogicKey: 'universalSearch',
     }
     const logic = taxonomicFilterLogic(universalSearchLogicProps)
-    const { searchQuery, searchPlaceholder } = useValues(logic)
+    const { searchQuery } = useValues(logic)
 
     // Command+S shortcut to get to universal search
     useEventListener('keydown', (event) => {
@@ -200,7 +200,7 @@ export function UniversalSearchPopup({
                         <Input
                             style={{ flexGrow: 1, cursor: 'pointer', opacity: visible ? '0' : '1' }}
                             data-attr="universal-search-field"
-                            placeholder={'Search ' + searchPlaceholder}
+                            placeholder={'Search...'}
                             value={searchQuery}
                             prefix={<IconMagnifier className={clsx('magnifier-icon', 'magnifier-icon-active222')} />}
                         />
