@@ -1,0 +1,9 @@
+.CohortCriteriaRow {
+    .CohortCriteriaRow__CohortField {
+        margin: 4px 0;
+
+        &:not(:last-child) {
+            margin-right: 0.5rem;
+        }
+    }
+}

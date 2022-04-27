@@ -1,15 +1,15 @@
-import { cohortSelectorLogic, CohortSelectorLogicProps } from 'scenes/cohorts/CohortFilters/cohortSelectorLogic'
+import { cohortFieldLogic, CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { groupsModel } from '~/models/groupsModel'
 import { MOCK_GROUP_TYPES } from 'lib/api.mock'
-import { FilterGroupTypes } from 'scenes/cohorts/CohortFilters/types'
-import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/options'
+import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 
-describe('cohortSelectorLogic', () => {
-    let logic: ReturnType<typeof cohortSelectorLogic.build>
-    const filter_groups = FILTER_GROUPS
+describe('cohortFieldLogic', () => {
+    let logic: ReturnType<typeof cohortFieldLogic.build>
+    const filter_groups = FIELD_VALUES
 
     beforeEach(async () => {
         useMocks({
@@ -21,15 +21,15 @@ describe('cohortSelectorLogic', () => {
     })
 
     async function initLogic(
-        props: CohortSelectorLogicProps = {
+        props: CohortFieldLogicProps = {
             cohortFilterLogicKey: '0',
             value: null,
-            groupTypes: [FilterGroupTypes.EventAggregation, FilterGroupTypes.PropertyAggregation],
+            fieldOptionGroupTypes: [FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation],
         }
     ): Promise<void> {
         groupsModel.mount()
         await expectLogic(groupsModel).toFinishAllListeners()
-        logic = cohortSelectorLogic(props)
+        logic = cohortFieldLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -46,10 +46,10 @@ describe('cohortSelectorLogic', () => {
                 await initLogic({
                     cohortFilterLogicKey: '0',
                     value: null,
-                    groupTypes: [key as FilterGroupTypes],
+                    fieldOptionGroupTypes: [key as FieldOptionsType],
                 })
                 await expectLogic(logic).toMatchValues({
-                    groups: [value],
+                    fieldOptionGroups: [value],
                 })
             })
         }
