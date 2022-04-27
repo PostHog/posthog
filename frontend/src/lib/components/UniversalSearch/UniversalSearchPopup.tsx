@@ -143,7 +143,7 @@ export function UniversalSearchPopup({
     const logic = taxonomicFilterLogic(universalSearchLogicProps)
     const { searchQuery } = useValues(logic)
 
-    // Command+S shortcut to get to universal search
+    // Command+S shortcut to get to universal search popup
     useEventListener('keydown', (event) => {
         if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
