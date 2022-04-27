@@ -57,7 +57,8 @@ export function PluginSource(): JSX.Element {
             form.setFieldsValue({
                 name: editingPlugin.name || 'Untitled Plugin',
                 source: newPlugin ? defaultSource : editingPlugin.source,
-                frontend: newPlugin ? '' : editingPlugin.frontend,
+                source_frontend: newPlugin ? '' : editingPlugin.source_frontend,
+                source_decide: newPlugin ? '' : editingPlugin.source_decide,
                 configSchema: JSON.stringify(newPlugin ? defaultConfig : editingPlugin.config_schema, null, 2),
             })
         } else {
@@ -134,7 +135,20 @@ export function PluginSource(): JSX.Element {
                                 }}
                             />
                         </Form.Item>
-                        <Form.Item label="Compiled Frontend JS" name="frontend">
+                        <Form.Item label="Frontend TSX" name="source_frontend">
+                            <MonacoEditor
+                                language="javascript"
+                                theme="vs-dark"
+                                height={400}
+                                options={{
+                                    minimap: { enabled: false },
+                                }}
+                            />
+                        </Form.Item>
+                        <Form.Item
+                            label="Decide TS (transpiled to JS that's injected on the client's site)"
+                            name="source_decide"
+                        >
                             <MonacoEditor
                                 language="javascript"
                                 theme="vs-dark"

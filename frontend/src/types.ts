@@ -804,7 +804,8 @@ export interface PluginType {
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
-    frontend?: string
+    source_frontend?: string
+    source_decide?: string
     maintainer?: string
     is_global: boolean
     organization_id: string
