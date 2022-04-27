@@ -159,7 +159,7 @@ def get_entity_cohort_subquery(
 
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
 
-        return f"{'NOT' if is_negation else ''} {custom_match_field} person_id IN ({extract_person})", params
+        return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
