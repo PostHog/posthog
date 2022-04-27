@@ -126,10 +126,11 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-type PersonData = {
+export interface CachedPersonData {
     uuid: string
-    created_at_iso: string
+    createdAtIso: string
     properties: Properties
+    team_id: TeamId
 }
 
 /** The recommended way of accessing the database. */
@@ -510,7 +511,7 @@ export class DB {
         return null
     }
 
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<PersonData | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | Person | null> {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
             return null
         }
@@ -523,8 +524,9 @@ export class DB {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
 
             return {
+                team_id: teamId,
                 uuid: String(personUuid),
-                created_at_iso: String(personCreatedAtIso),
+                createdAtIso: String(personCreatedAtIso),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
             }
         }
@@ -545,15 +547,16 @@ export class DB {
                 this.updatePersonPropertiesCache(teamId, personId, personProperties),
             ])
             return {
+                team_id: teamId,
                 uuid: personUuid,
-                created_at_iso: personCreatedAtIso,
+                createdAtIso: personCreatedAtIso,
                 properties: personProperties,
             }
         }
         return null
     }
 
-    public async getPersonData(teamId: number, distinctId: string): Promise<PersonData | null> {
+    public async getPersonData(teamId: number, distinctId: string): Promise<CachedPersonData | Person | null> {
         const personId = await this.getPersonId(teamId, distinctId)
         if (personId) {
             return await this.getPersonDataByPersonId(teamId, personId)
@@ -999,7 +1002,11 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, person: Person, teamId: Team['id']): Promise<boolean> {
+    public async doesPersonBelongToCohort(
+        cohortId: number,
+        person: CachedPersonData | Person,
+        teamId: Team['id']
+    ): Promise<boolean> {
         if (this.kafkaProducer) {
             const chResult = await this.clickhouseQuery(
                 `SELECT 1 FROM person_static_cohort
@@ -1016,12 +1023,24 @@ export class DB {
             }
         }
 
-        const psqlResult = await this.postgresQuery(
-            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2);`,
-            [cohortId, person.id],
-            'doesPersonBelongToCohort'
-        )
-        return psqlResult.rows[0].exists
+        if ('id' in person) {
+            const psqlResult = await this.postgresQuery(
+                `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
+                [cohortId, person.id],
+                'doesPersonBelongToCohort'
+            )
+            return psqlResult.rows[0].exists
+        } else {
+            const psqlResult = await this.postgresQuery(
+                `SELECT EXISTS (
+                    SELECT 1 FROM posthog_cohortpeople 
+                    WHERE cohort_id = $1 AND person_id = (SELECT id as person_id FROM posthog_person WHERE uuid = $2)
+                )`,
+                [cohortId, person.uuid],
+                'doesPersonBelongToCohortUuid'
+            )
+            return psqlResult.rows[0].exists
+        }
     }
 
     public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
