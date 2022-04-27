@@ -52,7 +52,9 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team, distinct_ids=["user2"], properties={"email": "bla2", "$some_prop": "some_val"}
                 )
                 cohort = Cohort.objects.create(
-                    team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
+                    team=self.team,
+                    name="cohort1",
+                    groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
                 )
                 cohort.calculate_people_ch(pending_version=0)
 

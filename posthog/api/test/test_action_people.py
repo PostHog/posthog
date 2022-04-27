@@ -541,7 +541,11 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
-        cohort = _create_cohort(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
+        cohort = _create_cohort(
+            name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
         _create_cohort(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
         _create_cohort(
             name="cohort3",

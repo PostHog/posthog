@@ -120,7 +120,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             )
 
         flush_persons_and_events()
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
@@ -139,7 +141,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
         )
 
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(
@@ -159,7 +163,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons?search=target")
@@ -491,10 +497,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team, distinct_ids=["2"], properties={"$some_prop": "something", "number": 2}, immediate=True
         )
         cohort1 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
         )
-        cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
-        cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
+        cohort2 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "number", "value": 1, "type": "person"}]}], name="cohort2"
+        )
+        cohort3 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "number", "value": 2, "type": "person"}]}], name="cohort3"
+        )
         cohort1.calculate_people_ch(pending_version=0)
         cohort2.calculate_people_ch(pending_version=0)
         cohort3.calculate_people_ch(pending_version=0)
