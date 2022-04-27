@@ -8,7 +8,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     record: T
     recordIndex: number
     rowKeyDetermined: string | number
-    rowClassNameDetermined: string | undefined
+    rowClassNameDetermined: string | null | undefined
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
     columnGroups: LemonTableColumnGroup<T>[]
