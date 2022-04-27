@@ -143,6 +143,9 @@ class TestUpdateCache(APIBaseTest):
                 ],
             }
         )
+        dashboard = Dashboard.objects.create(is_shared=True, team=self.team)
+        insight = Insight.objects.create(name="to be found by filter", team=self.team, filters=base_filter.to_dict())
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
 
         filter = base_filter
         funnel_mock.return_value.run.return_value = {}
@@ -151,47 +154,55 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        funnel_mock.assert_called_once()
+        self.assertEqual(funnel_mock.call_count, 2)  # once for Insight check, once for dashboard tile check
 
         # trends funnel
         filter = base_filter.with_data({"funnel_viz_type": "trends"})
+        insight.filters = filter.to_dict()
+        insight.save()
         funnel_trends_mock.return_value.run.return_value = {}
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        funnel_trends_mock.assert_called_once()
+        self.assertEqual(funnel_trends_mock.call_count, 2)
 
         # time to convert funnel
         filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
+        insight.filters = filter.to_dict()
+        insight.save()
         funnel_time_to_convert_mock.return_value.run.return_value = {}
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        funnel_time_to_convert_mock.assert_called_once()
+        self.assertEqual(funnel_time_to_convert_mock.call_count, 2)
 
         # strict funnel
         filter = base_filter.with_data({"funnel_order_type": "strict"})
+        insight.filters = filter.to_dict()
+        insight.save()
         funnel_strict_mock.return_value.run.return_value = {}
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        funnel_strict_mock.assert_called_once()
+        self.assertEqual(funnel_strict_mock.call_count, 2)
 
         # unordered funnel
         filter = base_filter.with_data({"funnel_order_type": "unordered"})
+        insight.filters = filter.to_dict()
+        insight.save()
         funnel_unordered_mock.return_value.run.return_value = {}
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        funnel_unordered_mock.assert_called_once()
+        self.assertEqual(funnel_unordered_mock.call_count, 2)
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
@@ -273,6 +284,10 @@ class TestUpdateCache(APIBaseTest):
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
     def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
+        """
+        When there are no filters on the dashboard the tile and insight cache key match
+        the cache only updates cache counts on the Insight not the dashboard tile
+        """
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
             filters=Filter(
@@ -293,28 +308,93 @@ class TestUpdateCache(APIBaseTest):
 
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, 1)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, 2)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
 
         # Magically succeeds, reset counter
         patch_calculate_by_filter.side_effect = None
         patch_calculate_by_filter.return_value = {}
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
         # We should retry a max of 3 times
+        patch_calculate_by_filter.reset_mock()
         patch_calculate_by_filter.side_effect = Exception()
         _update_cached_items()
         _update_cached_items()
         _update_cached_items()
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-        self.assertEqual(patch_calculate_by_filter.call_count, 6)  # ie not 7
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+        self.assertEqual(patch_calculate_by_filter.call_count, 3)
 
         # If a user later comes back and manually refreshes we should reset refresh_attempt
         patch_calculate_by_filter.side_effect = None
         data = self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+
+    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    def test_errors_refreshing_dashboard_tile(self, patch_calculate_by_filter: MagicMock) -> None:
+        """
+        When a filters_hash matches the dashboard tile and not the insight the cache update doesn't touch the Insight
+        but does touch the tile
+        """
+        dashboard_to_cache = Dashboard.objects.create(
+            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-7d"}
+        )
+        item_to_cache = Insight.objects.create(
+            filters=Filter(
+                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+            ).to_dict(),
+            team=self.team,
+        )
+        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+
+        patch_calculate_by_filter.side_effect = Exception()
+
+        def _update_cached_items() -> None:
+            # This function will throw an exception every time which is what we want in production
+            try:
+                update_cached_items()
+            except Exception as e:
+                pass
+
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, None)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, None)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
+
+        # Magically succeeds, reset counter
+        patch_calculate_by_filter.side_effect = None
+        patch_calculate_by_filter.return_value = {}
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, None)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+
+        # We should retry a max of 3 times
+        patch_calculate_by_filter.reset_mock()
+        patch_calculate_by_filter.side_effect = Exception()
+        _update_cached_items()
+        _update_cached_items()
+        _update_cached_items()
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, None)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
+        self.assertEqual(patch_calculate_by_filter.call_count, 3)
+
+        # If a user later comes back and manually refreshes we should reset refresh_attempt
+        patch_calculate_by_filter.side_effect = None
+        data = self.client.get(
+            f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
+        )
+        self.assertEqual(Insight.objects.get().refresh_attempt, None)
+        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:

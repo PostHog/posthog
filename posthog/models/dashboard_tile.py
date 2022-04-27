@@ -15,8 +15,11 @@ class DashboardTile(models.Model):
     layouts: models.JSONField = models.JSONField(default=dict)
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
-    # cache key for this dashboard & insight filter combination
+    # caching for this dashboard & insight filter combination
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    refreshing: models.BooleanField = models.BooleanField(default=False)
+    refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     class Meta:
         indexes = [
