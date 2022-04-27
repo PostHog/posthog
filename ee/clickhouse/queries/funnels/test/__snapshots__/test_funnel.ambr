@@ -123,7 +123,7 @@
        WHERE team_id = 2
        GROUP BY id
        HAVING max(is_deleted) = 0
-       AND ((argMax(person."pmat_email", _timestamp) ILIKE '%.com%')))
+       AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3

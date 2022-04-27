@@ -235,16 +235,11 @@ class Cohort(models.Model):
         try:
             new_query_count = recalculate_cohortpeople_with_new_query(self)
             if new_query_count != count:
-                raise ValueError("Count mismatch between new query and old query")
+                raise ValueError("Count mismatch between new query and old query", new_query_count, count)
         except Exception as exception:
             capture_exception(
                 exception,
-                {
-                    "cohort_id": self.pk,
-                    "properties": self.properties.to_dict(),
-                    "count": count,
-                    "new_query_count": new_query_count,
-                },
+                {"cohort_id": self.pk, "properties": self.properties.to_dict(), "new_query_count": new_query_count,},
             )
 
     def insert_users_by_list(self, items: List[str]) -> None:

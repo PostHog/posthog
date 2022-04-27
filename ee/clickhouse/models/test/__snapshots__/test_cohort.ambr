@@ -123,6 +123,13 @@
          AND (((performed_event_condition_level_level_level_0))) )
   '
 ---
+# name: TestCohort.test_cohortpeople_action_count.15
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
 # name: TestCohort.test_cohortpeople_action_count.2
   '
   
