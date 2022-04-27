@@ -36,15 +36,15 @@ class TestCohort(BaseTest):
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_propX": "something"}
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
         person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_propX": "something"}
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_propX", "value": "something", "type": "person"}]}],
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
         )
 
@@ -53,7 +53,8 @@ class TestCohort(BaseTest):
         uuids = [
             row[0]
             for row in sync_execute(
-                "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort.pk}
+                "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0",
+                {"cohort_id": cohort.pk, "team_id": self.team.pk},
             )
         ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])

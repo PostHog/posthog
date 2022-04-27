@@ -531,10 +531,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort4",
         )
 
-        with self.assertRaises(ValueError):
-            # Since negation without a primary clause
-            # backwards incompatible!
-            cohort4.calculate_people_ch(pending_version=0)
+        cohort4.calculate_people_ch(pending_version=0)
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
+        )
+        self.assertEqual(len(results), 1)
 
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(

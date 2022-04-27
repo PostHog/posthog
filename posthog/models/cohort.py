@@ -237,7 +237,15 @@ class Cohort(models.Model):
             if new_query_count != count:
                 raise ValueError("Count mismatch between new query and old query")
         except Exception as exception:
-            capture_exception(exception, {"cohort_id": self.pk, "properties": self.properties.to_dict()})
+            capture_exception(
+                exception,
+                {
+                    "cohort_id": self.pk,
+                    "properties": self.properties.to_dict(),
+                    "count": count,
+                    "new_query_count": new_query_count,
+                },
+            )
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
