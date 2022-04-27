@@ -112,7 +112,7 @@ FROM {database}.kafka_events
 KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """
-    SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505
+    SETTINGS kafka_skip_broken_messages = 100
 """
 ).format(
     table_name="kafka_events_json",
