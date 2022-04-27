@@ -2,38 +2,45 @@
     display: flex;
     width: fit-content;
     font-weight: 500;
-    input {
-        appearance: none;
-        width: 0;
-        height: 0;
-    }
-    label {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        cursor: pointer;
+}
+
+.LemonCheckbox__input {
+    appearance: none;
+    width: 0;
+    height: 0;
+}
+
+.LemonCheckbox__label {
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    .LemonRow--disabled & {
+        cursor: not-allowed;
     }
 }
 
 .LemonCheckbox__box {
+    --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
+    --box-color: var(--primary);
     display: flex;
     align-items: center;
     justify-content: center;
     width: 1em;
     height: 1em;
-    --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
-    --box-color: var(--primary);
+    cursor: pointer;
+    .LemonRow--disabled & {
+        cursor: not-allowed;
+    }
     .LemonCheckbox--indeterminate & {
         --tick-length: 9;
     }
-    .LemonCheckbox:not(.LemonCheckbox--disabled):hover & {
+    .LemonCheckbox:not(.LemonRow--disabled):hover & {
         --box-color: var(--primary-hover);
     }
-    .LemonCheckbox:not(.LemonCheckbox--disabled):active & {
+    .LemonCheckbox:not(.LemonRow--disabled):active & {
         --box-color: var(--primary-active);
-    }
-    .LemonCheckbox--disabled & {
-        opacity: 0.6;
-        cursor: not-allowed;
     }
     svg {
         transition: border 200ms ease, background 200ms ease;
@@ -46,8 +53,8 @@
             stroke-dasharray: var(--tick-length);
             stroke-dashoffset: var(--tick-length);
         }
-        .LemonCheckbox:not(.LemonCheckbox--disabled):hover &,
-        .LemonCheckbox:not(.LemonCheckbox--disabled):active & {
+        .LemonCheckbox:not(.LemonRow--disabled):hover &,
+        .LemonCheckbox:not(.LemonRow--disabled):active & {
             border-color: var(--box-color);
         }
         .LemonCheckbox--checked & {

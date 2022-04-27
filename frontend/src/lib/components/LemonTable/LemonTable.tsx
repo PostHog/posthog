@@ -207,7 +207,7 @@ export function LemonTable<T extends Record<string, any>>({
                         {showHeader && (
                             <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 {columnGroups.some((group) => group.title) && (
-                                    <tr className="LemonTable__th--column-group">
+                                    <tr className="LemonTable__row--grouping">
                                         {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
                                         {!!expandable && <th /> /* Expand/collapse column */}
                                         {columnGroups.map((columnGroup, columnGroupIndex) => (
