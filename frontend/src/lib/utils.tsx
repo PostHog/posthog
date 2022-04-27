@@ -16,6 +16,10 @@ import {
     AnyPropertyFilter,
     PropertyFilter,
     CohortType,
+    CohortCriteriaGroupFilter,
+    AnyCohortGroupType,
+    CohortCriteriaGroupFilterValue,
+    PropertyGroupFilterValue,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1248,7 +1252,7 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
     if (properties) {
         return (
@@ -1257,6 +1261,57 @@ export function isPropertyGroup(
         )
     }
     return false
+}
+
+export function isCohortCriteriaGroup(
+    criteria:
+        | CohortCriteriaGroupFilter
+        | CohortCriteriaGroupFilterValue
+        | AnyCohortGroupType[]
+        | undefined
+        | AnyCohortGroupType
+): criteria is CohortCriteriaGroupFilter {
+    if (criteria) {
+        return (
+            (criteria as CohortCriteriaGroupFilter).type !== undefined &&
+            (criteria as CohortCriteriaGroupFilter).values !== undefined
+        )
+    }
+    return false
+}
+
+export function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {}
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
+    }
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
+}
+
+export function flattenCohortCriteriaGroup(
+    flattenedCriteria: AnyCohortGroupType[],
+    criteriaGroup: CohortCriteriaGroupFilter | CohortCriteriaGroupFilterValue | AnyCohortGroupType
+): AnyCohortGroupType[] {
+    const obj: AnyCohortGroupType = {}
+    Object.keys(criteriaGroup).forEach(function (k) {
+        obj[k] = criteriaGroup[k]
+    })
+    if (!!obj && 'key' in obj) {
+        flattenedCriteria.push(obj)
+    }
+    if (isCohortCriteriaGroup(criteriaGroup)) {
+        return criteriaGroup.values.reduce(flattenCohortCriteriaGroup, flattenedCriteria)
+    }
+    return flattenedCriteria
 }
 
 export function convertPropertiesToPropertyGroup(
@@ -1283,21 +1338,28 @@ export function convertPropertyGroupToProperties(
     return properties
 }
 
-export function flattenPropertyGroup(
-    flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
-): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {}
-    Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k]
-    })
-    if (isValidPropertyFilter(obj)) {
-        flattenedProperties.push(obj)
+export function convertCohortCriteriaToCohortCriteriaGroup(
+    criteria: CohortCriteriaGroupFilter | AnyCohortGroupType[] | undefined
+): CohortCriteriaGroupFilter {
+    if (isCohortCriteriaGroup(criteria)) {
+        return criteria
     }
-    if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    if (criteria && criteria.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: criteria }] }
     }
-    return flattenedProperties
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+export function convertCohortCriteriaGroupToCohortCriteria(
+    criteria: CohortCriteriaGroupFilter | AnyCohortGroupType[] | undefined
+): AnyCohortGroupType[] | undefined {
+    if (isCohortCriteriaGroup(criteria)) {
+        return flattenCohortCriteriaGroup([], criteria)
+    }
+    if (criteria) {
+        return criteria
+    }
+    return criteria
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

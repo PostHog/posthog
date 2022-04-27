@@ -567,6 +567,10 @@ export interface CohortGroupType {
     name?: string
 }
 
+export type EmptyCohortGroupType = Partial<CohortGroupType>
+
+export type AnyCohortGroupType = CohortGroupType | EmptyCohortGroupType
+
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
@@ -1490,6 +1494,7 @@ export enum FilterLogicalOperator {
     And = 'AND',
     Or = 'OR',
 }
+
 export interface PropertyGroupFilter {
     type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
@@ -1498,6 +1503,16 @@ export interface PropertyGroupFilter {
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
     values: AnyPropertyFilter[]
+}
+
+export interface CohortCriteriaGroupFilter {
+    type: FilterLogicalOperator
+    values: CohortCriteriaGroupFilterValue[]
+}
+
+export interface CohortCriteriaGroupFilterValue {
+    type: FilterLogicalOperator
+    values: AnyCohortGroupType[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {

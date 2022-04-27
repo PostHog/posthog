@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Group, Field as KeaField } from 'kea-forms'
 import { Col, Divider, Row } from 'antd'
 import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
-import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CohortTypeEnum, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PlusOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { Persons } from 'scenes/persons/Persons'
@@ -25,6 +25,7 @@ import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
 import { Tooltip } from 'lib/components/Tooltip'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -46,6 +47,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const { deleteCohort, setCohort, onCriteriaChange } = useActions(logic)
     const { cohort, cohortLoading } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
     const onAddGroup = (): void => {
@@ -260,14 +262,18 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                         )
                                                     }}
                                                 >
-                                                    <MatchCriteriaSelector
-                                                        onCriteriaChange={(newGroup) =>
-                                                            onCriteriaChange(newGroup, group.id)
-                                                        }
-                                                        onRemove={() => onRemoveGroup(index)}
-                                                        group={group}
-                                                        hideRemove={cohort.groups.length === 1}
-                                                    />
+                                                    {featureFlags[FEATURE_FLAGS.COHORT_FILTERS] ? (
+                                                        <div>New Matching</div>
+                                                    ) : (
+                                                        <MatchCriteriaSelector
+                                                            onCriteriaChange={(newGroup) =>
+                                                                onCriteriaChange(newGroup, group.id)
+                                                            }
+                                                            onRemove={() => onRemoveGroup(index)}
+                                                            group={group}
+                                                            hideRemove={cohort.groups.length === 1}
+                                                        />
+                                                    )}
                                                 </KeaField>
                                                 {index < cohort.groups.length - 1 && (
                                                     <div className="stateful-badge or mt mb">OR</div>
