@@ -87,7 +87,7 @@
 }
 
 .StepBars__bar {
-    --series-color: var(--text-default); // This should be overriden from React
+    --series-color: #000; // This should be overriden from React
     --conversion-rate: 100%; // This should be overriden from React
     position: relative;
     border-radius: var(--radius);

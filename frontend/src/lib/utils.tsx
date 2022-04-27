@@ -148,13 +148,19 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
-export function percentage(division: number): string {
+/** Return percentage from number, e.g. 0.234 is 23.4%. */
+export function percentage(
+    division: number,
+    maximumFractionDigits: number = 2,
+    fixedPrecision: boolean = false
+): string {
     return division
-        ? division.toLocaleString(undefined, {
-              style: 'percent',
-              maximumFractionDigits: 2,
-          })
-        : ''
+        .toLocaleString('en-US', {
+            style: 'percent',
+            maximumFractionDigits,
+            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+        })
+        .replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -476,9 +482,7 @@ export function slugify(text: string): string {
 
 /** Format number with space as the thousands separator. */
 export function humanFriendlyNumber(d: number): string {
-    // Using French locale just to have the more international space as thousands separator
-    // instead of the American comma
-    return d.toLocaleString('fr')
+    return d.toLocaleString('en-US').replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {

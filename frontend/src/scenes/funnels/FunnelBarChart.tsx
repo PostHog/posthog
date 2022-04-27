@@ -8,7 +8,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { humanFriendlyDuration, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
@@ -61,7 +61,7 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                                 undefined,
                                 step.nested_breakdown?.length
                             ),
-                            '--conversion-rate': `${breakdown.conversionRates.fromBasisStep * 100}%`,
+                            '--conversion-rate': percentage(breakdown.conversionRates.fromBasisStep, 1, true),
                         } as StepBarCSSProperties
                     }
                 >
