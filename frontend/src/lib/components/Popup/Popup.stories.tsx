@@ -5,7 +5,7 @@ import { Popup } from './Popup'
 import { Button } from 'antd'
 
 export default {
-    title: 'Components/Popup',
+    title: 'Lemon UI/Popup',
     component: Popup,
 } as ComponentMeta<typeof Popup>
 
