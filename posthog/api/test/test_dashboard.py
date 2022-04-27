@@ -225,10 +225,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by four queries for each additional insight
-        # TODO optimise loading tiles to reduce this from four
+        # then only climbs by three queries for each additional insight
+        # TODO optimise loading tiles to reduce this from three
         self.assertTrue(
-            all(j - i == 4 for i, j in zip(query_counts[2:], query_counts[3:])),
+            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts} for queries: \n\n {queries}",
         )
 
