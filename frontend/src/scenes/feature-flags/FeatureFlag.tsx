@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Group } from 'kea-forms'
 import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
@@ -550,7 +550,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
-                <SceneLoading />
+                <Loading />
             )}
         </div>
     )
