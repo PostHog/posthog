@@ -667,7 +667,13 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
     [FilterType.NumberTicker]: function _renderField(p) {
         return <CohortNumberField {...(p as CohortNumberFieldProps)} />
     },
-    [FilterType.CohortValues]: function _renderField() {
-        return <span>TODO</span>
+    [FilterType.CohortValues]: function _renderField(p) {
+        return (
+            <CohortTaxonomicField
+                {...(p as CohortTaxonomicFieldProps)}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}
+                placeholder="Choose cohort"
+            />
+        )
     },
 }

@@ -7,24 +7,34 @@ import { Row, Col } from 'antd'
 export interface CohortCriteriaRowBuilderProps {
     /* Object that contains keys and values corresponding to filter row.
     TODO: stronger schema typing once API is finalized*/
-    values?: Record<string, any>[]
+    groupedValues?: Record<string, any>[]
     type: BehavioralFilterType
     onChangeType: (type: BehavioralFilterType) => void
 }
 
-export function CohortCriteriaRowBuilder({ type, values, onChangeType }: CohortCriteriaRowBuilderProps): JSX.Element {
+export function CohortCriteriaRowBuilder({
+    type,
+    groupedValues,
+    onChangeType,
+}: CohortCriteriaRowBuilderProps): JSX.Element {
     const rowShape = ROWS[type]
     return (
         <Row className="CohortCriteriaRow" align="middle">
             <Col className="CohortCriteriaRow__CohortField">
                 {renderField[FilterType.Behavioral]({
                     value: type,
+                    groupedValues,
                     onChange: (val) => onChangeType(val as BehavioralFilterType),
                 })}
             </Col>
             {rowShape.fields.map((field, i) => (
                 <Col key={i} className="CohortCriteriaRow__CohortField">
-                    {renderField[field.type]({ value: null, ...field, ...(values?.[i] ?? {}) } as CohortFieldProps)}
+                    {renderField[field.type]({
+                        value: null,
+                        ...field,
+                        ...(groupedValues?.[i] ?? {}),
+                        groupedValues,
+                    } as CohortFieldProps)}
                 </Col>
             ))}
         </Row>

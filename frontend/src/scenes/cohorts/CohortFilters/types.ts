@@ -56,6 +56,7 @@ export interface Row {
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
+    groupedValues?: Record<string, any>[] // entire row's values. contains information about other fields in row
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
@@ -72,6 +73,7 @@ export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'f
 
 export interface CohortTextFieldProps {
     value: string
+    groupedValues?: Record<string, any>[]
 }
 
 export interface CohortNumberFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
