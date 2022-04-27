@@ -511,7 +511,7 @@ export class DB {
         return null
     }
 
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | Person | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | null> {
         if (!this.personInfoCachingEnabledTeams.has(teamId)) {
             return null
         }
@@ -556,7 +556,7 @@ export class DB {
         return null
     }
 
-    public async getPersonData(teamId: number, distinctId: string): Promise<CachedPersonData | Person | null> {
+    public async getPersonData(teamId: number, distinctId: string): Promise<CachedPersonData | null> {
         const personId = await this.getPersonId(teamId, distinctId)
         if (personId) {
             return await this.getPersonDataByPersonId(teamId, personId)

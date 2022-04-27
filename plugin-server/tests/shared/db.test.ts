@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
-import { DB } from '../../src/utils/db/db'
+import { CachedPersonData, DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
+import { createPerson } from './process-event'
 
 jest.mock('../../src/utils/status')
 
@@ -301,6 +302,91 @@ describe('DB', () => {
             ).rows[0].public_jobs
 
             expect(publicJobs[jobName]).toEqual(jobPayload)
+        })
+    })
+
+    describe('getPersonData', () => {
+        let cache: Record<string, string> = {}
+
+        beforeEach(() => {
+            db.statsd = {
+                timing: jest.fn(),
+                increment: jest.fn(),
+                gauge: jest.fn(),
+            } as any
+
+            // mock redis
+            cache = {}
+
+            // eslint-disable-next-line
+            db.redisSet = jest.fn(async (key, value, _, __) => {
+                cache[key] = JSON.stringify(value as any)
+            })
+
+            // eslint-disable-next-line
+            db.redisGet = jest.fn(async (key, defaultValue, options = {}) => {
+                const { jsonSerialize = true } = options
+                const value = cache[key]
+                if (typeof value === 'undefined') {
+                    return defaultValue
+                }
+                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+            })
+        })
+
+        test('getPersonData returns the right data with and without cache', async () => {
+            const distinctId = 'some_distinct_id'
+            const team = await getFirstTeam(hub)
+
+            await createPerson(hub, team, [distinctId], { foo: 'bar' })
+            db.personInfoCachingEnabledTeams = new Set([2])
+
+            const nonCachedPersonData = await db.getPersonData(team.id, distinctId)
+
+            expect(nonCachedPersonData).not.toBeNull()
+
+            const { uuid, createdAtIso, properties, team_id } = nonCachedPersonData as CachedPersonData
+
+            expect(uuid).toEqual(expect.any(String))
+            expect(createdAtIso).toEqual(expect.any(String))
+            expect(properties).toEqual({ foo: 'bar' })
+            expect(team_id).toEqual(team.id)
+
+            expect((db.statsd?.increment as any).mock.calls.map((call: any[]) => call[0])).toContain(
+                'person_info_cache.miss'
+            )
+            expect((db.statsd?.increment as any).mock.calls.map((call: any[]) => call[0])).not.toContain(
+                'person_info_cache.hit'
+            )
+
+            const cachedPersonData = (await db.getPersonData(team.id, distinctId)) as CachedPersonData
+
+            expect(cachedPersonData.uuid).toEqual(uuid)
+            expect(cachedPersonData.createdAtIso).toEqual(createdAtIso)
+            expect(cachedPersonData.properties).toEqual(properties)
+            expect(cachedPersonData.team_id).toEqual(team_id)
+
+            expect((db.statsd?.increment as any).mock.calls.map((call: any[]) => call[0])).toContain(
+                'person_info_cache.hit'
+            )
+        })
+
+        test('expect cache to be set when person is created', async () => {
+            const distinctId = 'some_distinct_id'
+            const team = await getFirstTeam(hub)
+
+            // enable the cache before creating person
+            db.personInfoCachingEnabledTeams = new Set([2])
+            await createPerson(hub, team, [distinctId], { foo: 'bar' })
+
+            const personData = (await db.getPersonData(team.id, distinctId)) as CachedPersonData
+
+            expect(personData.properties).toEqual({ foo: 'bar' })
+
+            // cache was hit
+            expect((db.statsd?.increment as any).mock.calls.map((call: any[]) => call[0])).toContain(
+                'person_info_cache.hit'
+            )
         })
     })
 })
