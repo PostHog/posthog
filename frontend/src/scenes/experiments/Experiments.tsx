@@ -14,7 +14,7 @@ import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
@@ -90,7 +90,7 @@ export function Experiments(): JSX.Element {
                                 <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}

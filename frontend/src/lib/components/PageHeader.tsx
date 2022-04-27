@@ -1,7 +1,7 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
 import React from 'react'
-import { LemonSpacer } from './LemonRow'
+import { LemonDivider } from './LemonDivider'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -23,7 +23,7 @@ export function PageHeader({ title, caption, buttons, style, tabbedPage, delimit
         <>
             {row}
             <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
-            {delimited && <LemonSpacer large />}
+            {delimited && <LemonDivider large />}
         </>
     ) : (
         row

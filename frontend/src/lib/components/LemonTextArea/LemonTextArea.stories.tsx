@@ -6,7 +6,7 @@ import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export default {
-    title: 'Components/Lemon TextArea',
+    title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
     argTypes: {
         value: {
@@ -21,8 +21,8 @@ const Template: ComponentStory<typeof LemonTextArea> = (props: LemonTextAreaProp
     return <LemonTextArea {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Default = Template.bind({})
-Default.args = {}
+export const Basic = Template.bind({})
+Basic.args = {}
 
 export const Icons = Template.bind({})
 Icons.args = {

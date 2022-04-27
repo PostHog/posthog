@@ -18,7 +18,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
 import { LemonTable } from 'lib/components/LemonTable'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -173,7 +173,7 @@ export function ActionsTable(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
