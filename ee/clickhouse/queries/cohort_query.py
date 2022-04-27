@@ -185,7 +185,7 @@ class CohortQuery(EnterpriseEventQuery):
         q, fields = self._build_sources(subq)
 
         final_query = f"""
-        SELECT {fields} AS id FROM
+        SELECT {fields} AS id  FROM
         {q}
         WHERE 1 = 1
         {conditions}
@@ -205,7 +205,6 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                # TODO: decide when to use inner join
                 if (
                     subq_alias == self.PERSON_TABLE_ALIAS
                     and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
@@ -276,7 +275,6 @@ class CohortQuery(EnterpriseEventQuery):
         elif relative_date_is_greater(relative_date, self._earliest_time_for_event_query):
             self._earliest_time_for_event_query = relative_date
 
-    # TODO: Build conditions based on property group
     def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
         def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
             if not prop:
@@ -328,7 +326,6 @@ class CohortQuery(EnterpriseEventQuery):
         return res, params
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        # TODO: handle if props are pushed down in PersonQuery
         if self._outer_property_groups and len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
                 prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
@@ -503,7 +500,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         _inner_fields = []
         _intermediate_fields = []
-        _outer_fields = []
+        _outer_fields = ["person_id"]
 
         _inner_fields.extend(names)
         _intermediate_fields.extend(names)
@@ -530,14 +527,12 @@ class CohortQuery(EnterpriseEventQuery):
         SELECT {", ".join(_intermediate_fields)} FROM ({new_query})
         """
 
-        _outer_fields.append("person_id")
         _outer_fields.extend(self._fields)
 
         outer_query = f"""
         SELECT {", ".join(_outer_fields)} FROM ({intermediate_query})
         GROUP BY person_id
         """
-
         return outer_query, {"team_id": self._team_id, "events": self._events, **params}, self.FUNNEL_QUERY_ALIAS
 
     def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
@@ -560,7 +555,7 @@ class CohortQuery(EnterpriseEventQuery):
             duplicate_event = 1
 
         aggregate_cols = []
-        aggregate_condition = f"max(if({event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
+        aggregate_condition = f"max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
         aggregate_cols.append(aggregate_condition)
 
         condition_cols = []
@@ -582,7 +577,7 @@ class CohortQuery(EnterpriseEventQuery):
         return step_cols, condition_cols, aggregate_cols, {**entity_params, **seq_entity_params}
 
     def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]} = 2", {}
+        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}", {}
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -682,7 +677,6 @@ class CohortQuery(EnterpriseEventQuery):
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
     ) -> Tuple[str, Dict[str, Any]]:
-        # TODO: handle indexing of event params
         res: str = ""
         params: Dict[str, Any] = {}
 

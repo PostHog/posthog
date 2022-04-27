@@ -166,9 +166,10 @@
   
   SELECT funnel_query.person_id AS id
   FROM
-    (SELECT max(if(event_0_latest_0 < event_0_latest_1
-                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) AS steps_0,
-            person_id
+    (SELECT person_id,
+            max(if(event = '$pageview'
+                   AND event_0_latest_0 < event_0_latest_1
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0
      FROM
        (SELECT person_id,
                event,
@@ -204,7 +205,7 @@
              AND timestamp >= now() - INTERVAL 7 day ))
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
-    AND ((steps_0 = 2)) SETTINGS allow_experimental_window_functions = 1
+    AND ((steps_0)) SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
