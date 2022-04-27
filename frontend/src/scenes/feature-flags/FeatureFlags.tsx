@@ -12,7 +12,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { More } from 'lib/components/LemonButton/More'
@@ -71,17 +71,16 @@ function OverViewTab(): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
-                const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
                         <LemonSwitch
-                            id={switchId}
+                            id={`feature-flag-${featureFlag.id}-switch`}
                             checked={featureFlag.active}
                             onChange={(active) =>
                                 featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
                             }
-                            style={{ marginLeft: '0.5rem' }}
+                            label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                            style={{ fontWeight: 400, padding: 0 }}
                         />
                     </div>
                 )
@@ -120,7 +119,7 @@ function OverViewTab(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
                                         type="stealth"

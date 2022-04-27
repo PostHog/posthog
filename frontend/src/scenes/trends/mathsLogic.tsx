@@ -1,9 +1,9 @@
 import React from 'react'
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-
 import { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
+import { BaseMathType, PropertyMathType } from '~/types'
 
 export interface MathDefinition {
     name: string
@@ -15,8 +15,8 @@ export interface MathDefinition {
     type: 'property' | 'event'
 }
 
-export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
-    total: {
+export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
+    [BaseMathType.Total]: {
         name: 'Total count',
         shortName: 'count',
         description: (
@@ -31,7 +31,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: EVENT_MATH_TYPE,
     },
-    dau: {
+    [BaseMathType.DailyActive]: {
         name: 'Unique users',
         shortName: 'unique users',
         description: (
@@ -48,7 +48,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: true,
         type: EVENT_MATH_TYPE,
     },
-    weekly_active: {
+    [BaseMathType.WeeklyActive]: {
         name: 'Weekly active',
         shortName: 'WAUs',
         description: (
@@ -63,7 +63,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: EVENT_MATH_TYPE,
     },
-    monthly_active: {
+    [BaseMathType.MonthlyActive]: {
         name: 'Monthly active',
         shortName: 'MAUs',
         description: (
@@ -80,8 +80,8 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
     },
 }
 
-export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
-    avg: {
+export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition> = {
+    [PropertyMathType.Average]: {
         name: 'Average',
         shortName: 'average',
         description: (
@@ -96,7 +96,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    sum: {
+    [PropertyMathType.Sum]: {
         name: 'Sum',
         shortName: 'sum',
         description: (
@@ -111,7 +111,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    min: {
+    [PropertyMathType.Minimum]: {
         name: 'Minimum',
         shortName: 'minimum',
         description: (
@@ -126,7 +126,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    max: {
+    [PropertyMathType.Maximum]: {
         name: 'Maximum',
         shortName: 'maximum',
         description: (
@@ -141,7 +141,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    median: {
+    [PropertyMathType.Median]: {
         name: 'Median',
         shortName: 'median',
         description: (
@@ -156,7 +156,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    p90: {
+    [PropertyMathType.P90]: {
         name: '90th percentile',
         shortName: '90th percentile',
         description: (
@@ -171,7 +171,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: 'property',
     },
-    p95: {
+    [PropertyMathType.P95]: {
         name: '95th percentile',
         shortName: '95th percentile',
         description: (
@@ -186,7 +186,7 @@ export const PROPERTY_MATH_DEFINITIONS: Record<string, MathDefinition> = {
         actor: false,
         type: PROPERTY_MATH_TYPE,
     },
-    p99: {
+    [PropertyMathType.P99]: {
         name: '99th percentile',
         shortName: '99th percentile',
         description: (

@@ -71,6 +71,7 @@ export const urls = {
     instanceLicenses: () => '/instance/licenses',
     instanceStatus: () => '/instance/status',
     instanceStaffUsers: () => '/instance/staff_users',
+    instanceKafkaInspector: () => '/instance/kafka_inspector',
     instanceSettings: () => '/instance/settings',
     instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',

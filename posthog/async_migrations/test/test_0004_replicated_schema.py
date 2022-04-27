@@ -14,10 +14,10 @@ from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_E
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
 
@@ -28,8 +28,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-@pytest.mark.ee
-class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
+class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.recreate_database()
         sync_execute(KAFKA_EVENTS_TABLE_SQL())
@@ -42,6 +41,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self):
         settings.CLICKHOUSE_REPLICATION = False
@@ -49,6 +49,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)
 
+    @pytest.mark.async_migrations
     def test_is_required(self):
         from posthog.client import sync_execute
 
@@ -61,6 +62,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         self.assertFalse(migration.is_required())
 
+    @pytest.mark.async_migrations
     def test_migration(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 
@@ -83,6 +85,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(self.get_event_table_row_count(), 2)
 
+    @pytest.mark.async_migrations
     def test_rollback(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 

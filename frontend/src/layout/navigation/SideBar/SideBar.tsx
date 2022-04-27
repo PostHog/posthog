@@ -22,7 +22,7 @@ import {
     LiveIcon,
 } from 'lib/components/icons'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
@@ -135,7 +135,7 @@ function Pages(): JSX.Element {
             />
             {currentTeam && (
                 <>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <PageButton
                         icon={<IconGauge />}
                         identifier={Scene.Dashboards}
@@ -151,7 +151,7 @@ function Pages(): JSX.Element {
                                 overlay: (
                                     <div className="SideBar__pinned-dashboards">
                                         <h5>Pinned dashboards</h5>
-                                        <LemonSpacer />
+                                        <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
                                             pinnedDashboards.map((dashboard) => (
                                                 <PageButton
@@ -209,7 +209,7 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    <LemonSpacer />
+                    <LemonDivider />
                     <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
@@ -224,7 +224,7 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    <LemonSpacer />
+                    <LemonDivider />
                     {frontendPlugins.map((frontendPlugin) => (
                         <PageButton
                             key={frontendPlugin.id}

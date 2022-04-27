@@ -45,13 +45,13 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(toDateTime(timestamp, 'UTC')) as day_start,
+                            toStartOfDay(timestamp, 'UTC') as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test'])
            GROUP BY day_start,

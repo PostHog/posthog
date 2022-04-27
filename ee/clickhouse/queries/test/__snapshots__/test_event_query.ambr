@@ -31,14 +31,41 @@
 # name: TestEventQuery.test_account_filters.2
   '
   
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+       GROUP BY id
+       HAVING max(is_deleted) = 0
+       AND ((has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))
+  '
+---
+# name: TestEventQuery.test_account_filters.3
+  '
+  
   SELECT e.timestamp as timestamp,
-         e.properties as properties
+         pdi.person_id as person_id
   FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-01-14 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -48,7 +75,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
   '
 ---
@@ -73,7 +100,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (select id
@@ -101,7 +128,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'user signed up'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
     AND ((has(['hi'], "mat_test_prop"))
          AND (has(['hi'], "mat_test_prop")))
@@ -114,7 +141,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-01-14 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
   '
@@ -126,7 +153,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-01-14 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (0 = 192)
   '
@@ -152,7 +179,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (select id
@@ -180,7 +207,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -192,7 +219,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -218,7 +245,7 @@
      GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
          AND has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', '')))
@@ -253,7 +280,7 @@
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
   '
@@ -279,7 +306,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toStartOfDay(toDateTime(timestamp, 'UTC')) >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (SELECT person_id

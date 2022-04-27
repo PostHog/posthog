@@ -11,7 +11,7 @@ const DUMMIES: ProfileBubblesProps['people'] = [
 ]
 
 export default {
-    title: 'Components/ProfileBubbles',
+    title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
     argTypes: {
         people: {

@@ -18,11 +18,13 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage } from 'lib/components/icons'
+import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -60,14 +62,20 @@ export function Dashboards(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight, is_shared }) {
+            render: function Render(name, { id, description, _highlight, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
+                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
+                            {!canEditDashboard && (
+                                <Tooltip title="You don't have edit permissions for this dashboard.">
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                </Tooltip>
+                            )}
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
@@ -145,7 +153,7 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonRow
                                     icon={<IconCottage style={{ color: 'var(--warning)' }} />}
                                     fullWidth
@@ -156,7 +164,7 @@ export function Dashboards(): JSX.Element {
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
@@ -205,7 +213,7 @@ export function Dashboards(): JSX.Element {
                     }}
                 />
             </div>
-            <LemonSpacer large />
+            <LemonDivider large />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}

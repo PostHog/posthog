@@ -11,6 +11,7 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
+    PreIngestionEvent,
     PropertyType,
     PropertyUpdateOperation,
     Team,
@@ -136,11 +137,15 @@ export const createProcessEventTests = (
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<EventProcessingResult | void> {
+    ): Promise<PreIngestionEvent | null> {
         const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
+        if (response) {
+            await eventsProcessor.createEvent(response)
+        }
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
         }
+
         return response
     }
 
@@ -1192,6 +1197,29 @@ export const createProcessEventTests = (
             const elements = await hub.db.fetchElements(event)
             expect(hashElements(elements)).toEqual('a89021a60b3497d24e93ae181fba01aa')
         }
+    })
+
+    it('snapshot event not stored if session recording disabled', async () => {
+        await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
+        await eventsProcessor.processEvent(
+            'some-id',
+            '',
+            {
+                event: '$snapshot',
+                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+
+        const events = await hub.db.fetchEvents()
+        expect(events.length).toEqual(0)
+
+        const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
+        expect(sessionRecordingEvents.length).toBe(0)
     })
 
     test('snapshot event stored as session_recording_event', async () => {

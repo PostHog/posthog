@@ -101,6 +101,14 @@ body strong {
     font-weight: 500;
 }
 
+.fw-700 {
+    font-weight: 700;
+}
+
+.fw-800 {
+    font-weight: 800;
+}
+
 .text-default {
     color: var(--text-default);
     font-size: 14px;
@@ -121,10 +129,6 @@ body strong {
 .text-xxs {
     @extend .text-default;
     font-size: 8px;
-}
-
-.nowrap {
-    white-space: nowrap !important;
 }
 
 .page-title-row {
@@ -309,6 +313,10 @@ code.code {
     margin-top: $default_spacing * 0.25;
 }
 
+.mb-0 {
+    margin-bottom: 0;
+}
+
 .mr {
     margin-right: $default_spacing;
 }
@@ -354,6 +362,10 @@ code.code {
 
 .pb {
     padding-bottom: $default_spacing;
+}
+
+.pb-05 {
+    padding-bottom: $default_spacing * 0.5;
 }
 
 .pt {
@@ -641,6 +653,12 @@ input::-ms-clear {
         margin-left: 0;
         margin-right: 4px;
     }
+}
+
+.title-icon {
+    margin-left: 0.375rem;
+    font-size: 1rem;
+    line-height: 0;
 }
 
 .btn-lg-2x {

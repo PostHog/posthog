@@ -115,6 +115,20 @@
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '
   
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+       GROUP BY id
+       HAVING max(is_deleted) = 0
+       AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3
+  '
+  
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
