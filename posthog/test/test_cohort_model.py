@@ -34,15 +34,15 @@ class TestCohort(BaseTest):
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_propX": "something"}
         )
         person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_propX": "something"}
         )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            groups=[{"properties": [{"key": "$some_propX", "value": "something", "type": "person"}]}],
             name="cohort1",
         )
 
