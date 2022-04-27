@@ -343,10 +343,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         if prop_cohort.pk == self._cohort_pk or (self._cohorts_seen and prop_cohort.pk in self._cohorts_seen):
             # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort eventually),
-            # we treat it as satisfied for all persons
-            return "11 = 11", {}
+            # we treat it as an invalid cohort condition
+            raise ValueError(f"Cyclic dependency detected when computing cohort with id: {prop_cohort.pk}")
         else:
-            cohorts_seen = [*self._cohorts_seen] if self._cohorts_seen is not None else []
+            cohorts_seen = list(self._cohorts_seen) if self._cohorts_seen is not None else []
             if self._cohort_pk is not None:
                 cohorts_seen.append(self._cohort_pk)
             person_id_query, cohort_filter_params = format_filter_query(
