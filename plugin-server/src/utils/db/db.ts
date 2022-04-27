@@ -131,6 +131,7 @@ export interface CachedPersonData {
     createdAtIso: string
     properties: Properties
     team_id: TeamId
+    id: Person['id']
 }
 
 /** The recommended way of accessing the database. */
@@ -528,6 +529,7 @@ export class DB {
                 uuid: String(personUuid),
                 createdAtIso: String(personCreatedAtIso),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
+                id: personId,
             }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
@@ -551,6 +553,7 @@ export class DB {
                 uuid: personUuid,
                 createdAtIso: personCreatedAtIso,
                 properties: personProperties,
+                id: personId,
             }
         }
         return null
@@ -1023,24 +1026,12 @@ export class DB {
             }
         }
 
-        if ('id' in person) {
-            const psqlResult = await this.postgresQuery(
-                `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
-                [cohortId, person.id],
-                'doesPersonBelongToCohort'
-            )
-            return psqlResult.rows[0].exists
-        } else {
-            const psqlResult = await this.postgresQuery(
-                `SELECT EXISTS (
-                    SELECT 1 FROM posthog_cohortpeople 
-                    WHERE cohort_id = $1 AND person_id = (SELECT id as person_id FROM posthog_person WHERE uuid = $2)
-                )`,
-                [cohortId, person.uuid],
-                'doesPersonBelongToCohortUuid'
-            )
-            return psqlResult.rows[0].exists
-        }
+        const psqlResult = await this.postgresQuery(
+            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
+            [cohortId, person.id],
+            'doesPersonBelongToCohort'
+        )
+        return psqlResult.rows[0].exists
     }
 
     public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
