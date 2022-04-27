@@ -18,6 +18,7 @@ import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonModal } from 'lib/components/LemonModal'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -87,7 +88,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     }
 
     return (
-        <Modal
+        <LemonModal
             onCancel={closeModal}
             afterClose={closeModal}
             confirmLoading={insightLoading}
@@ -132,7 +133,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 </AutoSizer>
             </div>
             <LemonDivider />
-        </Modal>
+        </LemonModal>
     )
 }
 
