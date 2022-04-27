@@ -1719,6 +1719,7 @@ export enum BehavioralEventType {
     PerformMultipleEvents = 'performed_event_multiple',
     PerformSequenceEvents = 'performed_event_sequence',
     NotPerformedEvent = 'not_performed_event',
+    NotPerformSequenceEvents = 'not_performed_event_sequence',
     HaveProperty = 'have_property',
     NotHaveProperty = 'not_have_property',
 }
