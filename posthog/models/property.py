@@ -208,6 +208,9 @@ class Property:
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
 
+        if self.type not in VALIDATE_PROP_TYPES.keys():
+            raise ValueError(f"Invalid property type: {self.type}")
+
         for key in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, key, None) is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")

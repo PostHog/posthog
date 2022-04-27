@@ -135,7 +135,7 @@ class TestFeatureFlagMatcher(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "perosn"}]}],
+            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "person"}]}],
             name="cohort2",
         )
         cohort.calculate_people_ch(pending_version=0)
