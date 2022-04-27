@@ -27,9 +27,11 @@ const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxo
 export const EventsAndActions = Template.bind({})
 EventsAndActions.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    placeholder: 'Choose event or action',
 }
 
 export const EventProperties = Template.bind({})
 EventProperties.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+    placeholder: 'Choose event property',
 }

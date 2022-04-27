@@ -11,7 +11,7 @@ import { useMountedLogic } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 
 export default {
-    title: 'Filters/Cohort Filters/Row',
+    title: 'Filters/Cohort Filters/Row Builder',
     component: CohortCriteriaRowBuilder,
     decorators: [taxonomicFilterMocksDecorator],
 } as ComponentMeta<typeof CohortCriteriaRowBuilder>

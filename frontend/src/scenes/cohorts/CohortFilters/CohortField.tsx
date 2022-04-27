@@ -14,6 +14,7 @@ import {
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -53,6 +54,7 @@ export function CohortSelectorField({
     return (
         <LemonButtonWithPopup
             type="secondary"
+            className="CohortField"
             sideIcon={undefined}
             popup={{
                 overlay: (
@@ -90,6 +92,7 @@ export function CohortTaxonomicField({
     value,
     taxonomicGroupType = TaxonomicFilterGroupType.Events,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    placeholder = 'Choose event',
     onChange: _onChange,
     onTaxonomicGroupChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
@@ -103,6 +106,7 @@ export function CohortTaxonomicField({
 
     return (
         <LemonTaxonomicPopup
+            className="CohortField"
             type="secondary"
             groupType={taxonomicGroupType}
             value={value as TaxonomicFilterValue}
@@ -111,13 +115,13 @@ export function CohortTaxonomicField({
                 onTaxonomicGroupChange?.(g)
             }}
             groupTypes={taxonomicGroupTypes}
-            placeholder="Choose event"
+            placeholder={placeholder}
         />
     )
 }
 
 export function CohortTextField({ value }: CohortTextFieldProps): JSX.Element {
-    return <span className="CohortField__CohortTextField">{value}</span>
+    return <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{value}</span>
 }
 
 export function CohortNumberField({
@@ -139,7 +143,7 @@ export function CohortNumberField({
             onChange={(nextNumber) => {
                 onChange(nextNumber)
             }}
-            className="CohortField__CohortNumberField"
+            className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
     )
 }

@@ -645,6 +645,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                placeholder="Choose event or action"
             />
         )
     },
@@ -652,10 +653,8 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
-                taxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.NumericalEventProperties,
-                ]}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                placeholder="Choose event property"
             />
         )
     },

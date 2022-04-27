@@ -63,6 +63,7 @@ export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
 }
 
 export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    placeholder?: string
     taxonomicGroupType?: TaxonomicFilterGroupType
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     fieldOptionGroupTypes: never
