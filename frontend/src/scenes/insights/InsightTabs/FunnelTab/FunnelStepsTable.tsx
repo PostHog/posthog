@@ -12,7 +12,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonRow } from 'lib/components/LemonRow'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { IconFlag } from 'lib/components/icons'
 
@@ -123,7 +123,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     onClick={() => openPersonsModalForStep({ step: stepSeries, converted: true })}
                                     style={{ padding: 0 }}
                                 >
-                                    {stepSeries.count ?? 0}
+                                    {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
                             )
                         )
@@ -149,7 +149,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                               }
                                               style={{ padding: 0 }}
                                           >
-                                              {stepSeries.droppedOffFromPrevious ?? 0}
+                                              {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>
                                       )
                                   )

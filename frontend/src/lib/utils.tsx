@@ -474,9 +474,11 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-// Number to number with commas (e.g. 1234 -> 1,234)
+/** Format number with space as the thousands separator. */
 export function humanFriendlyNumber(d: number): string {
-    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    // Using French locale just to have the more international space as thousands separator
+    // instead of the American comma
+    return d.toLocaleString('fr')
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -1017,18 +1019,12 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(
-    count: number,
-    singular: string,
-    plural?: string,
-    includeNumber: boolean = true,
-    formatNumber: boolean = false
-): string {
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.
