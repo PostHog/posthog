@@ -232,12 +232,12 @@ class Cohort(models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-        # try:
-        new_query_count = recalculate_cohortpeople_with_new_query(self)
-        if new_query_count != count:
-            raise ValueError("Count mismatch between new query and old query")
-        # except Exception as exception:
-        #     capture_exception(exception, {'cohort_id': self.pk})
+        try:
+            new_query_count = recalculate_cohortpeople_with_new_query(self)
+            if new_query_count != count:
+                raise ValueError("Count mismatch between new query and old query")
+        except Exception as exception:
+            capture_exception(exception, {"cohort_id": self.pk, "properties": self.properties.to_dict()})
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
