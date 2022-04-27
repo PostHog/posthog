@@ -516,11 +516,13 @@ class CohortQuery(EnterpriseEventQuery):
         date_condition, date_params = self._get_date_condition()
         params.update(date_params)
 
+        event_param_name = f"{self._cohort_pk}_event_ids"
+
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
         {self._get_distinct_id_query()}
         WHERE team_id = %(team_id)s
-        AND event IN %(events)s
+        AND event IN %({event_param_name})s
         {date_condition}
         """
 
@@ -534,7 +536,11 @@ class CohortQuery(EnterpriseEventQuery):
         SELECT {", ".join(_outer_fields)} FROM ({intermediate_query})
         GROUP BY person_id
         """
-        return outer_query, {"team_id": self._team_id, "events": self._events, **params}, self.FUNNEL_QUERY_ALIAS
+        return (
+            outer_query,
+            {"team_id": self._team_id, event_param_name: self._events, **params},
+            self.FUNNEL_QUERY_ALIAS,
+        )
 
     def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
         event = validate_entity((prop.event_type, prop.key))
