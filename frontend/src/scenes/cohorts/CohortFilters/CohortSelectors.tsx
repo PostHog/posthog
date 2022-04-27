@@ -1,10 +1,10 @@
 import './CohortSelector.scss'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 import React, { useEffect, useMemo } from 'react'
-import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonButton } from 'lib/components/LemonButton'
 import { cohortSelectorLogic, CohortSelectorLogicProps } from 'scenes/cohorts/CohortFilters/cohortSelectorLogic'
 import { useActions, useValues } from 'kea'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 export interface CohortSelectorProps extends CohortSelectorLogicProps {
     placeholder: string
@@ -46,7 +46,7 @@ export function CohortSelector({
                     <div className="CohortSelector__dropdown">
                         {groups.map(({ label, type: groupKey, values }, i) => (
                             <div key={i}>
-                                {i !== 0 && <LemonSpacer />}
+                                {i !== 0 && <LemonDivider />}
                                 <h5>{label}</h5>
                                 {Object.entries(values).map(([key, option]) => (
                                     <LemonButton

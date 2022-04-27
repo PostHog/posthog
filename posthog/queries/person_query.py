@@ -13,6 +13,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class PersonQuery:
@@ -190,9 +191,11 @@ class PersonQuery:
 
             distinct_id_clause = """
             id IN (
-                SELECT person_id FROM person_distinct_id where distinct_id = %(distinct_id)s
+                SELECT person_id FROM ({query}) where distinct_id = %(distinct_id)s
             )
-            """
+            """.format(
+                query=get_team_distinct_ids_query(self._team_id)
+            )
 
             params.update({"distinct_id": self._filter.search})
 
