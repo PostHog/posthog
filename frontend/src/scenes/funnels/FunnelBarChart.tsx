@@ -49,18 +49,13 @@ function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                         <div key={i} className="StepBars__gridline StepBars__gridline--horizontal" />
                     ))}
             </div>
-            {step?.nested_breakdown?.map((breakdown, breakdownIndex) => (
+            {step?.nested_breakdown?.map((breakdown) => (
                 <div
-                    key={breakdownIndex}
+                    key={breakdown.order}
                     className="StepBars__bar"
                     style={
                         {
-                            '--series-color': getSeriesColor(
-                                breakdownIndex,
-                                step.nested_breakdown?.length === 1,
-                                undefined,
-                                step.nested_breakdown?.length
-                            ),
+                            '--series-color': getSeriesColor(breakdown.order, step.nested_breakdown?.length === 1),
                             '--conversion-rate': percentage(breakdown.conversionRates.fromBasisStep, 1, true),
                         } as StepBarCSSProperties
                     }

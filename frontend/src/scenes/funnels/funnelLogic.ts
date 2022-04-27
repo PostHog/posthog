@@ -638,7 +638,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         // firstBreakdownCount serves as previousBreakdownCount for the first step so that
                         // "Relative to previous step" is shown correctly – later series use the actual previous steps
                         const previousBreakdownCount =
-                            i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || NaN
+                            i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
                         const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
                         const conversionRates = {
                             fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
