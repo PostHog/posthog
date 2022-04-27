@@ -15,7 +15,7 @@ export const keyForInsightLogicProps =
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return `insight:${props.dashboardItemId}/${props.cachedInsight?.filters_hash}` || defaultKey
+        return props.dashboardItemId || defaultKey
     }
 
 export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
