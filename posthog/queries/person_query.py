@@ -193,8 +193,7 @@ class PersonQuery:
             distinct_id_param = f"distinct_id_{prepend}"
             distinct_id_clause = f"""
             id IN (
-                SELECT person_id FROM person_distinct_id where distinct_id = %({distinct_id_param})s
-                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %(distinct_id)s
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %({distinct_id_param})s
             )
             """
 
