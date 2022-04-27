@@ -17,6 +17,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -130,7 +131,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                     )}
                 </AutoSizer>
             </div>
-            <hr className="separator" />
+            <LemonDivider />
         </Modal>
     )
 }
