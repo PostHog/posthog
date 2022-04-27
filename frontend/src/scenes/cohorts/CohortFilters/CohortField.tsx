@@ -1,7 +1,6 @@
 import './CohortField.scss'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import React, { useEffect, useMemo } from 'react'
-import { LemonSpacer } from 'lib/components/LemonRow'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -14,6 +13,7 @@ import {
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 let uniqueMemoizedIndex = 0
 
@@ -59,7 +59,7 @@ export function CohortSelectorField({
                     <div className="CohortField__dropdown">
                         {fieldOptionGroups.map(({ label, type: groupKey, values }, i) => (
                             <div key={i}>
-                                {i !== 0 && <LemonSpacer />}
+                                {i !== 0 && <LemonDivider />}
                                 <h5>{label}</h5>
                                 {Object.entries(values).map(([key, option]) => (
                                     <LemonButton

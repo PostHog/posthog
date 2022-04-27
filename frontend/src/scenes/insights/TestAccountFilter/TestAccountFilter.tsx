@@ -38,6 +38,7 @@ export function TestAccountFilter({
                     />
                 </div>
             }
+            style={{ width: '100%' }}
         />
     )
 }

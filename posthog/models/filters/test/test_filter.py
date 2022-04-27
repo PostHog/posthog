@@ -10,7 +10,7 @@ from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 
 class TestFilter(BaseTest):
@@ -158,10 +158,12 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertEqual(len(results), 1)
 
         def test_regex_persons(self):
-            p1_uuid = person_factory(
-                team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"}
+            p1_uuid = str(
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"}
+                ).uuid
             )
-            p2_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p2"])
+            p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
                 data={"properties": [{"type": "person", "key": "url", "value": r"\.com$", "operator": "regex"}]}
@@ -191,8 +193,10 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_is_not_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
-            p2_uuid = person_factory(
-                team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+            p2_uuid = str(
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+                ).uuid
             )
 
             filter = Filter(
@@ -207,11 +211,13 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_does_not_contain_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
-            p2_uuid = person_factory(
-                team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+            p2_uuid = str(
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+                ).uuid
             )
-            p3_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p3"])
-            p4_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"url": None})
+            p3_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p3"]).uuid)
+            p4_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"url": None}).uuid)
 
             filter = Filter(
                 data={
@@ -224,10 +230,12 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertCountEqual(results, [p2_uuid, p3_uuid, p4_uuid])
 
         def test_multiple_persons(self):
-            p1_uuid = person_factory(
-                team_id=self.team.pk,
-                distinct_ids=["p1"],
-                properties={"url": "https://whatever.com", "another_key": "value"},
+            p1_uuid = str(
+                person_factory(
+                    team_id=self.team.pk,
+                    distinct_ids=["p1"],
+                    properties={"url": "https://whatever.com", "another_key": "value"},
+                ).uuid
             )
             person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://whatever.com"})
 
@@ -243,7 +251,9 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertCountEqual(results, [p1_uuid])
 
         def test_boolean_filters_persons(self):
-            p1_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True})
+            p1_uuid = str(
+                person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True}).uuid
+            )
             person_factory(team_id=self.team.pk, distinct_ids=["p2"])
 
             filter = Filter(data={"properties": [{"type": "person", "key": "is_first_user", "value": ["true"]}]})
@@ -251,8 +261,10 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertEqual(results, [p1_uuid])
 
         def test_is_not_set_and_is_set_persons(self):
-            p1_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True})
-            p2_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p2"])
+            p1_uuid = str(
+                person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True}).uuid
+            )
+            p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
                 data={"properties": [{"type": "person", "key": "is_first_user", "value": "", "operator": "is_set"}]}
@@ -268,7 +280,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_is_not_true_false_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True})
-            p2_uuid = person_factory(team_id=self.team.pk, distinct_ids=["p2"])
+            p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
                 data={
@@ -296,12 +308,14 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p1_uuid])
+            self.assertEqual(results, [str(p1_uuid.uuid)])
 
         def test_filter_out_team_members_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"})
-            p2_uuid = person_factory(
-                team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
+            p2_uuid = str(
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
+                ).uuid
             )
             self.team.test_account_filters = [
                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
@@ -316,16 +330,12 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 
 def _filter_persons(filter: Filter, team: Team):
+    flush_persons_and_events()
     # TODO: confirm what to do here?
     # Postgres only supports ANDing all properties :shrug:
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return str(person.uuid)
 
 
 class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person)):  # type: ignore

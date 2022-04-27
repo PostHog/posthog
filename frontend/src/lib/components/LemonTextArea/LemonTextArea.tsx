@@ -30,6 +30,7 @@ export interface LemonTextAreaProps
     disabled?: boolean
 }
 
+/** A `LemonRow`-based `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
     {
         className,
@@ -104,7 +105,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
     return (
         <LemonRow {...rowProps}>
-            <TextareaAutosize minRows={5} {...props} ref={textRef} />
+            <TextareaAutosize minRows={3} {...props} ref={textRef} />
         </LemonRow>
     )
 })
