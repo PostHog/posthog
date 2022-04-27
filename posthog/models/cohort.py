@@ -186,7 +186,7 @@ class Cohort(models.Model):
             raise err
 
     def calculate_people_ch(self, pending_version):
-        from ee.clickhouse.models.cohort import recalculate_cohortpeople
+        from ee.clickhouse.models.cohort import recalculate_cohortpeople, recalculate_cohortpeople_with_new_query
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
@@ -230,6 +230,13 @@ class Cohort(models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
+
+        # try:
+        new_query_count = recalculate_cohortpeople_with_new_query(self)
+        if new_query_count != count:
+            raise ValueError("Count mismatch between new query and old query")
+        # except Exception as exception:
+        #     capture_exception(exception, {'cohort_id': self.pk})
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """

@@ -350,7 +350,7 @@ class CohortQuery(EnterpriseEventQuery):
             if self._cohort_pk is not None:
                 cohorts_seen.append(self._cohort_pk)
             person_id_query, cohort_filter_params = format_filter_query(
-                prop_cohort, idx, "person_id", cohorts_seen=set(cohorts_seen)
+                prop_cohort, idx, "person_id", cohorts_seen=set(cohorts_seen), using_new_query=True
             )
             return f"id IN ({person_id_query})", cohort_filter_params
 
