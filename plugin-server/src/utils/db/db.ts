@@ -132,7 +132,7 @@ type PersonData = {
     properties: Properties
 }
 
-type GroupIdentifier = {
+export type GroupIdentifier = {
     index: number
     key: string
 }
@@ -576,11 +576,10 @@ export class DB {
             const personUuid = String(result.rows[0].uuid)
             const personCreatedAtIso = String(result.rows[0].created_at)
             const personProperties: Properties = result.rows[0].properties
-            await Promise.all([
-                this.updatePersonUuidCache(teamId, personId, personUuid),
-                this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso),
-                this.updatePersonPropertiesCache(teamId, personId, personProperties),
-            ])
+            void this.updatePersonUuidCache(teamId, personId, personUuid)
+            void this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso)
+            // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
+            void this.updatePersonPropertiesCache(teamId, personId, personProperties || {})
             return {
                 uuid: personUuid,
                 created_at_iso: personCreatedAtIso,
@@ -597,30 +596,6 @@ export class DB {
         }
         return null
     }
-
-    // public async getGroupProperty(teamId: number, groupTypeIndex: number, groupKey: string): Promise<Properties | null> {
-    //     if (!this.personInfoCachingEnabledTeams.has(teamId)) {
-    //         return null
-    //     }
-    //     const props = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
-    //     if (personId) {
-    //         this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
-    //         return Number(personId)
-    //     }
-    //     this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
-    //     // Query from postgres and update cache
-    //     const result = await this.postgresQuery(
-    //         'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$2 LIMIT 1',
-    //         [teamId, distinctId],
-    //         'fetchPersonId'
-    //     )
-    //     if (result.rows.length > 0) {
-    //         const personId = Number(result.rows[0].person_id)
-    //         await this.updatePersonIdCache(teamId, distinctId, personId)
-    //         return personId
-    //     }
-    //     return null
-    // }
 
     private async getGroupProperty(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
         const props = await this.redisGet(
@@ -639,9 +614,9 @@ export class DB {
         const args: any[] = [teamId]
         let index = 2
         for (const gi of groupIdentifiers) {
-            query_options.push(`(group_type_index = ${index} group_key = ${index + 1} AND)`)
+            query_options.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
-            args.push([gi.index, gi.key])
+            args.push(gi.index, gi.key)
         }
         const result = await this.postgresQuery(
             'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
@@ -650,30 +625,26 @@ export class DB {
             args,
             'fetchGroupProperties'
         )
-        const promises = []
         const res: Record<string, string> = {}
-        for (const row in result.rows) {
-            // TODO: why do you think its a string???
+        result.rows.forEach((row) => {
             const index = Number(row.group_type_index)
             const key = String(row.group_key)
             const properties = row.group_properties as Properties
-            promises.push(this.updateGroupPropertiesCache(teamId, index, key, properties))
+            // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
+            void this.updateGroupPropertiesCache(teamId, index, key, properties || {}) // TODO test this!!!
             res[`group${index}_properties`] = JSON.stringify(properties)
-        }
-        await Promise.all(promises)
+        })
         return res
     }
 
     public async getGroupProperties(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (!this.personInfoCachingEnabledTeams.has(teamId) || !groups) {
             return {}
         }
-        // TODO: what if the group isn't identified, i.e. there is no extra info??? - I assume we'll have stored an empty properties list then - todo verify
-        // Same for what if there aren't any person properties - will we always query postgres then?
         const promises = groups.map((groupIdentifier) => {
             return this.getGroupProperty(teamId, groupIdentifier)
         })
-        const cachedRes = await Promise.all(promises) // TODO: would be nice if GroupIdentifier was the map index so I can update it more easily later for nulls
+        const cachedRes = await Promise.all(promises)
         const useFromCache = cachedRes.filter((gp) => gp.properties !== null)
         let res: Record<string, string> = {}
         useFromCache.forEach((gp) => {
@@ -681,12 +652,9 @@ export class DB {
         })
 
         // Lookup the properties from DB if they weren't in cache and update the cache
-        const lookupFromDb = cachedRes.filter((gp) => gp.properties === null)
-        if (lookupFromDb) {
-            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(
-                teamId,
-                lookupFromDb.map((gp) => gp.identifier)
-            )
+        const lookupFromDb = cachedRes.filter((gp) => gp.properties === null).map((gp) => gp.identifier)
+        if (lookupFromDb.length > 0) {
+            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(teamId, lookupFromDb)
             res = { ...res, ...fromDb }
         }
         return res
