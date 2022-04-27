@@ -344,7 +344,7 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
         FROM person
         WHERE {cohort_filter}
         """,
-        cohort_params,
+        {**cohort_params, "team_id": cohort.team_id, "cohort_id": cohort.pk},
     )[0][0]
 
     return count
