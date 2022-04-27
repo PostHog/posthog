@@ -125,9 +125,6 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                             overscanRowCount={100}
                             rowHeight={40}
                             rowRenderer={renderItem}
-                            onRowsRendered={(args) => {
-                                console.log({ ...args }, 'on rows rendered')
-                            }}
                             scrollToIndex={scrollIndex}
                         />
                     )}
