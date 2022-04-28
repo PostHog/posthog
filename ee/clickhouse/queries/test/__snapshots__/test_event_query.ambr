@@ -31,14 +31,41 @@
 # name: TestEventQuery.test_account_filters.2
   '
   
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+       GROUP BY id
+       HAVING max(is_deleted) = 0
+       AND ((has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))
+  '
+---
+# name: TestEventQuery.test_account_filters.3
+  '
+  
   SELECT e.timestamp as timestamp,
-         e.properties as properties
+         pdi.person_id as person_id
   FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toStartOfDay(toDateTime('2021-01-14 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC')
-    AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
   '
 ---
 # name: TestEventQuery.test_basic_event_filter

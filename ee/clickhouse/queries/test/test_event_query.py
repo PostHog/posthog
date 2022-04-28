@@ -126,7 +126,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     # just smoke test making sure query runs because no new functions are used here
     @snapshot_clickhouse_queries
     def test_cohort_filter(self):
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         filter = Filter(
             data={
@@ -142,7 +146,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     # just smoke test making sure query runs because no new functions are used here
     @snapshot_clickhouse_queries
     def test_entity_filtered_by_cohort(self):
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         filter = Filter(
             data={
@@ -193,7 +201,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
-        cohort = Cohort.objects.create(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
