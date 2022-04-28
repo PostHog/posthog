@@ -11,7 +11,7 @@ export function IconWithCount({ count, showZero, children }: PropsWithChildren<I
     return (
         <div style={{ position: 'relative' }}>
             {children}
-            {count > 0 || showZero ? <div className="icon-count-bubble">{count}</div> : null}
+            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
         </div>
     )
 }

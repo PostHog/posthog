@@ -9,7 +9,9 @@ interface IconDefinition {
     icon: (...args: any[]) => JSX.Element
 }
 
-const allIcons: IconDefinition[] = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
+const allIcons: IconDefinition[] = Object.entries(icons)
+    .filter(([key]) => key !== 'IconWithCount')
+    .map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
     title: 'Lemon UI/Icons',
@@ -62,7 +64,6 @@ export function Icons(): JSX.Element {
 }
 
 export function IconWithCountBubble(): JSX.Element {
-    const betweenOneAndTwenty = Math.floor(Math.random() * (20 - 1 + 1)) + 1
     return (
         <span
             style={{
@@ -72,7 +73,7 @@ export function IconWithCountBubble(): JSX.Element {
                 boxSizing: 'content-box',
             }}
         >
-            <IconWithCount count={betweenOneAndTwenty}>
+            <IconWithCount count={7}>
                 <IconGauge />
             </IconWithCount>
         </span>
@@ -107,6 +108,23 @@ export function IconWithCountShowingZero(): JSX.Element {
             }}
         >
             <IconWithCount count={0} showZero={true}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithTooHighCount(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+                boxSizing: 'content-box',
+            }}
+        >
+            <IconWithCount count={11} showZero={true}>
                 <IconGauge />
             </IconWithCount>
         </span>
