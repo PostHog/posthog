@@ -74,7 +74,7 @@
         "@types/react-input-autosize": "^2.2.1",
         "@types/react-transition-group": "^4.4.4",
         "@types/react-virtualized": "^9.21.21",
-        "antd": "^4.17.1",
+        "antd": "^4.20.1",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^3.6.2",
