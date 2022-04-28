@@ -113,13 +113,7 @@ function InviteMembersButton(): JSX.Element {
     )
 }
 
-function License({
-    license,
-    expired,
-}: {
-    license: LicenseType | undefined
-    expired: boolean | undefined
-}): JSX.Element {
+function License({ license, expired }: { license: LicenseType | null; expired: boolean | null }): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
 
     return (
