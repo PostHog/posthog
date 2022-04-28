@@ -39,7 +39,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) = 1 AS performed_event_multiple_condition_3_level_level_0_level_0_0
+                         AND ((event = '$pageview'))) = 1 AS performed_event_multiple_condition_8_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -54,7 +54,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_3_level_level_0_level_0_0))) )
+         AND (((performed_event_multiple_condition_8_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.11
@@ -105,7 +105,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) > 0 AS performed_event_condition_4_level_level_0_level_0_0
+                         AND ((event = '$pageview'))) > 0 AS performed_event_condition_9_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -120,7 +120,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_condition_4_level_level_0_level_0_0))) )
+         AND (((performed_event_condition_9_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.15
@@ -141,7 +141,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) >= 2 AS performed_event_multiple_condition_1_level_level_0_level_0_0
+                         AND ((event = '$pageview'))) >= 2 AS performed_event_multiple_condition_6_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -156,7 +156,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_1_level_level_0_level_0_0))) )
+         AND (((performed_event_multiple_condition_6_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.3
@@ -207,7 +207,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) <= 1 AS performed_event_multiple_condition_2_level_level_0_level_0_0
+                         AND ((event = '$pageview'))) <= 1 AS performed_event_multiple_condition_7_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -222,7 +222,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_2_level_level_0_level_0_0))) )
+         AND (((performed_event_multiple_condition_7_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.7
