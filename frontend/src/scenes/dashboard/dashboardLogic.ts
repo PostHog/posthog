@@ -551,11 +551,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
                 return
             }
-            if (!values.dashboard) {
+            if (!props.id) {
                 // what are we saving layouts against?!
                 return
             }
-            await api.update(`api/projects/${values.currentTeamId}/dashboards/${values.dashboard.id}`, {
+            await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tile_layouts:
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
@@ -568,12 +568,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             })
         },
         updateItemColor: async ({ insightNumericId, color }) => {
-            if (!values.dashboard) {
+            if (!props.id) {
                 // what are we saving colors against?!
                 return
             }
 
-            return api.update(`api/projects/${values.currentTeamId}/dashboards/${values.dashboard.id}`, {
+            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 colors: [{ id: insightNumericId, color }],
             })
         },
@@ -609,7 +609,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
-                            from_dashboard: values.dashboard?.id || undefined, // needed to load insight in correct context
+                            from_dashboard: props.id || undefined, // needed to load insight in correct context
                         })}`
                     )
                     breakpoint()
