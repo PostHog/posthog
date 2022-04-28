@@ -1,7 +1,7 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Card } from 'antd'
+import { Card, Select } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -29,10 +29,14 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -48,8 +52,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
-        useActions(logic)
+    const {
+        setActiveView,
+        saveInsight,
+        setInsightMetadata,
+        saveAs,
+        cancelChanges,
+        reportInsightViewedForRecentInsights,
+    } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -63,9 +73,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     const isSmallScreen = !screens.xl
+    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Whether to display the control tab on the side instead of on top
-    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+    // const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+    const verticalLayout = usingEditorPanels || (!isSmallScreen && activeView === InsightType.FUNNELS)
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
@@ -80,7 +92,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }
 
     /* These are insight specific filters. They each have insight specific logics */
-    const insightTab = {
+    const insightTabFilters = {
         [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
         [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
         [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
@@ -88,6 +100,35 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         [`${InsightType.RETENTION}`]: <RetentionTab />,
         [`${InsightType.PATHS}`]: <PathTab />,
     }[activeView]
+
+    const insightTab = usingEditorPanels ? (
+        <>
+            <Select
+                value={activeView}
+                onChange={(value): void => setActiveView(value)}
+                dropdownMatchSelectWidth={false}
+            >
+                {Object.entries(INSIGHT_TYPES_METADATA).map(([type, meta], index) => (
+                    <Select.Option key={index} value={type}>
+                        <div className="insight-type-icon-wrapper">
+                            {meta.icon ? (
+                                <div className="icon-container">
+                                    <div className="icon-container-inner">
+                                        <meta.icon color="#747EA2" noBackground />
+                                    </div>
+                                </div>
+                            ) : null}
+                            <div>{meta.name}</div>
+                        </div>
+                    </Select.Option>
+                ))}
+            </Select>
+
+            {insightTabFilters}
+        </>
+    ) : (
+        insightTabFilters
+    )
 
     const insightScene = (
         <div className="insights-page">
@@ -185,8 +226,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 <InsightContainer />
             ) : (
                 <>
-                    <InsightsNav />
-
+                    {!usingEditorPanels ? <InsightsNav /> : null}
                     <div
                         style={{
                             display: 'flex',
