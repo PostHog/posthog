@@ -237,7 +237,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <div
                             style={{
                                 width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
-                                marginRight: verticalLayout ? '1rem' : 0,
+                                marginRight: verticalLayout && !usingEditorPanels ? '1rem' : 0,
+                                marginLeft: verticalLayout && usingEditorPanels ? '1rem' : 0,
+                                order: usingEditorPanels ? 2 : 1,
                             }}
                         >
                             {verticalLayout ? (
@@ -255,6 +257,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             style={{
                                 flexGrow: 1,
                                 width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
+                                order: usingEditorPanels ? 1 : 2,
                             }}
                         >
                             <InsightContainer />
