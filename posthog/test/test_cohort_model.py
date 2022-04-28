@@ -134,7 +134,7 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": 1,
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event_multiple",
                                 "event_type": "actions",
                                 "operator": "eq",
@@ -180,7 +180,7 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": "$pageview",
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event",
                                 "event_type": "events",
                                 "operator": "gte",
@@ -213,7 +213,7 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": "$pageview",
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event",
                                 "event_type": "events",
                                 "operator": "lte",

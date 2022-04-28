@@ -8,7 +8,7 @@ from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import BehaviouralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -163,7 +163,7 @@ class CohortQuery(EnterpriseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
         if not self._outer_property_groups:
-            # everything is pushed down, no behavioural stuff to do
+            # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
             return self._person_query.get_query(prepend=self._cohort_pk)
 
@@ -307,7 +307,7 @@ class CohortQuery(EnterpriseEventQuery):
         res: str = ""
         params: Dict[str, Any] = {}
 
-        if prop.type == "behavioural":
+        if prop.type == "behavioral":
             if prop.value == "performed_event":
                 res, params = self.get_performed_event_condition(prop, prepend, idx)
             elif prop.value == "performed_event_multiple":
@@ -648,12 +648,12 @@ class CohortQuery(EnterpriseEventQuery):
     def _should_join_behavioral_query(self) -> bool:
         for prop in self._filter.property_groups.flat:
             if prop.value in [
-                BehaviouralPropertyType.PERFORMED_EVENT,
-                BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME,
-                BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE,
-                BehaviouralPropertyType.PERFORMED_EVENT_REGULARLY,
-                BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT,
-                BehaviouralPropertyType.STOPPED_PERFORMING_EVENT,
+                BehavioralPropertyType.PERFORMED_EVENT,
+                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
+                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
             ]:
                 return True
         return False
