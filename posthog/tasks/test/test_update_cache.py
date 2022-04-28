@@ -1,4 +1,6 @@
+from copy import copy
 from datetime import timedelta
+from typing import Any, Dict
 from unittest import skip
 from unittest.mock import MagicMock, patch
 
@@ -13,25 +15,32 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
 
 
-class TestUpdateCache(APIBaseTest):
+class TestUpdateCache(APIBaseTest, QueryMatchingTest):
+    @snapshot_postgres_queries
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
         # Any dashboard accessed in the last 7 days
-        filter_dict = {
+        filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         filter = Filter(data=filter_dict)
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
+
+        # we don't want insight and tile to have the same id,
+        # or we can accidentally select the insight by selecting the tile
+        some_different_filters = copy(filter_dict)
+        some_different_filters.update({"date_from": "-14d"})
+        Insight.objects.create(filters=some_different_filters, team=self.team)
 
         item = Insight.objects.create(filters=filter.to_dict(), team=self.team)
         DashboardTile.objects.create(insight=item, dashboard=shared_dashboard)
