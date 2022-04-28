@@ -1270,13 +1270,10 @@ export function convertTimeIntervalToNumberOfDays(timeValue: number, timeUnit: T
 export function isPropertyGroup(
     properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
-    if (properties) {
-        return (
-            (properties as PropertyGroupFilter).type !== undefined &&
-            (properties as PropertyGroupFilter).values !== undefined
-        )
-    }
-    return false
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
 }
 
 export function isCohortCriteriaGroup(
