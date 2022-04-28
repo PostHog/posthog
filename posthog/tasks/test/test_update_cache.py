@@ -51,7 +51,7 @@ class TestUpdateCache(APIBaseTest):
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(), team=self.team,
         )
         DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
-        dashboard_to_cache.filters = {"date_from": "-14d"}
+        dashboard_to_cache.filters = {"date_from": "-7d"}
         dashboard_to_cache.save()
 
         dashboard_do_not_cache = Dashboard.objects.create(
