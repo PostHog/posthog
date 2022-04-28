@@ -83,21 +83,12 @@
                 GROUP BY distinct_id
                 HAVING argMax(is_deleted, version) = 0)
              WHERE person_id IN
-                 (select id
-                  from
-                    (SELECT *
-                     FROM person
-                     JOIN
-                       (SELECT id,
-                               max(_timestamp) as _timestamp,
-                               max(is_deleted) as is_deleted
-                        FROM person
-                        WHERE team_id = 2
-                        GROUP BY id) as person_max ON person.id = person_max.id
-                     AND person._timestamp = person_max._timestamp
-                     WHERE team_id = 2
-                       AND person_max.is_deleted = 0
-                       AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )) )
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id
+                  HAVING max(is_deleted) = 0
+                  AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))) )
           AND performed_event_condition_level_level_1)) SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -143,21 +134,12 @@
                 GROUP BY distinct_id
                 HAVING argMax(is_deleted, version) = 0)
              WHERE person_id IN
-                 (select id
-                  from
-                    (SELECT *
-                     FROM person
-                     JOIN
-                       (SELECT id,
-                               max(_timestamp) as _timestamp,
-                               max(is_deleted) as is_deleted
-                        FROM person
-                        WHERE team_id = 2
-                        GROUP BY id) as person_max ON person.id = person_max.id
-                     AND person._timestamp = person_max._timestamp
-                     WHERE team_id = 2
-                       AND person_max.is_deleted = 0
-                       AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )) )
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id
+                  HAVING max(is_deleted) = 0
+                  AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))) )
           OR performed_event_condition_level_level_1)) SETTINGS allow_experimental_window_functions = 1
   '
 ---
