@@ -619,7 +619,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
-        cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"key": "value"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, name="a", groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}]
+        )
         action_response = ClickhouseTrends().run(
             Filter(
                 data={

@@ -1187,7 +1187,11 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,

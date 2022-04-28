@@ -42,7 +42,6 @@ PropertyType = Literal[
     "behavioural",
 ]
 
-
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
@@ -88,7 +87,6 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "event_type",
         "time_value",
         "time_interval",
-        "operator",
         "operator_value",
     ],
     BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
@@ -110,7 +108,6 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "time_value",
         "time_interval",
         "operator_value",
-        "operator",
         "min_periods",
         "total_periods",
     ],
@@ -210,6 +207,9 @@ class Property:
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
+
+        if self.type not in VALIDATE_PROP_TYPES.keys():
+            raise ValueError(f"Invalid property type: {self.type}")
 
         for key in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, key, None) is None:
