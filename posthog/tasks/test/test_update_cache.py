@@ -32,7 +32,9 @@ class TestUpdateCache(APIBaseTest):
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         filter = Filter(data=filter_dict)
-        shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        shared_dashboard_with_no_filters = Dashboard.objects.create(
+            team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
+        )
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
         # we don't want insight and tile to have the same id,
@@ -41,26 +43,65 @@ class TestUpdateCache(APIBaseTest):
         some_different_filters.update({"date_from": "-14d"})
         Insight.objects.create(filters=some_different_filters, team=self.team)
 
-        item = Insight.objects.create(filters=filter.to_dict(), team=self.team)
-        DashboardTile.objects.create(insight=item, dashboard=shared_dashboard)
-        funnel_item = Insight.objects.create(filters=funnel_filter.to_dict(), team=self.team)
-        DashboardTile.objects.create(insight=funnel_item, dashboard=shared_dashboard)
-
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
-        item_to_cache = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(), team=self.team,
+        cached_insight_because_no_dashboard_filters = Insight.objects.create(
+            filters=filter.to_dict(),
+            team=self.team,
+            name="trend cached because on shared dashboard with no dashboard filters",
         )
-        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
-        dashboard_to_cache.filters = {"date_from": "-7d"}
-        dashboard_to_cache.save()
+        cached_trend_tile_because_no_dashboard_filters = DashboardTile.objects.create(
+            insight=cached_insight_because_no_dashboard_filters, dashboard=shared_dashboard_with_no_filters
+        )
+        cached_funnel_item = Insight.objects.create(
+            filters=funnel_filter.to_dict(),
+            team=self.team,
+            name="funnel cached because on shared dashboard with no dashboard filters",
+        )
+        cached_funnel_tile_because_on_shared_dashboard = DashboardTile.objects.create(
+            insight=cached_funnel_item, dashboard=shared_dashboard_with_no_filters
+        )
+
+        another_shared_dashboard_to_cache = Dashboard.objects.create(
+            team=self.team, is_shared=True, last_accessed_at=now()
+        )
+        insight_not_cached_because_dashboard_has_filters = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "insight_not_cached_because_dashboard_has_filters"}]}).to_dict(),
+            team=self.team,
+            name="insight_not_cached_because_dashboard_has_filters",
+        )
+        tile_cached_because_dashboard_is_shared = DashboardTile.objects.create(
+            insight=insight_not_cached_because_dashboard_has_filters, dashboard=another_shared_dashboard_to_cache
+        )
+        # filters changed after dashboard linked to insight but should still affect filters hash
+        another_shared_dashboard_to_cache.filters = {"date_from": "-7d"}
+        another_shared_dashboard_to_cache.save()
 
         dashboard_do_not_cache = Dashboard.objects.create(
-            team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
+            team=self.team, is_shared=False, last_accessed_at="2020-01-01T12:00:00Z"
         )
-        item_do_not_cache = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(), team=self.team,
+        insight_not_cached_because_dashboard_unshared_and_not_recently_accessed = Insight.objects.create(
+            filters=Filter(
+                data={"events": [{"id": "insight_not_cached_because_dashboard_unshared_and_not_recently_accessed"}]}
+            ).to_dict(),
+            team=self.team,
         )
-        DashboardTile.objects.create(insight=item_do_not_cache, dashboard=dashboard_do_not_cache)
+        tile_to_not_cache_because_dashboard_is_access_too_long_ago = DashboardTile.objects.create(
+            insight=insight_not_cached_because_dashboard_unshared_and_not_recently_accessed,
+            dashboard=dashboard_do_not_cache,
+        )
+
+        recently_accessed_unshared_dashboard_should_cache = Dashboard.objects.create(
+            team=self.team, is_shared=False, last_accessed_at=now()
+        )
+        item_cached_because_on_recently_shared_dashboard_with_no_filter = Insight.objects.create(
+            filters=Filter(
+                data={"events": [{"id": "item_cached_because_on_recently_shared_dashboard_with_no_filter"}]}
+            ).to_dict(),
+            team=self.team,
+        )
+        tile_to_cache_because_dashboard_was_recently_accessed = DashboardTile.objects.create(
+            insight=item_cached_because_on_recently_shared_dashboard_with_no_filter,
+            dashboard=recently_accessed_unshared_dashboard_should_cache,
+        )
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
@@ -71,9 +112,35 @@ class TestUpdateCache(APIBaseTest):
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])
 
-        self.assertIsNotNone(Insight.objects.get(pk=item.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=item_to_cache.pk).last_refresh)
-        self.assertIsNotNone(Insight.objects.get(pk=item_do_not_cache.pk).last_refresh)
+        self.assertIsNotNone(Insight.objects.get(pk=cached_insight_because_no_dashboard_filters.pk).last_refresh)
+        self.assertIsNotNone(
+            DashboardTile.objects.get(pk=cached_trend_tile_because_no_dashboard_filters.pk).last_refresh
+        )
+        self.assertIsNotNone(Insight.objects.get(pk=cached_funnel_item.pk).last_refresh)
+        self.assertIsNotNone(
+            DashboardTile.objects.get(pk=cached_funnel_tile_because_on_shared_dashboard.pk).last_refresh
+        )
+
+        # dashboard has filters so insight is filters_hash is different and so it doesn't need caching
+        self.assertIsNone(Insight.objects.get(pk=insight_not_cached_because_dashboard_has_filters.pk).last_refresh)
+        self.assertIsNotNone(DashboardTile.objects.get(pk=tile_cached_because_dashboard_is_shared.pk).last_refresh)
+
+        self.assertIsNone(
+            Insight.objects.get(
+                pk=insight_not_cached_because_dashboard_unshared_and_not_recently_accessed.pk
+            ).last_refresh
+        )
+        self.assertIsNone(
+            DashboardTile.objects.get(pk=tile_to_not_cache_because_dashboard_is_access_too_long_ago.pk).last_refresh
+        )
+
+        self.assertIsNotNone(
+            Insight.objects.get(pk=item_cached_because_on_recently_shared_dashboard_with_no_filter.pk).last_refresh
+        )
+        self.assertIsNotNone(
+            DashboardTile.objects.get(pk=tile_to_cache_because_dashboard_was_recently_accessed.pk).last_refresh
+        )
+
         self.assertEqual(get_safe_cache(item_key)["result"][0]["count"], 0)
         self.assertEqual(get_safe_cache(funnel_key)["result"][0]["count"], 0)
 
