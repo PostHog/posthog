@@ -36,7 +36,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
-    FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -52,7 +51,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.insight import InsightViewed
+from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -103,6 +102,12 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         many=True,
         required=False,
         queryset=Dashboard.objects.filter(deleted=False),
+    )
+    filters_hash = serializers.CharField(
+        read_only=True,
+        help_text="""A hash of the filters that generate this insight.
+        Used as a cache key for this result.
+        A different hash will be returned if loading the insight on a dashboard that has filters.""",
     )
 
     class Meta:
@@ -196,11 +201,29 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
+
+        dashboard = self.context.get("dashboard", None)
+
         if should_refresh(self.context["request"]):
-            dashboard = self.context.get("dashboard", None)
             return update_insight_cache(insight, dashboard)
 
-        result = get_safe_cache(insight.filters_hash)
+        cache_key = insight.filters_hash
+        if dashboard is not None:
+            dashboard_tile: Optional[DashboardTile] = (
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+            )
+            if dashboard_tile is not None:
+                cache_key = dashboard_tile.filters_hash
+                if cache_key is None:
+                    # the DashboardTile hasn't had a filters_hash added yet
+                    # TODO need to run a migration after 0229 to ensure all tiles have a filters hash
+                    generated_filters_hash = generate_insight_cache_key(insight, dashboard)
+                    dashboard_tile.filters_hash = generated_filters_hash
+                    dashboard_tile.save(update_fields=["filters_hash"])
+                    cache_key = generated_filters_hash
+
+        self.context.update({"filters_hash": cache_key})
+        result = get_safe_cache(cache_key)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
@@ -224,7 +247,13 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+
+        context_cache_key = self.context.get("filters_hash")
+        representation["filters_hash"] = context_cache_key if context_cache_key is not None else instance.filters_hash
+
         return representation
 
 
@@ -420,7 +449,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        self._refresh_dashboard(request)
         return {"result": result}
 
     # ******************************************
@@ -522,13 +550,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp}
-
-    # Checks if a dashboard id has been set and if so, update the refresh date
-    def _refresh_dashboard(self, request) -> None:
-        # TODO: verify
-        dashboard_id = request.GET.get(FROM_DASHBOARD, None)
-        if dashboard_id:
-            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed

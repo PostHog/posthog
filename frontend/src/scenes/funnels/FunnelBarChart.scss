@@ -3,8 +3,11 @@
 .FunnelBarChart {
     position: relative;
     width: 100%;
-    height: 100%;
+    height: 26rem;
     overflow: hidden;
+    .InsightCard & {
+        height: 100%;
+    }
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
@@ -65,7 +68,7 @@
     }
 }
 
-.StepBars__background {
+.StepBars__grid {
     position: absolute;
     left: 0;
     bottom: 0;
@@ -84,7 +87,7 @@
 }
 
 .StepBars__bar {
-    --series-color: var(--text-default); // This should be overriden from React
+    --series-color: #000; // This should be overriden from React
     --conversion-rate: 100%; // This should be overriden from React
     position: relative;
     border-radius: var(--radius);
@@ -97,35 +100,47 @@
     .InsightCard & {
         width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
     }
-    &::before {
-        content: '';
-        display: block;
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: repeating-linear-gradient(
-                -22.5deg,
-                transparent,
-                transparent 0.5rem,
-                rgba(255, 255, 255, 0.5) 0.5rem,
-                rgba(255, 255, 255, 0.5) 1rem
-            ),
-            var(--series-color);
-        opacity: 0.125;
-        border-radius: var(--radius);
+}
+
+.StepBars__backdrop,
+.StepBars__fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.StepBars__backdrop {
+    transition: opacity 200ms ease;
+    height: 100%;
+    background: repeating-linear-gradient(
+            -22.5deg,
+            transparent,
+            transparent 0.5rem,
+            rgba(255, 255, 255, 0.5) 0.5rem,
+            rgba(255, 255, 255, 0.5) 1rem
+        ),
+        var(--series-color);
+    opacity: 0.125;
+    &:hover {
+        opacity: 0.2;
     }
-    &::after {
-        content: '';
-        display: block;
-        border-radius: var(--radius);
-        background: var(--series-color);
-        width: 100%;
-        height: var(--conversion-rate);
-        position: absolute;
-        bottom: 0;
-        left: 0;
+    &:active {
+        opacity: 0.25;
+    }
+}
+
+.StepBars__fill {
+    transition: filter 200ms ease;
+    background: var(--series-color);
+    height: var(--conversion-rate);
+    &:hover {
+        filter: brightness(0.9);
+    }
+    &:active {
+        filter: brightness(0.85);
     }
 }
 
