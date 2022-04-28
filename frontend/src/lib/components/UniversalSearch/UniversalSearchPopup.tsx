@@ -197,13 +197,14 @@ export function UniversalSearchPopup({
                         )}
                         style={style}
                     >
-                        <LemonInput
-                            className={visible ? 'hidden' : ''}
-                            data-attr="universal-search-field"
-                            placeholder={'Search...'}
-                            value={searchQuery}
-                            icon={<IconMagnifier />}
-                        />
+                        {!visible && (
+                            <LemonInput
+                                data-attr="universal-search-field"
+                                placeholder={'Search...'}
+                                value={searchQuery}
+                                icon={<IconMagnifier />}
+                            />
+                        )}
                     </div>
                 )}
             </Popup>

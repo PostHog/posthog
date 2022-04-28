@@ -11,9 +11,6 @@
         background: var(--bg-bridge);
     }
 
-    &.universal-search-box--sidebar-shown {
-        margin-left: 55px;
-    }
     @media screen and (min-width: $sm) {
         display: flex;
     }
@@ -21,12 +18,6 @@
     .hidden {
         display: none;
         opacity: '0';
-    }
-}
-
-.universal-search {
-    .ant-input {
-        cursor: pointer;
     }
 }
 
