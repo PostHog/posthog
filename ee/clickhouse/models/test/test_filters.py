@@ -66,7 +66,12 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                        },
+                    ],
                 }
             },
         )
@@ -131,6 +136,8 @@ class TestFilters(PGTestFilters):
             filter.simplify(self.team).properties_to_dict(),
             {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
         )
+
+    maxDiff = None
 
     def test_recursive_cohort(self):
         cohort = Cohort.objects.create(

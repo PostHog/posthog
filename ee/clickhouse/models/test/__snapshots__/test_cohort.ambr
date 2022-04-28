@@ -1,3 +1,18 @@
+# name: TestCohort.test_cohortpeople_action_count
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
 # name: TestCohort.test_cohortpeople_action_count.1
   '
   
@@ -24,7 +39,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) = 1 AS performed_event_multiple_condition_level_level_level_0
+                         AND ((event = '$pageview'))) = 1 AS performed_event_multiple_condition_3_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -39,7 +54,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_level_level_level_0))) )
+         AND (((performed_event_multiple_condition_3_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.11
@@ -90,7 +105,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) > 0 AS performed_event_condition_level_level_level_0
+                         AND ((event = '$pageview'))) > 0 AS performed_event_condition_4_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -105,7 +120,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_condition_level_level_level_0))) )
+         AND (((performed_event_condition_4_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.15
@@ -126,7 +141,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) >= 2 AS performed_event_multiple_condition_level_level_level_0
+                         AND ((event = '$pageview'))) >= 2 AS performed_event_multiple_condition_1_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -141,7 +156,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_level_level_level_0))) )
+         AND (((performed_event_multiple_condition_1_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.3
@@ -192,7 +207,7 @@
          (SELECT pdi.person_id AS person_id,
                  countIf(timestamp > now() - INTERVAL 3 day
                          AND timestamp < now()
-                         AND ((event = '$pageview'))) <= 1 AS performed_event_multiple_condition_level_level_level_0
+                         AND ((event = '$pageview'))) <= 1 AS performed_event_multiple_condition_2_level_level_0_level_0_0
           FROM events e
           INNER JOIN
             (SELECT distinct_id,
@@ -207,7 +222,7 @@
             AND timestamp >= now() - INTERVAL 3 day
           GROUP BY person_id) behavior_query
        WHERE 1 = 1
-         AND (((performed_event_multiple_condition_level_level_level_0))) )
+         AND (((performed_event_multiple_condition_2_level_level_0_level_0_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.7
@@ -247,21 +262,6 @@
      HAVING sum(sign) > 0)
   '
 ---
-# name: TestCohort.test_query_with_multiple_new_style_cohorts
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
 # name: TestCohort.test_query_with_multiple_new_style_cohorts.1
   '
   
@@ -284,10 +284,10 @@
   where cohort_id = 2
   '
 ---
-# name: TestCohort.test_query_with_multiple_new_style_cohorts.3
+# name: TestCohort.test_static_cohort_precalculated
   '
   
-  SELECT person_id
+  SELECT distinct_id
   FROM
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -296,34 +296,9 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0)
   WHERE person_id IN
-      (SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-       FROM
-         (SELECT pdi.person_id AS person_id,
-                 minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                    AND event = '$autocapture'))) >= now() - INTERVAL 2 week
-          AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                                 AND event = '$autocapture'))) < now() as first_time_condition_55_level_level_0_level_0_0
-          FROM events e
-          INNER JOIN
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 2
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-          WHERE team_id = 2
-            AND event IN ['$pageview', '$pageview']
-          GROUP BY person_id) behavior_query
-       FULL OUTER JOIN
-         (SELECT *,
-                 id AS person_id
-          FROM
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = behavior_query.person_id
-       WHERE 1 = 1
-         AND (((first_time_condition_55_level_level_0_level_0_0))) )
+      (SELECT person_id
+       FROM person_static_cohort
+       WHERE cohort_id = %(_cohort_id_0)s
+         AND team_id = %(team_id)s)
   '
+---
