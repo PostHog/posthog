@@ -222,6 +222,8 @@ def execute_with_progress(
 
     query_status = QueryStatus(team_id, task_id=task_id)
 
+    start_time = time.time()
+
     try:
         progress = ch_client.execute_with_progress(
             prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
@@ -235,7 +237,7 @@ def execute_with_progress(
                 error=False,
                 error_message="",
                 results=None,
-                start_time=time.time(),
+                start_time=start_time,
                 task_id=task_id,
             )
             redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
@@ -244,8 +246,8 @@ def execute_with_progress(
             rv = progress.get_result()
             query_status = QueryStatus(
                 team_id=team_id,
-                num_rows=0,
-                total_rows=0,
+                num_rows=query_status.num_rows,
+                total_rows=query_status.total_rows,
                 complete=True,
                 error=False,
                 start_time=query_status.start_time,
@@ -263,8 +265,8 @@ def execute_with_progress(
         incr("clickhouse_sync_execution_failure", tags=tags)
         query_status = QueryStatus(
             team_id=team_id,
-            num_rows=0,
-            total_rows=0,
+            num_rows=query_status.num_rows,
+            total_rows=query_status.total_rows,
             complete=False,
             error=True,
             start_time=query_status.start_time,
@@ -292,7 +294,7 @@ def enqueue_execute_with_progress(
     team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False, query_id=None, force=False
 ):
     if not query_id:
-        query_id = _query_hash(query, args)
+        query_id = _query_hash(query, team_id, args)
     key = generate_redis_results_key(query_id)
     redis_client = redis.get_client()
 
@@ -430,14 +432,14 @@ def _serialize(result: Any) -> bytes:
     return json.dumps(result).encode("utf-8")
 
 
-def _query_hash(query: str, args: Any) -> str:
+def _query_hash(query: str, team_id: int, args: Any) -> str:
     """
     Takes a query and returns a hex encoded hash of the query and args
     """
     if args:
-        key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).hexdigest()
+        key = hashlib.md5(str(team_id) + query.encode("utf-8") + json.dumps(args).encode("utf-8")).hexdigest()
     else:
-        key = hashlib.md5(query.encode("utf-8")).hexdigest()
+        key = hashlib.md5(str(team_id) + query.encode("utf-8")).hexdigest()
     return key
 
 
