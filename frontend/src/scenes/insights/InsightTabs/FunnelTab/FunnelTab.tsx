@@ -250,8 +250,7 @@ export function FunnelTab(): JSX.Element {
                                                 Exclude {aggregationTargetLabel.plural}{' '}
                                                 {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
                                                 completed the specified event between two specific steps. Note that
-                                                these
-                                                {aggregationTargetLabel.plural} will be{' '}
+                                                these {aggregationTargetLabel.plural} will be{' '}
                                                 <b>completely excluded from the entire funnel</b>.
                                             </>
                                         }
