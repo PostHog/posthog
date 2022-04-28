@@ -1,6 +1,6 @@
 import React, { FormEvent } from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Modal } from 'antd'
+import { Modal, Select } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -25,18 +25,22 @@ interface SaveToDashboardModalProps {
     insight: Partial<InsightModel>
 }
 
-export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({
-        id: insight.short_id,
-        insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
-    })
+interface DashboardRelationRowProps {
+    dashboard: DashboardType
+    insight: Partial<InsightModel>
+    isHighlighted: boolean
+    isAlreadyOnDashboard: boolean
+    style: React.CSSProperties
+}
 
-    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
-    const { setSearchQuery } = useActions(logic)
-    const { addNewDashboard } = useActions(logic)
+const DashboardRelationRow = ({
+    style,
+    isHighlighted,
+    isAlreadyOnDashboard,
+    dashboard,
+    insight,
+}: DashboardRelationRowProps): JSX.Element => {
     const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard } = useActions(eventUsageLogic)
-    const { insightLoading } = useValues(insightLogic)
     const { updateInsight } = useActions(insightLogic)
 
     async function addToDashboard(dashboardToAdd: number): Promise<void> {
@@ -64,25 +68,47 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
         )
     }
 
+    return (
+        <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
+            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+            <LemonButton
+                type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                compact={true}
+                onClick={(e) => {
+                    e.preventDefault()
+                    isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
+                }}
+            >
+                {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+            </LemonButton>
+        </div>
+    )
+}
+
+export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
+    const logic = saveToDashboardModalLogic({
+        id: insight.short_id,
+        insight: insight,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
+
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
+    const { setSearchQuery } = useActions(logic)
+    const { addNewDashboard } = useActions(logic)
+
+    const { insightLoading } = useValues(insightLogic)
+
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const dashboard = orderedDashboards[rowIndex]
-        const isAlreadyOnDashboard = currentDashboards.some(
-            (currentDashboard: DashboardType) => currentDashboard.id === dashboard.id
-        )
         return (
-            <div style={style} className={clsx('modal-row', rowIndex === scrollIndex && 'highlighted')}>
-                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
-                <LemonButton
-                    type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
-                    compact={true}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
-                    }}
-                >
-                    {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
-                </LemonButton>
-            </div>
+            <DashboardRelationRow
+                dashboard={orderedDashboards[rowIndex]}
+                insight={insight}
+                isHighlighted={rowIndex === scrollIndex}
+                isAlreadyOnDashboard={currentDashboards.some(
+                    (currentDashboard: DashboardType) => currentDashboard.id === orderedDashboards[rowIndex].id
+                )}
+                style={style}
+            />
         )
     }
 
