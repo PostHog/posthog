@@ -437,9 +437,9 @@ def _query_hash(query: str, team_id: int, args: Any) -> str:
     Takes a query and returns a hex encoded hash of the query and args
     """
     if args:
-        key = hashlib.md5(str(team_id) + query.encode("utf-8") + json.dumps(args).encode("utf-8")).hexdigest()
+        key = hashlib.md5((str(team_id) + query + json.dumps(args)).encode("utf-8")).hexdigest()
     else:
-        key = hashlib.md5(str(team_id) + query.encode("utf-8")).hexdigest()
+        key = hashlib.md5((str(team_id) + query).encode("utf-8")).hexdigest()
     return key
 
 
