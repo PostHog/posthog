@@ -15,7 +15,7 @@ export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
     const [isPopConfirmShowing, setPopConfirmShowing] = useState(false)
     const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
     const { showInviteModal } = useActions(inviteLogic)
@@ -110,7 +110,7 @@ export function VerificationPanel(): JSX.Element {
     }
 
     return (
-        <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
+        <CardContainer index={index} onBack={() => setVerify(false)}>
             {!currentTeam?.ingested_event ? (
                 <>
                     <Row className="flex-center">

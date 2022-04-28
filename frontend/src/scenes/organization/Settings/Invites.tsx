@@ -91,6 +91,7 @@ export function Invites(): JSX.Element {
         {
             title: '',
             key: 'actions',
+            width: 24,
             render: makeActionsComponent(deleteInvite),
         },
     ]

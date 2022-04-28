@@ -42,6 +42,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     ingestEvent: async (hub, args: { event: PluginEvent }) => {
         return await ingestEvent(hub, args.event)
     },
+    ingestBufferEvent: async (hub, args: { event: PreIngestionEvent }) => {
+        return await ingestBufferEvent(hub, args.event)
+    },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)
     },

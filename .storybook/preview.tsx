@@ -39,8 +39,10 @@ export const parameters = {
     options: {
         // automatically show code panel
         showPanel: true,
-        storySort: (a: any, b: any) => {
-            return a[1].kind === b[1].kind ? 0 : a[1].title.localeCompare(b[1].title, undefined, { numeric: true })
+        storySort: {
+            method: 'alphabetical',
+            order: ['Lemon UI', ['Overview', 'Icons'], 'Components', 'Forms', 'Filters', 'Layout'],
+            includeName: true,
         },
     },
     viewMode: 'docs',

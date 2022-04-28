@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from unittest.mock import patch
 
+import pytest
 from django.utils import timezone
+from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -17,13 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
-
-
-def _create_event(**kwargs) -> None:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
+from posthog.test.base import BaseTest, _create_event
 
 
 def _create_action(**kwargs):
@@ -344,7 +339,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
-    def test_cohortpeople_basic_paginating(self):
+    @patch("time.sleep", return_value=None)
+    def test_cohortpeople_basic_paginating(self, mock_sleep):
         for i in range(15):
             Person.objects.create(
                 team_id=self.team.pk,
@@ -534,12 +530,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "eq"}],
             name="cohort4",
         )
-        cohort4.calculate_people_ch(pending_version=0)
 
+        cohort4.calculate_people_ch(pending_version=0)
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort4.pk}
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
         )
-        self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 1)
 
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
@@ -571,34 +567,36 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
     def test_cohortpeople_prop_changed(self):
-        p1 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["1"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
-        p2 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["2"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
+        with freeze_time((datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")):
+            p1 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["1"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+            p2 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["2"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
 
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
-                    ]
-                }
-            ],
-            name="cohort1",
-        )
+            cohort1 = Cohort.objects.create(
+                team=self.team,
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {"key": "$another_prop", "value": "something", "type": "person"},
+                        ]
+                    }
+                ],
+                name="cohort1",
+            )
 
         cohort1.calculate_people_ch(pending_version=0)
 
-        p2.properties = {"$some_prop": "another", "$another_prop": "another"}
-        p2.save()
+        with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
+            p2.properties = {"$some_prop": "another", "$another_prop": "another"}
+            p2.save()
 
         cohort1.calculate_people_ch(pending_version=0)
 
@@ -652,8 +650,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         ]
         cohort1.save()
 
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            cohort1.calculate_people_ch(pending_version=0)
+        cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
@@ -733,6 +730,49 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
         self.assertEqual(count_result, 2)
+
+    @pytest.mark.skip("Old cohorts don't handle this case")
+    def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort1",
+        )
+        cohort2: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort2",
+        )
+        cohort3: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort3",
+        )
+        cohort4: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort4",
+        )
+        cohort5: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort5",
+        )
+
+        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort2.id}]}]
+        cohort1.save()
+        cohort2.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort3.id}]}]
+        cohort2.save()
+        cohort3.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort4.id}]}]
+        cohort3.save()
+        cohort4.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort2.id}]}]
+        cohort4.save()
+        cohort5.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
+        cohort5.save()
+
+        # cohort1 depends on cohort2 which depends on cohort3 which depends on cohort4 which depends on cohort2
+        # and cohort5 depends on cohort1
+
+        with self.assertRaises(ValueError):
+            cohort5.calculate_people_ch(pending_version=0)
+
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )[0][0]
+        self.assertEqual(count_result, 0)
 
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(

@@ -7,14 +7,12 @@ import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
 import { MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
-import { FrameworkGrid } from 'scenes/ingestion/panels/FrameworkGrid'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
+import posthogLogo from 'public/posthog-logo.png'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -23,22 +21,12 @@ export const scene: SceneExport = {
 
 export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     if (verify) {
         return (
             <IngestionContainer>
                 <VerificationPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (featureFlags[FEATURE_FLAGS.INGESTION_GRID] && !framework) {
-        reportIngestionLandingSeen(true)
-        return (
-            <IngestionContainer>
-                <FrameworkGrid />
             </IngestionContainer>
         )
     }
@@ -93,12 +81,17 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             className="background"
             style={{
                 display: 'flex',
-                height: 'calc(100vh - 3.5rem)', // To account for the TopBar
                 width: '100vw',
+                height: '100%',
                 alignItems: 'center',
-                justifyContent: 'center',
+                justifyContent: 'flex-start',
+                flexDirection: 'column',
+                paddingTop: '2rem',
             }}
         >
+            <div className="mb">
+                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+            </div>
             {children}
         </div>
     )

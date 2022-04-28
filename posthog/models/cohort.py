@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 import structlog
 from django.conf import settings
@@ -14,6 +14,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import sane_repr
+from posthog.settings.base_variables import TEST
 
 from .person import Person
 
@@ -113,47 +114,34 @@ class Cohort(models.Model):
                     property_groups.append(
                         Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
                     )
-                elif group.get("action_id"):
+                elif group.get("action_id") or group.get("event_id"):
+                    key = group.get("action_id") or group.get("event_id")
+                    event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
+                    try:
+                        count = int(group.get("count") or 0)
+                    except ValueError:
+                        count = 0
+
                     property_groups.append(
                         PropertyGroup(
                             PropertyOperatorType.AND,
                             [
                                 Property(
-                                    key=group.get("action_id"),
+                                    key=key,
                                     type="behavioural",
-                                    value="performed_event_multiple" if group.get("count") else "performed_event",
-                                    event_type="actions",
+                                    value="performed_event_multiple" if count else "performed_event",
+                                    event_type=event_type,
                                     time_interval="day",
                                     time_value=group.get("days"),
                                     operator=group.get("count_operator"),
-                                    operator_value=group.get("count"),
-                                    negation=group.get("count") == 0 and group.get("count_operator") in ["lte", "eq"],
-                                ),
-                            ],
-                        )
-                    )
-                elif group.get("event_id"):
-                    property_groups.append(
-                        PropertyGroup(
-                            PropertyOperatorType.AND,
-                            [
-                                Property(
-                                    key=group.get("event_id"),
-                                    type="behavioural",
-                                    value="performed_event_multiple" if group.get("count") else "performed_event",
-                                    event_type="events",
-                                    time_interval="day",
-                                    time_value=group.get("days"),
-                                    operator=group.get("count_operator"),
-                                    operator_value=group.get("count"),
-                                    negation=group.get("count") == 0 and group.get("count_operator") in ["lte", "eq"],
+                                    operator_value=count,
                                 ),
                             ],
                         )
                     )
                 else:
                     # invalid state
-                    raise ValueError("Cohort group needs properties or action_id or event_id")
+                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
@@ -163,7 +151,7 @@ class Cohort(models.Model):
                 raise ValueError("Cohort has no properties")
             return properties
 
-        raise ValueError("Cohort has no properties")
+        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types
@@ -213,7 +201,7 @@ class Cohort(models.Model):
             raise err
 
     def calculate_people_ch(self, pending_version):
-        from ee.clickhouse.models.cohort import recalculate_cohortpeople
+        from ee.clickhouse.models.cohort import recalculate_cohortpeople, recalculate_cohortpeople_with_new_query
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
@@ -258,6 +246,15 @@ class Cohort(models.Model):
             duration=(time.monotonic() - start_time),
         )
 
+        try:
+            new_query_count = recalculate_cohortpeople_with_new_query(self)
+            if new_query_count != count:
+                raise ValueError("Count mismatch between new query and old query", new_query_count, count)
+        except Exception as exception:
+            capture_exception(
+                exception, {"cohort_id": self.pk, "properties": self.properties.to_dict()},
+            )
+
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
@@ -265,6 +262,12 @@ class Cohort(models.Model):
         """
         batchsize = 1000
         from ee.clickhouse.models.cohort import insert_static_cohort
+
+        if TEST:
+            from posthog.test.base import flush_persons_and_events
+
+            # Make sure persons are created in tests before running this
+            flush_persons_and_events()
 
         try:
             cursor = connection.cursor()
