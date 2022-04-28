@@ -167,8 +167,8 @@ def update_cached_items() -> None:
 def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] = None) -> Tuple[str, CacheType, Dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
     cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), insight.team_id))
-    cache_type = get_cache_type(filter)
 
+    cache_type = get_cache_type(filter)
     payload = {"filter": filter.toJSON(), "team_id": insight.team_id}
 
     return cache_key, cache_type, payload
