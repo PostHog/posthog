@@ -82,14 +82,6 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                     'setPluginTranspiledFrontend'
                 )
             }
-            if (plugin.source_decide && !plugin.transpiled_decide) {
-                const transpiled = transpileDecide(plugin.source_decide)
-                await server.db.postgresQuery(
-                    `update posthog_plugin set transpiled_decide = ? where plugin_id = ?`,
-                    [transpiled, plugin.id],
-                    'setPluginTranspiledDecide'
-                )
-            }
             if (plugin.source) {
                 void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
                 return true

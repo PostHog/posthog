@@ -13,11 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="plugin", name="source_frontend", field=models.TextField(blank=True, null=True),
         ),
-        migrations.AddField(model_name="plugin", name="source_decide", field=models.TextField(blank=True, null=True),),
         migrations.AddField(
             model_name="plugin", name="transpiled_frontend", field=models.TextField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="plugin", name="transpiled_decide", field=models.TextField(blank=True, null=True),
         ),
     ]
