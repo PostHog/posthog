@@ -614,6 +614,10 @@ export class DB {
         const args: any[] = [teamId]
         let index = args.length + 1
         for (const gi of groupIdentifiers) {
+            this.statsd?.increment(`group_properties_cache.miss`, {
+                team_id: teamId.toString(),
+                group_type_index: gi.index.toString(),
+            })
             query_options.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
             args.push(gi.index, gi.key)
@@ -649,6 +653,10 @@ export class DB {
         let res: Record<string, string> = {}
         useFromCache.forEach((gp) => {
             res[`group${gp.identifier.index}_properties`] = JSON.stringify(gp.properties)
+            this.statsd?.increment(`group_properties_cache.hit`, {
+                team_id: teamId.toString(),
+                group_type_index: gp.identifier.index.toString(),
+            })
         })
 
         // Lookup the properties from DB if they weren't in cache and update the cache
