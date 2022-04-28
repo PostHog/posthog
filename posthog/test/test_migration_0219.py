@@ -109,3 +109,4 @@ class TagsTestCase(TestMigrations):
         Team.objects.get(id=self.team2.id).delete()
         Organization = self.apps.get_model("posthog", "Organization")  # type: ignore
         Organization.objects.get(id=self.org2.id).delete()
+        super().tearDown()

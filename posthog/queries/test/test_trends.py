@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, flush_persons_and_events, test_with_materialized_columns
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
@@ -1309,6 +1309,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_response_empty_if_no_events(self):
             self._create_events()
+            flush_persons_and_events()
             response = trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
             self.assertEqual(response, [])
 
@@ -1864,12 +1865,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+            cohort = cohort_factory(
+                name="cohort1",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person1", "type": "person",}]}],
+            )
+            cohort2 = cohort_factory(
+                name="cohort2",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person2", "type": "person",}]}],
+            )
             cohort3 = cohort_factory(
                 name="cohort3",
                 team=self.team,
-                groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
+                groups=[
+                    {"properties": [{"key": "name", "value": "person1", "type": "person"}]},
+                    {"properties": [{"key": "name", "value": "person2", "type": "person"}]},
+                ],
             )
             action = action_factory(name="watched movie", team=self.team)
 

@@ -39,3 +39,4 @@ class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
     def tearDown(self):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.filter(id=self.dashboard.id).delete()
+        super().tearDown()
