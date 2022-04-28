@@ -1,4 +1,4 @@
-import { FilterGroupTypes, GroupOption } from 'scenes/cohorts/CohortFilters/types'
+import { FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import {
     ActorGroupType,
     BaseMathType,
@@ -12,10 +12,10 @@ import {
     ValueOptionType,
 } from '~/types'
 
-export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
-    [FilterGroupTypes.EventAggregation]: {
+export const FILTER_GROUPS: Record<FieldOptionsType, FieldValues> = {
+    [FieldOptionsType.EventAggregation]: {
         label: 'Event Aggregation',
-        type: FilterGroupTypes.EventAggregation,
+        type: FieldOptionsType.EventAggregation,
         values: {
             [BaseMathType.Total]: {
                 label: 'Total',
@@ -31,9 +31,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.PropertyAggregation]: {
+    [FieldOptionsType.PropertyAggregation]: {
         label: 'Property Aggregation',
-        type: FilterGroupTypes.PropertyAggregation,
+        type: FieldOptionsType.PropertyAggregation,
         values: {
             [PropertyMathType.Average]: {
                 label: 'Average',
@@ -61,18 +61,18 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.Actors]: {
+    [FieldOptionsType.Actors]: {
         label: 'Actors',
-        type: FilterGroupTypes.Actors,
+        type: FieldOptionsType.Actors,
         values: {
             [ActorGroupType.Person]: {
                 label: 'Persons',
             },
         },
     },
-    [FilterGroupTypes.EventBehavioral]: {
+    [FieldOptionsType.EventBehavioral]: {
         label: 'Behavioral',
-        type: FilterGroupTypes.EventBehavioral,
+        type: FieldOptionsType.EventBehavioral,
         values: {
             [BehavioralEventType.PerformEvent]: {
                 label: 'Completed event',
@@ -94,9 +94,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.CohortBehavioral]: {
+    [FieldOptionsType.CohortBehavioral]: {
         label: 'Cohorts',
-        type: FilterGroupTypes.CohortBehavioral,
+        type: FieldOptionsType.CohortBehavioral,
         values: {
             [BehavioralCohortType.InCohort]: {
                 label: 'In cohort',
@@ -106,9 +106,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.LifecycleBehavioral]: {
+    [FieldOptionsType.LifecycleBehavioral]: {
         label: 'Lifecycle',
-        type: FilterGroupTypes.LifecycleBehavioral,
+        type: FieldOptionsType.LifecycleBehavioral,
         values: {
             [BehavioralLifecycleType.PerformEventFirstTime]: {
                 label: 'Completed an event for the first time',
@@ -122,14 +122,11 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             [BehavioralLifecycleType.StartPerformEventAgain]: {
                 label: 'Started doing an event again',
             },
-            [BehavioralLifecycleType.PerformEventOnce]: {
-                label: 'Completed an event once',
-            },
         },
     },
-    [FilterGroupTypes.TimeUnits]: {
+    [FieldOptionsType.TimeUnits]: {
         label: 'Units',
-        type: FilterGroupTypes.TimeUnits,
+        type: FieldOptionsType.TimeUnits,
         values: {
             [TimeUnitType.Day]: {
                 label: 'days',
@@ -145,9 +142,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.DateOperators]: {
+    [FieldOptionsType.DateOperators]: {
         label: 'Date Operators',
-        type: FilterGroupTypes.DateOperators,
+        type: FieldOptionsType.DateOperators,
         values: {
             [DateOperatorType.BeforeTheLast]: {
                 label: 'before the last',
@@ -175,9 +172,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.Operators]: {
+    [FieldOptionsType.MathOperators]: {
         label: 'Operators',
-        type: FilterGroupTypes.Operators,
+        type: FieldOptionsType.MathOperators,
         values: {
             [OperatorType.Equals]: {
                 label: 'equals',
@@ -220,9 +217,9 @@ export const FILTER_GROUPS: Record<FilterGroupTypes, GroupOption> = {
             },
         },
     },
-    [FilterGroupTypes.ValueOptions]: {
+    [FieldOptionsType.ValueOptions]: {
         label: 'Value Options',
-        type: FilterGroupTypes.ValueOptions,
+        type: FieldOptionsType.ValueOptions,
         values: {
             [ValueOptionType.MostRecent]: {
                 label: 'most recent value',

@@ -1,4 +1,6 @@
+from copy import copy
 from datetime import timedelta
+from typing import Any, Dict
 from unittest import skip
 from unittest.mock import MagicMock, patch
 
@@ -25,13 +27,19 @@ class TestUpdateCache(APIBaseTest):
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
         # Any dashboard accessed in the last 7 days
-        filter_dict = {
+        filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         filter = Filter(data=filter_dict)
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
+
+        # we don't want insight and tile to have the same id,
+        # or we can accidentally select the insight by selecting the tile
+        some_different_filters = copy(filter_dict)
+        some_different_filters.update({"date_from": "-14d"})
+        Insight.objects.create(filters=some_different_filters, team=self.team)
 
         item = Insight.objects.create(filters=filter.to_dict(), team=self.team)
         DashboardTile.objects.create(insight=item, dashboard=shared_dashboard)
@@ -43,6 +51,8 @@ class TestUpdateCache(APIBaseTest):
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(), team=self.team,
         )
         DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        dashboard_to_cache.filters = {"date_from": "-7d"}
+        dashboard_to_cache.save()
 
         dashboard_do_not_cache = Dashboard.objects.create(
             team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"

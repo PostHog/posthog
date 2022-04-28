@@ -27,7 +27,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
@@ -276,7 +276,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
@@ -296,7 +296,7 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     Duplicate
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}

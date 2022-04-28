@@ -33,7 +33,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
     rowKey?: keyof T | ((record: T) => string | number)
     /** Class to append to each row. */
-    rowClassName?: string | ((record: T) => string)
+    rowClassName?: string | ((record: T) => string | null)
     /** Color to mark each row with. */
     rowRibbonColor?: string | ((record: T) => string | null)
     /** Status of each row. Defaults no status. */
@@ -207,7 +207,7 @@ export function LemonTable<T extends Record<string, any>>({
                         {showHeader && (
                             <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 {columnGroups.some((group) => group.title) && (
-                                    <tr className="LemonTable__th--column-group">
+                                    <tr className="LemonTable__row--grouping">
                                         {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
                                         {!!expandable && <th /> /* Expand/collapse column */}
                                         {columnGroups.map((columnGroup, columnGroupIndex) => (
