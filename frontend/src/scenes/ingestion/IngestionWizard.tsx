@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
@@ -13,6 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import posthogLogo from 'public/posthog-logo.png'
+import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -68,6 +69,14 @@ export function IngestionWizard(): JSX.Element {
         return (
             <IngestionContainer>
                 <BookmarkletPanel />
+            </IngestionContainer>
+        )
+    }
+
+    if (platform === THIRD_PARTY) {
+        return (
+            <IngestionContainer>
+                <ThirdPartyPanel />
             </IngestionContainer>
         )
     }
