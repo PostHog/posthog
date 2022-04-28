@@ -476,11 +476,7 @@ export class DB {
 
     private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getPersonCreatedAtCacheKey(teamId, personId),
-                uuid,
-                this.PERSONS_AND_GROUPS_CACHE_TTL
-            )
+            await this.redisSet(this.getPersonUuidCacheKey(teamId, personId), uuid, this.PERSONS_AND_GROUPS_CACHE_TTL)
         }
     }
 
@@ -578,8 +574,7 @@ export class DB {
             const personProperties: Properties = result.rows[0].properties
             void this.updatePersonUuidCache(teamId, personId, personUuid)
             void this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso)
-            // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
-            void this.updatePersonPropertiesCache(teamId, personId, personProperties || {})
+            void this.updatePersonPropertiesCache(teamId, personId, personProperties)
             return {
                 uuid: personUuid,
                 created_at_iso: personCreatedAtIso,
@@ -605,7 +600,6 @@ export class DB {
         return { identifier: groupIdentifier, properties: props !== null ? (props as Properties) : null }
     }
 
-    // TODO: add test for this
     private async getGroupPropertiesFromDbAndUpdateCache(
         teamId: number,
         groupIdentifiers: GroupIdentifier[]
@@ -629,15 +623,24 @@ export class DB {
             args,
             'fetchGroupProperties'
         )
+
+        // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
+        let notHandledIdentifiers = groupIdentifiers
+
         const res: Record<string, string> = {}
-        result.rows.forEach((row) => {
+        for (const row of result.rows) {
             const index = Number(row.group_type_index)
             const key = String(row.group_key)
             const properties = row.group_properties as Properties
-            // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
-            void this.updateGroupPropertiesCache(teamId, index, key, properties || {}) // TODO test this!!!
+            notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key == key))
+            void this.updateGroupPropertiesCache(teamId, index, key, properties)
             res[`group${index}_properties`] = JSON.stringify(properties)
-        })
+        }
+
+        for (const gi of notHandledIdentifiers) {
+            void this.updateGroupPropertiesCache(teamId, gi.index, gi.key, {})
+            res[`group${gi.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
+        }
         return res
     }
 
@@ -800,7 +803,7 @@ export class DB {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
-        // Update person info cache
+        // Update person info cache - we want to await to make sure the Event gets the right properties
         await Promise.all(
             (distinctIds || [])
                 .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
@@ -866,6 +869,7 @@ export class DB {
             }
         }
 
+        // Update person info cache - we want to await to make sure the Event gets the right properties
         await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
         await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
 
@@ -888,6 +892,7 @@ export class DB {
                 )
             )
         }
+        // TODO: remove from cache
         return kafkaMessages
     }
 
@@ -940,6 +945,7 @@ export class DB {
         if (this.kafkaProducer && kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
+        // Update person info cache - we want to await to make sure the Event gets the right properties
         await this.updatePersonIdCache(person.team_id, distinctId, person.id)
     }
 
@@ -1071,6 +1077,7 @@ export class DB {
                         ],
                     })
                 }
+                // Update person info cache - we want to await to make sure the Event gets the right properties
                 await this.updatePersonIdCache(
                     usefulColumns.team_id,
                     usefulColumns.distinct_id,
@@ -1749,7 +1756,8 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
-        await this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+        // group identify event doesn't need groups properties attached so we don't need to await
+        void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
     }
 
     public async updateGroup(
@@ -1786,7 +1794,8 @@ export class DB {
             'upsertGroup',
             client
         )
-        await this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+        // group identify event doesn't need groups properties attached so we don't need to await
+        void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
     }
 
     public async upsertGroupClickhouse(
