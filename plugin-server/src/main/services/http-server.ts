@@ -3,11 +3,17 @@ import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 import { healthcheck } from '../../healthcheck'
 import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
+import { ServerInstance } from '../pluginsServer'
 import { Hub, PluginsServerConfig } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
+const MAX_KAFKA_FAILED_HEALTHCHECKS = 3
 
-export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
+export function createHttpServer(
+    hub: Hub | undefined,
+    serverInstance: ServerInstance,
+    serverConfig: PluginsServerConfig
+): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             const status = await healthcheck()
@@ -31,8 +37,17 @@ export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServ
             const responseBody = {
                 status: 'ok',
             }
-            res.statusCode = 200
-            res.end(JSON.stringify(responseBody))
+
+            if (serverInstance.kafkaSuccessiveHealthchecksFailed >= MAX_KAFKA_FAILED_HEALTHCHECKS) {
+                const responseBody = {
+                    status: 'error',
+                }
+                res.statusCode = 503
+                res.end(JSON.stringify(responseBody))
+            } else {
+                res.statusCode = 200
+                res.end(JSON.stringify(responseBody))
+            }
         }
     })
 
