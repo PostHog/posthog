@@ -33,6 +33,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -100,15 +102,24 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         <>
             {insight &&
                 filters &&
-                Object.entries(getEditorFilters(filters))
+                Object.entries(getEditorFilters(filters, featureFlags))
                     .filter(([, v]) => v.length > 0)
                     .map(([title, editorFilters]) => (
                         <div key={title} style={{ margin: '1em' }}>
                             <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>{title}</div>
                             <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
-                                {editorFilters.map(({ label, key, valueSelector, component: Component }) => (
-                                    <div key={key}>
-                                        <div>{label}</div>
+                                {editorFilters.map(({ label, tooltip, key, valueSelector, component: Component }) => (
+                                    <div key={key} style={{ marginBottom: '1em' }}>
+                                        {label ? (
+                                            <div style={{ padding: '8px 0' }}>
+                                                {label}
+                                                {tooltip && (
+                                                    <Tooltip title={tooltip}>
+                                                        <InfoCircleOutlined className="info-indicator" />
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        ) : null}
                                         {Component ? (
                                             <Component
                                                 insight={insight}
@@ -126,12 +137,16 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </div>
                         </div>
                     ))}
-            <div style={{ margin: '1em' }}>
-                <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
-                <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
-                    {insightTabFilters}
+            {filters.insight !== InsightType.TRENDS &&
+            filters.insight !== InsightType.LIFECYCLE &&
+            filters.insight !== InsightType.STICKINESS ? (
+                <div style={{ margin: '1em' }}>
+                    <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
+                    <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
+                        {insightTabFilters}
+                    </div>
                 </div>
-            </div>
+            ) : null}
         </>
     ) : (
         insightTabFilters

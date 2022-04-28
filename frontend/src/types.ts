@@ -1025,6 +1025,7 @@ export interface EditorFilterProps {
 export interface InsightEditorFilter {
     key: string
     label?: string
+    tooltip?: JSX.Element
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }

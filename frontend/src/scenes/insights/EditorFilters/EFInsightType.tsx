@@ -5,7 +5,7 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import React from 'react'
 import { EditorFilterProps } from '~/types'
 
-export function EditorFilterInsightType({ value }: EditorFilterProps): JSX.Element {
+export function EFInsightType({ value }: EditorFilterProps): JSX.Element {
     const { setActiveView } = useActions(insightLogic)
     return (
         <Select value={value} onChange={(v): void => setActiveView(v)} dropdownMatchSelectWidth={false}>

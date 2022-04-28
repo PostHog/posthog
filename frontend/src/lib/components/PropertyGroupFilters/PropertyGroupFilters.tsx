@@ -20,6 +20,7 @@ interface PropertyGroupFilters {
     eventNames?: string[]
     setTestFilters: (filters: Partial<FilterType>) => void
     filters: Partial<FilterType>
+    noTitle?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -30,6 +31,7 @@ export function PropertyGroupFilters({
     eventNames = [],
     setTestFilters,
     filters,
+    noTitle,
 }: PropertyGroupFilters): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
@@ -57,9 +59,9 @@ export function PropertyGroupFilters({
                             align="middle"
                             justify="space-between"
                             className="pb pr mb"
-                            style={{ borderBottom: '1px solid var(--border)' }}
+                            style={{ borderBottom: !noTitle ? '1px solid var(--border)' : '' }}
                         >
-                            <GlobalFiltersTitle orFiltering={true} />
+                            {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                             {filtersWithNew.type && filtersWithNew.values.length > 1 && (
                                 <AndOrFilterSelect
                                     value={filtersWithNew.type}
