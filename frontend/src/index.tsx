@@ -1,13 +1,13 @@
 import '~/styles'
 
 import React from 'react'
-import ReactDOM from 'react-dom'
 
 import { App } from 'scenes/App'
 import { initKea } from './initKea'
 
 import { loadPostHogJS } from './loadPostHogJS'
 import { ErrorBoundary } from './layout/ErrorBoundary'
+import { createRoot } from 'react-dom/client'
 
 loadPostHogJS()
 initKea()
@@ -15,11 +15,10 @@ initKea()
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
-        ReactDOM.render(
+        createRoot(root).render(
             <ErrorBoundary>
                 <App />
-            </ErrorBoundary>,
-            root
+            </ErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')

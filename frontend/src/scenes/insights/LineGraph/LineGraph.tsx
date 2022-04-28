@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
 import { useActions, useValues } from 'kea'
 import {
     registerables,
@@ -32,6 +31,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { createRoot } from 'react-dom/client'
 
 //--Chart Style Options--//
 if (registerables) {
@@ -348,7 +348,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ReactDOM.render(
+                            createRoot(tooltipEl).render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     seriesData={seriesData}
@@ -364,8 +364,7 @@ export function LineGraph_({
                                             : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
-                                />,
-                                tooltipEl
+                                />
                             )
                         }
 

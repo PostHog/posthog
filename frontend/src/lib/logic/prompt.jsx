@@ -108,7 +108,7 @@ export function cancellablePrompt(config) {
         }
 
         function render(props) {
-            ReactDOM.render(<Prompt {...props} />, div)
+            createRoot(div).render(<Prompt {...props} />)
         }
 
         function close(value) {
