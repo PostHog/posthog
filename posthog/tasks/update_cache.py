@@ -70,7 +70,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         elif insight_result is not None:
             result = insight_result
         else:
-            statsd.incr("update_cache_item_error")
+            statsd.incr("update_cache_item_error", tags={"team": team_id})
             raise RuntimeError(f"the provided filters_hash did not generate a result: {filter}")
 
     finally:
@@ -95,12 +95,12 @@ def _update_cache_for_queryset(
             key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
         )
     except Exception as e:
-        statsd.incr("update_cache_item_error")
+        statsd.incr("update_cache_item_error", tags={"team": team.id})
         queryset.filter(refresh_attempt=None).update(refresh_attempt=0)
         queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
         raise e
 
-    statsd.incr("update_cache_item_success")
+    statsd.incr("update_cache_item_success", tags={"team": team.id})
     queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     return result
 
