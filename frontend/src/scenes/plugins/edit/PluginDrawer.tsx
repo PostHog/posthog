@@ -312,7 +312,7 @@ export function PluginDrawer(): JSX.Element {
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown && (
-                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
+                                        <ReactMarkdown linkTarget="_blank">{fieldConfig.markdown}</ReactMarkdown>
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
@@ -327,7 +327,9 @@ export function PluginDrawer(): JSX.Element {
                                                 fieldConfig.hint && (
                                                     <small>
                                                         <div style={{ height: 2 }} />
-                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                        <ReactMarkdown linkTarget="_blank">
+                                                            {fieldConfig.hint}
+                                                        </ReactMarkdown>
                                                     </small>
                                                 )
                                             }
