@@ -59,7 +59,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
 
     # Doing the filtering like this means we'll update _all_ Insights with the same filters hash
     insights = Insight.objects.filter(
-        Q(team_id=team_id, filters_hash=key) | Q(team_id=team_id, id__in=DashboardTile.objects.filter(filters_hash=key))
+        Q(team_id=team_id, filters_hash=key)
+        | Q(team_id=team_id, id__in=DashboardTile.objects.filter(filters_hash=key).values_list("insight__id"))
     )
     insights.update(refreshing=True)
 
