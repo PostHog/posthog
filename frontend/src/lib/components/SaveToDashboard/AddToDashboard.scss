@@ -1,53 +1,19 @@
 .add-to-dashboard-modal {
-    .ant-modal-content {
-        padding: 16px;
-    }
-
-    .LemonDivider {
-        margin-block-end: 0;
-    }
-
     .modal-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
     }
 
-    .ant-modal-header {
-        padding: 0 0 8px;
-        border-bottom-width: 0;
+    .list-wrapper {
+        min-height: 420px;
     }
 
-    .ant-modal-footer {
-        padding: 8px 0 0;
-        border-top-width: 0;
-        display: block;
-    }
+    .existing-links-info {
+        color: var(--muted-alt);
 
-    .ant-modal-body {
-        padding: 0 0 8px;
-
-        .list-wrapper {
-            min-height: 220px;
-            margin-top: 8px;
+        strong {
+            color: var(--text-default);
         }
-
-        .existing-links-info {
-            color: var(--muted-alt);
-            margin-top: 8px;
-
-            strong {
-                color: var(--text-default);
-            }
-        }
-    }
-
-    .ant-modal-title {
-        font-weight: 600;
-        font-size: 11px;
-        line-height: 24px;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        color: var(--text-muted);
     }
 }

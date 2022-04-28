@@ -92,10 +92,10 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             afterClose={closeModal}
             confirmLoading={insightLoading}
             visible={visible}
-            title="add to dashboard"
             wrapClassName="add-to-dashboard-modal"
         >
             <section>
+                <h5>add to dashboard</h5>
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     placeholder={`Search for dashboards...`}
