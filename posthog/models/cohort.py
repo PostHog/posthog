@@ -120,7 +120,7 @@ class Cohort(models.Model):
                             [
                                 Property(
                                     key=key,
-                                    type="behavioural",
+                                    type="behavioral",
                                     value="performed_event_multiple" if count else "performed_event",
                                     event_type=event_type,
                                     time_interval="day",
