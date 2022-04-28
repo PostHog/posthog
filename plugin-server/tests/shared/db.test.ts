@@ -314,7 +314,7 @@ describe('DB', () => {
             }
             await Promise.all(promises)
             await hub.redisPool.release(redis)
-            db.personInfoCachingEnabledTeams.add(2)
+            db.personAndGroupsCachingEnabledTeams.add(2)
             db.PERSONS_AND_GROUPS_CACHE_TTL = 60 * 60 // 1h i.e. keys won't expire during the test
         })
 
@@ -341,7 +341,7 @@ describe('DB', () => {
         it('getPersonData works not cached', async () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
-            db.personInfoCachingEnabledTeams.delete(2) // enabled later, i.e. previous not cached
+            db.personAndGroupsCachingEnabledTeams.delete(2) // enabled later, i.e. previous not cached
             await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
@@ -353,7 +353,7 @@ describe('DB', () => {
                 uuid,
                 [distinctId]
             )
-            db.personInfoCachingEnabledTeams.add(2) // enabled later, i.e. previous not cached
+            db.personAndGroupsCachingEnabledTeams.add(2) // enabled later, i.e. previous not cached
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
             expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
