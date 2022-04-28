@@ -1,7 +1,8 @@
 @import '~/vars';
 
 .universal-search-box {
-    max-width: 483px;
+    width: 15rem;
+    height: 100%;
     cursor: pointer;
 
     transition: 200ms ease margin;
@@ -16,25 +17,20 @@
     @media screen and (min-width: $sm) {
         display: flex;
     }
+
+    .hidden {
+        display: none;
+        opacity: '0';
+    }
 }
 
 .universal-search {
     .ant-input {
         cursor: pointer;
     }
-
-    .magnifier-icon {
-        font-size: 18px;
-        color: var(--text-muted);
-        &.magnifier-icon-active {
-            color: var(--primary);
-        }
-    }
 }
 
 .universal-search-popup {
-    width: 550px;
-    max-width: calc(100vw - 40px);
     background: white;
     display: flex;
     flex-direction: column;
