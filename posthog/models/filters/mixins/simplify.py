@@ -1,4 +1,13 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
@@ -42,7 +51,9 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        prop_group = self._simplify_property_group(team, result.property_groups, **kwargs).to_dict()  # type: ignore
+        prop_group = self._simplify_property_group(team, result.property_groups, **kwargs)  # type: ignore
+        prop_group.values = [self._clear_excess_levels(prop) for prop in prop_group.values]  # type: ignore
+        prop_group = prop_group.to_dict()  # type: ignore
 
         new_group_props = []
         if getattr(result, "aggregation_group_type_index", None) is not None:
@@ -53,6 +64,17 @@ class SimplifyFilterMixin:
             prop_group = {"type": "AND", "values": [new_group, prop_group]} if prop_group else new_group
 
         return result.with_data({**updated_entities, "properties": prop_group})
+
+    def _clear_excess_levels(self, prop: Union["PropertyGroup", "Property"]):
+        from posthog.models.property import PropertyGroup
+
+        if isinstance(prop, PropertyGroup):
+            if len(prop.values) == 1:
+                return self._clear_excess_levels(prop.values[0])
+            else:
+                prop.values = [self._clear_excess_levels(p) for p in prop.values]
+
+        return prop
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
