@@ -36,7 +36,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
-    FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -420,7 +419,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        self._refresh_dashboard(request)
         return {"result": result}
 
     # ******************************************
@@ -522,13 +520,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp}
-
-    # Checks if a dashboard id has been set and if so, update the refresh date
-    def _refresh_dashboard(self, request) -> None:
-        # TODO: verify
-        dashboard_id = request.GET.get(FROM_DASHBOARD, None)
-        if dashboard_id:
-            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
