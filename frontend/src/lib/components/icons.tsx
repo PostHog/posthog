@@ -9,10 +9,10 @@ interface IconWithCountProps {
 
 export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
-        <div style={{ position: 'relative' }}>
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
             {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
-        </div>
+        </span>
     )
 }
 

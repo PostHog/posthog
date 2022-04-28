@@ -70,7 +70,6 @@ export function IconWithCountBubble(): JSX.Element {
                 display: 'inline-flex',
                 fontSize: '1.5rem',
                 border: '1px solid var(--primary)',
-                boxSizing: 'content-box',
             }}
         >
             <IconWithCount count={7}>
@@ -87,7 +86,6 @@ export function IconWithCountHidingZero(): JSX.Element {
                 display: 'inline-flex',
                 fontSize: '1.5rem',
                 border: '1px solid var(--primary)',
-                boxSizing: 'content-box',
             }}
         >
             <IconWithCount count={0} showZero={false}>
@@ -104,7 +102,6 @@ export function IconWithCountShowingZero(): JSX.Element {
                 display: 'inline-flex',
                 fontSize: '1.5rem',
                 border: '1px solid var(--primary)',
-                boxSizing: 'content-box',
             }}
         >
             <IconWithCount count={0} showZero={true}>
@@ -121,7 +118,6 @@ export function IconWithTooHighCount(): JSX.Element {
                 display: 'inline-flex',
                 fontSize: '1.5rem',
                 border: '1px solid var(--primary)',
-                boxSizing: 'content-box',
             }}
         >
             <IconWithCount count={11} showZero={true}>
