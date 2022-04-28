@@ -29,7 +29,6 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                     <LemonButton
                         onClick={() => setOpenModal(true)}
                         type="secondary"
-                        className="btn-save"
                         icon={
                             <IconWithCount count={dashboards.length} showZero={false}>
                                 <IconGauge />
@@ -50,18 +49,12 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                         <LemonButton
                             to={urls.dashboard(dashboards[0].id, insight.short_id)}
                             type="secondary"
-                            className="btn-save"
                             icon={<IconGauge />}
                         >
                             {dashboards.length > 1 ? 'On multiple dashboards' : `On dashboard: ${dashboards[0]?.name}`}
                         </LemonButton>
                     ) : (
-                        <LemonButton
-                            onClick={() => setOpenModal(true)}
-                            type="secondary"
-                            className="btn-save"
-                            icon={<IconGauge />}
-                        >
+                        <LemonButton onClick={() => setOpenModal(true)} type="secondary" icon={<IconGauge />}>
                             Add to dashboard
                         </LemonButton>
                     )}
