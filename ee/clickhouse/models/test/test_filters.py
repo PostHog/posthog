@@ -49,6 +49,8 @@ def _filter_persons(filter: Filter, team: Team):
 
 
 class TestFilters(PGTestFilters):
+    maxDiff = None
+
     def test_simplify_cohorts(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -69,7 +71,14 @@ class TestFilters(PGTestFilters):
                     "values": [
                         {
                             "type": "OR",
-                            "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                },
+                            ],
                         },
                     ],
                 }
@@ -81,7 +90,19 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                }
+                            ],
+                        },
+                    ],
                 }
             },
         )
@@ -92,7 +113,12 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
+                            }
+                        ],
                     }
                 },
             )
@@ -102,7 +128,12 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
+                            }
+                        ],
                     }
                 },
             )
@@ -113,7 +144,14 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk,}],}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "AND", "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk,}]}
+                    ],
+                }
+            },
         )
 
     def test_simplify_hasdone_cohort(self):
@@ -122,22 +160,47 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}],
+                }
+            },
         )
 
     def test_simplify_multi_group_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": {"$some_prop": "something"}}, {"properties": {"$another_prop": "something"}}],
+            groups=[
+                {"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]},
+                {"properties": [{"key": "$another_prop", "value": "something", "type": "person"}]},
+            ],
         )
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "$some_prop", "value": "something",}],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "$another_prop", "value": "something",}],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
         )
-
-    maxDiff = None
 
     def test_recursive_cohort(self):
         cohort = Cohort.objects.create(
@@ -154,7 +217,34 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "OR",
+                                            "values": [
+                                                {
+                                                    "type": "AND",
+                                                    "values": [
+                                                        {
+                                                            "key": "email",
+                                                            "operator": "icontains",
+                                                            "value": ".com",
+                                                            "type": "person",
+                                                        }
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
                 }
             },
         )
@@ -164,7 +254,12 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 555_555,}],}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 555_555,}]}],
+                }
+            },
         )
 
     def test_simplify_entities(self):

@@ -51,7 +51,12 @@ class TestFilter(BaseTest):
         filter = Filter(data=data, team=self.team)
         self.assertEqual(
             filter.properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"},],},},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"},]}],
+                },
+            },
         )
         self.assertTrue(filter.is_simplified)
 
@@ -66,10 +71,25 @@ class TestFilter(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "value": "@posthog.com",
+                                            "operator": "not_icontains",
+                                            "type": "person",
+                                        }
+                                    ],
+                                }
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}],},
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}
+                            ],
+                        },
                     ],
                 }
             },
@@ -85,10 +105,25 @@ class TestFilter(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "value": "@posthog.com",
+                                            "operator": "not_icontains",
+                                            "type": "person",
+                                        }
+                                    ],
+                                }
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}],},
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}],},
+                            ],
+                        },
                     ],
                 }
             },

@@ -8,6 +8,7 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -41,6 +42,7 @@ from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.property import PropertyGroup
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
@@ -64,6 +66,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "description",
             "groups",
             "deleted",
+            "filters",
             "is_calculating",
             "created_by",
             "created_at",
@@ -135,6 +138,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True
+
+        if will_create_loops(cohort, new_properties=cohort.properties):
+            raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+
         cohort.save()
 
         if not deleted_state:
@@ -204,6 +211,30 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class LegacyCohortViewSet(CohortViewSet):
     legacy_team_compatibility = True
+
+
+def will_create_loops(cohort: Cohort, new_properties: PropertyGroup) -> bool:
+    # Loops can only be formed when trying to update a Cohort, not when creating one
+    team_id = cohort.team_id
+    cohorts_seen = set([cohort.pk])
+    cohorts_queue = [property.value for property in new_properties.flat if property.type == "cohort"]
+    while cohorts_queue:
+        current_cohort_id = cohorts_queue.pop()
+        try:
+            current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
+        except Cohort.DoesNotExist:
+            raise ValidationError("Invalid Cohort ID in filter")
+
+        properties = current_cohort.properties.flat
+        for property in properties:
+            if property.type == "cohort":
+                if property.value in cohorts_seen:
+                    return True
+                else:
+                    cohorts_queue.append(property.value)
+                    cohorts_seen.add(property.value)
+
+    return False
 
 
 def insert_cohort_people_into_pg(cohort: Cohort):

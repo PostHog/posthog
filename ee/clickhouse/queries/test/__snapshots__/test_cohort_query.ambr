@@ -68,14 +68,14 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(pmat_$sample_field, _timestamp) as pmat_$sample_field
+               argMax(properties, _timestamp) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((performed_event_condition_None_level_level_0_0
-          OR has(['test@posthog.com'], "pmat_$sample_field")))
+          OR has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', ''))))
   '
 ---
 # name: TestCohortQuery.test_person_materialized

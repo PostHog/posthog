@@ -134,7 +134,7 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
@@ -144,7 +144,7 @@ class Cohort(models.Model):
                 raise ValueError("Cohort has no properties")
             return properties
 
-        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types

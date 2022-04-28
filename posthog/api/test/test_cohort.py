@@ -211,6 +211,76 @@ email@example.org,
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons.csv")
         self.assertEqual(len(response.content.splitlines()), 3, response.content)
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_creating_update_and_calculating_with_cycle(self, patch_calculate_cohort, patch_capture):
+
+        # Cohort A
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 1)
+
+        # Cohort B that depends on Cohort A
+        response_b = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort B",
+                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 2)
+
+        # Cohort C that depends on Cohort B
+        response_c = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort C",
+                "groups": [{"properties": [{"type": "cohort", "value": response_b.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 3)
+
+        # Update Cohort A to depend on Cohort C
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={
+                "name": "Cohort A, reloaded",
+                "groups": [{"properties": [{"type": "cohort", "value": response_c.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 3)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
+
+        # Cohort A
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 1)
+
+        # Update Cohort A to depend on an invalid cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={
+                "name": "Cohort A, reloaded",
+                "groups": [{"properties": [{"type": "cohort", "value": "99999", "key": "id"}]}],
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}, response.json()
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 1)
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})

@@ -425,13 +425,9 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyG
             )
 
         elif property.type == "cohort":
-            # TODO: Ensure we can't have infinite loops here, and then allow recursive simplification
-            # :TRICKY: We don't want to recursively simplify cohort properties right now
-            # because this can lead to infinite loops. So, bail.
-            # return Filter(data={'properties': cohort.properties.to_dict()}, team=team).property_groups
-            return PropertyGroup(
-                type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
-            )
+            # :TRICKY: We need to ensure we don't have infinite loops in here
+            # guaranteed during cohort creation
+            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
 
     return cohort.properties
 
