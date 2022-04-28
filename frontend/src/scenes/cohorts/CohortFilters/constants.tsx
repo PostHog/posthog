@@ -277,6 +277,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralEventType.PerformEvent,
         fields: [
             {
+                key: 'key',
+                type: FilterType.EventsAndActions,
+            },
+            {
                 key: 'event_type',
                 type: FilterType.EventType,
                 value: TaxonomicFilterGroupType.Events,

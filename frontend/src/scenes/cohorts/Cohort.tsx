@@ -1,34 +1,38 @@
-import "./Cohort.scss"
+import './Cohort.scss'
 import React from 'react'
-import {useActions, useValues} from 'kea'
-import {Field as KeaField, Group} from 'kea-forms'
-import {Col, Divider, Row} from 'antd'
-import {AvailableFeature, CohortGroupType, CohortType, FilterLogicalOperator} from '~/types'
-import {CohortTypeEnum, PROPERTY_MATCH_TYPE} from 'lib/constants'
-import {PlusOutlined} from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
+import { Field as KeaField, Group } from 'kea-forms'
+import { Col, Divider, Row } from 'antd'
+import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
+import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PlusOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import {Persons} from 'scenes/persons/Persons'
-import {cohortLogic} from './cohortLogic'
-import {userLogic} from 'scenes/userLogic'
+import { Persons } from 'scenes/persons/Persons'
+import { cohortLogic } from './cohortLogic'
+import { userLogic } from 'scenes/userLogic'
 import 'antd/lib/dropdown/style/index.css'
-import {Spinner} from 'lib/components/Spinner/Spinner'
-import {SceneExport} from 'scenes/sceneTypes'
-import {LemonButton} from 'lib/components/LemonButton'
-import {PageHeader} from 'lib/components/PageHeader'
-import {LemonInput} from 'lib/components/LemonInput/LemonInput'
-import {Field} from 'lib/forms/Field'
-import {VerticalForm} from 'lib/forms/VerticalForm'
-import {LemonSelect, LemonSelectOptions} from 'lib/components/LemonSelect'
-import {LemonTextArea} from 'lib/components/LemonTextArea/LemonTextArea'
-import {IconUploadFile} from 'lib/components/icons'
-import {UploadFile} from 'antd/es/upload/interface'
-import {MatchCriteriaSelector} from 'scenes/cohorts/MatchCriteriaSelector'
-import {Tooltip} from 'lib/components/Tooltip'
-import {router} from 'kea-router'
-import {urls} from 'scenes/urls'
-import clsx from "clsx";
-import {AndOrFilterSelect} from "lib/components/PropertyGroupFilters/PropertyGroupFilters";
-import {convertCohortGroupsToCohortCriteriaGroup} from "lib/utils";
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from 'lib/components/LemonButton'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { Field } from 'lib/forms/Field'
+import { VerticalForm } from 'lib/forms/VerticalForm'
+import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { IconCopy, IconDelete, IconPlusMini, IconUploadFile } from 'lib/components/icons'
+import { UploadFile } from 'antd/es/upload/interface'
+import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
+import { Tooltip } from 'lib/components/Tooltip'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import clsx from 'clsx'
+import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { alphabet, isCohortCriteriaGroup } from 'lib/utils'
+import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -47,12 +51,21 @@ const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const logicProps = { id }
     const logic = cohortLogic(logicProps)
-    const { deleteCohort, setCohort, onCriteriaChange } = useActions(logic)
+    const {
+        deleteCohort,
+        setCohort,
+        onCriteriaChange,
+        setOuterGroupsType,
+        setInnerGroupType,
+        duplicateFilter,
+        removeFilter,
+        addFilter,
+    } = useActions(logic)
     const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
-    console.log("COHORT", cohort, convertCohortGroupsToCohortCriteriaGroup(cohort.groups))
+    console.log('COHORT', cohort)
 
     const onAddGroup = (): void => {
         setCohort({
@@ -213,12 +226,8 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         <Row gutter={24} className="mt">
                             <Col span={24}>
                                 <>
-                                    <Row
-                                        align="middle"
-                                        justify="space-between"
-                                        wrap={false}
-                                    >
-                                        <Row className="ant-form-item ant-form-item-label" style={{marginBottom: 0}}>
+                                    <Row align="middle" justify="space-between" wrap={false}>
+                                        <Row className="ant-form-item ant-form-item-label" style={{ marginBottom: 0 }}>
                                             <label htmlFor="groups" title="Matching criteria">
                                                 Matching criteria
                                             </label>
@@ -228,90 +237,188 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             </span>
                                         </Row>
                                         {newCohortFiltersEnabled && (
-                                            <Row align="middle" wrap={false} justify='space-between' className='pl'>
+                                            <Row align="middle" wrap={false} justify="space-between" className="pl">
                                                 <AndOrFilterSelect
                                                     value={cohort.properties.type}
                                                     onChange={(value) => {
-                                                        set
+                                                        setOuterGroupsType(value)
                                                     }}
                                                     topLevelFilter={true}
-                                                    suffix='criteria'
+                                                    suffix="criteria"
                                                 />
                                             </Row>
                                         )}
                                     </Row>
                                     {newCohortFiltersEnabled ? (
-                                        JSON.stringify(cohort.properties)
-                                    ) : (
-                                      cohort.groups.map((group: CohortGroupType, index: number) => (
-                                        <Group key={index} name={['groups', index]}>
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    alignItems: 'center',
-                                                    width: '100%',
-                                                }}
-                                            >
-                                                <KeaField
-                                                    name="id"
-                                                    template={({ error, kids }) => {
-                                                        return (
-                                                            <div
-                                                                style={{
-                                                                    padding: 15,
-                                                                    border: error
-                                                                        ? '1px solid var(--danger)'
-                                                                        : '1px solid rgba(0, 0, 0, 0.1)',
-                                                                    borderRadius: 4,
-                                                                    width: '100%',
-                                                                }}
-                                                            >
-                                                                {kids}
-                                                                <Row>
-                                                                    {error && (
-                                                                        <div
-                                                                            style={{
-                                                                                color: 'var(--danger)',
-                                                                                marginTop: 16,
-                                                                            }}
-                                                                        >
-                                                                            {error}
-                                                                        </div>
-                                                                    )}
+                                        <>
+                                            {cohort.properties.values.map((group, groupIndex) =>
+                                                isCohortCriteriaGroup(group) ? (
+                                                    <Group key={groupIndex} name={['groups', groupIndex]}>
+                                                        <KeaField
+                                                            name="id"
+                                                            template={({ error, kids }) => {
+                                                                return (
+                                                                    <div
+                                                                        className={clsx(
+                                                                            'cohort-detail__matching-group',
+                                                                            error &&
+                                                                                'cohort-detail__matching-group--error'
+                                                                        )}
+                                                                    >
+                                                                        {kids}
+                                                                        <Row>
+                                                                            {error && (
+                                                                                <div
+                                                                                    style={{
+                                                                                        color: 'var(--danger)',
+                                                                                        marginTop: 16,
+                                                                                    }}
+                                                                                >
+                                                                                    {error}
+                                                                                </div>
+                                                                            )}
+                                                                        </Row>
+                                                                    </div>
+                                                                )
+                                                            }}
+                                                        >
+                                                            <div>
+                                                                <Row align="middle" wrap={false} className="pl pr">
+                                                                    <Lettermark
+                                                                        name={alphabet[groupIndex]}
+                                                                        color={LettermarkColor.Gray}
+                                                                    />
+                                                                    <AndOrFilterSelect
+                                                                        prefix="Match persons against"
+                                                                        suffix="criteria"
+                                                                        onChange={(value) =>
+                                                                            setInnerGroupType(value, groupIndex)
+                                                                        }
+                                                                        value={group.type}
+                                                                    />
+                                                                    <div style={{ flex: 1 }} />
+                                                                    <LemonButton
+                                                                        icon={<IconCopy />}
+                                                                        type="primary-alt"
+                                                                        onClick={() => duplicateFilter(groupIndex)}
+                                                                        compact
+                                                                    />
+                                                                    <LemonButton
+                                                                        icon={<IconDelete />}
+                                                                        type="primary-alt"
+                                                                        onClick={() => removeFilter(groupIndex)}
+                                                                        compact
+                                                                    />
                                                                 </Row>
+                                                                <LemonDivider large />
+                                                                {group.values.map((criteria, criteriaIndex) =>
+                                                                    isCohortCriteriaGroup(criteria) ? null : (
+                                                                        <CohortCriteriaRowBuilder
+                                                                            key={criteriaIndex}
+                                                                            type={
+                                                                                criteria.value as BehavioralFilterType
+                                                                            }
+                                                                            onChangeType={() => {}}
+                                                                            onDuplicate={() =>
+                                                                                duplicateFilter(
+                                                                                    groupIndex,
+                                                                                    criteriaIndex
+                                                                                )
+                                                                            }
+                                                                            onRemove={() =>
+                                                                                removeFilter(groupIndex, criteriaIndex)
+                                                                            }
+                                                                        />
+                                                                    )
+                                                                )}
                                                             </div>
-                                                        )
-                                                    }}
+                                                        </KeaField>
+                                                    </Group>
+                                                ) : null
+                                            )}
+                                            <LemonButton
+                                                data-attr={`cohort-add-filter-group`}
+                                                className="mb mt"
+                                                type="secondary"
+                                                onClick={() => addFilter()}
+                                                icon={<IconPlusMini color="var(--primary)" />}
+                                                fullWidth
+                                            >
+                                                Add criteria group
+                                            </LemonButton>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {cohort.groups.map((group: CohortGroupType, index: number) => (
+                                                <Group key={index} name={['groups', index]}>
+                                                    <div
+                                                        style={{
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            alignItems: 'center',
+                                                            width: '100%',
+                                                        }}
+                                                    >
+                                                        <KeaField
+                                                            name="id"
+                                                            template={({ error, kids }) => {
+                                                                return (
+                                                                    <div
+                                                                        style={{
+                                                                            padding: 15,
+                                                                            border: error
+                                                                                ? '1px solid var(--danger)'
+                                                                                : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                            borderRadius: 4,
+                                                                            width: '100%',
+                                                                        }}
+                                                                    >
+                                                                        {kids}
+                                                                        <Row>
+                                                                            {error && (
+                                                                                <div
+                                                                                    style={{
+                                                                                        color: 'var(--danger)',
+                                                                                        marginTop: 16,
+                                                                                    }}
+                                                                                >
+                                                                                    {error}
+                                                                                </div>
+                                                                            )}
+                                                                        </Row>
+                                                                    </div>
+                                                                )
+                                                            }}
+                                                        >
+                                                            <MatchCriteriaSelector
+                                                                onCriteriaChange={(newGroup) =>
+                                                                    onCriteriaChange(newGroup, group.id)
+                                                                }
+                                                                onRemove={() => onRemoveGroup(index)}
+                                                                group={group}
+                                                                hideRemove={cohort.groups.length === 1}
+                                                            />
+                                                        </KeaField>
+                                                        {index < cohort.groups.length - 1 && (
+                                                            <div className="stateful-badge or mt mb">OR</div>
+                                                        )}
+                                                    </div>
+                                                </Group>
+                                            ))}
+                                            <span id="add" />
+                                            <div style={{ marginTop: 8, marginBottom: 8 }}>
+                                                <a
+                                                    href="#add"
+                                                    style={{ padding: 0 }}
+                                                    onClick={() => onAddGroup()}
+                                                    data-attr="add-match-criteria"
                                                 >
-                                                    <MatchCriteriaSelector
-                                                            onCriteriaChange={(newGroup) =>
-                                                                onCriteriaChange(newGroup, group.id)
-                                                            }
-                                                            onRemove={() => onRemoveGroup(index)}
-                                                            group={group}
-                                                            hideRemove={cohort.groups.length === 1}
-                                                        />
-                                                </KeaField>
-                                                  {index < cohort.groups.length - 1 && (
-                                                    <div className="stateful-badge or mt mb">OR</div>
-                                                )}
+                                                    <PlusOutlined /> Add matching criteria
+                                                </a>
                                             </div>
-                                        </Group>
-                                    ))
+                                        </>
                                     )}
                                 </>
-                                <span id="add" />
-                                <div style={{ marginTop: 8, marginBottom: 8 }}>
-                                    <a
-                                        href="#add"
-                                        style={{ padding: 0 }}
-                                        onClick={() => onAddGroup()}
-                                        data-attr="add-match-criteria"
-                                    >
-                                        <PlusOutlined /> Add matching criteria
-                                    </a>
-                                </div>
                             </Col>
                         </Row>
                     </>

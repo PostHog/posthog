@@ -142,13 +142,20 @@ interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
     value: FilterLogicalOperator
     topLevelFilter?: boolean
+    prefix?: React.ReactNode
     suffix?: React.ReactNode
 }
 
-export function AndOrFilterSelect({ onChange, value, topLevelFilter, suffix = 'filters in this group'}: AndOrFilterSelectProps): JSX.Element {
+export function AndOrFilterSelect({
+    onChange,
+    value,
+    topLevelFilter,
+    prefix = 'Match',
+    suffix = 'filters in this group',
+}: AndOrFilterSelectProps): JSX.Element {
     return (
         <Row align="middle" wrap={false} className="and-or-filter">
-            <span className="ml-05">Match</span>
+            <span className="ml-05">{prefix}</span>
             <Select
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"

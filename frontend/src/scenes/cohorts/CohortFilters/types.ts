@@ -59,7 +59,7 @@ export interface Field {
 export interface Row {
     type: BehavioralFilterKey
     value: BehavioralFilterType
-    fields?: Field[]
+    fields: Field[]
     negation?: boolean
 }
 

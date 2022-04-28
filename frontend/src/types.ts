@@ -21,7 +21,7 @@ import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -579,7 +579,7 @@ export interface CohortGroupType {
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     key: string
-    value: BehavioralEventType
+    value: BehavioralFilterType
     type: BehavioralFilterKey
     operator?: PropertyOperator | null
     group_type_index?: number | null
@@ -1541,7 +1541,7 @@ export interface PropertyGroupFilterValue {
 
 export interface CohortCriteriaGroupFilter {
     type: FilterLogicalOperator
-    values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter
+    values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
