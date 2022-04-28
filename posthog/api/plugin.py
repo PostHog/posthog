@@ -108,7 +108,6 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "source",
             "source_frontend",
-            "source_decide",
             "latest_tag",
             "is_global",
             "organization_id",
@@ -154,6 +153,7 @@ class PluginSerializer(serializers.ModelSerializer):
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
         validated_data["updated_at"] = now()
+        validated_data["transpiled_source"] = None
         return super().update(plugin, validated_data)
 
 

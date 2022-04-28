@@ -84,7 +84,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             name: string
             source: string
             source_frontend: string
-            source_decide: string
             configSchema: Record<string, any>
         }) => values,
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
@@ -147,13 +146,12 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
-                editPluginSource: async ({ id, name, source, source_frontend, source_decide, configSchema }) => {
+                editPluginSource: async ({ id, name, source, source_frontend, configSchema }) => {
                     const { plugins } = values
                     const response = await api.update(`api/organizations/@current/plugins/${id}`, {
                         name,
                         source,
                         source_frontend,
-                        source_decide,
                         config_schema: configSchema,
                     })
                     capturePluginEvent(`plugin source edited`, response)
@@ -802,7 +800,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                             }
                         }
                         // TODO: less YOLO
-                        eval(`${plugin.frontend}`)
+                        // eval(`${plugin.frontend_soruce}`)
                         actions.initFrontendPlugin(exports)
                     } catch (e) {
                         actions.initFrontendPlugin({ ...exports, error: e })

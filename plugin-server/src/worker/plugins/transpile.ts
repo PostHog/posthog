@@ -17,18 +17,3 @@ export function transpileFrontend(rawCode: string): string {
     }
     return code
 }
-
-export function transpileDecide(rawCode: string): string {
-    const { code } = transform(rawCode, {
-        envName: 'production',
-        code: true,
-        babelrc: false,
-        configFile: false,
-        filename: 'decide.ts',
-        presets: ['typescript', ['env']],
-    })
-    if (!code) {
-        throw new Error('Could not transpile decide.ts')
-    }
-    return code
-}

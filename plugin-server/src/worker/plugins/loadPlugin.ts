@@ -4,9 +4,9 @@ import * as path from 'path'
 import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getFileFromArchive, pluginDigest } from '../../utils/utils'
-import { transpileDecide, transpileFrontend } from './transpile'
+import { transpileFrontend } from './transpile'
 
-export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promise<boolean> {
+export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
 
     if (!plugin) {
@@ -16,7 +16,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
 
     try {
         if (plugin.url?.startsWith('file:')) {
-            const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
+            const pluginPath = path.resolve(hub.BASE_DIR, plugin.url.substring(5))
             const configPath = path.resolve(pluginPath, 'plugin.json')
 
             let config: PluginJsonConfig = {}
@@ -27,7 +27,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 } catch (e) {
                     pluginConfig.vm?.failInitialization!()
                     await processError(
-                        server,
+                        hub,
                         pluginConfig,
                         `Could not load posthog config at "${configPath}" for ${pluginDigest(plugin)}`
                     )
@@ -38,7 +38,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
                 pluginConfig.vm?.failInitialization!()
                 await processError(
-                    server,
+                    hub,
                     pluginConfig,
                     `No "main" config key or "index.js" file found for ${pluginDigest(plugin)}`
                 )
@@ -59,7 +59,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                     config = JSON.parse(json)
                 } catch (error) {
                     pluginConfig.vm?.failInitialization!()
-                    await processError(server, pluginConfig, `Can not load plugin.json for ${pluginDigest(plugin)}`)
+                    await processError(hub, pluginConfig, `Can not load plugin.json for ${pluginDigest(plugin)}`)
                     return false
                 }
             }
@@ -71,35 +71,42 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 return true
             } else {
                 pluginConfig.vm?.failInitialization!()
-                await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
+                await processError(hub, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source') {
             if (plugin.source_frontend && !plugin.transpiled_frontend) {
-                const transpiled = transpileFrontend(plugin.source_frontend)
-                await server.db.postgresQuery(
-                    `update posthog_plugin set transpiled_frontend = ? where plugin_id = ?`,
-                    [transpiled, plugin.id],
-                    'setPluginTranspiledFrontend'
-                )
+                try {
+                    plugin.transpiled_frontend = transpileFrontend(plugin.source_frontend)
+                    await hub.db.postgresQuery(
+                        'update posthog_plugin set transpiled_frontend = $1 where id = $2',
+                        [plugin.transpiled_frontend, plugin.id],
+                        'setPluginTranspiledFrontend'
+                    )
+                } catch (error: any) {
+                    await processError(hub, pluginConfig, error)
+                }
             }
+
             if (plugin.source) {
                 void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
                 return true
-            } else {
+            }
+
+            if (!plugin.source && !plugin.transpiled_frontend) {
                 pluginConfig.vm?.failInitialization!()
-                await processError(server, pluginConfig, `Could not load source code for ${pluginDigest(plugin)}!`)
+                await processError(hub, pluginConfig, `Could not load source code for ${pluginDigest(plugin)}!`)
             }
         } else {
             pluginConfig.vm?.failInitialization!()
             await processError(
-                server,
+                hub,
                 pluginConfig,
                 `Tried using undownloaded remote ${pluginDigest(plugin)}, which is not supported!`
             )
         }
     } catch (error) {
         pluginConfig.vm?.failInitialization!()
-        await processError(server, pluginConfig, error)
+        await processError(hub, pluginConfig, error)
     }
     return false
 }

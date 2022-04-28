@@ -805,7 +805,6 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     source_frontend?: string
-    source_decide?: string
     maintainer?: string
     is_global: boolean
     organization_id: string
