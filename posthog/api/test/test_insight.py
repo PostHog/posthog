@@ -18,6 +18,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
     Cohort,
     Dashboard,
+    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -207,7 +208,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
 
         blue_insight_id, _ = self._create_insight(
-            {"filter": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
+            {"filters": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
         )
 
         response = self.client.patch(
@@ -319,7 +320,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     def test_create_insight_items(self):
-        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
@@ -340,11 +340,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
+    def test_create_insight_items_on_a_dashboard(self):
+        dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_id],
+            }
+        )
+
+        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
+        self.assertIsNotNone(tile.filters_hash)
+
     def test_update_insight(self):
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.",},
+            {"name": "insight new name", "description": "Internal system metrics."},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -359,6 +376,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
+
+    def test_cannot_set_filters_hash_via_api(self):
+        insight_id, insight = self._create_insight({"name": "should not update the filters_hash"})
+        original_filters_hash = insight["filters_hash"]
+        self.assertIsNotNone(original_filters_hash)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters_hash": "should not update the value"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -1121,11 +1149,95 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_saving_an_insight_with_new_filters_updates_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Chrome"}],},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertNotEqual(before_save, after_save)
+
+    def test_saving_an_insight_with_unchanged_filters_does_not_update_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "a non-filter change"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertEqual(before_save, after_save)
+
+    def test_saving_a_dashboard_with_new_filters_updates_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-7d"},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertNotEqual(before_save, after_save)
+
+    def test_saving_a_dashboard_with_unchanged_filters_does_not_update_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"name": "the dashboard's name"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertEqual(before_save, after_save)
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
         self.assertEqual(response.status_code, expected_status)
@@ -1140,6 +1252,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_json = response.json()
         return response_json["id"], response_json
+
+    def _add_insight_to_dashboard(
+        self, dashboard_ids: List[int], insight_id: int, expected_status: int = status.HTTP_200_OK
+    ):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": dashboard_ids,},
+        )
+        self.assertEqual(response.status_code, expected_status)
 
     def _get_insight(
         self,

@@ -5,14 +5,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonRow } from 'lib/components/LemonRow'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { IconFlag } from 'lib/components/icons'
 
@@ -21,7 +21,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     const logic = funnelLogic(insightProps)
     const { insightLoading, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
         useValues(logic)
-    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForStep } = useActions(logic)
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
 
     const isOnlySeries = flattenedBreakdowns.length === 1
@@ -94,7 +94,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                 {
                     title: 'Total conversion',
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true),
+                        percentage(breakdown?.conversionRates?.total ?? 0, 1, true),
                     align: 'right',
                 },
             ],
@@ -120,10 +120,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                         return (
                             stepSeries && (
                                 <ValueInspectorButton
-                                    onClick={() => openPersonsModalForStep({ step: stepSeries, converted: true })}
+                                    onClick={() =>
+                                        openPersonsModalForSeries({ step, series: stepSeries, converted: true })
+                                    }
                                     style={{ padding: 0 }}
                                 >
-                                    {stepSeries.count ?? 0}
+                                    {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
                             )
                         )
@@ -145,11 +147,15 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       stepSeries && (
                                           <ValueInspectorButton
                                               onClick={() =>
-                                                  openPersonsModalForStep({ step: stepSeries, converted: false })
+                                                  openPersonsModalForSeries({
+                                                      step,
+                                                      series: stepSeries,
+                                                      converted: false,
+                                                  })
                                               }
                                               style={{ padding: 0 }}
                                           >
-                                              {stepSeries.droppedOffFromPrevious ?? 0}
+                                              {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>
                                       )
                                   )
@@ -171,13 +177,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 icon={<IconFlag />}
                                 compact
                             >
-                                {formatDisplayPercentage(
-                                    breakdown.steps?.[step.order]?.conversionRates.total ?? 0,
-                                    true
-                                )}
+                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)}
                             </LemonRow>
                         ) : (
-                            formatDisplayPercentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, true)
+                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)
                         )
                     },
                     align: 'right',
@@ -200,14 +203,16 @@ export function FunnelStepsTable(): JSX.Element | null {
                                           icon={<IconFlag />}
                                           compact
                                       >
-                                          {formatDisplayPercentage(
+                                          {percentage(
                                               breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                              1,
                                               true
                                           )}
                                       </LemonRow>
                                   ) : (
-                                      formatDisplayPercentage(
+                                      percentage(
                                           breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                          1,
                                           true
                                       )
                                   )
@@ -222,6 +227,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       : '–',
                               align: 'right',
                               width: 0,
+                              className: 'no-wrap',
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],
