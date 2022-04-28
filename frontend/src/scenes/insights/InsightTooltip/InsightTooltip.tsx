@@ -19,7 +19,7 @@ function ClickToInspectActors({
     isTruncated,
     groupTypeLabel,
 }: {
-    isTruncated: boolean
+    isTruncated?: boolean
     groupTypeLabel: string
 }): JSX.Element {
     return (
