@@ -151,6 +151,7 @@ export function Signup(): JSX.Element | null {
                                 </Form.Item>
                                 {!preflight?.demo && (
                                     <PasswordInput
+                                        style={{ marginBottom: 16 }}
                                         ref={passwordInputRef}
                                         showStrengthIndicator
                                         validateStatus={
@@ -160,7 +161,7 @@ export function Signup(): JSX.Element | null {
                                             signupResponse?.errorAttribute === 'password' ? (
                                                 signupResponse.errorDetail
                                             ) : (
-                                                <span style={{ paddingBottom: 16 }}>
+                                                <span>
                                                     <ExclamationCircleFilled style={{ marginRight: 4 }} />
                                                     Passwords must be at least 8 characters
                                                 </span>
@@ -201,18 +202,8 @@ export function Signup(): JSX.Element | null {
                                     />
                                 </Form.Item>
 
-                                <Form.Item className="text-center" style={{ marginTop: 32 }}>
-                                    By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
-                                    agree to our{' '}
-                                    <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                        Terms of Service
-                                    </a>{' '}
-                                    and{' '}
-                                    <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                        Privacy Policy
-                                    </a>
-                                    .
-                                </Form.Item>
+                                <div className="divider" />
+
                                 <Form.Item>
                                     <Button
                                         className="btn-bridge"
@@ -223,6 +214,19 @@ export function Signup(): JSX.Element | null {
                                     >
                                         {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
                                     </Button>
+                                </Form.Item>
+
+                                <Form.Item className="text-center terms-and-conditions-text">
+                                    By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
+                                    agree to our{' '}
+                                    <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
+                                        Terms of Service
+                                    </a>{' '}
+                                    and{' '}
+                                    <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
+                                        Privacy Policy
+                                    </a>
+                                    .
                                 </Form.Item>
                             </Form>
                             {!preflight?.demo && (
