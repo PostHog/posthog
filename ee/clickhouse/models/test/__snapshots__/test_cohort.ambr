@@ -32,7 +32,13 @@
   '
   
   SELECT COUNT(1)
-  FROM person
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
   WHERE id IN
       (SELECT behavior_query.person_id AS id
        FROM
@@ -98,7 +104,13 @@
   '
   
   SELECT COUNT(1)
-  FROM person
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
   WHERE id IN
       (SELECT behavior_query.person_id AS id
        FROM
@@ -134,7 +146,13 @@
   '
   
   SELECT COUNT(1)
-  FROM person
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
   WHERE id IN
       (SELECT behavior_query.person_id AS id
        FROM
@@ -200,7 +218,13 @@
   '
   
   SELECT COUNT(1)
-  FROM person
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
   WHERE id IN
       (SELECT behavior_query.person_id AS id
        FROM

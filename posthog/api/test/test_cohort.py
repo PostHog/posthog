@@ -319,7 +319,7 @@ email@example.org,
                                 "time_value": 1,
                                 "time_interval": "day",
                                 "value": "performed_event",
-                                "type": "behavioural",
+                                "type": "behavioral",
                             },
                         ],
                     }

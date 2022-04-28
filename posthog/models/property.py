@@ -19,7 +19,7 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import is_valid_regex, str_to_bool
 
 
-class BehaviouralPropertyType(str, Enum):
+class BehavioralPropertyType(str, Enum):
     PERFORMED_EVENT = "performed_event"
     PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
     PERFORMED_EVENT_FIRST_TIME = "performed_event_first_time"
@@ -31,15 +31,7 @@ class BehaviouralPropertyType(str, Enum):
 
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
-    "event",
-    "person",
-    "cohort",
-    "element",
-    "static-cohort",
-    "precalculated-cohort",
-    "group",
-    "recording",
-    "behavioural",
+    "event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group", "recording", "behavioral",
 ]
 
 PropertyName = str
@@ -65,7 +57,7 @@ GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
-CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "behavioural", "recording"]
+CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "behavioral", "recording"]
 
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
@@ -76,14 +68,21 @@ VALIDATE_PROP_TYPES = {
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
-    "behavioural": ["key", "value"],
+    "behavioral": ["key", "value"],
 }
 
-VALIDATE_BEHAVIOURAL_PROP_TYPES = {
-    BehaviouralPropertyType.PERFORMED_EVENT: ["key", "value", "event_type", "time_value", "time_interval"],
-    BehaviouralPropertyType.PERFORMED_EVENT_MULTIPLE: ["key", "value", "event_type", "time_value", "time_interval",],
-    BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
-    BehaviouralPropertyType.PERFORMED_EVENT_SEQUENCE: [
+VALIDATE_BEHAVIORAL_PROP_TYPES = {
+    BehavioralPropertyType.PERFORMED_EVENT: ["key", "value", "event_type", "time_value", "time_interval"],
+    BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+        "operator_value",
+    ],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
+    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",
         "value",
         "event_type",
@@ -94,7 +93,7 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "seq_time_value",
         "seq_time_interval",
     ],
-    BehaviouralPropertyType.PERFORMED_EVENT_REGULARLY: [
+    BehavioralPropertyType.PERFORMED_EVENT_REGULARLY: [
         "key",
         "value",
         "event_type",
@@ -104,7 +103,7 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "min_periods",
         "total_periods",
     ],
-    BehaviouralPropertyType.STOPPED_PERFORMING_EVENT: [
+    BehavioralPropertyType.STOPPED_PERFORMING_EVENT: [
         "key",
         "value",
         "event_type",
@@ -113,7 +112,7 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "seq_time_value",
         "seq_time_interval",
     ],
-    BehaviouralPropertyType.RESTARTED_PERFORMING_EVENT: [
+    BehavioralPropertyType.RESTARTED_PERFORMING_EVENT: [
         "key",
         "value",
         "event_type",
@@ -170,7 +169,7 @@ class Property:
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
-        # Only set for `type` == `behavioural`
+        # Only set for `type` == `behavioral`
         event_type: Optional[Literal["events", "actions"]] = None,
         operator_value: Optional[int] = None,
         time_value: Optional[int] = None,
@@ -208,8 +207,8 @@ class Property:
             if getattr(self, key, None) is None:
                 raise ValueError(f"Missing required key {key} for property type {self.type}")
 
-        if self.type == "behavioural":
-            for key in VALIDATE_BEHAVIOURAL_PROP_TYPES[cast(BehaviouralPropertyType, self.value)]:
+        if self.type == "behavioral":
+            for key in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
                 if getattr(self, key, None) is None:
                     raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
 

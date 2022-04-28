@@ -342,7 +342,9 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
     count = sync_execute(
         f"""
         SELECT COUNT(1)
-        FROM person
+        FROM (
+            SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+        ) as person
         WHERE {cohort_filter}
         """,
         {**cohort_params, "team_id": cohort.team_id, "cohort_id": cohort.pk},
@@ -418,8 +420,8 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyG
     # Users who match _any_ of the groups are considered to match the cohort.
 
     for property in cohort.properties.flat:
-        if property.type == "behavioural":
-            # TODO: Support behavioural property type in other insights
+        if property.type == "behavioral":
+            # TODO: Support behavioral property type in other insights
             return PropertyGroup(
                 type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
             )
