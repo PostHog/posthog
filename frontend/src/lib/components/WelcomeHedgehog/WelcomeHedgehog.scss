@@ -1,0 +1,42 @@
+@import '~/vars';
+
+.welcome-hedgehog-container {
+    align-items: center;
+    display: flex;
+    text-align: center;
+    flex-direction: column;
+    width: 360px;
+    height: 730px;
+
+    .welcome-hedgehog-image {
+        width: 273px;
+    }
+
+    .welcome-message {
+        background-color: $bg_bridge;
+        position: absolute;
+        top: 88px;
+        width: 360px;
+        transition: opacity 0.1s linear;
+
+        &.hidden {
+            opacity: 0;
+        }
+
+        p {
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+
+            &.title-text {
+                font-size: 42px;
+                line-height: 51px;
+            }
+
+            &.secondary-title-text {
+                font-size: 22px;
+                line-height: 31px;
+            }
+        }
+    }
+}
