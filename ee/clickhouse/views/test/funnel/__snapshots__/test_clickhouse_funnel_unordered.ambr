@@ -144,7 +144,7 @@
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND ((NOT has([''], "$group_0"))
-                           AND ((NOT has([''], "$group_0")))) ) events
+                           AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1
@@ -182,7 +182,7 @@
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND ((NOT has([''], "$group_0"))
-                           AND ((NOT has([''], "$group_0")))) ) events
+                           AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))

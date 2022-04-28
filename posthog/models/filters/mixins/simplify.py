@@ -51,8 +51,7 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        prop_group = self._simplify_property_group(team, result.property_groups, **kwargs)  # type: ignore
-        prop_group.values = [self._clear_excess_levels(prop) for prop in prop_group.values]  # type: ignore
+        prop_group = self._clear_excess_levels(self._simplify_property_group(team, result.property_groups, **kwargs), skip=True)  # type: ignore
         prop_group = prop_group.to_dict()  # type: ignore
 
         new_group_props = []
@@ -65,14 +64,17 @@ class SimplifyFilterMixin:
 
         return result.with_data({**updated_entities, "properties": prop_group})
 
-    def _clear_excess_levels(self, prop: Union["PropertyGroup", "Property"]):
+    def _clear_excess_levels(self, prop: Union["PropertyGroup", "Property"], skip=False):
         from posthog.models.property import PropertyGroup
 
         if isinstance(prop, PropertyGroup):
             if len(prop.values) == 1:
-                return self._clear_excess_levels(prop.values[0])
+                if skip:
+                    prop.values = [self._clear_excess_levels(p) for p in prop.values]
+                else:
+                    return self._clear_excess_levels(prop.values[0])
             else:
-                prop.values = [self._clear_excess_levels(p) for p in prop.values]
+                prop.values = [self._clear_excess_levels(p, skip=True) for p in prop.values]
 
         return prop
 
