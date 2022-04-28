@@ -2662,7 +2662,7 @@
     schema-utils "^3.0.0"
     source-map "^0.7.3"
 
-"@popperjs/core@^2.11.5":
+"@popperjs/core@^2.9.2":
   version "2.11.5"
   resolved "https://registry.yarnpkg.com/@popperjs/core/-/core-2.11.5.tgz#db5a11bf66bdab39569719555b0f76e138d7bd64"
   integrity sha512-9X2obfABZuDVLCgPK9aX0a/x4jaOEweTTWE2+9sr0Qqqevj2Uv5XorvusThmc9XGYpS9yI+fhh8RTafBtGposw==
@@ -16703,10 +16703,10 @@ store2@^2.12.0:
   resolved "https://registry.yarnpkg.com/store2/-/store2-2.12.0.tgz#e1f1b7e1a59b6083b2596a8d067f6ee88fd4d3cf"
   integrity sha512-7t+/wpKLanLzSnQPX8WAcuLCCeuSHoWdQuh9SB3xD0kNOM38DNf+0Oa+wmvxmYueRzkmh6IcdKFtvTa+ecgPDw==
 
-storybook-addon-turbo-build@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/storybook-addon-turbo-build/-/storybook-addon-turbo-build-1.0.1.tgz#e1cd8ec41c5f6539885bdb3ee904dd752b90a688"
-  integrity sha512-nuuwZGMmxl16g+qbwruC1zyp/QELdF6r59wFBMO2mjR07iSoKYJc2Z81tSEtLCvVrRl7jN5iFjlVJK5m2K6DmA==
+storybook-addon-turbo-build@^1.1.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/storybook-addon-turbo-build/-/storybook-addon-turbo-build-1.1.0.tgz#36c883078676046f274260d525a5751abb2e9c16"
+  integrity sha512-5Zj74c5vQYAVE7m8DOKv3OuOHMn29ljWj34UUYXpIoYQ786ORXu9MAj4WnqLstQvMy6cDqchUm4pROKVgef5ZA==
   dependencies:
     esbuild-loader "^2.10.0"
 

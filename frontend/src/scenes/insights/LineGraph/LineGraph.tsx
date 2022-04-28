@@ -348,7 +348,8 @@ export function LineGraph_({
                                 )
                             })
 
-                            createRoot(tooltipEl).render(
+                            ;(tooltipEl as any).__root ??= createRoot(tooltipEl)
+                            ;(tooltipEl as any).__root.render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     seriesData={seriesData}

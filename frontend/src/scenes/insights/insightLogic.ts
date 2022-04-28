@@ -67,7 +67,7 @@ export const insightLogic = kea<insightLogicType>([
     key(keyForInsightLogicProps('new')),
     props({} as InsightLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -80,8 +80,8 @@ export const insightLogic = kea<insightLogicType>([
             mathsLogic,
             ['mathDefinitions'],
         ],
-        logic: [eventUsageLogic, dashboardsModel],
-    }),
+        logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
+    })),
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),

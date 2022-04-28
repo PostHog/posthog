@@ -13,7 +13,12 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         fromDashboard?: number
     },
     key: ({ id }) => id || 'none',
-    connect: () => [newDashboardLogic, dashboardsModel, eventUsageLogic],
+    connect: () => [
+        newDashboardLogic,
+        dashboardsModel,
+        eventUsageLogic,
+        prompt({ key: `saveToDashboardModalLogic-new-dashboard` }),
+    ],
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),

@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client'
     initKea()
     const container = document.createElement('div')
     document.body.appendChild(container)
+    const root = createRoot(container)
 
     if (!posthog) {
         console.warn(
@@ -21,7 +22,7 @@ import { createRoot } from 'react-dom/client'
         )
     }
 
-    createRoot(container).render(
+    root.render(
         <ToolbarApp
             {...editorParams}
             actionId={parseInt(String(editorParams.actionId))}

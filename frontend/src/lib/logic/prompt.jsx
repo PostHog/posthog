@@ -1,7 +1,7 @@
 import React from 'react'
-import ReactDOM from 'react-dom'
 import { kea } from 'kea'
 import { Modal, Input, Form } from 'antd'
+import { createRoot } from 'react-dom/client'
 
 // This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
 // for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
@@ -92,14 +92,13 @@ export function cancellablePrompt(config) {
     const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
         document.body.appendChild(div)
+        const root = createRoot(div)
         // eslint-disable-next-line no-use-before-define
         let currentConfig = { ...config, close, visible: true }
 
         function destroy(value) {
-            const unmountResult = ReactDOM.unmountComponentAtNode(div)
-            if (unmountResult && div.parentNode) {
-                div.parentNode.removeChild(div)
-            }
+            window.setTimeout(() => root.unmount(), 0)
+            div.parentNode?.removeChild(div)
             if (value !== undefined) {
                 resolve(value)
             } else {
@@ -108,7 +107,7 @@ export function cancellablePrompt(config) {
         }
 
         function render(props) {
-            createRoot(div).render(<Prompt {...props} />)
+            root.render(<Prompt {...props} />)
         }
 
         function close(value) {

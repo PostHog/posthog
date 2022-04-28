@@ -62,7 +62,7 @@
         "@babel/core": "^7.17.9",
         "@babel/runtime": "^7.17.9",
         "@monaco-editor/react": "^4.4.4",
-        "@popperjs/core": "^2.11.5",
+        "@popperjs/core": "^2.9.2",
         "@posthog/chart.js": "^2.9.6",
         "@posthog/plugin-scaffold": "0.12.10",
         "@posthog/react-rrweb-player": "^1.1.3",
