@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import React, { useMemo } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -9,7 +8,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { humanFriendlyDuration, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
@@ -39,31 +38,37 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 
 function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
+    const { openPersonsModalForSeries } = useActions(funnelLogic)
+
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
-            <div className="StepBars__background">
+            <div className="StepBars__grid">
                 {Array(5)
                     .fill(null)
                     .map((_, i) => (
                         <div key={i} className="StepBars__gridline StepBars__gridline--horizontal" />
                     ))}
             </div>
-            {step?.nested_breakdown?.map((breakdown, breakdownIndex) => (
+            {step?.nested_breakdown?.map((breakdown) => (
                 <div
-                    key={breakdownIndex}
+                    key={breakdown.order}
                     className="StepBars__bar"
                     style={
                         {
-                            '--series-color': getSeriesColor(
-                                breakdownIndex,
-                                step.nested_breakdown?.length === 1,
-                                undefined,
-                                step.nested_breakdown?.length
-                            ),
-                            '--conversion-rate': `${breakdown.conversionRates.fromBasisStep * 100}%`,
+                            '--series-color': getSeriesColor(breakdown.order, step.nested_breakdown?.length === 1),
+                            '--conversion-rate': percentage(breakdown.conversionRates.fromBasisStep, 1, true),
                         } as StepBarCSSProperties
                     }
-                />
+                >
+                    <div
+                        className="StepBars__backdrop"
+                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: false })}
+                    />
+                    <div
+                        className="StepBars__fill"
+                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: true })}
+                    />
+                </div>
             ))}
         </div>
     )
@@ -76,10 +81,8 @@ interface StepLegendProps extends ChartParams {
 }
 
 function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { aggregationTargetLabel } = useValues(logic)
-    const { openPersonsModalForStep } = useActions(logic)
+    const { aggregationTargetLabel } = useValues(funnelLogic)
+    const { openPersonsModalForStep } = useActions(funnelLogic)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -140,10 +143,9 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
+/** Funnel results in bar form. Requires `funnelLogic` to be bound. */
 export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { visibleStepsWithConversionMetrics } = useValues(logic)
+    const { visibleStepsWithConversionMetrics } = useValues(funnelLogic)
 
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
