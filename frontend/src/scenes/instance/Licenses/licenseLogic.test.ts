@@ -20,6 +20,7 @@ describe('licenseLogic', () => {
                         next: null,
                         previous: null,
                         results: [
+                            // Higher plan, expired
                             {
                                 id: 1,
                                 key: 'tuv',
@@ -28,6 +29,7 @@ describe('licenseLogic', () => {
                                 max_users: null,
                                 created_at: '2022-03-28T12:00:00.000Z',
                             },
+                            // Lower plan, valid
                             {
                                 id: 2,
                                 key: 'xyz',
@@ -36,6 +38,7 @@ describe('licenseLogic', () => {
                                 max_users: null,
                                 created_at: '2022-03-28T12:00:00.000Z',
                             },
+                            // Higher plan, valid - DING DING
                             {
                                 id: 3,
                                 key: 'abc',
@@ -44,11 +47,12 @@ describe('licenseLogic', () => {
                                 max_users: null,
                                 created_at: '2022-04-28T12:00:00.000Z',
                             },
+                            // Lower plan, valid - DING DING
                             {
                                 id: 4,
                                 key: 'klm',
                                 plan: LicensePlan.Scale,
-                                valid_until: '2079-04-28T12:00:00.000Z',
+                                valid_until: '2081-04-29T12:00:00.000Z',
                                 max_users: null,
                                 created_at: '2022-04-25T12:00:00.000Z',
                             },
@@ -80,6 +84,7 @@ describe('licenseLogic', () => {
                         next: null,
                         previous: null,
                         results: [
+                            // Lower plan, expired 1st
                             {
                                 id: 1,
                                 key: 'abc',
@@ -88,6 +93,7 @@ describe('licenseLogic', () => {
                                 max_users: null,
                                 created_at: '2022-02-26T12:00:00.000Z',
                             },
+                            // Lower plan, expired 3rd - DING DING
                             {
                                 id: 2,
                                 key: 'abc',
@@ -96,6 +102,7 @@ describe('licenseLogic', () => {
                                 max_users: null,
                                 created_at: '2022-02-27T12:00:00.000Z',
                             },
+                            // Higher plan, expired 2nd
                             {
                                 id: 3,
                                 key: 'def',
