@@ -5,8 +5,6 @@ from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
-from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
 
 
 class Dashboard(models.Model):
@@ -107,20 +105,3 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
-
-    def save(self, *args, **kwargs) -> None:
-        super(Dashboard, self).save(*args, **kwargs)
-
-        for insight in self.insights.all():
-            # saves all insights on the dashboard
-            # to ensure that insight's cache key is updated to include any dashboard filters
-            # the filters_hash on an insight is only useful for:
-            # * looking it up from the cache when loading it on a dashboard
-            # * or when updating the cache for shared or active dashboards
-            # TODO NB this can't work once an insight is on more than one dashboard
-            if insight.filters != {} or self.filters != {}:
-                filter_context = insight.dashboard_filters(dashboard=self)
-                generated_filter = get_filter(data=filter_context, team=self.team).toJSON()
-                dashboard_included_cache_key = generate_cache_key("{}_{}".format(generated_filter, self.team_id))
-                insight.filters_hash = dashboard_included_cache_key
-                insight.save(update_fields=["filters_hash"])
