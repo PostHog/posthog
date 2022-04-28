@@ -1865,12 +1865,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+            cohort = cohort_factory(
+                name="cohort1",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person1", "type": "person",}]}],
+            )
+            cohort2 = cohort_factory(
+                name="cohort2",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person2", "type": "person",}]}],
+            )
             cohort3 = cohort_factory(
                 name="cohort3",
                 team=self.team,
-                groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
+                groups=[
+                    {"properties": [{"key": "name", "value": "person1", "type": "person"}]},
+                    {"properties": [{"key": "name", "value": "person2", "type": "person"}]},
+                ],
             )
             action = action_factory(name="watched movie", team=self.team)
 

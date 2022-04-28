@@ -202,7 +202,9 @@ email@example.org,
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
         )
         cohort.calculate_people_ch(pending_version=0)
 

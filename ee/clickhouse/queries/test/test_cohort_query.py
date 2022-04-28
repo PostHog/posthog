@@ -869,6 +869,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_value": 2,
                             "time_interval": "week",
                             "value": "performed_event_multiple",
+                            "operator_value": 1,
                             "type": "behavioural",
                         },
                         {
@@ -1057,7 +1058,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"}
         )
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         filter = Filter(
             data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},}
@@ -1072,7 +1077,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"}
         )
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         p2 = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}

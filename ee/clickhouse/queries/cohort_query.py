@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
@@ -123,6 +123,9 @@ class CohortQuery(EnterpriseEventQuery):
         self,
         filter: Filter,
         team: Team,
+        *,
+        cohort_pk: Optional[int] = None,
+        cohorts_seen: Optional[Set[int]] = None,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -137,6 +140,8 @@ class CohortQuery(EnterpriseEventQuery):
         self._events = []
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
+        self._cohort_pk = cohort_pk
+        self._cohorts_seen = cohorts_seen
         super().__init__(
             filter=filter,
             team=team,
@@ -161,7 +166,7 @@ class CohortQuery(EnterpriseEventQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioural stuff to do
             # thus, use personQuery directly
-            return self._person_query.get_query()
+            return self._person_query.get_query(prepend=self._cohort_pk)
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()
@@ -173,7 +178,7 @@ class CohortQuery(EnterpriseEventQuery):
         subq.append((behavior_subquery, behavior_query_alias))
         self.params.update(behavior_subquery_params)
 
-        person_query, person_params, person_query_alias = self._get_persons_query()
+        person_query, person_params, person_query_alias = self._get_persons_query(prepend=str(self._cohort_pk))
         subq.append((person_query, person_query_alias))
         self.params.update(person_params)
 
@@ -218,6 +223,7 @@ class CohortQuery(EnterpriseEventQuery):
         #
         # Get the subquery for the cohort query.
         #
+        event_param_name = f"{self._cohort_pk}_event_ids"
 
         query, params = "", {}
         if self._should_join_behavioral_query:
@@ -231,19 +237,19 @@ class CohortQuery(EnterpriseEventQuery):
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             WHERE team_id = %(team_id)s
-            AND event IN %(events)s
+            AND event IN %({event_param_name})s
             {date_condition}
             GROUP BY person_id
             """
 
-            query, params = (query, {"team_id": self._team_id, "events": self._events, **date_params,})
+            query, params = (query, {"team_id": self._team_id, event_param_name: self._events, **date_params,})
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
-    def _get_persons_query(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_persons_query(self, prepend: str = "") -> Tuple[str, Dict[str, Any], str]:
         query, params = "", {}
         if self._should_join_persons:
-            person_query, person_params = self._person_query.get_query()
+            person_query, person_params = self._person_query.get_query(prepend=prepend)
             person_query = f"SELECT *, id AS person_id FROM ({person_query})"
 
             query, params = person_query, person_params
@@ -330,28 +336,23 @@ class CohortQuery(EnterpriseEventQuery):
 
     def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
 
-        q, params = "", {}
         try:
             prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            q = "0 = 14"
+            return "0 = 14", {}
 
-        # TODO: renable this check when this class accepts a cohort not filter
-
-        # if prop_cohort.pk == cohort.pk:
-        #     # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
-        #     # we treat it as satisfied for all persons
-        #     pass
-        # else:
-
-        # TODO: format_filter_query uses the deprecated way of building cohorts
-        # Update format_filter_query to use this class or use this class directly when backwards compatibility is achieved
-        # This function will only work for old cohorts right now
-        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
-        q = f"id IN ({person_id_query})"
-        params = cohort_filter_params
-
-        return q, params
+        if prop_cohort.pk == self._cohort_pk or (self._cohorts_seen and prop_cohort.pk in self._cohorts_seen):
+            # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort eventually),
+            # we treat it as an invalid cohort condition
+            raise ValueError(f"Cyclic dependency detected when computing cohort with id: {prop_cohort.pk}")
+        else:
+            cohorts_seen = list(self._cohorts_seen) if self._cohorts_seen is not None else []
+            if self._cohort_pk is not None:
+                cohorts_seen.append(self._cohort_pk)
+            person_id_query, cohort_filter_params = format_filter_query(
+                prop_cohort, idx, "person_id", cohorts_seen=set(cohorts_seen), using_new_query=True
+            )
+            return f"id IN ({person_id_query})", cohort_filter_params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)

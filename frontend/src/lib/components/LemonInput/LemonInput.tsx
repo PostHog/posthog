@@ -12,7 +12,7 @@ export interface LemonInputProps
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    value?: string
+    value?: string | number
     defaultValue?: string
     placeholder?: string
     onChange?: (newValue: string) => void
