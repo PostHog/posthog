@@ -61,7 +61,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (((has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toStartOfDay(toDateTime('2021-01-14 00:00:00'), 'UTC')
@@ -103,12 +103,21 @@
     AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
-           (SELECT id
-            FROM person
-            WHERE team_id = 2
-            GROUP BY id
-            HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -173,12 +182,21 @@
     AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
-           (SELECT id
-            FROM person
-            WHERE team_id = 2
-            GROUP BY id
-            HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
   '
 ---
 # name: TestEventQuery.test_event_properties_filter
@@ -229,8 +247,8 @@
     AND event = '$pageview'
     AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
-         AND has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', '')))
+    AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+         AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', ''))))
   '
 ---
 # name: TestEventQuery.test_groups_filters_mixed
@@ -252,7 +270,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -264,7 +282,7 @@
     AND event = '$pageview'
     AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+    AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
   '
 ---
 # name: TestEventQuery.test_static_cohort_filter
@@ -290,10 +308,10 @@
     AND event = 'viewed'
     AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
-           (SELECT person_id
-            FROM person_static_cohort
-            WHERE cohort_id = 2
-              AND team_id = 2))
+    AND ((pdi.person_id IN
+            (SELECT person_id
+             FROM person_static_cohort
+             WHERE cohort_id = 2
+               AND team_id = 2)))
   '
 ---
