@@ -153,11 +153,6 @@ function OverViewTab(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                <div className="mb float-right">
-                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                        New feature flag
-                    </LemonButton>
-                </div>
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}
