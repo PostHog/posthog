@@ -165,7 +165,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                       ]),
                 {
                     title: 'Conversion so far',
-                    render: function RenderRate(
+                    render: function RenderConversionSoFar(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
                     ): JSX.Element | string {
@@ -190,7 +190,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     : [
                           {
                               title: 'Conversion from previous',
-                              render: function RenderRate(
+                              render: function RenderConversionFromPrevious(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
                               ): JSX.Element | string {
