@@ -60,7 +60,7 @@ export const licenseLogic = kea<licenseLogicType>({
         relevantLicense: [
             (s) => [s.licenses],
             (licenses): LicenseType | null => {
-                // KEEP IN SYNC WITH LicenseManager.first_valid
+                // KEEP IN SYNC FOR WITH LicenseManager.first_valid FOR THE ACTIVE LICENSE
                 // We determine the most relevant license to be the top one that's still active
                 // OR the one that expired most recently
                 if (licenses.length === 0) {
