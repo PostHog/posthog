@@ -1013,6 +1013,22 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export type InsightEditorFilterGroups = Record<string, InsightEditorFilter[]>
+
+export interface EditorFilterProps {
+    insight: Partial<InsightModel>
+    insightProps: InsightLogicProps
+    filters: Partial<FilterType>
+    value: any
+}
+
+export interface InsightEditorFilter {
+    key: string
+    label?: string
+    valueSelector?: (insight: Partial<InsightModel>) => any
+    component?: (props: EditorFilterProps) => JSX.Element
+}
+
 export interface SystemStatusSubrows {
     columns: string[]
     rows: string[][]

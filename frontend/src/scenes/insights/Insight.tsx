@@ -1,7 +1,7 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Card, Select } from 'antd'
+import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -31,7 +31,8 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -52,14 +53,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const {
-        setActiveView,
-        saveInsight,
-        setInsightMetadata,
-        saveAs,
-        cancelChanges,
-        reportInsightViewedForRecentInsights,
-    } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -103,28 +98,40 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const insightTab = usingEditorPanels ? (
         <>
-            <Select
-                value={activeView}
-                onChange={(value): void => setActiveView(value)}
-                dropdownMatchSelectWidth={false}
-            >
-                {Object.entries(INSIGHT_TYPES_METADATA).map(([type, meta], index) => (
-                    <Select.Option key={index} value={type}>
-                        <div className="insight-type-icon-wrapper">
-                            {meta.icon ? (
-                                <div className="icon-container">
-                                    <div className="icon-container-inner">
-                                        <meta.icon color="#747EA2" noBackground />
+            {insight &&
+                filters &&
+                Object.entries(getEditorFilters(filters))
+                    .filter(([, v]) => v.length > 0)
+                    .map(([title, editorFilters]) => (
+                        <div key={title} style={{ margin: '1em' }}>
+                            <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>{title}</div>
+                            <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
+                                {editorFilters.map(({ label, key, valueSelector, component: Component }) => (
+                                    <div key={key}>
+                                        <div>{label}</div>
+                                        {Component ? (
+                                            <Component
+                                                insight={insight}
+                                                insightProps={insightProps}
+                                                filters={insight.filters ?? cleanFilters({})}
+                                                value={
+                                                    (valueSelector
+                                                        ? valueSelector(insight)
+                                                        : insight?.filters?.[key]) ?? null
+                                                }
+                                            />
+                                        ) : null}
                                     </div>
-                                </div>
-                            ) : null}
-                            <div>{meta.name}</div>
+                                ))}
+                            </div>
                         </div>
-                    </Select.Option>
-                ))}
-            </Select>
-
-            {insightTabFilters}
+                    ))}
+            <div style={{ margin: '1em' }}>
+                <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
+                <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
+                    {insightTabFilters}
+                </div>
+            </div>
         </>
     ) : (
         insightTabFilters
