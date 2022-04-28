@@ -18,6 +18,7 @@ import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { LemonModal } from 'lib/components/LemonModal'
+import { pluralize } from 'lib/utils'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -131,7 +132,8 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className={'existing-links-info'}>
-                    This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards
+                    This insight is referenced on <strong>{insight.dashboards?.length}</strong>{' '}
+                    {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="list-wrapper">
                     <AutoSizer>
