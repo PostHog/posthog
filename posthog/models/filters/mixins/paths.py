@@ -32,10 +32,7 @@ FunnelPathsType = Literal["funnel_path_before_step", "funnel_path_between_steps"
 
 
 def remove_trailing_slash(input: Optional[str]) -> Optional[str]:
-    if not input:
-        return input
-
-    if len(input) > 1 and input.endswith("/"):
+    if input and len(input) > 1 and input.endswith("/"):
         return input[:-1]
     return input
 
