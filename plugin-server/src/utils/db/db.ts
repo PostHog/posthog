@@ -612,7 +612,7 @@ export class DB {
     ): Promise<Record<string, string>> {
         const query_options: string[] = []
         const args: any[] = [teamId]
-        let index = 2
+        let index = args.length + 1
         for (const gi of groupIdentifiers) {
             query_options.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
