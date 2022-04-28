@@ -1,19 +1,15 @@
-import {kea} from 'kea'
+import { kea } from 'kea'
 import api from 'lib/api'
-import {cohortsModel} from '~/models/cohortsModel'
-import {ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE} from 'lib/constants'
-import {cohortLogicType} from './cohortLogicType'
-import {Breadcrumb, CohortGroupType, CohortType, FilterLogicalOperator} from '~/types'
-import {
-    convertCohortCriteriaGroupToCohortGroups,
-    convertCohortGroupsToCohortCriteriaGroup,
-    convertPropertyGroupToProperties
-} from 'lib/utils'
-import {personsLogic} from 'scenes/persons/personsLogic'
-import {lemonToast} from 'lib/components/lemonToast'
-import {urls} from 'scenes/urls'
-import {router} from 'kea-router'
-import {featureFlagLogic} from "lib/logic/featureFlagLogic";
+import { cohortsModel } from '~/models/cohortsModel'
+import { ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { cohortLogicType } from './cohortLogicType'
+import { Breadcrumb, CohortGroupType, CohortType, FilterLogicalOperator } from '~/types'
+import { convertPropertyGroupToProperties } from 'lib/utils'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
@@ -43,19 +39,21 @@ function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType
 }
 
 function processCohortOnSet(cohort: CohortType, isGroup: boolean = false): CohortType {
-    // Process both `groups` and `filter` keys for backwards compatibility
-    const flattenedGroups = convertCohortCriteriaGroupToCohortGroups(cohort.groups)?.map(group => ({
-        ...addLocalCohortGroupId(group),
-        ...(group.properties ? {properties: convertPropertyGroupToProperties(group.properties)} : {})
-    })) ?? []
-
     return {
         ...cohort,
-        ...(isGroup ? {
-            filter: convertCohortGroupsToCohortCriteriaGroup(flattenedGroups)
-        } : {
-            groups: flattenedGroups
-        })
+        ...(isGroup
+            ? {
+                  properties: cohort.properties,
+              }
+            : {
+                  groups:
+                      cohort.groups?.map((group) => ({
+                          ...addLocalCohortGroupId(group),
+                          ...(group.properties
+                              ? { properties: convertPropertyGroupToProperties(group.properties) }
+                              : {}),
+                      })) ?? [],
+              }),
     }
 }
 
@@ -68,7 +66,10 @@ export const NEW_COHORT: CohortType = {
             properties: [],
         },
     ],
-    properties: convertCohortGroupsToCohortCriteriaGroup([])
+    properties: {
+        type: FilterLogicalOperator.Or,
+        values: [],
+    },
 }
 
 export interface CohortLogicProps {
@@ -89,11 +90,11 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
-        setOuterPropertyGroupsType: (type: FilterLogicalOperator) => ({type}),
-        setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({type, index}),
-        duplicateFilterGroup: (index: number) => ({index}),
+        setOuterPropertyGroupsType: (type: FilterLogicalOperator) => ({ type }),
+        setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
+        duplicateFilterGroup: (index: number) => ({ index }),
         addFilterGroup: true,
-        removeFilterGroup: (index: number) => ({index})
+        removeFilterGroup: (index: number) => ({ index }),
     }),
 
     reducers: () => ({
@@ -211,7 +212,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     selectors: {
         newCohortFiltersEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS]
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],
         ],
         breadcrumbs: [
             (s) => [s.cohort],

@@ -20,8 +20,8 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
-import {TaxonomicFilterGroupType} from "lib/components/TaxonomicFilter/types";
-import {BehavioralFilterKey} from "scenes/cohorts/CohortFilters/types";
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1541,12 +1541,7 @@ export interface PropertyGroupFilterValue {
 
 export interface CohortCriteriaGroupFilter {
     type: FilterLogicalOperator
-    values: CohortCriteriaGroupFilterValue[]
-}
-
-export interface CohortCriteriaGroupFilterValue {
-    type: FilterLogicalOperator
-    values: AnyCohortCriteriaType[]
+    values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
