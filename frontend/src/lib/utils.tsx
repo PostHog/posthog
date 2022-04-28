@@ -20,7 +20,6 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyType,
-    TimeUnitType,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1250,21 +1249,6 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
-}
-
-export function convertTimeIntervalToNumberOfDays(timeValue: number, timeUnit: TimeUnitType): number {
-    switch (timeUnit) {
-        case TimeUnitType.Day:
-            return timeValue
-        case TimeUnitType.Week:
-            return timeValue * 7
-        case TimeUnitType.Month:
-            return timeValue * 30
-        case TimeUnitType.Year:
-            return timeValue * 365
-        default:
-            return timeValue
-    }
 }
 
 export function isPropertyGroup(
