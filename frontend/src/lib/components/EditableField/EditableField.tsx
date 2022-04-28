@@ -120,7 +120,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onKeyDown={handleKeyDown}
+                                    onKeyDown={(e) => handleKeyDown(e as any)}
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
@@ -134,7 +134,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onKeyDown={handleKeyDown}
+                                    onKeyDown={(e) => handleKeyDown(e as any)}
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}

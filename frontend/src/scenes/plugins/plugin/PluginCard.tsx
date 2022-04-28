@@ -50,7 +50,7 @@ interface PluginCardProps {
     order?: number
     maxOrder?: number
     rearranging?: boolean
-    DragColumn?: React.ComponentClass | React.FC
+    DragColumn?: (props: { children: any }) => JSX.Element
     unorderedPlugin?: boolean
 }
 
