@@ -341,7 +341,9 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
     count = sync_execute(
         f"""
         SELECT COUNT(1)
-        FROM person
+        FROM (
+            SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+        ) as person
         WHERE {cohort_filter}
         """,
         {**cohort_params, "team_id": cohort.team_id, "cohort_id": cohort.pk},
