@@ -12,7 +12,6 @@
 }
 
 .insight-legend-menu {
-    padding: $default_spacing !important;
     box-shadow: none !important;
     border: 1px solid $border;
     background-color: $bg_light;
@@ -28,10 +27,6 @@
     .insight-legend-menu-scroll {
         .insight-legend-menu-item {
             width: 100%;
-
-            &:not(:last-child) {
-                margin-bottom: 0.5rem;
-            }
 
             .insight-legend-menu-item-inner {
                 cursor: pointer;

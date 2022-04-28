@@ -31,16 +31,30 @@
 # name: TestCohort.test_cohortpeople_action_count.10
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT behavior_query.person_id AS id
+       FROM
+         (SELECT pdi.person_id AS person_id,
+                 countIf(timestamp > now() - INTERVAL 3 day
+                         AND timestamp < now()
+                         AND ((event = '$pageview'))) = 1 AS performed_event_multiple_condition_level_level_level_0
+          FROM events e
+          INNER JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id
+             FROM person_distinct_id2
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+          WHERE team_id = 2
+            AND event IN ['$pageview']
+            AND timestamp <= now()
+            AND timestamp >= now() - INTERVAL 3 day
+          GROUP BY person_id) behavior_query
+       WHERE 1 = 1
+         AND (((performed_event_multiple_condition_level_level_level_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.11
@@ -50,14 +64,7 @@
   where cohort_id = 2
   '
 ---
-# name: TestCohort.test_cohortpeople_action_count.2
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.3
+# name: TestCohort.test_cohortpeople_action_count.12
   '
   
   SELECT count(*)
@@ -70,6 +77,93 @@
               cohort_id,
               team_id
      HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.13
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.14
+  '
+  
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT behavior_query.person_id AS id
+       FROM
+         (SELECT pdi.person_id AS person_id,
+                 countIf(timestamp > now() - INTERVAL 3 day
+                         AND timestamp < now()
+                         AND ((event = '$pageview'))) > 0 AS performed_event_condition_level_level_level_0
+          FROM events e
+          INNER JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id
+             FROM person_distinct_id2
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+          WHERE team_id = 2
+            AND event IN ['$pageview']
+            AND timestamp <= now()
+            AND timestamp >= now() - INTERVAL 3 day
+          GROUP BY person_id) behavior_query
+       WHERE 1 = 1
+         AND (((performed_event_condition_level_level_level_0))) )
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.15
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.2
+  '
+  
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT behavior_query.person_id AS id
+       FROM
+         (SELECT pdi.person_id AS person_id,
+                 countIf(timestamp > now() - INTERVAL 3 day
+                         AND timestamp < now()
+                         AND ((event = '$pageview'))) >= 2 AS performed_event_multiple_condition_level_level_level_0
+          FROM events e
+          INNER JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id
+             FROM person_distinct_id2
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+          WHERE team_id = 2
+            AND event IN ['$pageview']
+            AND timestamp <= now()
+            AND timestamp >= now() - INTERVAL 3 day
+          GROUP BY person_id) behavior_query
+       WHERE 1 = 1
+         AND (((performed_event_multiple_condition_level_level_level_0))) )
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.3
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.4
@@ -89,27 +183,56 @@
 ---
 # name: TestCohort.test_cohortpeople_action_count.5
   '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.6
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
+  SELECT COUNT(1)
+  FROM person
+  WHERE id IN
+      (SELECT behavior_query.person_id AS id
+       FROM
+         (SELECT pdi.person_id AS person_id,
+                 countIf(timestamp > now() - INTERVAL 3 day
+                         AND timestamp < now()
+                         AND ((event = '$pageview'))) <= 1 AS performed_event_multiple_condition_level_level_level_0
+          FROM events e
+          INNER JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id
+             FROM person_distinct_id2
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+          WHERE team_id = 2
+            AND event IN ['$pageview']
+            AND timestamp <= now()
+            AND timestamp >= now() - INTERVAL 3 day
+          GROUP BY person_id) behavior_query
+       WHERE 1 = 1
+         AND (((performed_event_multiple_condition_level_level_level_0))) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.7
+  '
+  SELECT person_id
+  FROM cohortpeople
+  where cohort_id = 2
+  '
+---
+# name: TestCohort.test_cohortpeople_action_count.8
   '
   
   SELECT count(*)
@@ -122,13 +245,6 @@
               cohort_id,
               team_id
      HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.8
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.9

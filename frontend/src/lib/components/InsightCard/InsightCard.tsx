@@ -26,7 +26,7 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
@@ -49,7 +49,8 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { AlertMessage } from '../InfoMessage/AlertMessage'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../AlertMessage'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -98,6 +99,10 @@ const displayMap: Record<
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
+    },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
     },
 }
 
@@ -171,14 +176,16 @@ function InsightMeta({
     areDetailsShown,
     setAreDetailsShown,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, color, filters, dashboard } = insight
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
+        (d: DashboardType) => !dashboards?.includes(d.id)
+    )
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -325,7 +332,7 @@ function InsightMeta({
                                                         Move to
                                                     </LemonButtonWithPopup>
                                                 )}
-                                                <LemonSpacer />
+                                                <LemonDivider />
                                                 {editable && (
                                                     <LemonButton
                                                         type="stealth"
@@ -345,7 +352,7 @@ function InsightMeta({
                                                 </LemonButton>
                                                 {editable && (
                                                     <>
-                                                        <LemonSpacer />
+                                                        <LemonDivider />
                                                         {removeFromDashboard ? (
                                                             <LemonButton
                                                                 type="stealth"
@@ -391,7 +398,7 @@ function InsightMeta({
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
                         <InsightDetails insight={insight} ref={detailsRef} />
                     </Transition>

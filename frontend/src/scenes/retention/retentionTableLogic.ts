@@ -27,6 +27,13 @@ const dateOptionToTimeIntervalMap = {
     Month: 'M',
 }
 
+export const dateOptionPlurals = {
+    Hour: 'hours',
+    Day: 'days',
+    Week: 'weeks',
+    Month: 'months',
+}
+
 export const retentionOptions = {
     [RETENTION_FIRST_TIME]: 'for the first time',
     [RETENTION_RECURRING]: 'recurringly',

@@ -11,11 +11,11 @@ from ee.clickhouse.sql.trends.volume import (
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
+from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -41,10 +41,10 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts}
         params = {**params, **math_params, **event_query_params}
 
-        if filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
@@ -61,11 +61,17 @@ class ClickhouseTrendsTotalVolume:
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
-                content_sql = VOLUME_SQL.format(event_query=cumulative_sql, **content_sql_params)
+                content_sql = VOLUME_SQL.format(
+                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                )
             else:
-                content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = VOLUME_SQL.format(
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                )
 
-            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
+            null_sql = NULL_SQL.format(
+                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter),
+            )
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to
@@ -88,15 +94,15 @@ class ClickhouseTrendsTotalVolume:
                 smoothing_operation=smoothing_operation,
                 aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
             )
-            return final_query, params, self._parse_total_volume_result(filter, entity, team.id)
+            return final_query, params, self._parse_total_volume_result(filter, entity, team)
 
-    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
+    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
                 parsed_result.update(
-                    {"persons_urls": self._get_persons_url(filter, entity, team_id, parsed_result["days"])}
+                    {"persons_urls": self._get_persons_url(filter, entity, team.pk, parsed_result["days"])}
                 )
                 parsed_results.append(parsed_result)
 

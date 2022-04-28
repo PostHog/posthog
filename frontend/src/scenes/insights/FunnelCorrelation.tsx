@@ -52,6 +52,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
     return (
         <>
+            <h2 style={{ margin: '1rem 0' }}>Correlation analysis</h2>
             <div className="funnel-correlation">
                 {isSkewed && (
                     <Card className="skew-warning">

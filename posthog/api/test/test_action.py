@@ -1,18 +1,11 @@
 from unittest.mock import patch
-from uuid import uuid4
 
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep, Organization, Tag
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(uuid=None, **kwargs):
-    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):

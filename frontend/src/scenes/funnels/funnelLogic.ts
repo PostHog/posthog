@@ -65,10 +65,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 
+/* Chosen via heuristics by eyeballing some values
+ * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+ * which gives a ballpark of 1 highlighting every 10 breakdown values
+ */
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
-// Chosen via heuristics by eyeballing some values
-// Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
-// which gives a ballpark of 1 highlighting every 10 breakdown values
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -412,7 +413,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     }),
 
     selectors: ({ selectors }) => ({
-        isLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
@@ -436,7 +436,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
             (s) => [s.filters],
             ({ funnel_window_interval, funnel_window_interval_unit }) => ({
@@ -730,7 +729,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 selectors.hiddenLegendKeys,
                 selectors.flattenedStepsByBreakdown,
             ],
-            (steps, hiddenLegendKeys, flattenedStepsByBreakdown) => {
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown): FunnelStepWithConversionMetrics[] => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
@@ -794,8 +793,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
                     const hasBaseline =
-                        layout === FunnelLayout.vertical &&
-                        (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
+                        !baseStep.breakdown ||
+                        (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({
@@ -827,8 +826,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                         (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
                                         (stepsInBreakdown[0]?.count ?? 1),
                                 },
-                                significant: stepsInBreakdown.some((step) =>
-                                    step.significant ? Object.values(step.significant).some((val) => val) : false
+                                significant: stepsInBreakdown.some(
+                                    (step) => step.significant?.total || step.significant?.fromPrevious
                                 ),
                             })
                         })

@@ -3,6 +3,12 @@
 $funnel_canvas_background: #fff;
 
 .insights-page {
+    h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
     .top-bar {
         width: 100%;
         .ant-tabs,
@@ -254,13 +260,14 @@ $funnel_canvas_background: #fff;
 .funnel-insights-container {
     padding: 24px;
     background-color: $funnel_canvas_background;
+    border-radius: 0 0 var(--radius) var(--radius);
 
     &.no-padding {
         padding: 0;
     }
 
     &.non-empty-state {
-        min-height: 400px;
+        min-height: 26rem;
         position: relative;
         margin-bottom: 0;
     }
@@ -277,5 +284,14 @@ $funnel_canvas_background: #fff;
             padding: 0;
             margin: 0 0 0 4px;
         }
+    }
+}
+
+.significance-highlight {
+    display: inline-flex;
+    background: var(--primary);
+    color: var(--bg-light);
+    .LemonRow__icon {
+        color: var(--bg-light);
     }
 }

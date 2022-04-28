@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -10,19 +10,30 @@ import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/components/LemonButton'
+import { RecentRecordings } from './RecentRecordings'
+import { RecentInsights } from './RecentInsights'
+import { NewlySeenPersons } from './NewlySeenPersons'
+import useSize from '@react-hook/size'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { realm } = useValues(preflightLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+    const topListContainerRef = useRef<HTMLDivElement | null>(null)
+    const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
         <div style={{ display: 'flex' }}>
@@ -51,6 +62,28 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="project-homepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+            {(featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS_EXPERIMENT] === 'test' || realm !== 'cloud') && (
+                <div
+                    ref={topListContainerRef}
+                    className={
+                        topListContainerWidth && topListContainerWidth < 600
+                            ? 'top-list-container-vertical'
+                            : 'top-list-container-horizontal'
+                    }
+                >
+                    <div className="top-list">
+                        <RecentInsights />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <NewlySeenPersons />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <RecentRecordings />
+                    </div>
+                </div>
+            )}
             {currentTeam?.primary_dashboard ? (
                 <div>
                     <div>
@@ -74,7 +107,7 @@ export function ProjectHomepage(): JSX.Element {
                                 Change dashboard
                             </LemonButton>
                         </Row>
-                        <LemonSpacer large />
+                        <LemonDivider large />
                     </div>
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}

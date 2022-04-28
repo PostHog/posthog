@@ -1,8 +1,7 @@
 import json
 from typing import Optional
-from uuid import uuid4
 
-from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
+from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -16,6 +15,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
 from posthog.models.utils import PersonPropertiesMode
+from posthog.test.base import _create_event, _create_person
 
 
 def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
@@ -46,18 +46,6 @@ def _filter_persons(filter: Filter, team: Team):
         {"team_id": team.pk, **prop_filter_params},
     )
     return [str(uuid) for uuid, _ in rows]
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return str(person.uuid)
-
-
-def _create_event(**kwargs):
-    uuid = uuid4()
-    kwargs.update({"event_uuid": uuid})
-    create_event(**kwargs)
-    return str(uuid)
 
 
 class TestFilters(PGTestFilters):
@@ -99,7 +87,7 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
+                        "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
                     }
                 },
             )
@@ -109,7 +97,7 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
+                        "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
                     }
                 },
             )
@@ -120,12 +108,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": {"type": "AND", "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk,}],}},
         )
 
     def test_simplify_hasdone_cohort(self):
@@ -134,12 +117,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
         )
 
     def test_simplify_multi_group_cohort(self):
@@ -151,12 +129,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
         )
 
     def test_recursive_cohort(self):
@@ -165,8 +138,7 @@ class TestFilters(PGTestFilters):
             groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
         )
         recursive_cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]}],
+            team=self.team, groups=[{"properties": [{"type": "cohort", "key": "id", "value": cohort.pk,}]}],
         )
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": recursive_cohort.pk}]})
 
@@ -185,12 +157,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}],
-                }
-            },
+            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 555_555,}],}},
         )
 
     def test_simplify_entities(self):

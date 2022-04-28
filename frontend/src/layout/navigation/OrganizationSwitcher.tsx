@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -75,7 +76,7 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
     return (
         <div>
             <h5>Organizations</h5>
-            <LemonSpacer />
+            <LemonDivider />
             {currentOrganization && (
                 <LemonRow status="highlighted" fullWidth icon={<Lettermark name={currentOrganization.name} />}>
                     <div className="SitePopover__main-info SitePopover__organization">

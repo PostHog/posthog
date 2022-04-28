@@ -1,13 +1,11 @@
 import json
 from datetime import datetime
 from unittest.mock import ANY
-from uuid import uuid4
 
 import pytest
 from django.core.cache import cache
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,
@@ -18,9 +16,8 @@ from ee.clickhouse.views.test.funnel.util import (
 )
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
-from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event, _create_person
 
 
 @pytest.mark.clickhouse_only
@@ -381,7 +378,7 @@ class FunnelCorrelationTest(BaseTest):
         self.client.force_login(self.user)
 
         for i in range(10):
-            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
             _create_event(
                 team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
             )
@@ -390,7 +387,7 @@ class FunnelCorrelationTest(BaseTest):
             )
 
         for i in range(10, 20):
-            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
             _create_event(
                 team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
             )
@@ -548,7 +545,7 @@ class FunnelCorrelationTest(BaseTest):
 
         # Need a minimum of 3 hits to get a correlation result
         for i in range(3):
-            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
             )
@@ -565,7 +562,7 @@ class FunnelCorrelationTest(BaseTest):
             )
 
         # Atleast one person that fails, to ensure we get results
-        create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
             team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
         )
@@ -632,12 +629,3 @@ def clear_django_cache():
 
 def create_team(organization):
     return Team.objects.create(name="Test Team", organization=organization)
-
-
-def create_person(**kwargs):
-    return Person.objects.create(**kwargs)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
