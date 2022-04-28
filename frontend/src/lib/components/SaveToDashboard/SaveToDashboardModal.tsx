@@ -17,7 +17,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
-import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonModal } from 'lib/components/LemonModal'
 
 interface SaveToDashboardModalProps {
@@ -95,44 +94,43 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
             visible={visible}
             title="add to dashboard"
             wrapClassName="add-to-dashboard-modal"
-            footer={
-                <div className="modal-row">
-                    <LemonButton type="secondary" compact={true} onClick={() => addNewDashboard()}>
-                        Add to a new dashboard
-                    </LemonButton>
-                    <LemonButton type="secondary" compact={true} onClick={() => closeModal()}>
-                        Close
-                    </LemonButton>
-                </div>
-            }
         >
-            <LemonInput
-                data-attr="dashboard-searchfield"
-                placeholder={`Search for dashboards...`}
-                value={searchQuery}
-                className={searchQuery && 'LemonInput--with-input'}
-                icon={<IconMagnifier />}
-                onChange={(newValue) => setSearchQuery(newValue)}
-            />
-            <div className={'existing-links-info'}>
-                This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards
-            </div>
-            <div className="list-wrapper">
-                <AutoSizer>
-                    {({ height, width }) => (
-                        <List
-                            width={width}
-                            height={height}
-                            rowCount={orderedDashboards.length}
-                            overscanRowCount={100}
-                            rowHeight={40}
-                            rowRenderer={renderItem}
-                            scrollToIndex={scrollIndex}
-                        />
-                    )}
-                </AutoSizer>
-            </div>
-            <LemonDivider />
+            <section>
+                <LemonInput
+                    data-attr="dashboard-searchfield"
+                    placeholder={`Search for dashboards...`}
+                    value={searchQuery}
+                    className={searchQuery && 'LemonInput--with-input'}
+                    icon={<IconMagnifier />}
+                    onChange={(newValue) => setSearchQuery(newValue)}
+                />
+                <div className={'existing-links-info'}>
+                    This insight is referenced on <strong>{insight.dashboards?.length}</strong> dashboards
+                </div>
+                <div className="list-wrapper">
+                    <AutoSizer>
+                        {({ height, width }) => (
+                            <List
+                                width={width}
+                                height={height}
+                                rowCount={orderedDashboards.length}
+                                overscanRowCount={100}
+                                rowHeight={40}
+                                rowRenderer={renderItem}
+                                scrollToIndex={scrollIndex}
+                            />
+                        )}
+                    </AutoSizer>
+                </div>
+            </section>
+            <section className="space-between-items">
+                <LemonButton type="secondary" compact={true} onClick={() => addNewDashboard()}>
+                    Add to a new dashboard
+                </LemonButton>
+                <LemonButton type="secondary" compact={true} onClick={() => closeModal()}>
+                    Close
+                </LemonButton>
+            </section>
         </LemonModal>
     )
 }
