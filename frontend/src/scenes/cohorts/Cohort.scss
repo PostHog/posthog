@@ -1,0 +1,10 @@
+.cohort-detail__matching-group {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 100%;
+
+  &.cohort-detail__matching-group--error {
+    border: 1px solid var(--danger);
+  }
+}

@@ -1,37 +1,43 @@
-import React, { CSSProperties, PropsWithChildren } from 'react'
+import React, {CSSProperties, PropsWithChildren} from 'react'
 import api from './api'
 import {
-    EventType,
-    FilterType,
     ActionFilter,
-    IntervalType,
-    dateMappingOption,
-    GroupActorType,
-    ActorType,
     ActionType,
-    PropertyFilterValue,
-    PropertyType,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
-    AnyPropertyFilter,
-    PropertyFilter,
-    CohortType,
-    CohortCriteriaGroupFilter,
+    ActorType,
+    AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPropertyFilter,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
     CohortCriteriaGroupFilterValue,
+    CohortType,
+    dateMappingOption,
+    EventType,
+    FilterLogicalOperator,
+    FilterType,
+    GroupActorType,
+    IntervalType,
+    PropertyFilter,
+    PropertyFilterValue,
+    PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
 } from '~/types'
 import equal from 'fast-deep-equal'
-import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
-import { AlignType } from 'rc-trigger/lib/interface'
-import { dayjs } from 'lib/dayjs'
-import { Spinner } from './components/Spinner/Spinner'
-import { getAppContext } from './utils/getAppContext'
-import { isValidPropertyFilter } from './components/PropertyFilters/utils'
-import { IconCopy } from './components/icons'
-import { lemonToast } from './components/lemonToast'
+import {tagColors} from 'lib/colors'
+import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE, WEBHOOK_SERVICES} from 'lib/constants'
+import {KeyMappingInterface} from 'lib/components/PropertyKeyInfo'
+import {AlignType} from 'rc-trigger/lib/interface'
+import {dayjs} from 'lib/dayjs'
+import {Spinner} from './components/Spinner/Spinner'
+import {getAppContext} from './utils/getAppContext'
+import {isValidPropertyFilter} from './components/PropertyFilters/utils'
+import {IconCopy} from './components/icons'
+import {lemonToast} from './components/lemonToast'
+import {BehavioralFilterKey} from "scenes/cohorts/CohortFilters/types";
+import {TaxonomicFilterGroupType} from "lib/components/TaxonomicFilter/types";
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1251,6 +1257,21 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
 
+export function convertTimeIntervalToNumberOfDays(timeValue: number, timeUnit: TimeUnitType): number {
+    switch (timeUnit) {
+        case TimeUnitType.Day:
+            return timeValue
+        case TimeUnitType.Week:
+            return timeValue * 7
+        case TimeUnitType.Month:
+            return timeValue * 30
+        case TimeUnitType.Year:
+            return timeValue * 365
+        default:
+            return timeValue
+    }
+}
+
 export function isPropertyGroup(
     properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
@@ -1267,9 +1288,11 @@ export function isCohortCriteriaGroup(
     criteria:
         | CohortCriteriaGroupFilter
         | CohortCriteriaGroupFilterValue
+        | AnyCohortCriteriaType[]
+        | AnyCohortCriteriaType
         | AnyCohortGroupType[]
-        | undefined
         | AnyCohortGroupType
+        | undefined
 ): criteria is CohortCriteriaGroupFilter {
     if (criteria) {
         return (
@@ -1297,15 +1320,38 @@ export function flattenPropertyGroup(
     return flattenedProperties
 }
 
+// Note, does not group properties into single matching group as that leads to convoluted parsing logic
 export function flattenCohortCriteriaGroup(
     flattenedCriteria: AnyCohortGroupType[],
-    criteriaGroup: CohortCriteriaGroupFilter | CohortCriteriaGroupFilterValue | AnyCohortGroupType
+    criteriaGroup: CohortCriteriaGroupFilter | CohortCriteriaGroupFilterValue | AnyCohortCriteriaType
 ): AnyCohortGroupType[] {
-    const obj: AnyCohortGroupType = {}
-    Object.keys(criteriaGroup).forEach(function (k) {
-        obj[k] = criteriaGroup[k]
-    })
-    if (!!obj && 'key' in obj) {
+    let obj: AnyCohortGroupType = {}
+
+    if (criteriaGroup.type === BehavioralFilterKey.Person && criteriaGroup.value === BehavioralEventType.HaveProperty) {
+        obj = {
+            matchType: PROPERTY_MATCH_TYPE,
+            id: Math.random().toString().substr(2, 5),
+            properties: [{
+                key: criteriaGroup.key,
+                operator: criteriaGroup.operator,
+                type: BehavioralFilterKey.Person,
+                value: criteriaGroup.value,
+                group_type_index: criteriaGroup.group_type_index
+            }],
+        }
+    } else if (criteriaGroup.type === BehavioralFilterKey.Behavioral && criteriaGroup.value === BehavioralEventType.PerformMultipleEvents) {
+        obj = {
+            matchType: ENTITY_MATCH_TYPE,
+            id: Math.random().toString().substr(2, 5),
+            days: String(convertTimeIntervalToNumberOfDays(criteriaGroup.time_value ?? 0, criteriaGroup.time_interval ?? TimeUnitType.Day)),
+            ...(criteriaGroup.event_type === TaxonomicFilterGroupType.Events ? {event_id: criteriaGroup.key}:{action_id: Number(criteriaGroup.key)}),
+            label: criteriaGroup.key,
+            count: criteriaGroup.operator_value ?? 1,
+            count_operator: criteriaGroup.operator ?? PropertyOperator.GreaterThanOrEqual,
+        }
+    }
+
+    if (isValidCohortGroup(obj)) {
         flattenedCriteria.push(obj)
     }
     if (isCohortCriteriaGroup(criteriaGroup)) {
@@ -1338,26 +1384,60 @@ export function convertPropertyGroupToProperties(
     return properties
 }
 
-export function convertCohortCriteriaToCohortCriteriaGroup(
+export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
+    return !((criteria.matchType === PROPERTY_MATCH_TYPE && !criteria.properties?.length) ||
+        (criteria.matchType === ENTITY_MATCH_TYPE && !(criteria.action_id || criteria.event_id)))
+}
+
+export function convertCohortGroupsToCohortCriteriaGroup(
     criteria: CohortCriteriaGroupFilter | AnyCohortGroupType[] | undefined
 ): CohortCriteriaGroupFilter {
     if (isCohortCriteriaGroup(criteria)) {
         return criteria
     }
     if (criteria && criteria.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: criteria }] }
+        return {
+            type: FilterLogicalOperator.Or,
+            values: criteria.filter(isValidCohortGroup).map((group) => {
+                if (group.matchType === PROPERTY_MATCH_TYPE) {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: group.properties?.map((property) => ({
+                            ...property,
+                            type: BehavioralFilterKey.Person,
+                            value: BehavioralEventType.HaveProperty,
+                        })) ?? []
+                    }
+                }
+                const eventType = !!group?.action_id ? TaxonomicFilterGroupType.Actions : TaxonomicFilterGroupType.Events
+                return {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: BehavioralFilterKey.Behavioral,
+                            value: BehavioralEventType.PerformMultipleEvents,
+                            event_type: eventType,
+                            operator: group.count_operator as PropertyOperator,
+                            operator_value: group.count,
+                            time_value: Number(group.days),
+                            time_interval: TimeUnitType.Day
+                        }
+                    ]
+                }
+            })
+        }
     }
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
-export function convertCohortCriteriaGroupToCohortCriteria(
+export function convertCohortCriteriaGroupToCohortGroups(
     criteria: CohortCriteriaGroupFilter | AnyCohortGroupType[] | undefined
 ): AnyCohortGroupType[] | undefined {
     if (isCohortCriteriaGroup(criteria)) {
         return flattenCohortCriteriaGroup([], criteria)
     }
     if (criteria) {
-        return criteria
+        return criteria.filter(isValidCohortGroup)
     }
     return criteria
 }

@@ -1,14 +1,19 @@
-import { kea } from 'kea'
+import {kea} from 'kea'
 import api from 'lib/api'
-import { cohortsModel } from '~/models/cohortsModel'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { cohortLogicType } from './cohortLogicType'
-import { Breadcrumb, CohortGroupType, CohortType } from '~/types'
-import { convertPropertyGroupToProperties } from 'lib/utils'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { lemonToast } from 'lib/components/lemonToast'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import {cohortsModel} from '~/models/cohortsModel'
+import {ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE} from 'lib/constants'
+import {cohortLogicType} from './cohortLogicType'
+import {Breadcrumb, CohortGroupType, CohortType, FilterLogicalOperator} from '~/types'
+import {
+    convertCohortCriteriaGroupToCohortGroups,
+    convertCohortGroupsToCohortCriteriaGroup,
+    convertPropertyGroupToProperties
+} from 'lib/utils'
+import {personsLogic} from 'scenes/persons/personsLogic'
+import {lemonToast} from 'lib/components/lemonToast'
+import {urls} from 'scenes/urls'
+import {router} from 'kea-router'
+import {featureFlagLogic} from "lib/logic/featureFlagLogic";
 
 function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
@@ -37,24 +42,24 @@ function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType
     }
 }
 
-function processCohortOnSet(cohort: CohortType): CohortType {
-    if (cohort.groups) {
-        cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
-        cohort.groups = cohort.groups.map((group) => {
-            if (group.properties) {
-                return {
-                    ...group,
-                    properties: convertPropertyGroupToProperties(group.properties),
-                }
-            }
-            return group
+function processCohortOnSet(cohort: CohortType, isGroup: boolean = false): CohortType {
+    // Process both `groups` and `filter` keys for backwards compatibility
+    const flattenedGroups = convertCohortCriteriaGroupToCohortGroups(cohort.groups)?.map(group => ({
+        ...addLocalCohortGroupId(group),
+        ...(group.properties ? {properties: convertPropertyGroupToProperties(group.properties)} : {})
+    })) ?? []
+
+    return {
+        ...cohort,
+        ...(isGroup ? {
+            filter: convertCohortGroupsToCohortCriteriaGroup(flattenedGroups)
+        } : {
+            groups: flattenedGroups
         })
     }
-
-    return cohort
 }
 
-export const NEW_COHORT: CohortType = processCohortOnSet({
+export const NEW_COHORT: CohortType = {
     id: 'new',
     groups: [
         {
@@ -63,7 +68,8 @@ export const NEW_COHORT: CohortType = processCohortOnSet({
             properties: [],
         },
     ],
-})
+    properties: convertCohortGroupsToCohortCriteriaGroup([])
+}
 
 export interface CohortLogicProps {
     id?: CohortType['id']
@@ -82,6 +88,12 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
+
+        setOuterPropertyGroupsType: (type: FilterLogicalOperator) => ({type}),
+        setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({type, index}),
+        duplicateFilterGroup: (index: number) => ({index}),
+        addFilterGroup: true,
+        removeFilterGroup: (index: number) => ({index})
     }),
 
     reducers: () => ({
@@ -197,6 +209,10 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     }),
 
     selectors: {
+        newCohortFiltersEnabled: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS]
+        ],
         breadcrumbs: [
             (s) => [s.cohort],
             (cohort): Breadcrumb[] => [

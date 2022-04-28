@@ -1,31 +1,34 @@
+import "./Cohort.scss"
 import React from 'react'
-import { useActions, useValues } from 'kea'
-import { Group, Field as KeaField } from 'kea-forms'
-import { Col, Divider, Row } from 'antd'
-import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
-import { CohortTypeEnum, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { PlusOutlined } from '@ant-design/icons'
+import {useActions, useValues} from 'kea'
+import {Field as KeaField, Group} from 'kea-forms'
+import {Col, Divider, Row} from 'antd'
+import {AvailableFeature, CohortGroupType, CohortType, FilterLogicalOperator} from '~/types'
+import {CohortTypeEnum, PROPERTY_MATCH_TYPE} from 'lib/constants'
+import {PlusOutlined} from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import { Persons } from 'scenes/persons/Persons'
-import { cohortLogic } from './cohortLogic'
-import { userLogic } from 'scenes/userLogic'
+import {Persons} from 'scenes/persons/Persons'
+import {cohortLogic} from './cohortLogic'
+import {userLogic} from 'scenes/userLogic'
 import 'antd/lib/dropdown/style/index.css'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from 'lib/components/LemonButton'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { Field } from 'lib/forms/Field'
-import { VerticalForm } from 'lib/forms/VerticalForm'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { IconUploadFile } from 'lib/components/icons'
-import { UploadFile } from 'antd/es/upload/interface'
-import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
-import { Tooltip } from 'lib/components/Tooltip'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {Spinner} from 'lib/components/Spinner/Spinner'
+import {SceneExport} from 'scenes/sceneTypes'
+import {LemonButton} from 'lib/components/LemonButton'
+import {PageHeader} from 'lib/components/PageHeader'
+import {LemonInput} from 'lib/components/LemonInput/LemonInput'
+import {Field} from 'lib/forms/Field'
+import {VerticalForm} from 'lib/forms/VerticalForm'
+import {LemonSelect, LemonSelectOptions} from 'lib/components/LemonSelect'
+import {LemonTextArea} from 'lib/components/LemonTextArea/LemonTextArea'
+import {IconUploadFile} from 'lib/components/icons'
+import {UploadFile} from 'antd/es/upload/interface'
+import {MatchCriteriaSelector} from 'scenes/cohorts/MatchCriteriaSelector'
+import {Tooltip} from 'lib/components/Tooltip'
+import {router} from 'kea-router'
+import {urls} from 'scenes/urls'
+import clsx from "clsx";
+import {AndOrFilterSelect} from "lib/components/PropertyGroupFilters/PropertyGroupFilters";
+import {convertCohortGroupsToCohortCriteriaGroup} from "lib/utils";
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -45,10 +48,11 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const logicProps = { id }
     const logic = cohortLogic(logicProps)
     const { deleteCohort, setCohort, onCriteriaChange } = useActions(logic)
-    const { cohort, cohortLoading } = useValues(logic)
+    const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+
+    console.log("COHORT", cohort, convertCohortGroupsToCohortCriteriaGroup(cohort.groups))
 
     const onAddGroup = (): void => {
         setCohort({
@@ -209,19 +213,37 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                         <Row gutter={24} className="mt">
                             <Col span={24}>
                                 <>
-                                    <div
-                                        className="ant-row ant-form-item ant-form-item-label"
-                                        style={{ display: 'flex' }}
+                                    <Row
+                                        align="middle"
+                                        justify="space-between"
+                                        wrap={false}
                                     >
-                                        <label htmlFor="groups" title="Matching criteria">
-                                            Matching criteria
-                                        </label>
-                                        <span>
-                                            Actors who match the following criteria will be part of the cohort.
-                                            Continuously updated automatically.
-                                        </span>
-                                    </div>
-                                    {cohort.groups.map((group: CohortGroupType, index: number) => (
+                                        <Row className="ant-form-item ant-form-item-label" style={{marginBottom: 0}}>
+                                            <label htmlFor="groups" title="Matching criteria">
+                                                Matching criteria
+                                            </label>
+                                            <span>
+                                                Actors who match the following criteria will be part of the cohort.
+                                                Continuously updated automatically.
+                                            </span>
+                                        </Row>
+                                        {newCohortFiltersEnabled && (
+                                            <Row align="middle" wrap={false} justify='space-between' className='pl'>
+                                                <AndOrFilterSelect
+                                                    value={cohort.properties.type}
+                                                    onChange={(value) => {
+                                                        set
+                                                    }}
+                                                    topLevelFilter={true}
+                                                    suffix='criteria'
+                                                />
+                                            </Row>
+                                        )}
+                                    </Row>
+                                    {newCohortFiltersEnabled ? (
+                                        JSON.stringify(cohort.properties)
+                                    ) : (
+                                      cohort.groups.map((group: CohortGroupType, index: number) => (
                                         <Group key={index} name={['groups', index]}>
                                             <div
                                                 style={{
@@ -262,10 +284,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                         )
                                                     }}
                                                 >
-                                                    {featureFlags[FEATURE_FLAGS.COHORT_FILTERS] ? (
-                                                        <div>New Matching</div>
-                                                    ) : (
-                                                        <MatchCriteriaSelector
+                                                    <MatchCriteriaSelector
                                                             onCriteriaChange={(newGroup) =>
                                                                 onCriteriaChange(newGroup, group.id)
                                                             }
@@ -273,14 +292,14 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                             group={group}
                                                             hideRemove={cohort.groups.length === 1}
                                                         />
-                                                    )}
                                                 </KeaField>
-                                                {index < cohort.groups.length - 1 && (
+                                                  {index < cohort.groups.length - 1 && (
                                                     <div className="stateful-badge or mt mb">OR</div>
                                                 )}
                                             </div>
                                         </Group>
-                                    ))}
+                                    ))
+                                    )}
                                 </>
                                 <span id="add" />
                                 <div style={{ marginTop: 8, marginBottom: 8 }}>

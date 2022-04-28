@@ -20,6 +20,8 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
+import {TaxonomicFilterGroupType} from "lib/components/TaxonomicFilter/types";
+import {BehavioralFilterKey} from "scenes/cohorts/CohortFilters/types";
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -335,12 +337,18 @@ export enum PropertyOperator {
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
     LessThan = 'lt',
+    LessThanOrEqual = 'lte',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
 }
 
 export enum SavedInsightsTabs {
@@ -567,9 +575,34 @@ export interface CohortGroupType {
     name?: string
 }
 
+// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
+// Synced with `posthog/models/property.py`
+export interface CohortCriteriaType {
+    key: string
+    value: BehavioralEventType
+    type: BehavioralFilterKey
+    operator?: PropertyOperator | null
+    group_type_index?: number | null
+    event_type?: TaxonomicFilterGroupType | null
+    operator_value?: number | null
+    time_value?: number | null
+    time_interval?: TimeUnitType | null
+    total_periods?: number | null
+    min_periods?: number | null
+    seq_event_type?: TaxonomicFilterGroupType | null
+    seq_event?: string | number | null
+    seq_time_value?: number | null
+    seq_time_interval?: TimeUnitType | null
+    negation?: boolean
+}
+
 export type EmptyCohortGroupType = Partial<CohortGroupType>
 
+export type EmptyCohortCriteriaType = Partial<CohortCriteriaType>
+
 export type AnyCohortGroupType = CohortGroupType | EmptyCohortGroupType
+
+export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
@@ -585,7 +618,8 @@ export interface CohortType {
     is_static?: boolean
     name?: string
     csv?: UploadFile
-    groups: CohortGroupType[]
+    groups: CohortGroupType[] // To be deprecated once `filter` takes over
+    properties: CohortCriteriaGroupFilter
 }
 
 export interface InsightHistory {
@@ -1512,7 +1546,7 @@ export interface CohortCriteriaGroupFilter {
 
 export interface CohortCriteriaGroupFilterValue {
     type: FilterLogicalOperator
-    values: AnyCohortGroupType[]
+    values: AnyCohortCriteriaType[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1768,23 +1802,6 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
-}
-
-export enum OperatorType {
-    Equals = 'equals',
-    NotEquals = 'not_equals',
-    Contains = 'contains',
-    NotContains = 'not_contains',
-    MatchesRegex = 'matches_regex',
-    NotMatchesRegex = 'not_matches_regex',
-    GreaterThan = 'gt',
-    LessThan = 'lt',
-    Set = 'set',
-    NotSet = 'not_set',
-    Between = 'between',
-    NotBetween = 'not_between',
-    Minimum = 'min',
-    Maximum = 'max',
 }
 
 export enum ValueOptionType {

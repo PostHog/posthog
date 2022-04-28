@@ -17,7 +17,7 @@ import {
     BehavioralEventType,
     BehavioralLifecycleType,
     DateOperatorType,
-    OperatorType,
+    PropertyOperator,
     PropertyMathType,
     TimeUnitType,
     ValueOptionType,
@@ -204,43 +204,52 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         label: 'Operators',
         type: FieldOptionsType.MathOperators,
         values: {
-            [OperatorType.Equals]: {
+            [PropertyOperator.Exact]: {
                 label: 'equals',
             },
-            [OperatorType.NotEquals]: {
+            [PropertyOperator.IsNot]: {
                 label: 'does not equal',
             },
-            [OperatorType.Contains]: {
+            [PropertyOperator.IContains]: {
                 label: 'contain',
             },
-            [OperatorType.NotContains]: {
+            [PropertyOperator.NotIContains]: {
                 label: 'does not contain',
             },
-            [OperatorType.MatchesRegex]: {
+            [PropertyOperator.Regex]: {
                 label: 'matches regex',
             },
-            [OperatorType.NotMatchesRegex]: {
+            [PropertyOperator.NotRegex]: {
                 label: 'does not match regex',
             },
-            [OperatorType.GreaterThan]: {
+            [PropertyOperator.GreaterThan]: {
                 label: 'greater than',
             },
-            [OperatorType.LessThan]: {
+            [PropertyOperator.GreaterThanOrEqual]: {
+                label: 'greater than or equal to',
+            },
+            [PropertyOperator.LessThan]: {
                 label: 'less than',
             },
-            [OperatorType.Set]: {
+            [PropertyOperator.LessThanOrEqual]: {
+                label: 'less than or equal to',
+            },
+            [PropertyOperator.IsSet]: {
                 label: 'is set',
             },
-            [OperatorType.NotSet]: {
+            [PropertyOperator.IsNotSet]: {
                 label: 'is not set',
             },
-            [OperatorType.NotBetween]: {
+            [PropertyOperator.Between]: {
+                label: 'between',
+            },
+            [PropertyOperator.NotBetween]: {
                 label: 'not between',
             },
-            [OperatorType.Minimum]: {
+            [PropertyOperator.Minimum]: {
                 label: 'minimum',
             },
-            [OperatorType.Maximum]: {
+            [PropertyOperator.Maximum]: {
                 label: 'maximum',
             },
         },
@@ -337,7 +346,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 key: 'operator',
                 type: FilterType.MathOperator,
-                value: OperatorType.Equals,
+                value: PropertyOperator.Exact,
             },
             {
                 type: FilterType.NumberTicker,
@@ -483,7 +492,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 key: 'operator',
                 type: FilterType.MathOperator,
-                value: OperatorType.Equals,
+                value: PropertyOperator.Exact,
             },
             {
                 key: 'value',
@@ -503,7 +512,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 key: 'operator',
                 type: FilterType.MathOperator,
-                value: OperatorType.Equals,
+                value: PropertyOperator.Exact,
             },
             {
                 key: 'value',
@@ -581,7 +590,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 key: 'operator',
                 type: FilterType.MathOperator,
-                value: OperatorType.Equals,
+                value: PropertyOperator.Exact,
             },
             {
                 key: 'operator_value',

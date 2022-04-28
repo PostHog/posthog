@@ -32,9 +32,19 @@ import {
     roundToDecimal,
     convertPropertyGroupToProperties,
     convertPropertiesToPropertyGroup,
+    convertCohortGroupsToCohortCriteriaGroup,
+    convertCohortCriteriaGroupToCohortGroups
 } from './utils'
-import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
+import {
+    ActionFilter, CohortCriteriaGroupFilter,
+    CohortGroupType,
+    ElementType,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyType
+} from '~/types'
 import { dayjs } from 'lib/dayjs'
+import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE} from "lib/constants";
 
 describe('toParams', () => {
     it('handles unusual input', () => {
@@ -593,6 +603,138 @@ describe('convertPropertiesToPropertyGroup', () => {
                     values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
                 },
             ],
+        })
+    })
+})
+
+describe('convertCohortCriteriaGroupToCohortGroups', () => {
+    it('converts a single layer cohort criteria group into an array of cohort groups', () => {
+        const groups = {
+            type: FilterLogicalOperator.Or,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            event_type: "events",
+                            operator: "gte",
+                            operator_value: 1,
+                            time_interval: "day",
+                            time_value: 1,
+                            type: "behavioral",
+                            value: "performed_event_multiple"
+                        }
+                    ]
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: "$geoip_continent_code",
+                            operator: "exact",
+                            type: "person",
+                            value: "have_property"
+                        },
+                        {
+                            key: "$geoip_continent_code",
+                            operator: "exact",
+                            type: "person",
+                            value: "have_property"
+                        }
+                    ]
+                }
+            ]
+        } as CohortCriteriaGroupFilter
+        expect(convertCohortCriteriaGroupToCohortGroups(groups)).toEqual([
+            { key: '$browser' },
+            { key: '$current_url' },
+            { key: '$lib' },
+        ])
+    })
+
+    it('converts a deeply nested property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
+    })
+})
+
+describe('convertCohortGroupsToCohortCriteriaGroup', () => {
+    it('converts groups to one OR operator cohort criteria group', () => {
+        const groups = [
+            {
+                matchType: ENTITY_MATCH_TYPE,
+                days: "1",
+                count: 1,
+                label: "$pageview",
+                event_id: "$pageview",
+                count_operator: "gte"
+            },
+            {
+                matchType: PROPERTY_MATCH_TYPE,
+                properties: [
+                    {
+                        key: "$geoip_continent_code",
+                        type: "person",
+                        value: [
+                            "AS"
+                        ],
+                        operator: "exact"
+                    },
+                    {
+                        key: "$geoip_continent_code",
+                        type: "person",
+                        value: [
+                            "US"
+                        ],
+                        operator: "exact"
+                    }
+                ],
+            }
+        ] as CohortGroupType[]
+        expect(convertCohortGroupsToCohortCriteriaGroup(groups)).toEqual({
+            type: "OR",
+            values: [
+                {
+                    type: "AND",
+                    values: [
+                        {
+                            event_type: "events",
+                            operator: "gte",
+                            operator_value: 1,
+                            time_interval: "day",
+                            time_value: 1,
+                            type: "behavioral",
+                            value: "performed_event_multiple"
+                        }
+                    ]
+                },
+                {
+                    type: "AND",
+                    values: [
+                        {
+                            key: "$geoip_continent_code",
+                            operator: "exact",
+                            type: "person",
+                            value: "have_property"
+                        },
+                        {
+                            key: "$geoip_continent_code",
+                            operator: "exact",
+                            type: "person",
+                            value: "have_property"
+                        }
+                    ]
+                }
+            ]
         })
     })
 })
