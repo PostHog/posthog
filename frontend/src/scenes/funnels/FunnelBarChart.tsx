@@ -203,13 +203,17 @@ function useFunnelBarChartTooltip(): React.RefObject<HTMLDivElement> {
                                     )}
                                     <tr>
                                         <td>Conversion so far</td>
-                                        <td>{humanFriendlyNumber(currentTooltip[1].conversionRates.total)}</td>
+                                        <td>{percentage(currentTooltip[1].conversionRates.total, 1, true)}</td>
                                     </tr>
-                                    <tr>
-                                        <td>Conversion from previous</td>
-                                        <td>{humanFriendlyNumber(currentTooltip[1].conversionRates.fromPrevious)}</td>
-                                    </tr>
-                                    {currentTooltip[1].average_conversion_time != null && (
+                                    {currentTooltip[0] > 0 && (
+                                        <tr>
+                                            <td>Conversion from previous</td>
+                                            <td>
+                                                {percentage(currentTooltip[1].conversionRates.fromPrevious, 1, true)}
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {currentTooltip[0] > 0 && currentTooltip[1].average_conversion_time != null && (
                                         <tr>
                                             <td>Average time from previous</td>
                                             <td>

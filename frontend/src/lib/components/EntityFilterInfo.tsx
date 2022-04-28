@@ -38,7 +38,7 @@ export function EntityFilterInfo({
     // No custom name
     if (!filter?.custom_name) {
         return (
-            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>
                 <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
                     {titleToDisplay}
                 </TextWrapper>
