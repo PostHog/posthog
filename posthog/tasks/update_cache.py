@@ -71,7 +71,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
             result = insight_result
         else:
             statsd.incr("update_cache_item_error")
-            raise RuntimeError("the provided filters_hash did not generate a result")
+            raise RuntimeError(f"the provided filters_hash did not generate a result: {filter}")
 
     finally:
         timer.stop()
