@@ -170,7 +170,7 @@ export class DB {
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
     /** Which teams is person info caching enabled on */
-    personInfoCachingEnabledTeams: Set<number>
+    personAndGroupsCachingEnabledTeams: Set<number>
 
     constructor(
         postgres: Pool,
@@ -178,8 +178,8 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper | undefined,
         clickhouse: ClickHouse | undefined,
         statsd: StatsD | undefined,
-        personInfoCacheTtl = 1,
-        personInfoCachingEnabledTeams: Set<number> = new Set<number>()
+        personAndGroupsCacheTtl = 1,
+        personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
@@ -187,8 +187,8 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
-        this.PERSONS_AND_GROUPS_CACHE_TTL = personInfoCacheTtl
-        this.personInfoCachingEnabledTeams = personInfoCachingEnabledTeams
+        this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
+        this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
     }
 
     // Postgres
@@ -465,7 +465,7 @@ export class DB {
     }
 
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonIdCacheKey(teamId, distinctId),
                 personId,
@@ -475,13 +475,13 @@ export class DB {
     }
 
     private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             await this.redisSet(this.getPersonUuidCacheKey(teamId, personId), uuid, this.PERSONS_AND_GROUPS_CACHE_TTL)
         }
     }
 
     private async updatePersonCreatedAtIsoCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonCreatedAtCacheKey(teamId, personId),
                 createdAtIso,
@@ -495,7 +495,7 @@ export class DB {
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonPropertiesCacheKey(teamId, personId),
                 properties,
@@ -510,7 +510,7 @@ export class DB {
         groupKey: string,
         properties: Properties
     ): Promise<void> {
-        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getGroupPropertiesCacheKey(teamId, groupTypeIndex, groupKey),
                 properties,
@@ -520,7 +520,7 @@ export class DB {
     }
 
     public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
-        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             return null
         }
         const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
@@ -544,7 +544,7 @@ export class DB {
     }
 
     public async getPersonDataByPersonId(teamId: number, personId: number): Promise<PersonData | null> {
-        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             return null
         }
         const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
@@ -597,7 +597,7 @@ export class DB {
             this.getGroupPropertiesCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
             null
         )
-        return { identifier: groupIdentifier, properties: props !== null ? (props as Properties) : null }
+        return { identifier: groupIdentifier, properties: props ? (props as Properties) : null }
     }
 
     private async getGroupPropertiesFromDbAndUpdateCache(
@@ -632,7 +632,7 @@ export class DB {
             const index = Number(row.group_type_index)
             const key = String(row.group_key)
             const properties = row.group_properties as Properties
-            notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key == key))
+            notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key === key))
             void this.updateGroupPropertiesCache(teamId, index, key, properties)
             res[`group${index}_properties`] = JSON.stringify(properties)
         }
@@ -645,7 +645,7 @@ export class DB {
     }
 
     public async getGroupProperties(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!this.personInfoCachingEnabledTeams.has(teamId) || !groups) {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
             return {}
         }
         const promises = groups.map((groupIdentifier) => {
