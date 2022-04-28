@@ -13,6 +13,8 @@ services:
         image: 'redis:6.2-alpine'
         ports:
             - '6379:6379'
+        command: redis-server --maxmemory-policy volatile-lru --maxmemory 100mb
+
     clickhouse:
         #
         # Note: please keep the default version in sync across

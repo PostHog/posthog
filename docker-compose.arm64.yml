@@ -13,6 +13,7 @@ services:
         image: 'redis:alpine'
         ports:
             - '6379:6379'
+        command: redis-server --maxmemory-policy volatile-lru --maxmemory 100mb
     clickhouse:
         #
         # Custom ClickHouse image for ARM64 architecture.
