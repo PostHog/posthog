@@ -131,6 +131,10 @@ body strong {
     font-size: 8px;
 }
 
+.no-wrap {
+    white-space: nowrap !important;
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;

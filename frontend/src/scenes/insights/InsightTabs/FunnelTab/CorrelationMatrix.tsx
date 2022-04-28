@@ -114,7 +114,7 @@ export function CorrelationMatrix(): JSX.Element {
                                                     openCorrelationPersonsModal(funnelCorrelationDetails, true)
                                                 }}
                                             >
-                                                {pluralize(truePositive, 'user', undefined, true, true)}
+                                                {pluralize(truePositive, 'user', undefined, true)}
                                             </Link>
                                         )}
                                     </td>
@@ -136,7 +136,7 @@ export function CorrelationMatrix(): JSX.Element {
                                                     openCorrelationPersonsModal(funnelCorrelationDetails, false)
                                                 }}
                                             >
-                                                {pluralize(falseNegative, 'user', undefined, true, true)}
+                                                {pluralize(falseNegative, 'user', undefined, true)}
                                             </Link>
                                         )}
                                     </td>
@@ -153,7 +153,7 @@ export function CorrelationMatrix(): JSX.Element {
                                                     : '0.00%'}
                                             </Tooltip>
                                         </div>
-                                        {pluralize(falsePositive, 'user', undefined, true, true)}
+                                        {pluralize(falsePositive, 'user', undefined, true)}
                                     </td>
                                     <td>
                                         <div className="percentage">
@@ -165,7 +165,7 @@ export function CorrelationMatrix(): JSX.Element {
                                                     : '0.00%'}
                                             </Tooltip>
                                         </div>
-                                        {pluralize(trueNegative, 'user', undefined, true, true)}
+                                        {pluralize(trueNegative, 'user', undefined, true)}
                                     </td>
                                 </tr>
                                 <tr>
