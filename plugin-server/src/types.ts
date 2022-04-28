@@ -258,6 +258,10 @@ export interface Plugin {
     tag?: string
     archive: Buffer | null
     source?: string
+    source_frontend?: string
+    source_decide?: string
+    transpiled_frontend?: string
+    transpiled_decide?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean

@@ -4,6 +4,7 @@ import * as path from 'path'
 import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getFileFromArchive, pluginDigest } from '../../utils/utils'
+import { transpileDecide, transpileFrontend } from './transpile'
 
 export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
@@ -72,9 +73,30 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 pluginConfig.vm?.failInitialization!()
                 await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
-        } else if (plugin.plugin_type === 'source' && plugin.source) {
-            void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
-            return true
+        } else if (plugin.plugin_type === 'source') {
+            if (plugin.source_frontend && !plugin.transpiled_frontend) {
+                const transpiled = transpileFrontend(plugin.source_frontend)
+                await server.db.postgresQuery(
+                    `update posthog_plugin set transpiled_frontend = ? where plugin_id = ?`,
+                    [transpiled, plugin.id],
+                    'setPluginTranspiledFrontend'
+                )
+            }
+            if (plugin.source_decide && !plugin.transpiled_decide) {
+                const transpiled = transpileDecide(plugin.source_decide)
+                await server.db.postgresQuery(
+                    `update posthog_plugin set transpiled_decide = ? where plugin_id = ?`,
+                    [transpiled, plugin.id],
+                    'setPluginTranspiledDecide'
+                )
+            }
+            if (plugin.source) {
+                void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
+                return true
+            } else {
+                pluginConfig.vm?.failInitialization!()
+                await processError(server, pluginConfig, `Could not load source code for ${pluginDigest(plugin)}!`)
+            }
         } else {
             pluginConfig.vm?.failInitialization!()
             await processError(
