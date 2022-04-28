@@ -158,7 +158,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
     )
 }
 
-/** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
+/** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 2
 
 function useFunnelBarChartTooltip(): React.RefObject<HTMLDivElement> {
@@ -192,13 +192,15 @@ function useFunnelBarChartTooltip(): React.RefObject<HTMLDivElement> {
                             <table>
                                 <tbody>
                                     <tr>
-                                        <td>Converted</td>
+                                        <td>{currentTooltip[0] === 0 ? 'Entered' : 'Converted'}</td>
                                         <td>{humanFriendlyNumber(currentTooltip[1].count)}</td>
                                     </tr>
-                                    <tr>
-                                        <td>Dropped off</td>
-                                        <td>{humanFriendlyNumber(currentTooltip[1].droppedOffFromPrevious)}</td>
-                                    </tr>
+                                    {currentTooltip[0] > 0 && (
+                                        <tr>
+                                            <td>Dropped off</td>
+                                            <td>{humanFriendlyNumber(currentTooltip[1].droppedOffFromPrevious)}</td>
+                                        </tr>
+                                    )}
                                     <tr>
                                         <td>Conversion so far</td>
                                         <td>{humanFriendlyNumber(currentTooltip[1].conversionRates.total)}</td>
@@ -209,7 +211,7 @@ function useFunnelBarChartTooltip(): React.RefObject<HTMLDivElement> {
                                     </tr>
                                     {currentTooltip[1].average_conversion_time != null && (
                                         <tr>
-                                            <td>Average time</td>
+                                            <td>Average time from previous</td>
                                             <td>
                                                 {humanFriendlyDuration(currentTooltip[1].average_conversion_time, 3)}
                                             </td>
