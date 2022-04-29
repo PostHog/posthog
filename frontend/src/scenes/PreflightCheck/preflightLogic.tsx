@@ -64,8 +64,23 @@ export const preflightLogic = kea<preflightLogicType<CheckInterface, Environment
                 return [
                     {
                         id: 'database',
-                        name: 'Database (Postgres)',
+                        name: 'Application database (Postgres)',
                         status: preflight?.db,
+                    },
+                    {
+                        id: 'clickhouse',
+                        name: 'Analytics database (ClickHouse)',
+                        status: preflight?.clickhouse,
+                    },
+                    {
+                        id: 'eventService',
+                        name: 'Event service',
+                        status: preflight?.event_service,
+                    },
+                    {
+                        id: 'kafka',
+                        name: 'Queue (Kafka)',
+                        status: preflight?.kafka,
                     },
                     {
                         id: 'backend',
@@ -74,7 +89,7 @@ export const preflightLogic = kea<preflightLogicType<CheckInterface, Environment
                     },
                     {
                         id: 'redis',
-                        name: 'Cache & queue (Redis)',
+                        name: 'Cache (Redis)',
                         status: preflight?.redis,
                     },
                     {
@@ -92,7 +107,7 @@ export const preflightLogic = kea<preflightLogicType<CheckInterface, Environment
                     {
                         id: 'frontend',
                         name: 'Frontend build (Webpack)',
-                        status: true,
+                        status: true, // If this page is shown, the frontend is working
                     },
                     {
                         id: 'tls',

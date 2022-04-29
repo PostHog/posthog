@@ -29,6 +29,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+import requests
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -540,6 +541,37 @@ def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
         return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
+    except BaseException:
+        return False
+
+
+def is_clickhouse_alive() -> bool:
+    from posthog.client import sync_execute
+
+    try:
+        sync_execute("SELECT 1")
+        return True
+    except BaseException:
+        return False
+
+
+def is_kafka_alive() -> bool:
+    from ee.kafka_client.client import can_connect
+
+    return can_connect()
+
+
+def is_event_service_alive() -> bool:
+    absolute_url = absolute_uri("/e/")
+
+    # Somewhat confusing, but we don't want to make a valid
+    # request to the event service, because we don't want to
+    # accidentally create an event. So we just send a HEAD
+    # request (which will fail because there's no body) and
+    # verify the event service properly failed on the response.
+    try:
+        r = requests.head(absolute_url)
+        return r.status_code == 400
     except BaseException:
         return False
 
