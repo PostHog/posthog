@@ -12,7 +12,7 @@ import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, stalenessCheck, UUIDT } from '../utils/utils'
+import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -287,7 +287,7 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverInstance as ServerInstance, serverConfig)
+        httpServer = createHttpServer(hub, serverConfig)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
