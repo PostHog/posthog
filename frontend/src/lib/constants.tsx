@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     ONBOARDING_1: 'onboarding-1', // owner: @liyiy
+    MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
 }
 

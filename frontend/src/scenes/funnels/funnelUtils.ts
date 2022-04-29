@@ -80,7 +80,7 @@ export function getSeriesColor(
         return 'var(--primary)'
     }
     if (typeof index === 'number' && index >= 0) {
-        return getChartColors('white', numSeries)[index]
+        return getChartColors('white', Math.max(numSeries || 0, index + 1))[index]
     }
     return fallbackColor ?? getChartColors('white')[0]
 }

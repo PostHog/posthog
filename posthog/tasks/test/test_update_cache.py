@@ -1,4 +1,6 @@
+from copy import copy
 from datetime import timedelta
+from typing import Any, Dict
 from unittest import skip
 from unittest.mock import MagicMock, patch
 
@@ -25,13 +27,19 @@ class TestUpdateCache(APIBaseTest):
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
         # Any dashboard accessed in the last 7 days
-        filter_dict = {
+        filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         filter = Filter(data=filter_dict)
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
+
+        # we don't want insight and tile to have the same id,
+        # or we can accidentally select the insight by selecting the tile
+        some_different_filters = copy(filter_dict)
+        some_different_filters.update({"date_from": "-14d"})
+        Insight.objects.create(filters=some_different_filters, team=self.team)
 
         item = Insight.objects.create(filters=filter.to_dict(), team=self.team)
         DashboardTile.objects.create(insight=item, dashboard=shared_dashboard)
@@ -43,6 +51,8 @@ class TestUpdateCache(APIBaseTest):
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(), team=self.team,
         )
         DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        dashboard_to_cache.filters = {"date_from": "-7d"}
+        dashboard_to_cache.save()
 
         dashboard_do_not_cache = Dashboard.objects.create(
             team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
@@ -318,7 +328,7 @@ class TestUpdateCache(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
-        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we woul donly update one of those
+        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we would only update one of those
         dashboard1: Dashboard = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
         dashboard2: Dashboard = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
         dashboard3: Dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
@@ -333,11 +343,6 @@ class TestUpdateCache(APIBaseTest):
 
         DashboardTile.objects.create(insight=item1, dashboard=dashboard1)
 
-        # saving the dashboard overwrites the original filters_hash with one that includes the dashboard's filters
-        dashboard1.save()
-        item1.refresh_from_db()
-        self.assertNotEqual(item1.filters_hash, filters_hash_with_no_dashboard)
-
         # link another insight to a dashboard with a filter
         item2 = Insight.objects.create(filters=filter, team=self.team)
         DashboardTile.objects.create(insight=item2, dashboard=dashboard2)
@@ -350,9 +355,16 @@ class TestUpdateCache(APIBaseTest):
 
         update_cached_items()
 
-        self._assert_length_of_data_cached_for_insight(0, 15)
-        self._assert_length_of_data_cached_for_insight(1, 31)
-        self._assert_length_of_data_cached_for_insight(2, 8)
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item1, dashboard=dashboard1), number_of_days_in_results=15
+        )
+
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item2, dashboard=dashboard2), number_of_days_in_results=31
+        )
+        self._assert_number_of_days_in_results(
+            DashboardTile.objects.get(insight=item3, dashboard=dashboard3), number_of_days_in_results=8
+        )
 
         self.assertEqual(
             Insight.objects.all().order_by("id")[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
@@ -364,17 +376,10 @@ class TestUpdateCache(APIBaseTest):
             Insight.objects.all().order_by("id")[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
         )
 
-        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-
-        # TODO: assert each items cache has the right number of days and the right filters hash
-
-    def _assert_length_of_data_cached_for_insight(self, insight_index: int, expected_number_of_results: int) -> None:
-        insights = Insight.objects.all().order_by("id")
-        cache_result = get_safe_cache(insights[insight_index].filters_hash)
+    def _assert_number_of_days_in_results(self, dashboard_tile: DashboardTile, number_of_days_in_results: int) -> None:
+        cache_result = get_safe_cache(dashboard_tile.filters_hash)
         number_of_results = len(cache_result["result"][0]["data"])
-        self.assertEqual(number_of_results, expected_number_of_results)
+        self.assertEqual(number_of_results, number_of_days_in_results)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @skip(
