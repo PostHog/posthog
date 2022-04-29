@@ -499,7 +499,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         names = ["event", "properties", "distinct_id", "timestamp"]
 
-        _inner_fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"]
+        _inner_fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id AS person_id"]
         _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
 
