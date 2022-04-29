@@ -1,7 +1,5 @@
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
-import { getContext } from 'kea'
+import { Provider } from 'kea'
 import { initKea } from '~/initKea'
 import { Dashboard } from './Dashboard'
 import { Col, Row } from 'antd'
@@ -10,15 +8,17 @@ import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import '~/styles'
 import './DashboardItems.scss'
 import { DashboardPlacement } from '~/types'
+import { createRoot } from 'react-dom/client'
 
 loadPostHogJS()
 initKea()
 
 const dashboard = (window as any).__SHARED_DASHBOARD__
 const isEmbedded = window.location.search.includes('embedded')
-
-ReactDOM.render(
-    <Provider store={getContext().store}>
+const rootDiv = document.getElementById('root')
+const root = rootDiv ? createRoot(rootDiv) : null
+root?.render(
+    <Provider>
         <div style={{ minHeight: '100vh', top: 0, padding: !isEmbedded ? '1rem' : '0.5rem 1rem' }}>
             {!isEmbedded ? (
                 <Row align="middle">
@@ -63,6 +63,5 @@ ReactDOM.render(
                 </a>
             </div>
         </div>
-    </Provider>,
-    document.getElementById('root')
+    </Provider>
 )

@@ -1,9 +1,8 @@
 import '~/styles'
 
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
-import { getContext } from 'kea'
+import { createRoot } from 'react-dom/client'
+import { getContext, Provider } from 'kea'
 
 import { App } from 'scenes/App'
 import { initKea } from './initKea'
@@ -27,13 +26,13 @@ if (typeof window !== 'undefined') {
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
-        ReactDOM.render(
-            <Provider store={getContext().store}>
+        const reactRoot = createRoot(root)
+        reactRoot.render(
+            <Provider>
                 <ErrorBoundary>
                     <App />
                 </ErrorBoundary>
-            </Provider>,
-            root
+            </Provider>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')

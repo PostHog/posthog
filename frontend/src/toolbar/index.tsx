@@ -3,10 +3,9 @@ import '~/styles'
 import './styles.scss'
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import Simmer from '@posthog/simmerjs'
-import { getContext } from 'kea'
-import { Provider } from 'react-redux'
+import { getContext, Provider } from 'kea'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { EditorProps } from '~/types'
@@ -23,16 +22,16 @@ import { PostHog } from 'posthog-js'
         )
     }
 
-    ReactDOM.render(
-        <Provider store={getContext().store}>
+    const root = createRoot(container)
+    root.render(
+        <Provider>
             <ToolbarApp
                 {...editorParams}
                 actionId={parseInt(String(editorParams.actionId))}
                 jsURL={editorParams.jsURL || editorParams.apiURL}
                 posthog={posthog}
             />
-        </Provider>,
-        container
+        </Provider>
     )
 }
 

@@ -1,7 +1,5 @@
-import { useValues, getContext, useActions } from 'kea'
-import { Provider } from 'react-redux'
+import { useValues, useActions, Provider } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
@@ -12,6 +10,7 @@ import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
+import { createRoot } from 'react-dom/client'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
@@ -32,8 +31,9 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         tooltipEl.style.opacity = tooltipOpacity.toString()
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipCoordinates) {
-            ReactDOM.render(
-                <Provider store={getContext().store}>
+            ;(tooltipEl as any).__root = createRoot(tooltipEl)
+            ;(tooltipEl as any).__root.render(
+                <Provider>
                     {currentTooltip && (
                         <InsightTooltip
                             seriesData={[
@@ -63,8 +63,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
                         />
                     )}
-                </Provider>,
-                tooltipEl
+                </Provider>
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
             let xOffset: number

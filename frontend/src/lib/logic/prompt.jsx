@@ -1,5 +1,5 @@
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { kea } from 'kea'
 import { Modal, Input, Form } from 'antd'
 
@@ -92,12 +92,12 @@ export function cancellablePrompt(config) {
     const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
         document.body.appendChild(div)
+        const root = createRoot(div)
         // eslint-disable-next-line no-use-before-define
         let currentConfig = { ...config, close, visible: true }
 
         function destroy(value) {
-            const unmountResult = ReactDOM.unmountComponentAtNode(div)
-            if (unmountResult && div.parentNode) {
+            if (div.parentNode) {
                 div.parentNode.removeChild(div)
             }
             if (value !== undefined) {
@@ -105,10 +105,11 @@ export function cancellablePrompt(config) {
             } else {
                 reject(value)
             }
+            root.unmount()
         }
 
         function render(props) {
-            ReactDOM.render(<Prompt {...props} />, div)
+            root.render(<Prompt {...props} />, div)
         }
 
         function close(value) {
