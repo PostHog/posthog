@@ -323,7 +323,15 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         ],
     }),
     selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
+        items: [
+            () => [selectors.allItems],
+            (allItems) =>
+                /**
+                 * filters here are not for results from API
+                 * but for changes made in the UI e.g. moving insight between dashboards
+                 **/
+                allItems?.items?.filter((i) => !i.deleted).filter((i) => (i.dashboards || []).includes(props.id || -1)),
+        ],
         itemsLoading: [
             () => [selectors.allItemsLoading, selectors.refreshStatus],
             (allItemsLoading, refreshStatus) => {
