@@ -1,7 +1,7 @@
 # name: TestCohortQuery.test_basic_query
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT person.person_id AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day

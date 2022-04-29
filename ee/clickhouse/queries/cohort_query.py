@@ -216,14 +216,15 @@ class CohortQuery(EnterpriseEventQuery):
                     and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
                 ):
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                    fields = f"{subq_alias}.person_id"
                 else:
                     q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                    fields = if_condition(
+                        f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
+                        f"{subq_alias}.person_id",
+                        f"{fields}",
+                    )
 
-                fields = if_condition(
-                    f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
-                    f"{subq_alias}.person_id",
-                    f"{fields}",
-                )
             prev_alias = subq_alias
 
         return q, fields
