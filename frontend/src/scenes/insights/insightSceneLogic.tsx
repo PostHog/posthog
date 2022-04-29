@@ -164,7 +164,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                         {
                             ...createEmptyInsight('new'),
                             ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
-                            ...(dashboard ? { dashboard } : {}),
+                            ...(dashboard ? { dashboards: [dashboard] } : {}),
                         },
                         {
                             fromPersistentApi: false,

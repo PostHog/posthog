@@ -13,6 +13,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class PersonQuery:
@@ -63,15 +64,15 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self, prepend: str = "") -> Tuple[str, Dict]:
         fields = "id" + " ".join(
             f", argMax({column_name}, _timestamp) as {alias}" for column_name, alias in self._get_fields()
         )
 
-        person_filters, params = self._get_person_filters()
+        person_filters, params = self._get_person_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
         limit_offset, limit_params = self._get_limit_offset()
-        search_clause, search_params = self._get_search_clause()
+        search_clause, search_params = self._get_search_clause(prepend=prepend)
 
         return (
             f"""
@@ -83,7 +84,7 @@ class PersonQuery:
             HAVING max(is_deleted) = 0 {person_filters} {search_clause}
             {limit_offset}
         """,
-            {**params, **cohort_params, **limit_params, **search_params},
+            {**params, **cohort_params, **limit_params, **search_params, "team_id": self._team_id},
         )
 
     @property
@@ -117,13 +118,14 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_person_filters(self) -> Tuple[str, Dict]:
+    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
         return parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
             has_person_id_joined=False,
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
+            prepend=prepend,
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
@@ -168,7 +170,7 @@ class PersonQuery:
 
         return clause, params
 
-    def _get_search_clause(self) -> Tuple[str, Dict]:
+    def _get_search_clause(self, prepend: str = "") -> Tuple[str, Dict]:
 
         if not isinstance(self._filter, Filter):
             return "", {}
@@ -181,20 +183,21 @@ class PersonQuery:
             search_clause, params = parse_prop_grouped_clauses(
                 self._team_id,
                 prop_group,
-                prepend="search",
+                prepend=f"search_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
             )
 
-            distinct_id_clause = """
+            distinct_id_param = f"distinct_id_{prepend}"
+            distinct_id_clause = f"""
             id IN (
-                SELECT person_id FROM person_distinct_id where distinct_id = %(distinct_id)s
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %({distinct_id_param})s
             )
             """
 
-            params.update({"distinct_id": self._filter.search})
+            params.update({distinct_id_param: self._filter.search})
 
             return f"AND (({search_clause}) OR ({distinct_id_clause}))", params
 

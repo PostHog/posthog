@@ -1,6 +1,7 @@
 import json
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
+import structlog
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -35,7 +36,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
-    FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -46,7 +46,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.models import Filter, Insight, Team
+from posthog.models import DashboardTile, Filter, Insight, Team
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Detail,
@@ -59,11 +59,11 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.insight import InsightViewed
+from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
-from posthog.tasks.update_cache import update_dashboard_item_cache
+from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import (
     format_query_params_absolute_url,
     get_safe_cache,
@@ -71,6 +71,8 @@ from posthog.utils import (
     should_refresh,
     str_to_bool,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -85,8 +87,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "short_id",
             "name",
             "filters",
-            "dashboard",
-            "color",
+            "dashboards",
             "description",
             "last_refresh",
             "refreshing",
@@ -110,6 +111,18 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
+    dashboards = serializers.PrimaryKeyRelatedField(
+        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        many=True,
+        required=False,
+        queryset=Dashboard.objects.filter(deleted=False),
+    )
+    filters_hash = serializers.CharField(
+        read_only=True,
+        help_text="""A hash of the filters that generate this insight.
+        Used as a cache key for this result.
+        A different hash will be returned if loading the insight on a dashboard that has filters.""",
+    )
 
     class Meta:
         model = Insight
@@ -122,9 +135,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "filters_hash",
             "order",
             "deleted",
-            "dashboard",
-            "layouts",
-            "color",
+            "dashboards",
             "last_refresh",
             "refreshing",
             "result",
@@ -159,36 +170,36 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
-        if not validated_data.get("dashboard", None):
-            dashboard_item = Insight.objects.create(
-                team=team, created_by=request.user, last_modified_by=request.user, **validated_data
-            )
-        elif validated_data["dashboard"].team == team:
-            created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = Insight.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
-            )
-        else:
-            raise serializers.ValidationError("Dashboard not found")
+        created_by = validated_data.pop("created_by", request.user)
+        dashboards = validated_data.pop("dashboards", None)
+
+        insight = Insight.objects.create(
+            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+        )
+
+        if dashboards is not None:
+            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+                if dashboard.team != insight.team:
+                    raise serializers.ValidationError("Dashboard not found")
+                DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard_item)
+        self._attempt_set_tags(tags, insight)
 
         name_for_logged_activity = (
-            dashboard_item.name
-            if dashboard_item.name is not None and len(dashboard_item.name) > 0
-            else dashboard_item.derived_name
+            insight.name if insight.name is not None and len(insight.name) > 0 else insight.derived_name
         )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            item_id=dashboard_item.id,
+            item_id=insight.id,
             scope="Insight",
             activity="created",
-            detail=Detail(name=name_for_logged_activity, short_id=dashboard_item.short_id),
+            detail=Detail(name=name_for_logged_activity, short_id=insight.short_id),
         )
-        return dashboard_item
+        return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
@@ -201,6 +212,21 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+        dashboards = validated_data.pop("dashboards", None)
+        if dashboards is not None:
+            old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
+            new_dashboard_ids = [d.id for d in dashboards]
+
+            ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+            ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+
+            for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                if dashboard.team != instance.team:
+                    raise serializers.ValidationError("Dashboard not found")
+                DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+
+            if ids_to_remove:
+                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
         updated_insight = super().update(instance, validated_data)
 
@@ -226,10 +252,29 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
-        if should_refresh(self.context["request"]):
-            return update_dashboard_item_cache(insight, None)
 
-        result = get_safe_cache(insight.filters_hash)
+        dashboard = self.context.get("dashboard", None)
+
+        if should_refresh(self.context["request"]):
+            return update_insight_cache(insight, dashboard)
+
+        cache_key = insight.filters_hash
+        if dashboard is not None:
+            dashboard_tile: Optional[DashboardTile] = (
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+            )
+            if dashboard_tile is not None:
+                cache_key = dashboard_tile.filters_hash
+                if cache_key is None:
+                    # the DashboardTile hasn't had a filters_hash added yet
+                    # TODO need to run a migration after 0229 to ensure all tiles have a filters hash
+                    generated_filters_hash = generate_insight_cache_key(insight, dashboard)
+                    dashboard_tile.filters_hash = generated_filters_hash
+                    dashboard_tile.save(update_fields=["filters_hash"])
+                    cache_key = generated_filters_hash
+
+        self.context.update({"filters_hash": cache_key})
+        result = get_safe_cache(cache_key)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
@@ -245,7 +290,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
             insight.last_refresh = None
-            insight.save()
+            insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -253,14 +298,18 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
+
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+
+        context_cache_key = self.context.get("filters_hash")
+        representation["filters_hash"] = context_cache_key if context_cache_key is not None else instance.filters_hash
+
         return representation
 
 
 class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Insight.objects.all().prefetch_related(
-        "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
-    )
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
@@ -278,6 +327,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+        queryset = queryset.prefetch_related(
+            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+        )
+        queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)
@@ -307,7 +360,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboards__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
 
@@ -330,14 +383,44 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                 )
         return queryset
 
-    @action(methods=["patch"], detail=False)
-    def layouts(self, request, **kwargs):
-        """Dashboard item layouts."""
-        queryset = self.get_queryset()
-        for data in request.data["items"]:
-            queryset.filter(pk=data["id"]).update(layouts=data["layouts"])
-        serializer = self.get_serializer(queryset.all(), many=True)
-        return Response(serializer.data)
+    def retrieve(self, request, *args, **kwargs):
+        """
+        When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
+
+        e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
+
+        Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
+
+        Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
+        """
+        instance = self.get_object()
+        serializer_context = self.get_serializer_context()
+
+        dashboard_tile: Optional[DashboardTile] = None
+        dashboard_id = request.query_params.get("from_dashboard", None)
+        if dashboard_id is not None:
+            dashboard_tile = (
+                DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=instance.id)
+                .select_related("dashboard")
+                .first()
+            )
+
+        if dashboard_tile is not None:
+            # context is used in the to_representation method to report filters used
+            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+
+        serialized_data = self.get_serializer(instance, context=serializer_context).data
+
+        if dashboard_tile is not None:
+            serialized_data["color"] = dashboard_tile.color
+            layouts = dashboard_tile.layouts
+            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
+            if isinstance(layouts, str):
+                layouts = json.loads(layouts)
+
+            serialized_data["layouts"] = layouts
+
+        return Response(serialized_data)
 
     # ******************************************
     # Calculated Insight Endpoints
@@ -346,7 +429,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     # /projects/:id/insights/retention
     # /projects/:id/insights/path
     #
-    # Request parameteres and caching are handled here and passed onto respective .queries classes
+    # Request parameters and caching are handled here and passed onto respective .queries classes
     # ******************************************
 
     # ******************************************
@@ -417,7 +500,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        self._refresh_dashboard(request=request)
         return {"result": result}
 
     # ******************************************
@@ -519,12 +601,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp}
-
-    # Checks if a dashboard id has been set and if so, update the refresh date
-    def _refresh_dashboard(self, request) -> None:
-        dashboard_id = request.GET.get(FROM_DASHBOARD, None)
-        if dashboard_id:
-            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed

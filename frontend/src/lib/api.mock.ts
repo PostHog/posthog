@@ -1,5 +1,6 @@
 import {
     CohortType,
+    GroupType,
     LicensePlan,
     LicenseType,
     OrganizationInviteType,
@@ -150,3 +151,24 @@ export const MOCK_DEFAULT_COHORT: CohortType = {
     name: 'Paying Users',
     groups: [],
 }
+
+export const MOCK_GROUP_TYPES: GroupType[] = [
+    {
+        group_type: 'organization',
+        group_type_index: 0,
+        name_singular: null,
+        name_plural: 'organizations',
+    },
+    {
+        group_type: 'instance',
+        group_type_index: 1,
+        name_singular: null,
+        name_plural: 'instances',
+    },
+    {
+        group_type: 'project',
+        group_type_index: 2,
+        name_singular: null,
+        name_plural: 'projects',
+    },
+]

@@ -130,6 +130,7 @@ export function InsightTooltip({
                         rowKey="id"
                         size="small"
                         uppercaseHeader={false}
+                        rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
                         showHeader={showHeader}
                     />
                     {!hideInspectActorsSection && (

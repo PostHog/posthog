@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
 import kafka.errors
@@ -9,7 +10,15 @@ from structlog import get_logger
 from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
 from posthog.client import async_execute, sync_execute
-from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
+from posthog.settings import (
+    KAFKA_BASE64_KEYS,
+    KAFKA_HOSTS,
+    KAFKA_SASL_MECHANISM,
+    KAFKA_SASL_PASSWORD,
+    KAFKA_SASL_USER,
+    KAFKA_SECURITY_PROTOCOL,
+    TEST,
+)
 from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
@@ -54,6 +63,23 @@ class TestKafkaConsumer:
         return
 
 
+class _KafkaSecurityProtocol(str, Enum):
+    PLAINTEXT = "PLAINTEXT"
+    SSL = "SSL"
+    SASL_PLAINTEXT = "SASL_PLAINTEXT"
+    SASL_SSL = "SASL_SSL"
+
+
+def _sasl_params():
+    if KAFKA_SECURITY_PROTOCOL in [_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL]:
+        return {
+            "sasl_mechanism": KAFKA_SASL_MECHANISM,
+            "sasl_plain_username": KAFKA_SASL_USER,
+            "sasl_plain_password": KAFKA_SASL_PASSWORD,
+        }
+    return {}
+
+
 class _KafkaProducer:
     def __init__(self, test=TEST):
         if test:
@@ -61,7 +87,12 @@ class _KafkaProducer:
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
-            self.producer = KP(retries=KAFKA_PRODUCER_RETRIES, bootstrap_servers=KAFKA_HOSTS)
+            self.producer = KP(
+                retries=KAFKA_PRODUCER_RETRIES,
+                bootstrap_servers=KAFKA_HOSTS,
+                security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+                **_sasl_params(),
+            )
 
     @staticmethod
     def json_serializer(d):
@@ -130,6 +161,8 @@ def build_kafka_consumer(
             value_deserializer=value_deserializer,
             group_id=group_id,
             consumer_timeout_ms=consumer_timeout_ms,
+            security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
+            **_sasl_params(),
         )
         if topic:
             consumer.subscribe([topic])

@@ -81,7 +81,9 @@ class TestFeatureFlagMatcher(BaseTest):
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
+            name="cohort1",
         )
         cohort.calculate_people_ch(pending_version=0)
 
@@ -132,7 +134,9 @@ class TestFeatureFlagMatcher(BaseTest):
     def test_legacy_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "person"}]}],
+            name="cohort2",
         )
         cohort.calculate_people_ch(pending_version=0)
 

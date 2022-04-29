@@ -64,7 +64,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toDateTime(timestamp, %(timezone)s)) as day_start,
+    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {person_join}
@@ -76,7 +76,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    toDateTime({interval_annotation}(timestamp), %(timezone)s) as day_start,
+    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
     breakdown_value
 FROM (
     SELECT
@@ -103,10 +103,10 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toDateTime(timestamp, %(timezone)s)) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(toDateTime(timestamp, %(timezone)s)) as timestamp, person_id, {breakdown_value} as breakdown_value
+        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, person_id, {breakdown_value} as breakdown_value
         FROM events e
         INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
         ON e.distinct_id = pdi.distinct_id

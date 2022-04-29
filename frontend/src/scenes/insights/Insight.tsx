@@ -136,7 +136,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={insight.saved}
-                                addingToDashboard={!!insight.dashboard && !insight.id}
+                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged}
                             />
@@ -157,15 +157,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                                notice={
-                                    !canEditInsight
-                                        ? {
-                                              icon: <IconLock />,
-                                              tooltip:
-                                                  "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                          }
-                                        : undefined
-                                }
                             />
                         )}
                         {canEditInsight ? (

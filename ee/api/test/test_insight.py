@@ -4,7 +4,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from posthog.models import Dashboard, Insight, OrganizationMembership, User
+from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
@@ -19,7 +19,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             created_by=creator,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
-        insight: Insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user, dashboard=dashboard)
+        insight: Insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"name": "ABC"})
         response_data = response.json()
@@ -44,7 +45,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             created_by=creator,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
-        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user, dashboard=dashboard)
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight.id}")
         response_data = response.json()
@@ -64,7 +66,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard",)
-        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user, dashboard=dashboard)
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"tags": ["a", "b", "a"]})
 

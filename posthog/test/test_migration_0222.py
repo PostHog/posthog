@@ -80,3 +80,4 @@ class DeletedPrimaryDashboardTestCase(TestMigrations):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.all().delete()
         Team.objects.all().delete()
+        super().tearDown()
