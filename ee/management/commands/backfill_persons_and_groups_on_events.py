@@ -7,7 +7,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
+from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.sql.groups import GROUPS_TABLE
+from ee.clickhouse.sql.person import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, get_table_name
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -26,25 +28,86 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 ) 
 PRIMARY KEY group_key 
 SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
-LAYOUT(complex_key_cache(size_in_cells 10000))
+LAYOUT(complex_key_cache(size_in_cells 1000000))
 Lifetime(60000) 
 """
+
+
+PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"""
+CREATE DICTIONARY IF NOT EXISTS {PERSON_DISTINCT_ID2_TABLE}_dict 
+ON CLUSTER '{CLICKHOUSE_CLUSTER}' 
+(
+    distinct_id String, 
+    person_id UUID
+) 
+PRIMARY KEY distinct_id 
+SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
+LAYOUT(complex_key_cache(size_in_cells 50000000)) 
+Lifetime(60000)
+"""
+
+PERSONS_DICTIONARY_SQL = f"""
+CREATE DICTIONARY IF NOT EXISTS {PERSONS_TABLE}_dict 
+ON CLUSTER '{CLICKHOUSE_CLUSTER}' 
+(
+    id UUID, 
+    properties String
+) 
+PRIMARY KEY id 
+SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
+LAYOUT(complex_key_cache(size_in_cells 5000000)) 
+Lifetime(60000)
+"""
+
+
+BACKFILL_BASE_SQL = f"""
+ALTER TABLE {EVENTS_DATA_TABLE()} 
+ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+UPDATE 
+    person_id=toUUID(dictGet('{PERSON_DISTINCT_ID2_TABLE}_dict', 'person_id', distinct_id)),
+    person_properties=dictGetString('{PERSONS_TABLE}_dict', 'properties', toUUID(dictGet('{PERSON_DISTINCT_ID2_TABLE}_dict', 'person_id', distinct_id))),
+    group0_properties=dictGetString('{GROUPS_TABLE}_dict', 'group_properties', $group_0),
+    group1_properties=dictGetString('{GROUPS_TABLE}_dict', 'group_properties', $group_1),
+    group2_properties=dictGetString('{GROUPS_TABLE}_dict', 'group_properties', $group_2),
+    group3_properties=dictGetString('{GROUPS_TABLE}_dict', 'group_properties', $group_3),
+    group4_properties=dictGetString('{GROUPS_TABLE}_dict', 'group_properties', $group_4)
+"""
+
 
 class Command(BaseCommand):
     help = "Backfill persons and groups data on events for a given team"
 
     def add_arguments(self, parser):
+        
         parser.add_argument(
             "--team-id", default=None, type=int, help="Specify a team to backfill data for."
+        )
+        
+        parser.add_argument(
+            "--timeout", default=1000, type=int, help="ClickHouse max_execution_time setting."
         )
 
     def handle(self, *args, **options):
         
         if not options["team_id"]:
             logger.error("You must specify --team-id to run this script")
+            exit(1)
+        
 
+        BACKFILL_SQL = BACKFILL_BASE_SQL + " WHERE team_id = {team_id}".format(team_id=options["team_id"]) + " SETTINGS allow_nondeterministic_mutations=1"
 
+            
+        print(GROUPS_DICTIONARY_SQL)
+        print(PERSON_DISTINCT_IDS_DICTIONARY_SQL)
+        print(PERSONS_DICTIONARY_SQL)
+        print(BACKFILL_SQL)
+        
+        sync_execute(GROUPS_DICTIONARY_SQL)
+        sync_execute(PERSON_DISTINCT_IDS_DICTIONARY_SQL)
+        sync_execute(PERSONS_DICTIONARY_SQL)
+        
 
+        sync_execute(BACKFILL_SQL, { "allow_nondeterministic_mutations": 1, "max_execution_time": options['timeout']})
 
 
 

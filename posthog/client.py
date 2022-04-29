@@ -61,9 +61,8 @@ def default_client():
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
         ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
+        verify=CLICKHOUSE_VERIFY
     )
-
 
 def make_ch_pool(**overrides) -> ChPool:
     kwargs = {
@@ -76,9 +75,11 @@ def make_ch_pool(**overrides) -> ChPool:
         "verify": CLICKHOUSE_VERIFY,
         "connections_min": CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": CLICKHOUSE_CONN_POOL_MAX,
-        "settings": {"mutations_sync": "1"} if TEST else {},
+        "settings": {"mutations_sync": "1", } if TEST else { "allow_nondeterministic_mutations": 1 },
         **overrides,
     }
+    
+    print(kwargs)
 
     return ChPool(**kwargs)
 
