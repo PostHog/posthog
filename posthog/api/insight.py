@@ -98,7 +98,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         read_only=True,
         help_text="""
     The datetime this insight's results were generated.
-    May return a different value if the insight is being displayed on one or more dashboards.
+    If added to one or more dashboards the insight can be refreshed separately on each.
+    Returns the appropriate last_refresh datetime for the context the insight is viewed in
+    (see from_dashboard query parameter).
     """,
     )
     created_by = UserBasicSerializer(read_only=True)
