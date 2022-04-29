@@ -356,7 +356,12 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
 
 
 def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
+    should_use_new_query = (
+        settings.TEST or cohort.has_behavioral_filter or cohort.team.behavioral_cohort_querying_enabled
+    )
+    cohort_filter, cohort_params = format_person_query(
+        cohort, 0, custom_match_field="id", using_new_query=should_use_new_query
+    )
 
     before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
     logger.info(

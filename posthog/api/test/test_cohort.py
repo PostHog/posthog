@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from unittest.mock import patch
 
-import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from rest_framework.test import APIClient
@@ -283,9 +282,9 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    @pytest.mark.skip("Use this test when switching to new cohort backend")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_feature_enabled):
 
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_event(
