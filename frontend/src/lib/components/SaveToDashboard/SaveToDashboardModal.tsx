@@ -135,7 +135,12 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 <LemonButton type="secondary" compact onClick={addNewDashboard}>
                     Add to a new dashboard
                 </LemonButton>
-                <LemonButton type="secondary" compact onClick={closeModal}>
+                <LemonButton
+                    type="secondary"
+                    compact
+                    onClick={closeModal}
+                    style={{ marginTop: 0 }} /* lemon section styling was adding a margin top */
+                >
                     Close
                 </LemonButton>
             </section>
