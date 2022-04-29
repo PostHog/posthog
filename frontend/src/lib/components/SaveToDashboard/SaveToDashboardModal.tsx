@@ -81,6 +81,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
             <DashboardRelationRow
+                key={rowIndex}
                 dashboard={orderedDashboards[rowIndex]}
                 insight={insight}
                 isHighlighted={rowIndex === scrollIndex}

@@ -25,7 +25,12 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         return insight.short_id
     },
     connect: (props: SaveToDashboardModalLogicProps) => ({
-        logics: [newDashboardLogic, dashboardsModel, eventUsageLogic],
+        logic: [
+            newDashboardLogic,
+            dashboardsModel,
+            eventUsageLogic,
+            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }),
+        ],
         actions: [insightLogic({ dashboardItemId: props.insight.short_id }), ['updateInsight']],
     }),
     actions: {
@@ -87,7 +92,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         ],
     },
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setDashboardId: ({ id }) => {
             dashboardsModel.actions.setLastDashboardId(id)
         },
@@ -105,6 +110,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
+            actions.addToDashboard(props.insight, dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
