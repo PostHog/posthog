@@ -1,0 +1,59 @@
+@import '~/vars';
+
+.side-container {
+    margin: $default_spacing;
+
+    @media screen and (max-width: $md) {
+        display: none;
+    }
+}
+
+.preflight-box {
+    @extend %mixin-elevated;
+    max-width: 500px;
+    margin: 0 $default_spacing * 2;
+    background-color: var(--bg-light);
+    border-radius: $radius;
+    padding: $default_spacing * 2;
+
+    .divider {
+        margin: $default_spacing 0;
+        border-top: 2px dashed var(--border);
+    }
+
+    p {
+        text-align: center;
+        margin-bottom: $default_spacing/2;
+
+        &.title-text {
+            font-size: 28px;
+            font-weight: 800;
+            line-height: 34px;
+            letter-spacing: -0.02em;
+        }
+
+        &.secondary-text {
+            font-size: 16px;
+            line-height: 24px;
+        }
+    }
+
+    .ingestion-btn {
+        background-color: black;
+
+        &:hover :not(.LemonRow--disabled) {
+            background-color: black;
+            opacity: 0.8;
+        }
+
+        &.inverted {
+            background-color: white;
+            color: black;
+            border: 2px solid black;
+
+            &:hover {
+                border: 2px solid rgba(0, 0, 0, 0.5);
+            }
+        }
+    }
+}

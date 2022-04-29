@@ -1415,3 +1415,36 @@ export function IconUploadFile(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
         </svg>
     )
 }
+
+export function CheckCircleOutlined(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M10.975 0C5.45501 0 0.975006 4.48 0.975006 10C0.975006 15.52 5.45501 20 10.975 20C16.495 20 20.975 15.52 20.975 10C20.975 4.48 16.495 0 10.975 0ZM10.975 18C6.56501 18 2.97501 14.41 2.97501 10C2.97501 5.59 6.56501 2 10.975 2C15.385 2 18.975 5.59 18.975 10C18.975 14.41 15.385 18 10.975 18ZM15.565 5.58L8.97501 12.17L6.38501 9.59L4.97501 11L8.97501 15L16.975 7L15.565 5.58Z"
+            />
+        </svg>
+    )
+}
+
+export function CloseCircleOutlined(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M10.975 0C5.44501 0 0.975006 4.47 0.975006 10C0.975006 15.53 5.44501 20 10.975 20C16.505 20 20.975 15.53 20.975 10C20.975 4.47 16.505 0 10.975 0ZM10.975 18C6.56501 18 2.97501 14.41 2.97501 10C2.97501 5.59 6.56501 2 10.975 2C15.385 2 18.975 5.59 18.975 10C18.975 14.41 15.385 18 10.975 18ZM14.565 5L10.975 8.59L7.38501 5L5.97501 6.41L9.56501 10L5.97501 13.59L7.38501 15L10.975 11.41L14.565 15L15.975 13.59L12.385 10L15.975 6.41L14.565 5Z"
+            />
+        </svg>
+    )
+}
+
+export function RefreshIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="17" height="22" viewBox="0 0 17 22" {...props}>
+            <path
+                fill="currentColor"
+                d="M8.97501 3V0L4.97501 4L8.97501 8V5C12.285 5 14.975 7.69 14.975 11C14.975 12.01 14.725 12.97 14.275 13.8L15.735 15.26C16.515 14.03 16.975 12.57 16.975 11C16.975 6.58 13.395 3 8.97501 3ZM8.97501 17C5.66501 17 2.97501 14.31 2.97501 11C2.97501 9.99 3.22501 9.03 3.67501 8.2L2.21501 6.74C1.43501 7.97 0.975006 9.43 0.975006 11C0.975006 15.42 4.55501 19 8.97501 19V22L12.975 18L8.97501 14V17Z"
+            />
+        </svg>
+    )
+}
