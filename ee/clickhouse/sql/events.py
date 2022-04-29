@@ -6,7 +6,7 @@ from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
-# KLUDGE: Due to a ClickHouse bug, the table names `kafka_events_json` and `events_json_mv` do not work
+# KLUDGE: Due to a ClickHouse bug, the table names `kafka_events_json` and `events_json_mv` do not currently work on our cluster
 # As a result, we're using this arbitrary suffix for the JSON ingestion Kafka and MV tables on PostHog Cloud until we fix the problem
 INGESTION_TABLES_SUFFIX = "_reykjavik_roasters" if settings.MULTI_TENANCY else ""
 
