@@ -803,3 +803,47 @@ class TestFiltering(
                 }
             },
         )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "arg2",},],
+                        },
+                    ],
+                }
+            }
+        )
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "arg2",}],
+                        },
+                    ],
+                }
+            },
+        )
