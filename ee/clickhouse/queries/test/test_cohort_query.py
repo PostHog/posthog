@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.cohort_query import CohortQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
@@ -10,13 +8,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
-from posthog.test.base import BaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs) -> None:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
+from posthog.test.base import BaseTest, _create_event, test_with_materialized_columns
 
 
 def _make_event_sequence(team, distinct_id, interval_days, period_event_counts):
