@@ -132,10 +132,10 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 </div>
             </section>
             <section className="space-between-items">
-                <LemonButton type="secondary" compact={true} onClick={() => addNewDashboard()}>
+                <LemonButton type="secondary" compact onClick={addNewDashboard}>
                     Add to a new dashboard
                 </LemonButton>
-                <LemonButton type="secondary" compact={true} onClick={() => closeModal()}>
+                <LemonButton type="secondary" compact onClick={closeModal}>
                     Close
                 </LemonButton>
             </section>
