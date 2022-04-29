@@ -6,6 +6,10 @@ from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
+# KLUDGE: Due to a ClickHouse bug, the table names `kafka_events_json` and `events_json_mv` do not work
+# As a result, we're using this arbitrary suffix for the JSON ingestion Kafka and MV tables on PostHog Cloud until we fix the problem
+INGESTION_TABLES_SUFFIX = "_reykjavik_roasters" if settings.MULTI_TENANCY else ""
+
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
@@ -115,7 +119,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     SETTINGS kafka_skip_broken_messages = 100
 """
 ).format(
-    table_name="kafka_events_json",
+    table_name=f"kafka_events_json{INGESTION_TABLES_SUFFIX}",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
@@ -123,7 +127,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW events_json_mv{suffix} ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -143,11 +147,12 @@ group3_properties,
 group4_properties,
 _timestamp,
 _offset
-FROM {database}.kafka_events_json
+FROM {database}.kafka_events_json{suffix}
 """.format(
     target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
+    suffix=INGESTION_TABLES_SUFFIX,
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
