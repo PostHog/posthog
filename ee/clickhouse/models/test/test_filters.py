@@ -740,3 +740,66 @@ class TestFiltering(
         result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
 
         self.assertEqual(result, person2_distinct_id)
+
+    def test_simplify_nested(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "email", "operator": "icontains", "value": "arg2",},
+                                {"type": "person", "key": "email", "operator": "icontains", "value": "arg3",},
+                            ],
+                        },
+                    ],
+                }
+            }
+        )
+
+        # Can't remove the single prop groups if the parent group has multiple. The second list of conditions becomes property groups
+        # because of simplify now will return prop groups by default to ensure type consistency
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": "arg2",}
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": "arg3",}
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
