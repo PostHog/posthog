@@ -41,7 +41,7 @@
     .ingestion-btn {
         background-color: black;
 
-        &:hover :not(.LemonRow--disabled) {
+        &:hover:not(.LemonRow--disabled) {
             background-color: black;
             opacity: 0.8;
         }
@@ -52,6 +52,7 @@
             border: 2px solid black;
 
             &:hover {
+                background-color: white;
                 border: 2px solid rgba(0, 0, 0, 0.5);
             }
         }
