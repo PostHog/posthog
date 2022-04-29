@@ -38,16 +38,8 @@ export function createHttpServer(
                 status: 'ok',
             }
 
-            if (serverInstance.kafkaSuccessiveHealthchecksFailed >= MAX_KAFKA_FAILED_HEALTHCHECKS) {
-                const responseBody = {
-                    status: 'error',
-                }
-                res.statusCode = 503
-                res.end(JSON.stringify(responseBody))
-            } else {
-                res.statusCode = 200
-                res.end(JSON.stringify(responseBody))
-            }
+            res.statusCode = 200
+            res.end(JSON.stringify(responseBody))
         }
     })
 
