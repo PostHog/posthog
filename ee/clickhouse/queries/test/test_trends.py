@@ -1,12 +1,10 @@
 from datetime import datetime
 from unittest.mock import patch
-from uuid import uuid4
 
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
@@ -22,7 +20,7 @@ from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.test.base import test_with_materialized_columns
+from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
 
 
 def _create_action(**kwargs):
@@ -42,13 +40,8 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
 # override tests from test facotry if intervals are different
-class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
+class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, _create_person, _create_action, _create_cohort)):  # type: ignore
 
     maxDiff = None
 
@@ -626,7 +619,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
-        cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"key": "value"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, name="a", groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}]
+        )
         action_response = ClickhouseTrends().run(
             Filter(
                 data={

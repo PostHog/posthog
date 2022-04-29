@@ -126,6 +126,12 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
+type PersonData = {
+    uuid: string
+    created_at_iso: string
+    properties: Properties
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -424,11 +430,16 @@ export class DB {
 
     // Person
     REDIS_PERSON_ID_PREFIX = 'person_id'
+    REDIS_PERSON_UUID_PREFIX = 'person_uuid'
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
+    }
+
+    private getPersonUuidCacheKey(teamId: number, personId: number): string {
+        return `${this.REDIS_PERSON_UUID_PREFIX}:${teamId}:${personId}`
     }
 
     private getPersonCreatedAtCacheKey(teamId: number, personId: number): string {
@@ -445,24 +456,109 @@ export class DB {
         }
     }
 
-    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+    private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
+        if (this.personInfoCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(this.getPersonCreatedAtCacheKey(teamId, personId), uuid, this.PERSON_INFO_CACHE_TTL)
+        }
+    }
+
+    private async updatePersonCreatedAtIsoCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonCreatedAtCacheKey(teamId, personId),
-                createdAt,
+                createdAtIso,
                 this.PERSON_INFO_CACHE_TTL
             )
         }
+    }
+
+    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
+        await this.updatePersonCreatedAtIsoCache(teamId, personId, createdAt.toISO())
     }
 
     private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
         if (this.personInfoCachingEnabledTeams.has(teamId)) {
             await this.redisSet(
                 this.getPersonPropertiesCacheKey(teamId, personId),
-                JSON.stringify(properties),
+                properties,
                 this.PERSON_INFO_CACHE_TTL
             )
         }
+    }
+
+    public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
+        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+            return null
+        }
+        const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
+        if (personId) {
+            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
+            return Number(personId)
+        }
+        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
+        // Query from postgres and update cache
+        const result = await this.postgresQuery(
+            'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$2 LIMIT 1',
+            [teamId, distinctId],
+            'fetchPersonId'
+        )
+        if (result.rows.length > 0) {
+            const personId = Number(result.rows[0].person_id)
+            await this.updatePersonIdCache(teamId, distinctId, personId)
+            return personId
+        }
+        return null
+    }
+
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<PersonData | null> {
+        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+            return null
+        }
+        const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
+            this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
+            this.redisGet(this.getPersonCreatedAtCacheKey(teamId, personId), null),
+            this.redisGet(this.getPersonPropertiesCacheKey(teamId, personId), null),
+        ])
+        if (personUuid !== null && personCreatedAtIso !== null && personProperties !== null) {
+            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
+
+            return {
+                uuid: String(personUuid),
+                created_at_iso: String(personCreatedAtIso),
+                properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
+            }
+        }
+        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
+        // Query from postgres and update cache
+        const result = await this.postgresQuery(
+            'SELECT uuid, created_at, properties FROM posthog_person WHERE team_id=$1 AND id=$2 LIMIT 1',
+            [teamId, personId],
+            'fetchPersonProperties'
+        )
+        if (result.rows.length !== 0) {
+            const personUuid = String(result.rows[0].uuid)
+            const personCreatedAtIso = String(result.rows[0].created_at)
+            const personProperties: Properties = result.rows[0].properties
+            await Promise.all([
+                this.updatePersonUuidCache(teamId, personId, personUuid),
+                this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso),
+                this.updatePersonPropertiesCache(teamId, personId, personProperties),
+            ])
+            return {
+                uuid: personUuid,
+                created_at_iso: personCreatedAtIso,
+                properties: personProperties,
+            }
+        }
+        return null
+    }
+
+    public async getPersonData(teamId: number, distinctId: string): Promise<PersonData | null> {
+        const personId = await this.getPersonId(teamId, distinctId)
+        if (personId) {
+            return await this.getPersonDataByPersonId(teamId, personId)
+        }
+        return null
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -602,8 +698,9 @@ export class DB {
             (distinctIds || [])
                 .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
                 .concat([
-                    this.updatePersonPropertiesCache(teamId, person.id, properties),
+                    this.updatePersonUuidCache(teamId, person.id, person.uuid),
                     this.updatePersonCreatedAtCache(teamId, person.id, person.created_at),
+                    this.updatePersonPropertiesCache(teamId, person.id, properties),
                 ])
         )
 
@@ -663,6 +760,7 @@ export class DB {
         }
 
         await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
+        await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
 
         return client ? kafkaMessages : updatedPerson
     }

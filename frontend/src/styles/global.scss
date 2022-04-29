@@ -131,7 +131,7 @@ body strong {
     font-size: 8px;
 }
 
-.nowrap {
+.no-wrap {
     white-space: nowrap !important;
 }
 
@@ -317,6 +317,10 @@ code.code {
     margin-top: $default_spacing * 0.25;
 }
 
+.mb-0 {
+    margin-bottom: 0;
+}
+
 .mr {
     margin-right: $default_spacing;
 }
@@ -362,6 +366,10 @@ code.code {
 
 .pb {
     padding-bottom: $default_spacing;
+}
+
+.pb-05 {
+    padding-bottom: $default_spacing * 0.5;
 }
 
 .pt {

@@ -8,11 +8,13 @@ import './FunnelsCue.scss'
 import { Button } from 'antd'
 import { funnelsCueLogic } from 'scenes/insights/InsightTabs/TrendTab/funnelsCueLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { urls } from 'scenes/urls'
+import { InsightType } from '~/types'
 
 export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, filters } = useValues(insightLogic)
     const { optOut } = useActions(funnelsCueLogic(insightProps))
-    const { destPath, shown } = useValues(funnelsCueLogic(insightProps))
+    const { shown } = useValues(funnelsCueLogic(insightProps))
 
     return (
         <div className={clsx('funnels-product-cue', shown && 'shown')}>
@@ -27,7 +29,7 @@ export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): J
                         across each event.
                     </div>
                     <Link
-                        to={destPath}
+                        to={urls.insightNew({ ...filters, insight: InsightType.FUNNELS })}
                         data-attr="funnel-cue-7301"
                         tag={<Button style={{ color: 'var(--primary)', fontWeight: 500 }} />}
                     >

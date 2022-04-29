@@ -42,7 +42,6 @@ PropertyType = Literal[
     "behavioural",
 ]
 
-
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
@@ -88,7 +87,6 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "event_type",
         "time_value",
         "time_interval",
-        "operator",
         "operator_value",
     ],
     BehaviouralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
@@ -110,7 +108,6 @@ VALIDATE_BEHAVIOURAL_PROP_TYPES = {
         "time_value",
         "time_interval",
         "operator_value",
-        "operator",
         "min_periods",
         "total_periods",
     ],
@@ -167,6 +164,8 @@ class Property:
     # seq_time_value = 30, seq_time_interval = 'day'
     seq_event_type: Optional[str]
     seq_event: Optional[Union[str, int]]
+    total_periods: Optional[int]
+    min_periods: Optional[int]
     negation: Optional[bool] = False
     _data: Dict
 
@@ -183,6 +182,8 @@ class Property:
         operator_value: Optional[int] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
+        total_periods: Optional[int] = None,
+        min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
         seq_event: Optional[Union[str, int]] = None,
         seq_time_value: Optional[int] = None,
@@ -199,11 +200,16 @@ class Property:
         self.operator_value = operator_value
         self.time_value = time_value
         self.time_interval = time_interval
+        self.total_periods = total_periods
+        self.min_periods = min_periods
         self.seq_event_type = seq_event_type
         self.seq_event = seq_event
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
+
+        if self.type not in VALIDATE_PROP_TYPES.keys():
+            raise ValueError(f"Invalid property type: {self.type}")
 
         for key in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, key, None) is None:

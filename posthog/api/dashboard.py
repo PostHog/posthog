@@ -195,7 +195,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
-                # workaround because DashboardTiles are saving JSON as a string :/
+                # workaround because DashboardTiles layouts were migrated as stringified JSON :/
                 if isinstance(layouts, str):
                     layouts = json.loads(layouts)
 
@@ -206,6 +206,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     insight.filters["insight"] = INSIGHT_TRENDS
                     insight.save(update_fields=["filters"])
 
+                self.context.update({"filters_hash": tile.filters_hash})
                 insight_data = InsightSerializer(insight, many=False, context=self.context).data
                 insight_data["layouts"] = layouts
                 insight_data["color"] = color

@@ -1,20 +1,36 @@
 import './LemonTextArea.scss'
 import React, { useRef, useState } from 'react'
-import { LemonInputPropsBase } from 'lib/components/LemonInput/LemonInput'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
+import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
 
 export interface LemonTextAreaProps
     extends Omit<
-            React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-            'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
-        >,
-        LemonInputPropsBase {
+        React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+        'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
+    > {
     ref?: React.Ref<HTMLTextAreaElement>
+    id?: string
+    value?: string
+    defaultValue?: string
+    placeholder?: string
+    onChange?: (newValue: string) => void
+    onPressEnter?: (newValue: string) => void
+    /** An embedded input has no border around it and no background. This way it blends better into other components. */
+    embedded?: boolean
+    /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
+    allowClear?: boolean
+    /** Icon to prefix input field */
+    icon?: React.ReactElement | null
+    /** Icon to suffix input field */
+    sideIcon?: React.ReactElement | null
+    /** Whether input field is disabled */
+    disabled?: boolean
 }
 
+/** A `LemonRow`-based `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
     {
         className,
@@ -71,7 +87,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         },
         outlined: !embedded,
     }
-    const props: React.TextareaHTMLAttributes<HTMLTextAreaElement> = {
+    const props = {
         className: 'LemonTextArea__textarea',
         onChange: (event) => {
             onChange?.(event.currentTarget.value ?? '')
@@ -85,11 +101,11 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             onBlur?.(event)
         },
         ...textProps,
-    }
+    } as TextareaAutosizeProps
 
     return (
         <LemonRow {...rowProps}>
-            <textarea rows={5} {...props} ref={textRef} />
+            <TextareaAutosize minRows={3} {...props} ref={textRef} />
         </LemonRow>
     )
 })

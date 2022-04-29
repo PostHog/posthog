@@ -5,9 +5,14 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export interface LemonInputPropsBase {
+export interface LemonInputProps
+    extends Omit<
+        React.InputHTMLAttributes<HTMLInputElement>,
+        'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
+    > {
+    ref?: React.Ref<HTMLInputElement>
     id?: string
-    value?: string
+    value?: string | number
     defaultValue?: string
     placeholder?: string
     onChange?: (newValue: string) => void
@@ -24,15 +29,7 @@ export interface LemonInputPropsBase {
     disabled?: boolean
 }
 
-export interface LemonInputProps
-    extends Omit<
-            React.InputHTMLAttributes<HTMLInputElement>,
-            'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
-        >,
-        LemonInputPropsBase {
-    ref?: React.Ref<HTMLInputElement>
-}
-
+/** A `LemonRow`-based `input` component for single-line text. */
 export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
     {
         className,
@@ -56,11 +53,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         tag: 'span',
         className: clsx(
             'LemonInput',
-            textProps.disabled && 'LemonInput--disabled',
             !textProps.disabled && focused && 'LemonInput--focused',
             embedded && 'LemonInput--embedded',
             className
         ),
+        disabled: textProps.disabled,
         fullWidth: true,
         icon,
         sideIcon: allowClear ? (

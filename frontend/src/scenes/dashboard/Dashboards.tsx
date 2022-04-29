@@ -18,7 +18,8 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
@@ -152,7 +153,7 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonRow
                                     icon={<IconCottage style={{ color: 'var(--warning)' }} />}
                                     fullWidth
@@ -163,7 +164,7 @@ export function Dashboards(): JSX.Element {
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
@@ -212,7 +213,7 @@ export function Dashboards(): JSX.Element {
                     }}
                 />
             </div>
-            <LemonSpacer large />
+            <LemonDivider large />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}

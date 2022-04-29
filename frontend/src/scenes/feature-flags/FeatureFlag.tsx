@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Group } from 'kea-forms'
 import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
@@ -12,7 +12,7 @@ import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -502,7 +502,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </div>
 
-                                    <LemonSpacer large />
+                                    <LemonDivider large />
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${
@@ -513,7 +513,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         showConditionBadge
                                     />
-                                    <LemonSpacer large />
+                                    <LemonDivider large />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">
@@ -550,7 +550,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
-                <SceneLoading />
+                <Loading />
             )}
         </div>
     )
