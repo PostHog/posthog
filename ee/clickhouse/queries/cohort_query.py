@@ -497,10 +497,10 @@ class CohortQuery(EnterpriseEventQuery):
     def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         params = {}
 
-        names = ["person_id", "event", "properties", "distinct_id", "timestamp"]
+        names = ["event", "properties", "distinct_id", "timestamp"]
 
-        _inner_fields = []
-        _intermediate_fields = []
+        _inner_fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"]
+        _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
 
         _inner_fields.extend(names)
