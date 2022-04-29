@@ -4,6 +4,8 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -112,7 +114,6 @@ class CohortQuery(EnterpriseEventQuery):
 
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
     FUNNEL_QUERY_ALIAS = "funnel_query"
-    SEQUENCE_FIELD_ALIAS = "steps"
     _fields: List[str]
     _events: List[str]
     _earliest_time_for_event_query: Union[Relative_Date, None]
@@ -173,28 +174,26 @@ class CohortQuery(EnterpriseEventQuery):
 
         subq = []
 
-        if self.sequence_filters_to_query:
-            sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query()
-            subq.append((sequence_query, sequence_query_alias))
-            self.params.update(sequence_params)
-        else:
-            behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
-            subq.append((behavior_subquery, behavior_query_alias))
-            self.params.update(behavior_subquery_params)
+        behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
+        subq.append((behavior_subquery, behavior_query_alias))
+        self.params.update(behavior_subquery_params)
 
         person_query, person_params, person_query_alias = self._get_persons_query(prepend=str(self._cohort_pk))
         subq.append((person_query, person_query_alias))
         self.params.update(person_params)
 
+        sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query()
+        subq.append((sequence_query, sequence_query_alias))
+        self.params.update(sequence_params)
+
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
         q, fields = self._build_sources(subq)
 
         final_query = f"""
-        SELECT {fields} AS id  FROM
+        SELECT {fields} AS id FROM
         {q}
         WHERE 1 = 1
         {conditions}
-        SETTINGS allow_experimental_window_functions = 1
         """
 
         return final_query, self.params
@@ -210,15 +209,7 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                if (
-                    subq_alias == self.PERSON_TABLE_ALIAS
-                    and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                    and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                ):
-                    q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-                else:
-                    q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-
+                q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                 fields = if_condition(
                     f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
                     f"{subq_alias}.person_id",
@@ -241,6 +232,7 @@ class CohortQuery(EnterpriseEventQuery):
             _fields.extend(self._fields)
 
             date_condition, date_params = self._get_date_condition()
+
             query = f"""
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -281,6 +273,7 @@ class CohortQuery(EnterpriseEventQuery):
         elif relative_date_is_greater(relative_date, self._earliest_time_for_event_query):
             self._earliest_time_for_event_query = relative_date
 
+    # TODO: Build conditions based on property group
     def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
         def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
             if not prop:
@@ -319,7 +312,8 @@ class CohortQuery(EnterpriseEventQuery):
             elif prop.value == "performed_event_first_time":
                 res, params = self.get_performed_event_first_time(prop, prepend, idx)
             elif prop.value == "performed_event_sequence":
-                res, params = self.get_performed_event_sequence(prop, prepend, idx)
+                # TODO: implement this condition
+                pass
             elif prop.value == "performed_event_regularly":
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
@@ -332,6 +326,7 @@ class CohortQuery(EnterpriseEventQuery):
         return res, params
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+        # TODO: handle if props are pushed down in PersonQuery
         if self._outer_property_groups and len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
                 prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
@@ -480,111 +475,52 @@ class CohortQuery(EnterpriseEventQuery):
         return column_name, {f"{date_param}": date_value, **entity_params}
 
     @cached_property
-    def sequence_filters_to_query(self) -> List[Property]:
-        props = []
+    def sequence_filter_to_query(self) -> Optional[Property]:
         for prop in self._filter.property_groups.flat:
             if prop.value == "performed_event_sequence":
-                props.append(prop)
-        return props
-
-    @cached_property
-    def sequence_filters_lookup(self) -> Dict[str, str]:
-        lookup = {}
-        for idx, prop in enumerate(self.sequence_filters_to_query):
-            lookup[str(prop.to_dict())] = f"{idx}"
-        return lookup
+                return prop
+        return None
 
     def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
-        params = {}
+        query, params = "", {}
 
-        names = ["person_id", "event", "properties", "distinct_id", "timestamp"]
+        if self.sequence_filter_to_query:
+            prop = self.sequence_filter_to_query
+            event = validate_entity((prop.event_type, prop.key))
+            seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
 
-        _inner_fields = []
-        _intermediate_fields = []
-        _outer_fields = ["person_id"]
+            time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            time_interval = validate_interval(prop.time_interval)
+            seq_date_value = parse_and_validate_positive_integer(prop.seq_time_value, "time_value")
+            seq_date_interval = validate_interval(prop.seq_time_interval)
 
-        _inner_fields.extend(names)
-        _intermediate_fields.extend(names)
+            events, actions = convert_to_entity_params([event, seq_event])
+            new_filter = Filter(
+                data={
+                    "insight": INSIGHT_FUNNELS,
+                    "funnel_window_interval": seq_date_value,
+                    "funnel_window_interval_unit": seq_date_interval,
+                    "events": events,
+                    "actions": actions,
+                    "filter_test_accounts": self._filter.filter_test_accounts,
+                    "display": "FunnelViz",
+                    "funnel_viz_type": "steps",
+                    "date_from": get_relative_date_arg((time_value, time_interval)),
+                }
+            )
 
-        for idx, prop in enumerate(self.sequence_filters_to_query):
-            step_cols, intermediate_cols, aggregate_cols, seq_params = self._get_sequence_filter(prop, idx)
-            _inner_fields.extend(step_cols)
-            _intermediate_fields.extend(intermediate_cols)
-            _outer_fields.extend(aggregate_cols)
-            params.update(seq_params)
+            team = Team.objects.get(id=self._team_id)
+            funnel_builder = ClickhouseFunnel(new_filter, team)
+            funnel_query = funnel_builder.get_step_counts_query()
+            params = funnel_builder.params
 
-        date_condition, date_params = self._get_date_condition()
-        params.update(date_params)
+            query = f"""
+            SELECT aggregation_target AS person_id, steps FROM (
+                {funnel_query}
+            ) WHERE steps = 2
+            """
 
-        event_param_name = f"{self._cohort_pk}_event_ids"
-
-        new_query = f"""
-        SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
-        WHERE team_id = %(team_id)s
-        AND event IN %({event_param_name})s
-        {date_condition}
-        """
-
-        intermediate_query = f"""
-        SELECT {", ".join(_intermediate_fields)} FROM ({new_query})
-        """
-
-        _outer_fields.extend(self._fields)
-
-        outer_query = f"""
-        SELECT {", ".join(_outer_fields)} FROM ({intermediate_query})
-        GROUP BY person_id
-        """
-        return (
-            outer_query,
-            {"team_id": self._team_id, event_param_name: self._events, **params},
-            self.FUNNEL_QUERY_ALIAS,
-        )
-
-    def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
-        event = validate_entity((prop.event_type, prop.key))
-        entity_query, entity_params = self._get_entity(event, "event_sequence", idx)
-        seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
-
-        seq_entity_query, seq_entity_params = self._get_entity(seq_event, "seq_event_sequence", idx)
-
-        time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-        time_interval = validate_interval(prop.time_interval)
-        seq_date_value = parse_and_validate_positive_integer(prop.seq_time_value, "time_value")
-        seq_date_interval = validate_interval(prop.seq_time_interval)
-        self._check_earliest_date((time_value, time_interval))
-
-        event_prepend = f"event_{idx}"
-
-        duplicate_event = 0
-        if event == seq_event:
-            duplicate_event = 1
-
-        aggregate_cols = []
-        aggregate_condition = f"max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
-        aggregate_cols.append(aggregate_condition)
-
-        condition_cols = []
-        timestamp_condition = f"min({event_prepend}_latest_1) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) {event_prepend}_latest_1"
-        condition_cols.append(f"{event_prepend}_latest_0")
-        condition_cols.append(timestamp_condition)
-
-        step_cols = []
-        step_cols.append(
-            f"if({entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_0"
-        )
-        step_cols.append(f"if({event_prepend}_step_0 = 1, timestamp, null) AS {event_prepend}_latest_0")
-
-        step_cols.append(
-            f"if({seq_entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_1"
-        )
-        step_cols.append(f"if({event_prepend}_step_1 = 1, timestamp, null) AS {event_prepend}_latest_1")
-
-        return step_cols, condition_cols, aggregate_cols, {**entity_params, **seq_entity_params}
-
-    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}", {}
+        return query, params, self.FUNNEL_QUERY_ALIAS
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -684,6 +620,7 @@ class CohortQuery(EnterpriseEventQuery):
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
     ) -> Tuple[str, Dict[str, Any]]:
+        # TODO: handle indexing of event params
         res: str = ""
         params: Dict[str, Any] = {}
 

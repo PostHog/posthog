@@ -186,11 +186,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
         return ", ".join(cols)
 
-    def build_step_subquery(
-        self, level_index: int, max_steps: int, event_names_alias: str = "events", extra_fields: List[str] = []
-    ):
-        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
-
+    def build_step_subquery(self, level_index: int, max_steps: int):
         if level_index >= max_steps:
             return f"""
             SELECT
@@ -198,8 +194,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
-            {parsed_extra_fields}
-            FROM ({self._get_inner_event_query(entity_name=event_names_alias, extra_fields=extra_fields)})
+            FROM ({self._get_inner_event_query()})
             """
         else:
             return f"""
@@ -208,14 +203,12 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
-            {parsed_extra_fields}
             FROM (
                 SELECT
                 aggregation_target,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}
-                {parsed_extra_fields}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """

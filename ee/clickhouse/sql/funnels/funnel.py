@@ -16,7 +16,6 @@ aggregation_target,
 timestamp,
 {steps}
 {select_prop}
-{extra_fields}
 FROM (
     {event_query}
 ) events
