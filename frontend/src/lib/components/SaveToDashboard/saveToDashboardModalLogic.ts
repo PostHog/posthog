@@ -2,27 +2,40 @@ import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
 import Fuse from 'fuse.js'
+import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
-    path: (key) => ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic', key],
-    props: {} as {
-        id?: string
-        insight: Partial<InsightModel>
-        fromDashboard?: number
+interface SaveToDashboardModalLogicProps {
+    insight: Partial<InsightModel>
+    fromDashboard?: number
+}
+export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveToDashboardModalLogicProps>>({
+    path: ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic'],
+    props: {} as SaveToDashboardModalLogicProps,
+    key: ({ insight }) => {
+        if (!insight.short_id) {
+            throw Error('must provide an insight with a short id')
+        }
+        return insight.short_id
     },
-    key: ({ id }) => id || 'none',
-    connect: () => [newDashboardLogic, dashboardsModel, eventUsageLogic],
+    connect: (props: SaveToDashboardModalLogicProps) => ({
+        logics: [newDashboardLogic, dashboardsModel, eventUsageLogic],
+        actions: [insightLogic({ dashboardItemId: props.insight.short_id }), ['updateInsight']],
+    }),
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
         setInsight: (insight: InsightType) => ({ insight }),
         setScrollIndex: (index: number) => ({ index }),
+        addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
     },
 
     reducers: {
@@ -93,6 +106,30 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
+        },
+
+        addToDashboard: async ({ insight, dashboardId }) => {
+            actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
+                eventUsageLogic.actions.reportSavedInsightToDashboard()
+                lemonToast.success('Insight added to dashboard', {
+                    button: {
+                        label: 'View dashboard',
+                        action: () => router.actions.push(urls.dashboard(dashboardId)),
+                    },
+                })
+            })
+        },
+        removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
+            actions.updateInsight(
+                {
+                    ...insight,
+                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
+                },
+                () => {
+                    eventUsageLogic.actions.reportRemovedInsightFromDashboard()
+                    lemonToast.success('Insight removed from dashboard')
+                }
+            )
         },
     }),
 })

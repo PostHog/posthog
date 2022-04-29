@@ -41,33 +41,11 @@ const DashboardRelationRow = ({
     dashboard,
     insight,
 }: DashboardRelationRowProps): JSX.Element => {
-    const { reportSavedInsightToDashboard, reportRemovedInsightFromDashboard } = useActions(eventUsageLogic)
-    const { updateInsight } = useActions(insightLogic)
-
-    async function addToDashboard(dashboardToAdd: number): Promise<void> {
-        updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardToAdd] }, () => {
-            reportSavedInsightToDashboard()
-            lemonToast.success('Insight added to dashboard', {
-                button: {
-                    label: 'View dashboard',
-                    action: () => router.actions.push(urls.dashboard(dashboardToAdd)),
-                },
-            })
-        })
-    }
-
-    async function removeFromDashboard(dashboardToRemove: number): Promise<void> {
-        updateInsight(
-            {
-                ...insight,
-                dashboards: (insight.dashboards || []).filter((d) => d !== dashboardToRemove),
-            },
-            () => {
-                reportRemovedInsightFromDashboard()
-                lemonToast.success('Insight removed from dashboard')
-            }
-        )
-    }
+    const logic = saveToDashboardModalLogic({
+        insight: insight,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
+    const { addToDashboard, removeFromDashboard } = useActions(logic)
 
     return (
         <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
@@ -77,7 +55,9 @@ const DashboardRelationRow = ({
                 compact={true}
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
+                    isAlreadyOnDashboard
+                        ? removeFromDashboard(insight, dashboard.id)
+                        : addToDashboard(insight, dashboard.id)
                 }}
             >
                 {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
@@ -88,7 +68,6 @@ const DashboardRelationRow = ({
 
 export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({
-        id: insight.short_id,
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
@@ -165,7 +144,6 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
 
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({
-        id: insight.short_id,
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
