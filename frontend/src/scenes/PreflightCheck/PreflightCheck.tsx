@@ -2,27 +2,14 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Row, Col } from 'antd'
 import { LoadingOutlined, WarningFilled } from '@ant-design/icons'
-import { router } from 'kea-router'
-import { preflightLogic } from './preflightLogic'
+import { PreflightItemInterface, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { WelcomeHedgehog } from 'lib/components/WelcomeHedgehog/WelcomeHeadgehog'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CheckCircleOutlined, CloseCircleOutlined, IconChevronRight, RefreshIcon } from 'lib/components/icons'
-
-interface PreflightItemInterface {
-    name: string
-    status: boolean
-    caption?: string
-    failedState?: 'warning' | 'not-required'
-}
-
-interface CheckInterface extends PreflightItemInterface {
-    id: string
-}
 
 export const scene: SceneExport = {
     component: PreflightCheck,
@@ -78,64 +65,8 @@ function PreflightItem({ name, status, failedState }: PreflightItemInterface): J
 }
 
 export function PreflightCheck(): JSX.Element {
-    const { preflight, preflightLoading, preflightMode } = useValues(preflightLogic)
-    const { setPreflightMode, loadPreflight } = useActions(preflightLogic)
-    const isReady =
-        preflight &&
-        preflight.django &&
-        preflight.db &&
-        preflight.redis &&
-        preflight.celery &&
-        (preflightMode === 'experimentation' || preflight.plugins)
-
-    const checks = [
-        {
-            id: 'database',
-            name: 'Database (Postgres)',
-            status: preflight?.db,
-        },
-        {
-            id: 'backend',
-            name: 'Backend server (Django)',
-            status: preflight?.django,
-        },
-        {
-            id: 'redis',
-            name: 'Cache & queue (Redis)',
-            status: preflight?.redis,
-        },
-        {
-            id: 'celery',
-            name: 'Background jobs (Celery)',
-            status: preflight?.celery,
-        },
-        {
-            id: 'plugins',
-            name: 'Plugin server (Node)',
-            status: preflight?.plugins,
-            caption: preflightMode === 'experimentation' ? 'Required in production environments' : '',
-            failedState: preflightMode === 'experimentation' ? 'warning' : 'error',
-        },
-        {
-            id: 'frontend',
-            name: 'Frontend build (Webpack)',
-            status: true, // If this code is ran, the front-end is already built
-        },
-        {
-            id: 'tls',
-            name: 'SSL/TLS certificate',
-            status: window.location.protocol === 'https:',
-            caption:
-                preflightMode === 'experimentation'
-                    ? 'Not required for experimentation mode'
-                    : 'Install before ingesting real user data',
-            failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
-        },
-    ] as CheckInterface[]
-
-    const handlePreflightFinished = (): void => {
-        router.actions.push(urls.signup())
-    }
+    const { preflight, preflightLoading, preflightMode, isReady, checks } = useValues(preflightLogic)
+    const { setPreflightMode, loadPreflight, handlePreflightFinished } = useActions(preflightLogic)
 
     return (
         <div

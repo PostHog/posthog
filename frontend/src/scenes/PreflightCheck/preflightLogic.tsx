@@ -9,8 +9,21 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { preflightLogicType } from './preflightLogicType'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 type PreflightMode = 'experimentation' | 'live'
+
+export interface PreflightItemInterface {
+    name: string
+    status: boolean
+    caption?: string
+    failedState?: 'warning' | 'not-required'
+}
+
+export interface CheckInterface extends PreflightItemInterface {
+    id: string
+}
 
 export interface EnvironmentConfigOption {
     key: string
@@ -18,7 +31,7 @@ export interface EnvironmentConfigOption {
     value: string
 }
 
-export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightMode>>({
+export const preflightLogic = kea<preflightLogicType<CheckInterface, EnvironmentConfigOption, PreflightMode>>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     connect: {
         values: [teamLogic, ['currentTeam']],
@@ -34,6 +47,7 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
     actions: {
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
+        handlePreflightFinished: true,
     },
     reducers: {
         preflightMode: [
@@ -44,6 +58,68 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         ],
     },
     selectors: {
+        checks: [
+            (s) => [s.preflight, s.preflightMode],
+            (preflight, preflightMode) => {
+                return [
+                    {
+                        id: 'database',
+                        name: 'Database (Postgres)',
+                        status: preflight?.db,
+                    },
+                    {
+                        id: 'backend',
+                        name: 'Backend server (Django)',
+                        status: preflight?.django,
+                    },
+                    {
+                        id: 'redis',
+                        name: 'Cache & queue (Redis)',
+                        status: preflight?.redis,
+                    },
+                    {
+                        id: 'celery',
+                        name: 'Background jobs (Celery)',
+                        status: preflight?.celery,
+                    },
+                    {
+                        id: 'plugins',
+                        name: 'Plugin server (Node)',
+                        status: preflight?.plugins,
+                        caption: preflightMode === 'experimentation' ? 'Required in production environments' : '',
+                        failedState: preflightMode === 'experimentation' ? 'warning' : 'error',
+                    },
+                    {
+                        id: 'frontend',
+                        name: 'Frontend build (Webpack)',
+                        status: true,
+                    },
+                    {
+                        id: 'tls',
+                        name: 'SSL/TLS certificate',
+                        status: window.location.protocol === 'https:',
+                        caption:
+                            preflightMode === 'experimentation'
+                                ? 'Not required for experimentation mode'
+                                : 'Install before ingesting real user data',
+                        failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
+                    },
+                ] as CheckInterface[]
+            },
+        ],
+        isReady: [
+            (s) => [s.preflight, s.preflightMode],
+            (preflight, preflightMode) => {
+                return (
+                    preflight &&
+                    preflight.django &&
+                    preflight.db &&
+                    preflight.redis &&
+                    preflight.celery &&
+                    (preflightMode === 'experimentation' || preflight.plugins)
+                )
+            },
+        ],
         socialAuthAvailable: [
             (s) => [s.preflight],
             (preflight): boolean =>
@@ -89,6 +165,9 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         ],
     },
     listeners: ({ values, actions }) => ({
+        handlePreflightFinished: () => {
+            router.actions.push(urls.signup())
+        },
         loadPreflightSuccess: () => {
             actions.registerInstrumentationProps()
         },
