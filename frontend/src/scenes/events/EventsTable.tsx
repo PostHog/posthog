@@ -195,7 +195,11 @@ export function EventsTable({
                 },
             },
             {
-                title: 'Source',
+                title: (
+                    <Tooltip title='This is the "Library" property on events. Sent by the SDK as "$lib"'>
+                        Source
+                    </Tooltip>
+                ),
                 key: 'source',
                 render: function renderSource(_, { event }: EventsTableRowItem) {
                     if (!event) {
