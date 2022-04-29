@@ -562,16 +562,11 @@ def is_kafka_alive() -> bool:
 
 
 def is_event_service_alive() -> bool:
-    absolute_url = absolute_uri("/e/")
+    absolute_url = absolute_uri("/_health")
 
-    # Somewhat confusing, but we don't want to make a valid
-    # request to the event service, because we don't want to
-    # accidentally create an event. So we just send a HEAD
-    # request (which will fail because there's no body) and
-    # verify the event service properly failed on the response.
     try:
-        r = requests.head(absolute_url)
-        return r.status_code == 400
+        r = requests.get(absolute_url)
+        return r.status_code == 200
     except BaseException:
         return False
 
