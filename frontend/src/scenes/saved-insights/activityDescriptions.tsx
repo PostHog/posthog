@@ -12,6 +12,11 @@ const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
 
 type Description = string | JSX.Element | null
 
+function linkToDashboard(dashboardId: number): JSX.Element {
+    // todo need a name for the dashboard?
+    return <Link to={urls.dashboard(dashboardId)}>dashboard</Link>
+}
+
 const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange) => Description[] | null> = {
     name: function onName(change) {
         return [
@@ -101,6 +106,18 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
             </>,
         ]
     },
+    dashboards: function onDashboardsChange(change) {
+        const dashboardsBefore = change?.before as number[]
+        const dashboardsAfter = change?.after as number[]
+
+        const addedDashboards = dashboardsAfter.filter((da) => !dashboardsBefore.includes(da))
+        const removedDashboards = dashboardsBefore.filter((db) => !dashboardsAfter.includes(db))
+
+        const describeAdded = addedDashboards.map((d) => <>added to {linkToDashboard(d)}</>)
+        const describeRemoved = removedDashboards.map((d) => <>removedFrom {linkToDashboard(d)}</>)
+
+        return describeAdded.concat(describeRemoved)
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
@@ -114,7 +131,6 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     order: () => null,
     result: () => null,
     last_refresh: () => null,
-    dashboard: () => null,
     last_modified_by: () => null,
     next: () => null, // only used by frontend
 }
