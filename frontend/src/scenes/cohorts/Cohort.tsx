@@ -28,11 +28,12 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { alphabet, isCohortCriteriaGroup } from 'lib/utils'
+import { alphabet } from 'lib/utils'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { isCohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/cohortUtils'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -60,29 +61,13 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
         duplicateFilter,
         removeFilter,
         addFilter,
+        setCriteria,
     } = useActions(logic)
     const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
-    console.log('COHORT', cohort)
-
-    const onAddGroup = (): void => {
-        setCohort({
-            ...cohort,
-            groups: [
-                ...cohort.groups,
-                {
-                    id: Math.random().toString().substr(2, 5),
-                    matchType: PROPERTY_MATCH_TYPE,
-                    properties: [],
-                },
-            ],
-        })
-    }
-    const onRemoveGroup = (index: number): void => {
-        setCohort({ ...cohort, groups: cohort.groups.filter((_, i) => i !== index) })
-    }
+    console.log('BLAHHHHH', cohort)
 
     return (
         <div className="cohort">
@@ -254,6 +239,11 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             {cohort.properties.values.map((group, groupIndex) =>
                                                 isCohortCriteriaGroup(group) ? (
                                                     <Group key={groupIndex} name={['groups', groupIndex]}>
+                                                        {groupIndex !== 0 && (
+                                                            <div className="cohort-detail__matching-group__logical-divider">
+                                                                {cohort.properties.type}
+                                                            </div>
+                                                        )}
                                                         <KeaField
                                                             name="id"
                                                             template={({ error, kids }) => {
@@ -296,7 +286,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                         }
                                                                         value={group.type}
                                                                     />
-                                                                    <div style={{ flex: 1 }} />
+                                                                    <div style={{ flex: 1, minWidth: '0.5rem' }} />
                                                                     <LemonButton
                                                                         icon={<IconCopy />}
                                                                         type="primary-alt"
@@ -311,26 +301,56 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                     />
                                                                 </Row>
                                                                 <LemonDivider large />
-                                                                {group.values.map((criteria, criteriaIndex) =>
-                                                                    isCohortCriteriaGroup(criteria) ? null : (
-                                                                        <CohortCriteriaRowBuilder
-                                                                            key={criteriaIndex}
-                                                                            type={
-                                                                                criteria.value as BehavioralFilterType
-                                                                            }
-                                                                            onChangeType={() => {}}
-                                                                            onDuplicate={() =>
-                                                                                duplicateFilter(
-                                                                                    groupIndex,
-                                                                                    criteriaIndex
-                                                                                )
-                                                                            }
-                                                                            onRemove={() =>
-                                                                                removeFilter(groupIndex, criteriaIndex)
-                                                                            }
-                                                                        />
+                                                                {group.values.map((criteria, criteriaIndex) => {
+                                                                    console.log('CRITERIA', criteria)
+                                                                    return isCohortCriteriaGroup(criteria) ? null : (
+                                                                        <>
+                                                                            <CohortCriteriaRowBuilder
+                                                                                key={criteriaIndex}
+                                                                                groupIndex={groupIndex}
+                                                                                index={criteriaIndex}
+                                                                                logicalOperator={group.type}
+                                                                                criteria={criteria}
+                                                                                type={
+                                                                                    criteria.value as BehavioralFilterType
+                                                                                }
+                                                                                onChange={setCriteria}
+                                                                                onDuplicate={() =>
+                                                                                    duplicateFilter(
+                                                                                        groupIndex,
+                                                                                        criteriaIndex
+                                                                                    )
+                                                                                }
+                                                                                onRemove={() =>
+                                                                                    removeFilter(
+                                                                                        groupIndex,
+                                                                                        criteriaIndex
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                            {criteriaIndex ===
+                                                                                group.values.length - 1 && (
+                                                                                <Row>
+                                                                                    <LemonButton
+                                                                                        data-attr={
+                                                                                            'cohort-add-filter-group-criteria'
+                                                                                        }
+                                                                                        style={{ margin: '0.75rem' }}
+                                                                                        type="secondary"
+                                                                                        onClick={() =>
+                                                                                            addFilter(groupIndex)
+                                                                                        }
+                                                                                        icon={
+                                                                                            <IconPlusMini color="var(--primary)" />
+                                                                                        }
+                                                                                    >
+                                                                                        Add criteria
+                                                                                    </LemonButton>
+                                                                                </Row>
+                                                                            )}
+                                                                        </>
                                                                     )
-                                                                )}
+                                                                })}
                                                             </div>
                                                         </KeaField>
                                                     </Group>
@@ -394,7 +414,14 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                 onCriteriaChange={(newGroup) =>
                                                                     onCriteriaChange(newGroup, group.id)
                                                                 }
-                                                                onRemove={() => onRemoveGroup(index)}
+                                                                onRemove={() => {
+                                                                    setCohort({
+                                                                        ...cohort,
+                                                                        groups: cohort.groups.filter(
+                                                                            (_, i) => i !== index
+                                                                        ),
+                                                                    })
+                                                                }}
                                                                 group={group}
                                                                 hideRemove={cohort.groups.length === 1}
                                                             />
@@ -410,7 +437,19 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                 <a
                                                     href="#add"
                                                     style={{ padding: 0 }}
-                                                    onClick={() => onAddGroup()}
+                                                    onClick={() => {
+                                                        setCohort({
+                                                            ...cohort,
+                                                            groups: [
+                                                                ...cohort.groups,
+                                                                {
+                                                                    id: Math.random().toString().substr(2, 5),
+                                                                    matchType: PROPERTY_MATCH_TYPE,
+                                                                    properties: [],
+                                                                },
+                                                            ],
+                                                        })
+                                                    }}
                                                     data-attr="add-match-criteria"
                                                 >
                                                     <PlusOutlined /> Add matching criteria

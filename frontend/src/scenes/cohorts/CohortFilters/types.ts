@@ -50,8 +50,8 @@ export enum BehavioralFilterKey {
 }
 
 export interface Field {
-    key?: string
-    value?: string | number | null
+    fieldKey?: string
+    defaultValue?: string | number | null
     type: FilterType
     hide?: boolean // If field is hidden, key is included in final payload but no component is rendered
 }
@@ -67,7 +67,6 @@ export interface Row {
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
-    groupedValues?: Record<string, any>[] // entire row's values. contains information about other fields in row
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
@@ -79,16 +78,18 @@ export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'f
     taxonomicGroupType?: TaxonomicFilterGroupType
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     fieldOptionGroupTypes: never
-    onTaxonomicGroupChange?: (group: TaxonomicFilterGroupType) => void
 }
 
-export interface CohortTextFieldProps {
+export interface CohortTextFieldProps extends CohortFieldBaseProps {
     value: string
-    groupedValues?: Record<string, any>[]
 }
 
 export interface CohortNumberFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
     fieldOptionGroupTypes: never
 }
 
-export type CohortFieldProps = CohortSelectorFieldProps | CohortNumberFieldProps | CohortTaxonomicFieldProps
+export type CohortFieldProps =
+    | CohortSelectorFieldProps
+    | CohortNumberFieldProps
+    | CohortTaxonomicFieldProps
+    | CohortTextFieldProps

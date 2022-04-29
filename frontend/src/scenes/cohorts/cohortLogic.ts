@@ -14,7 +14,7 @@ import {
     FilterLogicalOperator,
     TimeUnitType,
 } from '~/types'
-import { convertPropertyGroupToProperties, isCohortCriteriaGroup } from 'lib/utils'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
@@ -22,6 +22,7 @@ import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { isCohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/cohortUtils'
 
 function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
@@ -120,6 +121,11 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
         addFilter: (groupIndex?: number) => ({ groupIndex }),
         removeFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
+        setCriteria: (newCriteria: Partial<AnyCohortCriteriaType>, groupIndex: number, criteriaIndex: number) => ({
+            newCriteria,
+            groupIndex,
+            criteriaIndex,
+        }),
     }),
 
     reducers: () => ({
@@ -259,6 +265,55 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                                 ...newFilters.properties.values.slice(0, groupIndex),
                                 ...newFilters.properties.values.slice(groupIndex + 1),
                             ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        },
+                    }
+                },
+                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
+                    const newFilters = { ...state }
+
+                    console.log('SET', newCriteria, groupIndex, criteriaIndex)
+
+                    console.log('SETFINALE', newFilters, {
+                        ...newFilters,
+                        properties: {
+                            ...newFilters.properties,
+                            values: newFilters.properties.values.map((group, groupI) =>
+                                groupI === groupIndex && isCohortCriteriaGroup(group)
+                                    ? {
+                                          ...group,
+                                          values: group.values.map((criteria, criteriaI) =>
+                                              criteriaI === criteriaIndex
+                                                  ? {
+                                                        ...criteria,
+                                                        ...newCriteria,
+                                                    }
+                                                  : criteria
+                                          ),
+                                      }
+                                    : group
+                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        },
+                    })
+
+                    return {
+                        ...newFilters,
+                        properties: {
+                            ...newFilters.properties,
+                            values: newFilters.properties.values.map((group, groupI) =>
+                                groupI === groupIndex && isCohortCriteriaGroup(group)
+                                    ? {
+                                          ...group,
+                                          values: group.values.map((criteria, criteriaI) =>
+                                              criteriaI === criteriaIndex
+                                                  ? {
+                                                        ...criteria,
+                                                        ...newCriteria,
+                                                    }
+                                                  : criteria
+                                          ),
+                                      }
+                                    : group
+                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
                         },
                     }
                 },

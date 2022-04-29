@@ -4,10 +4,7 @@ import {
     ActionFilter,
     ActionType,
     ActorType,
-    AnyCohortCriteriaType,
-    AnyCohortGroupType,
     AnyPropertyFilter,
-    CohortCriteriaGroupFilter,
     CohortType,
     dateMappingOption,
     EventType,
@@ -23,7 +20,7 @@ import {
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
@@ -1260,24 +1257,6 @@ export function isPropertyGroup(
     )
 }
 
-export function isCohortCriteriaGroup(
-    criteria:
-        | CohortCriteriaGroupFilter
-        | AnyCohortCriteriaType[]
-        | AnyCohortCriteriaType
-        | AnyCohortGroupType[]
-        | AnyCohortGroupType
-        | undefined
-): criteria is CohortCriteriaGroupFilter {
-    if (criteria) {
-        return (
-            (criteria as CohortCriteriaGroupFilter).type !== undefined &&
-            (criteria as CohortCriteriaGroupFilter).values !== undefined
-        )
-    }
-    return false
-}
-
 export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
     propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
@@ -1317,13 +1296,6 @@ export function convertPropertyGroupToProperties(
         return properties.filter(isValidPropertyFilter)
     }
     return properties
-}
-
-export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
-    return !(
-        (criteria.matchType === PROPERTY_MATCH_TYPE && !criteria.properties?.length) ||
-        (criteria.matchType === ENTITY_MATCH_TYPE && !(criteria.action_id || criteria.event_id))
-    )
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

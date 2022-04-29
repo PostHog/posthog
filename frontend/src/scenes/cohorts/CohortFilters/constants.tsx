@@ -5,6 +5,7 @@ import {
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortTaxonomicFieldProps,
+    CohortTextFieldProps,
     FieldOptionsType,
     FieldValues,
     FilterType,
@@ -277,28 +278,28 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralEventType.PerformEvent,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
         ],
     },
@@ -308,28 +309,28 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         negation: true,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
         ],
     },
@@ -338,37 +339,38 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralEventType.PerformMultipleEvents,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
-                key: 'operator',
+                fieldKey: 'operator',
                 type: FilterType.MathOperator,
-                value: PropertyOperator.Exact,
+                defaultValue: PropertyOperator.Exact,
             },
             {
+                fieldKey: 'operator_value',
                 type: FilterType.NumberTicker,
+                defaultValue: 5,
             },
             {
-                key: 'operator_value',
                 type: FilterType.Text,
-                value: 'times in the last',
+                defaultValue: 'times in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
         ],
     },
@@ -377,54 +379,54 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralEventType.PerformSequenceEvents,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'followed by',
+                defaultValue: 'followed by',
             },
             {
-                key: 'seq_event',
+                fieldKey: 'seq_event',
                 type: FilterType.EventsAndActions,
             },
             {
                 type: FilterType.Text,
-                value: 'within',
+                defaultValue: 'within',
             },
             {
+                fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'seq_time_value',
+                fieldKey: 'seq_time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
-                key: 'seq_time_interval',
                 type: FilterType.Text,
-                value: 'of the initial event',
+                defaultValue: 'of the initial event',
             },
         ],
     },
@@ -434,54 +436,54 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         negation: true,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'followed by',
+                defaultValue: 'followed by',
             },
             {
-                key: 'seq_event',
+                fieldKey: 'seq_event',
                 type: FilterType.EventsAndActions,
             },
             {
                 type: FilterType.Text,
-                value: 'within',
+                defaultValue: 'within',
             },
             {
+                fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'seq_time_value',
+                fieldKey: 'seq_time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
-                key: 'seq_time_interval',
                 type: FilterType.Text,
-                value: 'of the initial event',
+                defaultValue: 'of the initial event',
             },
         ],
     },
@@ -490,16 +492,16 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralEventType.HaveProperty,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventProperties,
             },
             {
-                key: 'operator',
+                fieldKey: 'operator',
                 type: FilterType.MathOperator,
-                value: PropertyOperator.Exact,
+                defaultValue: PropertyOperator.Exact,
             },
             {
-                key: 'value',
+                fieldKey: 'value',
                 type: FilterType.EventPropertyValues,
             },
         ],
@@ -510,16 +512,16 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         negation: true,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventProperties,
             },
             {
-                key: 'operator',
+                fieldKey: 'operator',
                 type: FilterType.MathOperator,
-                value: PropertyOperator.Exact,
+                defaultValue: PropertyOperator.Exact,
             },
             {
-                key: 'value',
+                fieldKey: 'value',
                 type: FilterType.EventPropertyValues,
             },
         ],
@@ -528,9 +530,9 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         type: BehavioralFilterKey.Cohort,
         value: BehavioralCohortType.InCohort,
         fields: [
-            { key: 'key', type: FilterType.CohortId, value: 'id', hide: true },
+            { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {
-                key: 'value',
+                fieldKey: 'value',
                 type: FilterType.CohortValues,
             },
         ],
@@ -540,9 +542,9 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         negation: true,
         value: BehavioralCohortType.InCohort,
         fields: [
-            { key: 'key', type: FilterType.CohortId, value: 'id', hide: true },
+            { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {
-                key: 'value',
+                fieldKey: 'value',
                 type: FilterType.CohortValues,
             },
         ],
@@ -552,28 +554,28 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralLifecycleType.PerformEventFirstTime,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
         ],
     },
@@ -582,55 +584,56 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralLifecycleType.PerformEventRegularly,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
-                key: 'operator',
+                fieldKey: 'operator',
                 type: FilterType.MathOperator,
-                value: PropertyOperator.Exact,
+                defaultValue: PropertyOperator.Exact,
             },
             {
-                key: 'operator_value',
+                fieldKey: 'operator_value',
                 type: FilterType.NumberTicker,
+                defaultValue: 5,
             },
             {
                 type: FilterType.Text,
-                value: 'times per',
+                defaultValue: 'times per',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 1,
+                defaultValue: 1,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'period for at least',
+                defaultValue: 'period for at least',
             },
             {
-                key: 'min_periods',
+                fieldKey: 'min_periods',
                 type: FilterType.Number,
-                value: 3,
+                defaultValue: 3,
             },
             {
                 type: FilterType.Text,
-                value: 'of the last',
+                defaultValue: 'of the last',
             },
             {
-                key: 'total_periods',
+                fieldKey: 'total_periods',
                 type: FilterType.Number,
-                value: 5,
+                defaultValue: 5,
             },
         ],
     },
@@ -639,46 +642,46 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralLifecycleType.StopPerformEvent,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'seq_time_value',
+                fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'seq_time_interval',
+                fieldKey: 'seq_time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'but had done it in the',
+                defaultValue: 'but had done it in the',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'prior to now',
+                defaultValue: 'prior to now',
             },
         ],
     },
@@ -687,46 +690,46 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         value: BehavioralLifecycleType.StartPerformEventAgain,
         fields: [
             {
-                key: 'key',
+                fieldKey: 'key',
                 type: FilterType.EventsAndActions,
             },
             {
-                key: 'event_type',
+                fieldKey: 'event_type',
                 type: FilterType.EventType,
-                value: TaxonomicFilterGroupType.Events,
+                defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
             },
             {
                 type: FilterType.Text,
-                value: 'in the last',
+                defaultValue: 'in the last',
             },
             {
-                key: 'seq_time_value',
+                fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'seq_time_interval',
+                fieldKey: 'seq_time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'but had not done it in the',
+                defaultValue: 'but had not done it in the',
             },
             {
-                key: 'time_value',
+                fieldKey: 'time_value',
                 type: FilterType.Number,
-                value: 30,
+                defaultValue: 30,
             },
             {
-                key: 'time_interval',
+                fieldKey: 'time_interval',
                 type: FilterType.TimeUnit,
-                value: TimeUnitType.Day,
+                defaultValue: TimeUnitType.Day,
             },
             {
                 type: FilterType.Text,
-                value: 'prior to now',
+                defaultValue: 'prior to now',
             },
         ],
     },
@@ -770,7 +773,8 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.ValueOptions]} />
     },
     [FilterType.Text]: function _renderField(p) {
-        return <CohortTextField value={String(p?.value ?? '')} />
+        const _p = p as CohortTextFieldProps
+        return <CohortTextField {..._p} value={String(_p?.value ?? '')} />
     },
     [FilterType.EventsAndActions]: function _renderField(p) {
         return (

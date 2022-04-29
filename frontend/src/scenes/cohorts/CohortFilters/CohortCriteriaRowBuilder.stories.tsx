@@ -21,5 +21,5 @@ export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps):
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
     const [type, setType] = useState<BehavioralFilterType>(BehavioralEventType.PerformEvent)
-    return <CohortCriteriaRowBuilder {...props} type={type} onChangeType={setType} />
+    return <CohortCriteriaRowBuilder {...props} type={type} onChange={({ value }) => value && setType(value)} />
 }

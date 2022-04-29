@@ -9,6 +9,21 @@
         }
     }
 
+    .CohortCriteriaRow__logical-divider {
+        color: var(--primary-alt);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+
+        &::before,
+        &::after {
+            border-top: 1px solid var(--border);
+        }
+        &::before {
+            width: 1.5%;
+        }
+    }
+
     .CohortCriteriaRow__inline-divider {
         margin: 0 0.5rem;
         height: 1px;

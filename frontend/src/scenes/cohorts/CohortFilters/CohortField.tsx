@@ -1,6 +1,6 @@
 import './CohortField.scss'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import React, { useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -24,32 +24,32 @@ const useCohortLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof
         [props.cohortFilterLogicKey]
     )
     const logic = cohortFieldLogic({ ...props, cohortFilterLogicKey })
-    const { setValue } = useActions(logic)
 
-    useEffect(() => {
-        setValue(props.value)
-    }, [props.value])
     return {
         logic,
     }
 }
 
 export function CohortSelectorField({
+    fieldKey,
     cohortFilterLogicKey,
-    value,
+    criteria,
     fieldOptionGroupTypes,
     placeholder,
     onChange: _onChange,
 }: CohortSelectorFieldProps): JSX.Element {
     const { logic } = useCohortLogic({
+        fieldKey: fieldKey,
         cohortFilterLogicKey,
-        value,
+        criteria,
         fieldOptionGroupTypes,
         onChange: _onChange,
     })
 
-    const { fieldOptionGroups, currentOption } = useValues(logic)
+    const { fieldOptionGroups, currentOption, value } = useValues(logic)
     const { onChange } = useActions(logic)
+
+    console.log('FIELD OPTIOS', fieldOptionGroups)
 
     return (
         <LemonButtonWithPopup
@@ -63,15 +63,15 @@ export function CohortSelectorField({
                             <div key={i}>
                                 {i !== 0 && <LemonDivider />}
                                 <h5>{label}</h5>
-                                {Object.entries(values).map(([key, option]) => (
+                                {Object.entries(values).map(([_value, option]) => (
                                     <LemonButton
-                                        key={key}
+                                        key={_value}
                                         onClick={() => {
-                                            onChange(key, option, values)
+                                            onChange({ [fieldKey]: _value })
                                         }}
-                                        type={key == value ? 'highlighted' : 'stealth'}
+                                        type={_value == value ? 'highlighted' : 'stealth'}
                                         fullWidth
-                                        data-attr={`cohort-${groupKey}-${key}-type`}
+                                        data-attr={`cohort-${groupKey}-${_value}-type`}
                                     >
                                         {option.label}
                                     </LemonButton>
@@ -88,20 +88,22 @@ export function CohortSelectorField({
 }
 
 export function CohortTaxonomicField({
+    fieldKey,
     cohortFilterLogicKey,
-    value,
+    criteria,
     taxonomicGroupType = TaxonomicFilterGroupType.Events,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     placeholder = 'Choose event',
     onChange: _onChange,
-    onTaxonomicGroupChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
     const { logic } = useCohortLogic({
+        fieldKey: fieldKey,
+        criteria,
         cohortFilterLogicKey,
-        value,
         onChange: _onChange,
     })
 
+    const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
     return (
@@ -111,8 +113,7 @@ export function CohortTaxonomicField({
             groupType={taxonomicGroupType}
             value={value as TaxonomicFilterValue}
             onChange={(v, g) => {
-                onChange(v)
-                onTaxonomicGroupChange?.(g)
+                onChange({ [fieldKey]: v, event_type: g })
             }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
@@ -121,27 +122,31 @@ export function CohortTaxonomicField({
 }
 
 export function CohortTextField({ value }: CohortTextFieldProps): JSX.Element {
+    console.log('VALUE', value)
     return <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{value}</span>
 }
 
 export function CohortNumberField({
+    fieldKey,
     cohortFilterLogicKey,
-    value,
+    criteria,
     onChange: _onChange,
 }: CohortNumberFieldProps): JSX.Element {
     const { logic } = useCohortLogic({
+        fieldKey: fieldKey,
         cohortFilterLogicKey,
-        value,
+        criteria,
         onChange: _onChange,
     })
+    const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
     return (
         <LemonInput
             type="number"
-            value={value ?? undefined}
+            value={(value as string | number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange(nextNumber)
+                onChange({ [fieldKey]: Number(nextNumber) })
             }}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />

@@ -1,16 +1,18 @@
 import { kea } from 'kea'
-import { LemonSelectOption, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType } from '~/types'
+import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
+import { cleanBehavioralTypeCriteria } from 'scenes/cohorts/CohortFilters/cohortUtils'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
-    value: string | number | null
+    fieldKey: keyof AnyCohortCriteriaType
+    criteria: AnyCohortCriteriaType
+    onChange?: (newField: AnyCohortCriteriaType) => void
+    /* Only used for selector fields */
     fieldOptionGroupTypes?: FieldOptionsType[]
-    onChange?: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => void
 }
 
 export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>({
@@ -21,21 +23,16 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
     },
     actions: {
-        setValue: (value: string | number | null) => ({ value }),
-        onChange: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => ({
-            value,
-            option,
-            group,
-        }),
+        onChange: (newField: AnyCohortCriteriaType) => ({ newField }),
     },
-    reducers: {
+    reducers: ({ props }) => ({
         value: [
-            null as string | number | null,
+            props.criteria?.[props.fieldKey] ?? (null as string | number | boolean | null | undefined),
             {
-                setValue: (_, { value }) => value,
+                onChange: (state, { newField }) => newField[props.fieldKey] ?? state,
             },
         ],
-    },
+    }),
     selectors: {
         fieldOptionGroups: [
             (s) => [(_, props) => props.fieldOptionGroupTypes, s.groupTypes, s.aggregationLabel],
@@ -64,17 +61,16 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
         currentOption: [
             (s) => [s.fieldOptionGroups, s.value],
             (fieldOptionGroups, value) =>
-                value
+                value && typeof value === 'string'
                     ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
                           value
                       ]
                     : null,
         ],
     },
-    listeners: ({ props, actions }) => ({
-        onChange: ({ value, option, group }) => {
-            actions.setValue(value)
-            props.onChange?.(value, option, group)
+    listeners: ({ props }) => ({
+        onChange: ({ newField }) => {
+            props.onChange?.(cleanBehavioralTypeCriteria(newField))
         },
     }),
 })
