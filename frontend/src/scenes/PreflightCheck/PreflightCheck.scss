@@ -1,59 +1,114 @@
 @import '~/vars';
 
-.side-container {
-    margin: $default_spacing;
+.preflight-check-container {
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+    flex-direction: row;
+    padding: 40px 16px;
 
-    @media screen and (max-width: $md) {
-        display: none;
-    }
-}
+    .preflight-box {
+        @extend %mixin-elevated;
+        max-width: 480px;
+        background-color: var(--bg-light);
+        border-radius: $radius;
+        padding: 40px;
 
-.preflight-box {
-    @extend %mixin-elevated;
-    max-width: 500px;
-    margin: 0 $default_spacing * 2;
-    background-color: var(--bg-light);
-    border-radius: $radius;
-    padding: $default_spacing * 2;
-
-    .divider {
-        margin: $default_spacing 0;
-        border-top: 2px dashed var(--border);
-    }
-
-    p {
-        text-align: center;
-        margin-bottom: $default_spacing/2;
-
-        &.title-text {
-            font-size: 28px;
-            font-weight: 800;
-            line-height: 34px;
-            letter-spacing: -0.02em;
+        .divider {
+            margin: 24px;
+            border-top: 2px dashed var(--border);
         }
 
-        &.secondary-text {
-            font-size: 16px;
-            line-height: 24px;
+        p {
+            margin-bottom: $default_spacing/2;
+
+            &.title-text {
+                font-size: 28px;
+                font-weight: 800;
+                line-height: 34px;
+                letter-spacing: -0.02em;
+            }
+
+            &.secondary-text {
+                font-size: 16px;
+                line-height: 24px;
+            }
         }
-    }
 
-    .ingestion-btn {
-        background-color: black;
+        .preflight-item {
+            display: flex;
+            padding: 12px;
+            margin-top: 4px;
+            align-items: center;
+            justify-content: center;
 
-        &:hover:not(.LemonRow--disabled) {
-            background-color: black;
-            opacity: 0.8;
-        }
+            p {
+                margin-bottom: 0;
+                font-size: 14px;
+            }
 
-        &.inverted {
-            background-color: white;
-            color: black;
-            border: 2px solid black;
+            .icon-container {
+                width: 22px;
+                display: flex;
+            }
 
-            &:hover {
-                background-color: white;
-                border: 2px solid rgba(0, 0, 0, 0.5);
+            .central-text-container {
+                flex: 1;
+                margin-left: 14px;
+
+                .check-name {
+                    font-weight: 600;
+                }
+            }
+
+            svg {
+                font-size: 20px;
+            }
+
+            &.loading {
+                background-color: #f6f8ff;
+
+                svg,
+                .status-text {
+                    color: var(--primary);
+                }
+            }
+
+            &.success {
+                background-color: #f8fcf8;
+
+                svg,
+                .status-text {
+                    color: var(--success);
+                }
+            }
+
+            &.warning {
+                background-color: #f7a5011a;
+
+                svg,
+                .status-text {
+                    color: var(--warning);
+                }
+            }
+
+            &.optional {
+                background-color: #fafaf9;
+
+                svg,
+                .status-text {
+                    color: var(--border-dark);
+                }
+            }
+
+            &.error {
+                background-color: #feefea;
+
+                svg,
+                .status-text {
+                    color: var(--danger);
+                }
             }
         }
     }

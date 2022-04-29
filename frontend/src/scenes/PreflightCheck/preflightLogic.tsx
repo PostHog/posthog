@@ -16,12 +16,8 @@ type PreflightMode = 'experimentation' | 'live'
 
 export interface PreflightItemInterface {
     name: string
-    status: boolean
+    status: 'verified' | 'error' | 'warning' | 'optional'
     caption?: string
-    failedState?: 'warning' | 'not-required'
-}
-
-export interface CheckInterface extends PreflightItemInterface {
     id: string
 }
 
@@ -31,7 +27,7 @@ export interface EnvironmentConfigOption {
     value: string
 }
 
-export const preflightLogic = kea<preflightLogicType<CheckInterface, EnvironmentConfigOption, PreflightMode>>({
+export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightItemInterface, PreflightMode>>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     connect: {
         values: [teamLogic, ['currentTeam']],
@@ -64,62 +60,73 @@ export const preflightLogic = kea<preflightLogicType<CheckInterface, Environment
                 return [
                     {
                         id: 'database',
-                        name: 'Application database (Postgres)',
-                        status: preflight?.db,
+                        name: 'Application database · Postgres',
+                        status: preflight?.db ? 'verified' : 'error',
                     },
                     {
                         id: 'clickhouse',
-                        name: 'Analytics database (ClickHouse)',
-                        status: preflight?.clickhouse,
+                        name: 'Analytics database · ClickHouse',
+                        status: preflight?.clickhouse ? 'verified' : 'error',
                     },
                     {
                         id: 'eventService',
-                        name: 'Event service',
-                        status: preflight?.event_service,
+                        name: 'Event ingestion service',
+                        status: preflight?.event_service ? 'verified' : 'error',
                     },
                     {
                         id: 'kafka',
-                        name: 'Queue (Kafka)',
-                        status: preflight?.kafka,
+                        name: 'Queue · Kafka',
+                        status: preflight?.kafka ? 'verified' : 'error',
                     },
                     {
                         id: 'backend',
-                        name: 'Backend server (Django)',
-                        status: preflight?.django,
+                        name: 'Backend server · Django',
+                        status: preflight?.django ? 'verified' : 'error',
                     },
                     {
                         id: 'redis',
-                        name: 'Cache (Redis)',
-                        status: preflight?.redis,
+                        name: 'Cache · Redis',
+                        status: preflight?.redis ? 'verified' : 'error',
                     },
                     {
                         id: 'celery',
-                        name: 'Background jobs (Celery)',
-                        status: preflight?.celery,
+                        name: 'Background jobs · Celery',
+                        status: preflight?.celery ? 'verified' : 'error',
                     },
                     {
                         id: 'plugins',
-                        name: 'Plugin server (Node)',
-                        status: preflight?.plugins,
-                        caption: preflightMode === 'experimentation' ? 'Required in production environments' : '',
-                        failedState: preflightMode === 'experimentation' ? 'warning' : 'error',
+                        name: 'Plugin server · Node',
+                        status: preflight?.plugins
+                            ? 'verified'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.plugins && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : '',
                     },
                     {
                         id: 'frontend',
-                        name: 'Frontend build (Webpack)',
-                        status: true, // If this page is shown, the frontend is working
+                        name: 'Frontend build · Webpack',
+                        status: 'verified', // Always verified if we're showing the preflight check
                     },
                     {
                         id: 'tls',
                         name: 'SSL/TLS certificate',
-                        status: window.location.protocol === 'https:',
+                        status:
+                            window.location.protocol === 'https:'
+                                ? 'verified'
+                                : preflightMode === 'experimentation'
+                                ? 'optional'
+                                : 'warning',
                         caption:
-                            preflightMode === 'experimentation'
+                            !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
                                 ? 'Not required for experimentation mode'
-                                : 'Install before ingesting real user data',
+                                : 'Set up before ingesting real user data',
                         failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
                     },
-                ] as CheckInterface[]
+                ] as PreflightItemInterface[]
             },
         ],
         isReady: [

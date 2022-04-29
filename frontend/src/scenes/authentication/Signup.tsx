@@ -11,7 +11,6 @@ import { Rule } from 'rc-field-form/lib/interface'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
-import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -79,7 +78,6 @@ export function Signup(): JSX.Element | null {
         <div className="bridge-page signup">
             <Row>
                 <Col span={24} className="auth-main-content">
-                    <img src={hedgehogMain} alt="" className="main-art" />
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />
                         <div className="inner">

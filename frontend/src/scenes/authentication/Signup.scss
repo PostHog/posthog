@@ -2,6 +2,8 @@
 @import './bridgePagesShared';
 
 .bridge-page.signup {
+    padding: 0 $default_spacing;
+
     // bridgePagesShared overrides
     .auth-main-content {
         min-height: calc(100vh - 54px); // To account for the footer
