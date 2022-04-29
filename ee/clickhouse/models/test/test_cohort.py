@@ -13,7 +13,7 @@ from ee.clickhouse.models.cohort import (
 )
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -488,7 +488,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         return action
 
-    @snapshot_clickhouse_queries
     def test_cohortpeople_action_count(self):
 
         action = self._setup_actions_with_different_counts()
@@ -790,7 +789,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     @pytest.mark.skip("Old cohorts don't handle this case")
-    @snapshot_clickhouse_queries
     def test_query_with_multiple_new_style_cohorts(self):
 
         action1 = Action.objects.create(team=self.team, name="action1")
