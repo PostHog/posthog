@@ -8,8 +8,7 @@ import { IconCopy, IconDelete } from 'lib/components/icons'
 import { AnyCohortCriteriaType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
-    /* Object that contains keys and values corresponding to filter row.
-    TODO: stronger schema typing once API is finalized*/
+    /* Object that contains keys and values corresponding to filter row. */
     criteria: AnyCohortCriteriaType
     type: BehavioralFilterType
     groupIndex: number
