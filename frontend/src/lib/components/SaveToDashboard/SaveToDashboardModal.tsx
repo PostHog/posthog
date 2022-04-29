@@ -73,8 +73,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
     })
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
-    const { setSearchQuery } = useActions(logic)
-    const { addNewDashboard } = useActions(logic)
+    const { setSearchQuery, addNewDashboard } = useActions(logic)
 
     const { insightLoading } = useValues(insightLogic)
 
