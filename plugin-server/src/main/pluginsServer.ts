@@ -2,7 +2,6 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -19,6 +18,7 @@ import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
+import { kafkaHealthcheck } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -29,12 +29,9 @@ export type ServerInstance = {
     queue: Queue
     mmdb?: ReaderModel
     kafkaSuccessiveHealthchecksFailed: number
-    kafkaConsumerWorking: boolean
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
-
-class KafkaConsumerError extends Error {}
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
@@ -228,63 +225,26 @@ export async function startPluginsServer(
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
 
-        const producer = hub!.kafka!.producer()
-
         serverInstance.kafkaSuccessiveHealthchecksFailed = 0
-        serverInstance.kafkaConsumerWorking = true
         if (hub!.kafka) {
-            let consumer: Consumer | null = null
-
             kafkaHealthcheckJob = schedule.scheduleJob('* * * * *', async () => {
-                try {
-                    await producer.connect()
-                    await producer.send({
-                        topic: 'healthcheck',
-                        messages: [
-                            {
-                                partition: 0,
-                                value: Buffer.from('healthcheck'),
-                            },
-                        ],
-                    })
-
-                    serverInstance.kafkaConsumerWorking = false
-                    consumer = hub!.kafka!.consumer({
-                        groupId: 'healthcheck-group',
-                    })
-
-                    await consumer.subscribe({ topic: 'healthcheck', fromBeginning: true })
-                    await consumer.run({
-                        eachMessage: async () => {
-                            await Promise.resolve()
-                            serverInstance.kafkaConsumerWorking = true
-                        },
-                    })
-
-                    await consumer.connect()
-
-                    await delay(serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000)
-
-                    if (!serverInstance.kafkaConsumerWorking) {
-                        throw new KafkaConsumerError('Unable to consume a message in time.')
-                    }
-
+                const [kafkaHealthy, error] = await kafkaHealthcheck(
+                    hub!.kafka!,
+                    hub!.statsd,
+                    serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
+                )
+                if (kafkaHealthy) {
+                    status.info('💚', `Kafka healthcheck succeeded`)
                     serverInstance.kafkaSuccessiveHealthchecksFailed = 0
-                } catch (error) {
+                } else {
+                    Sentry.captureException(error, { tags: { context: 'healthcheck' } })
                     status.info(
                         '💔',
                         `Kafka healthcheck failed with error: ${
-                            error.message
+                            error?.message || 'unknown error'
                         }. Successive failure count: ${++serverInstance.kafkaSuccessiveHealthchecksFailed!}.`
                     )
-                    Sentry.captureException(error, { tags: { context: 'healthcheck' } })
-                    return
-                } finally {
-                    await consumer?.disconnect()
-                    await producer.disconnect()
                 }
-
-                status.info('💚', `Kafka healthcheck succeeded`)
             })
         }
 
