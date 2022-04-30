@@ -42,6 +42,7 @@
             margin-top: 4px;
             align-items: center;
             justify-content: center;
+            border-radius: $radius;
 
             p {
                 margin-bottom: 0;
@@ -55,7 +56,7 @@
 
             .central-text-container {
                 flex: 1;
-                margin-left: 14px;
+                margin: 0 14px;
 
                 .check-name {
                     font-weight: 600;

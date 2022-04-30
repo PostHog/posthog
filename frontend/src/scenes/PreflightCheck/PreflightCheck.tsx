@@ -44,11 +44,17 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
             <div className="icon-container">{icon()}</div>
             <div className="central-text-container">
                 <p className="check-name">{name}</p>
-                {caption && <p className="text-muted">{caption}</p>}
+                {caption && (
+                    <p data-attr="caption" className="text-muted">
+                        {caption}
+                    </p>
+                )}
             </div>
 
             <div className="right-status">
-                <p className="status-text">{capitalizeFirstLetter(preflightLoading ? 'verifying' : status)}</p>
+                <p className="status-text" data-attr="status-text">
+                    {capitalizeFirstLetter(preflightLoading ? 'verifying' : status)}
+                </p>
             </div>
         </div>
     )
@@ -56,7 +62,7 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
 
 export function PreflightCheck(): JSX.Element {
     const { preflight, preflightLoading, preflightMode, isReady, checks } = useValues(preflightLogic)
-    const { setPreflightMode, loadPreflight, handlePreflightFinished } = useActions(preflightLogic)
+    const { setPreflightMode, handlePreflightFinished } = useActions(preflightLogic)
 
     return (
         <div className="bridge-page preflight-check-container">
@@ -75,6 +81,7 @@ export function PreflightCheck(): JSX.Element {
                                 center
                                 className="mt-05"
                                 size="large"
+                                data-attr="preflight-experimentation"
                                 onClick={() => setPreflightMode('experimentation')}
                             >
                                 Just experimenting
@@ -85,6 +92,7 @@ export function PreflightCheck(): JSX.Element {
                                 type="secondary"
                                 className="mt-05"
                                 size="large"
+                                data-attr="preflight-live"
                                 onClick={() => setPreflightMode('live')}
                             >
                                 Live implementation
@@ -92,10 +100,21 @@ export function PreflightCheck(): JSX.Element {
                         </>
                     ) : (
                         <>
-                            <p className="title-text">Validate implementation </p>
+                            <p className="title-text">Verify implementation</p>
                             <p className="secondary-text">
-                                Validation happens immediately. You can rerun validation checks by clicking “verify
-                                requirements”.
+                                Need help? Take a look at our{' '}
+                                <a
+                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    documentation
+                                </a>{' '}
+                                or{' '}
+                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                    visit support
+                                </a>
+                                .
                             </p>
 
                             {checks.map((item) => (
@@ -108,7 +127,8 @@ export function PreflightCheck(): JSX.Element {
                                 type="secondary"
                                 className="mt"
                                 size="large"
-                                onClick={loadPreflight}
+                                data-attr="preflight-refresh"
+                                onClick={() => window.location.reload()}
                                 disabled={preflightLoading || !preflight}
                             >
                                 <RefreshIcon />
@@ -120,6 +140,7 @@ export function PreflightCheck(): JSX.Element {
                                 type={isReady ? 'primary' : 'secondary'}
                                 className="mt-05"
                                 size="large"
+                                data-attr="preflight-complete"
                                 onClick={handlePreflightFinished}
                             >
                                 {`Continue${isReady ? '' : ' without verifying'}`}
@@ -129,7 +150,7 @@ export function PreflightCheck(): JSX.Element {
                     {(!preflightMode || preflightMode === 'experimentation') && (
                         <div>
                             <div className="divider" />
-                            <p className="text-muted">
+                            <p className="text-muted text-center">
                                 We will not enforce some security requirements in experimentation mode.
                             </p>
                         </div>

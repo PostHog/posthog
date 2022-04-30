@@ -1,4 +1,4 @@
-import { Col, Row, Form, Input, Button } from 'antd'
+import { Col, Row, Form, Input } from 'antd'
 import React, { useEffect, useRef } from 'react'
 import './Signup.scss'
 import { Link } from 'lib/components/Link'
@@ -13,6 +13,7 @@ import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Signup,
@@ -203,15 +204,17 @@ export function Signup(): JSX.Element | null {
                                 <div className="divider" />
 
                                 <Form.Item>
-                                    <Button
-                                        className="btn-bridge"
+                                    <LemonButton
                                         htmlType="submit"
+                                        type="primary"
                                         data-attr="signup-submit"
-                                        block
+                                        fullWidth
+                                        center
+                                        size="large"
                                         loading={signupResponseLoading}
                                     >
                                         {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
-                                    </Button>
+                                    </LemonButton>
                                 </Form.Item>
 
                                 <Form.Item className="text-center terms-and-conditions-text">
