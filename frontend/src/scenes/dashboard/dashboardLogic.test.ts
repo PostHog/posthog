@@ -5,13 +5,22 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, AppContext } from '~/types'
+import { InsightModel, AppContext, DashboardType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const dashboardJson = _dashboardJson as any as DashboardType
+
+const dashboardResult = (dashboardsRelation: number[]): DashboardType => {
+    return {
+        ...dashboardJson,
+        items: dashboardJson.items.map((i) => ({ ...i, dashboards: dashboardsRelation })),
+    }
+}
 
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
@@ -19,33 +28,33 @@ describe('dashboardLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/dashboards/5/': dashboardJson,
+                '/api/projects/:team/dashboards/5/': dashboardResult([5]),
                 '/api/projects/:team/dashboards/6/': {
-                    ...dashboardJson,
+                    ...dashboardResult([6]),
                     items: [
-                        { ...dashboardJson.items[0], result: null, last_refresh: null },
-                        { ...dashboardJson.items[1], result: null, last_refresh: null },
-                        { ...dashboardJson.items[0], id: 666, short_id: '666', last_refresh: now() },
-                        { ...dashboardJson.items[1], id: 999, short_id: '999', last_refresh: now() },
+                        { ...dashboardResult([6]).items[0], result: null, last_refresh: null },
+                        { ...dashboardResult([6]).items[1], result: null, last_refresh: null },
+                        { ...dashboardResult([6]).items[0], id: 666, short_id: '666', last_refresh: now() },
+                        { ...dashboardResult([6]).items[1], id: 999, short_id: '999', last_refresh: now() },
                     ],
                 },
                 '/api/projects/:team/dashboards/7/': () => [500, '💣'],
                 '/api/projects/:team/dashboards/8/': {
-                    ...dashboardJson,
+                    ...dashboardResult([8]),
                     items: [{ id: 1001, short_id: '1001' }],
                 },
                 '/api/projects/:team/dashboards/9/': {
-                    ...dashboardJson,
-                    items: [{ ...dashboardJson.items[1], id: 800, short_id: '800', last_refresh: now() }],
+                    ...dashboardResult([9]),
+                    items: [{ ...dashboardResult([9]).items[1], id: 800, short_id: '800', last_refresh: now() }],
                 },
                 '/api/projects/:team/insights/1001/': () => [500, '💣'],
                 '/api/projects/:team/insights/800/': () => [
                     200,
-                    { ...dashboardJson.items[1], id: 800, short_id: '800', last_refresh: now() },
+                    { ...dashboardResult([800]).items[1], id: 800, short_id: '800', last_refresh: now() },
                 ],
                 '/api/projects/:team/insights/:id/': (req) => [
                     200,
-                    dashboardJson.items.find(({ id }: any) => String(id) === req.params['id']),
+                    dashboardResult([]).items.find(({ id }: any) => String(id) === req.params['id']),
                 ],
             },
         })
@@ -106,7 +115,13 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic])
+                await expectLogic(logic).toMount([
+                    dashboardsModel,
+                    insightsModel,
+                    eventUsageLogic,
+                    teamLogic,
+                    featureFlagLogic,
+                ])
             })
 
             it('fetches dashboard items on mount', async () => {
@@ -118,7 +133,7 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActions(['loadDashboardItemsSuccess'])
                     .toMatchValues({
-                        allItems: dashboardJson,
+                        allItems: dashboardResult([5]),
                         items: truth((items) => items.length === 2),
                         receivedErrorsFromAPI: false,
                     })
