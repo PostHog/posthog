@@ -8,6 +8,9 @@ import { DownOutlined, SlackSquareOutlined, ReadOutlined, UserAddOutlined } from
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { PanelSupport } from './PanelComponents'
+import './Panels.scss'
 
 const { Text } = Typography
 
@@ -111,37 +114,65 @@ export function VerificationPanel(): JSX.Element {
 
     return (
         <CardContainer index={index} onBack={() => setVerify(false)}>
-            {!currentTeam?.ingested_event ? (
-                <>
-                    <Row className="flex-center">
-                        <Spinner style={{ marginRight: 4 }} />
-                        <h2 className="ml-3" style={{ marginBottom: 0, color: 'var(--primary-alt)' }}>
-                            Listening for events...
-                        </h2>
-                    </Row>
-                    <p className="prompt-text mt-05">
-                        Once you have integrated the snippet and sent an event, we will verify it was properly received
-                        and continue.
-                    </p>
-                    <HelperButtonRow />
-                </>
-            ) : (
-                <>
-                    <h2>Successfully sent events!</h2>
-                    <p className="prompt-text">
-                        You will now be able to explore PostHog and take advantage of all its features to understand
-                        your users.
-                    </p>
-                    <Button
+            <div style={{ paddingLeft: 24, paddingRight: 24 }}>
+                {!currentTeam?.ingested_event ? (
+                    <>
+                        <div className="ingestion-listening-for-events">
+
+                            <Spinner size="lg" />
+                            <h1 className="ingestion-title pt">Listening for events...</h1>
+                            <p className="prompt-text">
+                                Once you have integrated the snippet and sent an event, we will verify it was properly received
+                                and continue.
+                            </p>
+                            <LemonButton fullWidth center type="secondary" onClick={completeOnboarding}>
+                                Continue without verifying
+                            </LemonButton>
+                        </div>
+                        <PanelSupport />
+                        {/* <Row className="flex-center">
+                            <Spinner style={{ marginRight: 4 }} />
+                            <h2 className="ml-3" style={{ marginBottom: 0, color: 'var(--primary-alt)' }}>
+                                Listening for events...
+                            </h2>
+                        </Row>
+                        <p className="prompt-text mt-05">
+                            Once you have integrated the snippet and sent an event, we will verify it was properly received
+                            and continue.
+                        </p>
+                        <HelperButtonRow /> */}
+                    </>
+                ) : (
+                    <>
+                        <h1 className="ingestion-title">Successfully sent events!</h1>
+                        <p className="prompt-text text-muted">
+                            You will now be able to explore PostHog and take advantage of all its features to understand
+                            your users.
+                        </p>
+                        {/* <Button
                         data-attr="wizard-complete-button"
                         type="primary"
                         style={{ float: 'right' }}
                         onClick={completeOnboarding}
                     >
                         Complete
-                    </Button>
-                </>
-            )}
+                    </Button> */}
+                        <div className='mb' style={{ paddingTop: 24, borderTop: '2px dashed var(--border)' }}>
+                            <LemonButton
+                                data-attr="wizard-complete-button"
+                                type="primary"
+                                onClick={completeOnboarding}
+                                fullWidth
+                                center
+                            >
+                                Continue to PostHog
+                            </LemonButton>
+                        </div>
+                        <PanelSupport />
+                    </>
+                )}
+            </div>
+
         </CardContainer>
     )
 }
