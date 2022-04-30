@@ -52,10 +52,18 @@ describe('dashboardLogic', () => {
                     200,
                     { ...dashboardResult([800]).items[1], id: 800, short_id: '800', last_refresh: now() },
                 ],
-                '/api/projects/:team/insights/:id/': (req) => [
-                    200,
-                    dashboardResult([]).items.find(({ id }: any) => String(id) === req.params['id']),
-                ],
+                '/api/projects/:team/insights/:id/': (req) => {
+                    const dashboard = req.url.searchParams.get('from_dashboard')
+                    if (!dashboard) {
+                        throw new Error('the logic must always add this param')
+                    }
+                    return [
+                        200,
+                        dashboardResult([Number.parseInt(dashboard)]).items.find(
+                            ({ id }: any) => String(id) === req.params['id']
+                        ),
+                    ]
+                },
             },
         })
         initKeaTests()
