@@ -122,6 +122,8 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
+    /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** Whether the insight is loading. */
     loading?: boolean
     /** Whether an error occurred on the server. */
@@ -485,6 +487,7 @@ function InsightViz({
 function InsightCardInternal(
     {
         insight,
+        dashboardId,
         loading,
         apiErrored,
         timedOut,
@@ -507,6 +510,7 @@ function InsightCardInternal(
 ): JSX.Element {
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
+        dashboardId: dashboardId,
         cachedInsight: insight,
         doNotLoad: true,
     }

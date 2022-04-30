@@ -19,7 +19,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item: InsightModel) => ({ item }),
+        // it includes the dashboards that should update their representation
+        // null means "Apply to all dashboards" to support pre many-to-many behavior
+        // TODO null can be removed once feature flag multi-dashboard-insights is removed
+        updateDashboardItem: (item: InsightModel, dashboardIds: Array<DashboardType['id']> | null) => ({
+            item,
+            dashboardIds,
+        }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (

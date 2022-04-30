@@ -1214,6 +1214,8 @@ export interface ChartParams {
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | null
+    /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */

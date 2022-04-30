@@ -179,7 +179,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
                     } as DashboardType
                 },
-                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
+                    if (dashboardIds && props.id && !dashboardIds.includes(props.id)) {
+                        // this update is not for this dashboard
+                        return state
+                    }
+
                     if (state) {
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
@@ -614,10 +619,15 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 try {
                     breakpoint()
 
+                    if (!props.id) {
+                        // what are we loading the insight card on?!
+                        return
+                    }
+
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
-                            from_dashboard: props.id || undefined, // needed to load insight in correct context
+                            from_dashboard: props.id, // needed to load insight in correct context
                         })}`
                     )
                     breakpoint()
@@ -626,6 +636,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
                             dashboardItemId: dashboardItem.short_id,
+                            dashboardId: props.id,
                             cachedInsight: dashboardItem,
                         })
                         itemResultLogic?.actions.setInsight(
@@ -634,7 +645,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
+                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem, [props.id])
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
