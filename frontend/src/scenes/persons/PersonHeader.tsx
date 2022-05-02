@@ -4,6 +4,8 @@ import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface PersonHeaderProps {
     person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
@@ -11,11 +13,15 @@ export interface PersonHeaderProps {
     noLink?: boolean
 }
 
-export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
+export const asDisplay = (
+    person: Partial<PersonType> | PersonActorType | null | undefined,
+    displayNameProperties: string[] = ['email', 'name', 'username']
+): string => {
     let displayId
-    const propertyIdentifier = person?.properties
-        ? person.properties.email || person.properties.name || person.properties.username
-        : 'ID-less user'
+
+    const customPropertyKey = displayNameProperties.find((x) => person?.properties?.[x])
+    const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined
+
     const customIdentifier =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
@@ -29,11 +35,17 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
     return customIdentifier ? customIdentifier : `User ${displayId}`
 }
 
+export const usePersonDisplayName = (person?: PersonHeaderProps['person']): string => {
+    const { currentTeam } = useValues(teamLogic)
+    return asDisplay(person, currentTeam?.person_display_name_properties)
+}
+
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
     person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
+    const { currentTeam } = useValues(teamLogic)
 
     const content = (
         <div className="flex-center">
@@ -48,7 +60,9 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
                     size="md"
                 />
             )}
-            <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
+            <span className="ph-no-capture text-ellipsis">
+                {asDisplay(props.person, currentTeam?.person_display_name_properties)}
+            </span>
         </div>
     )
 
