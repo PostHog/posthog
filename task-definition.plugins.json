@@ -98,7 +98,7 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "3"
+                    "value": "5"
                 }
             ],
             "secrets": [
