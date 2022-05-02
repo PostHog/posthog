@@ -109,7 +109,7 @@ export function cancellablePrompt(config) {
         }
 
         function render(props) {
-            root.render(<Prompt {...props} />, div)
+            root.render(<Prompt {...props} />)
         }
 
         function close(value) {

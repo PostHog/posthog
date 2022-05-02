@@ -348,7 +348,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ;(tooltipEl as any).__root = createRoot(tooltipEl)
+                            ;(tooltipEl as any).__root ??= createRoot(tooltipEl)
                             ;(tooltipEl as any).__root.render(
                                 <Provider>
                                     <InsightTooltip
@@ -367,8 +367,7 @@ export function LineGraph_({
                                         }
                                         {...tooltipConfig}
                                     />
-                                </Provider>,
-                                tooltipEl
+                                </Provider>
                             )
                         }
 
