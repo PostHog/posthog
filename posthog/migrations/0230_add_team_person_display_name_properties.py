@@ -7,13 +7,15 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0229_add_filters_hash_to_dashboard_table'),
+        ("posthog", "0229_add_filters_hash_to_dashboard_table"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='team',
-            name='person_display_name_properties',
-            field=django.contrib.postgres.fields.ArrayField(base_field=models.CharField(max_length=400), default=['email', 'name', 'username'], size=None),
+            model_name="team",
+            name="person_display_name_properties",
+            field=django.contrib.postgres.fields.ArrayField(
+                base_field=models.CharField(max_length=400), default=["email", "name", "username"], size=None
+            ),
         ),
     ]
