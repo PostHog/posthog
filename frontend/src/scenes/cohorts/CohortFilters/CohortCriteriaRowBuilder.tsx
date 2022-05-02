@@ -17,6 +17,7 @@ export interface CohortCriteriaRowBuilderProps {
     onDuplicate?: () => void
     onRemove?: () => void
     onChange?: (newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number) => void
+    hideDeleteIcon?: boolean
 }
 
 export function CohortCriteriaRowBuilder({
@@ -28,6 +29,7 @@ export function CohortCriteriaRowBuilder({
     onChange,
     onDuplicate,
     onRemove,
+    hideDeleteIcon = false,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const rowShape = ROWS[type]
 
@@ -48,7 +50,6 @@ export function CohortCriteriaRowBuilder({
                 populatedCriteria[fieldKey] = nextValue
             }
         })
-        console.log('POPULATED CRITERIA', newCriteria, populatedCriteria)
         onChange?.(
             { ...populatedCriteria, ...behavioralFilterTypeToCriteria(populatedCriteria['value']) },
             groupIndex,
@@ -73,7 +74,9 @@ export function CohortCriteriaRowBuilder({
                 </Col>
                 <div className="CohortCriteriaRow__inline-divider" />
                 <LemonButton icon={<IconCopy />} type="primary-alt" onClick={() => onDuplicate?.()} compact />
-                <LemonButton icon={<IconDelete />} type="primary-alt" onClick={() => onRemove?.()} compact />
+                {!hideDeleteIcon && (
+                    <LemonButton icon={<IconDelete />} type="primary-alt" onClick={() => onRemove?.()} compact />
+                )}
             </Row>
             <div style={{ display: 'flex' }}>
                 <Col>

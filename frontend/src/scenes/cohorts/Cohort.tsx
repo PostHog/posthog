@@ -263,16 +263,17 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                         onClick={() => duplicateFilter(groupIndex)}
                                                                         compact
                                                                     />
-                                                                    <LemonButton
-                                                                        icon={<IconDelete />}
-                                                                        type="primary-alt"
-                                                                        onClick={() => removeFilter(groupIndex)}
-                                                                        compact
-                                                                    />
+                                                                    {cohort.filters.properties.values.length > 1 && (
+                                                                        <LemonButton
+                                                                            icon={<IconDelete />}
+                                                                            type="primary-alt"
+                                                                            onClick={() => removeFilter(groupIndex)}
+                                                                            compact
+                                                                        />
+                                                                    )}
                                                                 </Row>
                                                                 <LemonDivider large />
                                                                 {group.values.map((criteria, criteriaIndex) => {
-                                                                    console.log('CRITERIA', criteria)
                                                                     return isCohortCriteriaGroup(criteria) ? null : (
                                                                         <>
                                                                             <CohortCriteriaRowBuilder
@@ -296,6 +297,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                                         groupIndex,
                                                                                         criteriaIndex
                                                                                     )
+                                                                                }
+                                                                                hideDeleteIcon={
+                                                                                    group.values.length <= 1
                                                                                 }
                                                                             />
                                                                             {criteriaIndex ===
