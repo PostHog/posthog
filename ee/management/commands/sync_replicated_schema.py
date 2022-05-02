@@ -6,7 +6,7 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
+from ee.clickhouse.replication.utils import clickhouse_is_replicated
 from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, get_table_name
 from posthog.client import sync_execute
 
