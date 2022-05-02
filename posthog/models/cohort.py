@@ -76,6 +76,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -92,11 +93,11 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    # deprecated
+    # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
     @property
-    def properties(self) -> PropertyGroup:
+    def properties(self):
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -133,11 +134,17 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+        if self.filters:
+            properties = Filter(data=self.filters, team=self.team).property_groups
+            if not properties.values:
+                raise ValueError("Cohort has no properties")
+            return properties
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types
