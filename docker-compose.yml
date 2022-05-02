@@ -11,7 +11,7 @@ services:
     redis:
         container_name: posthog_redis
         image: redis:6-alpine
-        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 100mb
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
     clickhouse:
         #
         # Note: please keep the default version in sync across
