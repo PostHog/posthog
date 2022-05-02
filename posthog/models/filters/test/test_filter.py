@@ -49,6 +49,7 @@ class TestFilter(BaseTest):
         data = {"properties": [{"key": "attr", "value": "some_val"}]}
 
         filter = Filter(data=data, team=self.team)
+
         self.assertEqual(
             filter.properties_to_dict(),
             {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"},],},},
