@@ -114,6 +114,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
+        validated_data["filters"] = request.data.get("filters", None)
 
         new_filters = validated_data.get("filters", None)
 
@@ -143,6 +144,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
+        validated_data["filters"] = request.data.get("filters", None)
 
         new_filters = validated_data.get("filters", None)
 

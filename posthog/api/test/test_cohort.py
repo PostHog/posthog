@@ -337,6 +337,40 @@ email@example.org,
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(2, len(response.json()["results"]))
 
+        with override_config(NEW_COHORT_QUERY_TEAMS=f"{self.team.pk}"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+                data={
+                    "name": "cohort A",
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "something", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+
+            cohort_id = response.json()["id"]
+
+            while response.json()["is_calculating"]:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(3, len(response.json()["results"]))
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
