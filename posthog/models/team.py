@@ -199,12 +199,9 @@ class Team(UUIDClassicModel):
             "timezone-for-charts", distinct_id, groups={"organization": str(self.organization_id)}
         )
 
-    @cached_property
+    @property
     def behavioral_cohort_querying_enabled(self) -> bool:
-        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
-        return posthoganalytics.feature_enabled(
-            "behavioral-cohort-querying", distinct_id, groups={"organization": str(self.organization_id)}
-        )
+        return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
 
     def __str__(self):
         if self.name:
