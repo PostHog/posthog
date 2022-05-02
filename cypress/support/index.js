@@ -1,5 +1,6 @@
 import 'givens/setup'
 import './commands'
+import decideResponse from 'cypress/fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -14,6 +15,8 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    cy.intercept('POST', '**/decide/*', (req) => req.reply(decideResponse(['multi-dashboard-insights']))).as('setFlags')
+
     if (Cypress.spec.name.includes('Premium')) {
         cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 
