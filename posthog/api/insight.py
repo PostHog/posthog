@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict, Optional, Type
 
 import structlog
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -360,7 +360,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.filter(Q(saved=True) | Q(dashboards__isnull=False))
+                    queryset = queryset.annotate(dashboards_count=Count("dashboards"))
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboards_count__gte=1))
                 else:
                     queryset = queryset.filter(Q(saved=False))
 

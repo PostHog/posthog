@@ -10,6 +10,7 @@ import {
     EventType,
     FeatureFlagType,
     FilterType,
+    LicenseType,
     PluginLogEntry,
     PropertyDefinition,
     TeamType,
@@ -106,6 +107,7 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
+    // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
     }
@@ -114,10 +116,12 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Plugins
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
 
+    // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
@@ -126,6 +130,7 @@ class ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
     }
 
+    // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
@@ -134,6 +139,7 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
+    // # Data management
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
@@ -142,6 +148,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
     }
 
+    // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
@@ -150,6 +157,7 @@ class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
     }
@@ -170,6 +178,7 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    // # Persons
     public persons(): ApiRequest {
         return this.addPathComponent('person')
     }
@@ -185,6 +194,7 @@ class ApiRequest {
         return this.persons().addPathComponent('activity')
     }
 
+    // # Feature flags
     public featureFlags(teamId: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
     }
@@ -203,6 +213,15 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
+    // # Licenses
+    public licenses(): ApiRequest {
+        return this.addPathComponent('license')
+    }
+
+    public license(id: LicenseType['id']): ApiRequest {
+        return this.persons().addPathComponent(id)
+    }
+
     public insights(teamId: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
     }
@@ -210,6 +229,7 @@ class ApiRequest {
     public insightsActivity(teamId: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -528,6 +548,18 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    licenses: {
+        async get(licenseId: LicenseType['id']): Promise<LicenseType> {
+            return await new ApiRequest().license(licenseId).get()
+        },
+        async list(): Promise<PaginatedResponse<LicenseType>> {
+            return await new ApiRequest().licenses().get()
+        },
+        async create(key: LicenseType['key']): Promise<LicenseType> {
+            return await new ApiRequest().licenses().create({ data: { key } })
         },
     },
 
