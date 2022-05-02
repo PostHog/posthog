@@ -545,22 +545,6 @@ def is_plugin_server_alive() -> bool:
         return False
 
 
-def is_clickhouse_alive() -> bool:
-    from posthog.client import sync_execute
-
-    try:
-        sync_execute("SELECT 1")
-        return True
-    except BaseException:
-        return False
-
-
-def is_kafka_alive() -> bool:
-    from ee.kafka_client.client import can_connect
-
-    return can_connect()
-
-
 def is_event_service_alive() -> bool:
     absolute_url = absolute_uri("/_health")
 
