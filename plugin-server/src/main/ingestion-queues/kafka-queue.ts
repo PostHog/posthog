@@ -182,6 +182,10 @@ export class KafkaQueue implements Queue {
                 topic: ingestionTopic,
             })
 
+            await this.consumer.subscribe({
+                topic: KAFKA_BUFFER,
+            })
+
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
                 eachBatchAutoResolve: false,
