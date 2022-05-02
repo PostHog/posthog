@@ -149,7 +149,7 @@ class Cohort(models.Model):
     @property
     def has_behavioral_filter(self) -> bool:
         for prop in self.properties.flat:
-            if prop.key == "behavioral":
+            if prop.type == "behavioral":
                 return True
         return False
 
