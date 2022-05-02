@@ -96,7 +96,7 @@ class TeamSerializer(serializers.ModelSerializer):
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
             raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
 
-        # TODO: Add validation here for person_display_name_properties to be list of strings? 
+        # TODO: Add validation here for person_display_name_properties to be list of strings?
 
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private

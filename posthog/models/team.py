@@ -119,7 +119,10 @@ class Team(UUIDClassicModel):
     path_cleaning_filters: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
-    person_display_name_properties: models.JSONField = models.JSONField(default=get_default_person_display_name_properties)
+    person_display_name_properties: models.JSONField = models.JSONField(
+        default=get_default_person_display_name_properties,
+        null=True
+    )
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
     )  # Dashboard shown on project homepage

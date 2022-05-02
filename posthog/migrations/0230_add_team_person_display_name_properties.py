@@ -7,13 +7,13 @@ import posthog.models.team
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0229_add_filters_hash_to_dashboard_table'),
+        ("posthog", "0229_add_filters_hash_to_dashboard_table"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='team',
-            name='person_display_name_properties',
+            model_name="team",
+            name="person_display_name_properties",
             field=models.JSONField(default=posthog.models.team.get_default_person_display_name_properties),
         ),
     ]
