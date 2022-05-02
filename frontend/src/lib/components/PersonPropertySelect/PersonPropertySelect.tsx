@@ -46,7 +46,7 @@ const PropertyTag = ({
 const SortableProperty = SortableElement(PropertyTag)
 
 const SortablePropertyList = SortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <div style={{ display: 'table' }}>{children}</div>
+    return <span>{children}</span>
 })
 
 export const PersonPropertySelect = ({
