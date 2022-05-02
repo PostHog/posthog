@@ -112,8 +112,8 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
             },
         ],
         breadcrumbs: [
-            (s) => [s.person, s.currentTeam, router.selectors.location],
-            (person, currentTeam, location): Breadcrumb[] => {
+            (s) => [s.person, router.selectors.location],
+            (person, location): Breadcrumb[] => {
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
@@ -123,7 +123,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
-                        name: asDisplay(person, currentTeam?.person_display_name_properties),
+                        name: asDisplay(person),
                     })
                 }
                 return breadcrumbs
