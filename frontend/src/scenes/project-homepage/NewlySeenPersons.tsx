@@ -9,13 +9,12 @@ import { urls } from 'scenes/urls'
 import { PersonType } from '~/types'
 
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { usePersonDisplayName } from 'scenes/persons/PersonHeader'
 import { projectHomepageLogic } from './projectHomepageLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)
-    const displayName = usePersonDisplayName(person)
 
     return (
         <LemonButton
@@ -26,10 +25,10 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
                 reportPersonOpenedFromNewlySeenPersonsList()
             }}
         >
-            <ProfilePicture name={displayName} />
+            <ProfilePicture name={asDisplay(person)} />
 
             <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="row-title link-text">{displayName}</p>
+                <p className="row-title link-text">{asDisplay(person)}</p>
                 <p>First seen {dayjs(person.created_at).fromNow()}</p>
             </div>
         </LemonButton>

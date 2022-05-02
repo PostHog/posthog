@@ -5,7 +5,7 @@ import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues, BindLogic } from 'kea'
 import { PersonLogicProps, personsLogic } from './personsLogic'
-import { usePersonDisplayName } from './PersonHeader'
+import { asDisplay } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DownOutlined } from '@ant-design/icons'
@@ -86,8 +86,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     )
     const { groupsEnabled } = useValues(groupsAccessLogic)
 
-    const displayName = usePersonDisplayName(person)
-
     if (!person) {
         return personLoading ? (
             <Loading />
@@ -102,14 +100,14 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <PageHeader
-                title={displayName}
+                title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
                 buttons={
                     <div>
                         <Popconfirm
                             title="Are you sure you want to delete this person?"
                             onConfirm={deletePerson}
-                            okText={`Yes, delete ${displayName}`}
+                            okText={`Yes, delete ${asDisplay(person)}`}
                             cancelText="No, cancel"
                         >
                             <Button
