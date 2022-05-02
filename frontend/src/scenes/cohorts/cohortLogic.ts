@@ -250,31 +250,34 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         ],
     }),
 
-    forms: ({ actions }) => ({
+    forms: ({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
             validator: ({ name, csv, is_static, groups, filters }) => ({
                 name: !name ? 'You need to set a name' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
-                filters: {
-                    properties: {
-                        values: filters.properties.values.map(validateGroup),
-                    },
-                },
-                // Return type of validator[groups](...) must be the shape of groups. Returning the error message
-                // for groups as a value for id is a hacky stopgap.
-                groups: is_static
-                    ? undefined
-                    : !groups || groups.length < 1
-                    ? [{ id: 'You need at least one matching group' }]
-                    : groups?.map(({ matchType, properties, action_id, event_id }) => {
-                          if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
-                              return { id: 'Please select at least one property or remove this match group.' }
-                          }
-                          if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
-                              return { id: 'Please select an event or action.' }
-                          }
-                          return { id: undefined }
+                ...(values.newCohortFiltersEnabled
+                    ? {
+                          filters: {
+                              properties: {
+                                  values: filters.properties.values.map(validateGroup),
+                              },
+                          },
+                      }
+                    : {
+                          groups: is_static
+                              ? undefined
+                              : !groups || groups.length < 1
+                              ? [{ id: 'You need at least one matching group' }]
+                              : groups?.map(({ matchType, properties, action_id, event_id }) => {
+                                    if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
+                                        return { id: 'Please select at least one property or remove this match group.' }
+                                    }
+                                    if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
+                                        return { id: 'Please select an event or action.' }
+                                    }
+                                    return { id: undefined }
+                                }),
                       }),
             }),
             submit: (cohort) => {
@@ -304,7 +307,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
                 saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
                     let cohort = { ...values.cohort, ...cohortParams }
-                    const cohortFormData = createCohortFormData(cohort)
+                    const cohortFormData = createCohortFormData(cohort, values.newCohortFiltersEnabled)
 
                     try {
                         if (cohort.id !== 'new') {

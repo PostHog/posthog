@@ -81,14 +81,24 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
     )
 }
 
-export function createCohortFormData(cohort: CohortType): FormData {
+export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): FormData {
     const rawCohort = {
         ...cohort,
-        groups: JSON.stringify(
-            cohort.is_static
-                ? []
-                : cohort.groups.map((group: CohortGroupType) => ({ ...group, id: undefined, matchType: undefined }))
-        ),
+        ...(isNewCohortFilterEnabled
+            ? {
+                  filters: JSON.stringify(cohort.is_static ? [] : cohort.filters),
+              }
+            : {
+                  groups: JSON.stringify(
+                      cohort.is_static
+                          ? []
+                          : cohort.groups.map((group: CohortGroupType) => ({
+                                ...group,
+                                id: undefined,
+                                matchType: undefined,
+                            }))
+                  ),
+              }),
     }
     // Must use FormData to encode file binary in request
     const cohortFormData = new FormData()
@@ -174,8 +184,6 @@ export function validateGroup(
         .map((c, index) => ({ ...c, index }))
     const negatedCriteria = criteria.filter((c) => !!c.negation)
 
-    console.log('CHECK 1', criteria, negatedCriteria, criteria)
-
     if (
         // Negation criteria can only be used when matching ALL criteria
         (group.type !== FilterLogicalOperator.And && negatedCriteria.length > 0) ||
@@ -186,8 +194,6 @@ export function validateGroup(
             id: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
         }
     }
-
-    console.log('CHECK 2', criteria)
 
     // Negation where matching criteria cancel each other out
     const negatedFailingCriteriaIndices = new Set()
@@ -211,14 +217,12 @@ export function validateGroup(
         return {
             id: 'These criteria cancel each other out, and would result in no matching persons.',
             values: criteria.map((c) => ({
-                value: negatedFailingCriteriaIndices.has(c)
+                value: negatedFailingCriteriaIndices.has(c.index)
                     ? 'These criteria cancel each other out, and would result in no matching persons.'
                     : undefined,
             })) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
         }
     }
-
-    console.log('CHECK 3', negatedCriteria, negatedFailingCriteriaIndices)
 
     // Specific criteria value scenarios
     if (criteria.some((c) => c.value === BehavioralLifecycleType.PerformEventRegularly)) {
@@ -237,8 +241,6 @@ export function validateGroup(
             ) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
         }
     }
-
-    console.log('CHECK 4', criteria)
 
     // Generic criteria values cannot be empty
     return {
