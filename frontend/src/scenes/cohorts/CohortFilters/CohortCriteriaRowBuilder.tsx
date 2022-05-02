@@ -6,9 +6,9 @@ import { Row, Col, Divider } from 'antd'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconCopy, IconDelete } from 'lib/components/icons'
 import { AnyCohortCriteriaType, FilterLogicalOperator } from '~/types'
+import { behavioralFilterTypeToCriteria } from 'scenes/cohorts/cohortUtils'
 
 export interface CohortCriteriaRowBuilderProps {
-    /* Object that contains keys and values corresponding to filter row. */
     criteria: AnyCohortCriteriaType
     type: BehavioralFilterType
     groupIndex: number
@@ -48,7 +48,12 @@ export function CohortCriteriaRowBuilder({
                 populatedCriteria[fieldKey] = nextValue
             }
         })
-        onChange?.(populatedCriteria, groupIndex, index)
+        console.log('POPULATED CRITERIA', newCriteria, populatedCriteria)
+        onChange?.(
+            { ...populatedCriteria, ...behavioralFilterTypeToCriteria(populatedCriteria['value']) },
+            groupIndex,
+            index
+        )
     }
 
     return (

@@ -6,97 +6,26 @@ import { cohortLogicType } from './cohortLogicType'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
-    BehavioralEventType,
     Breadcrumb,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
-    TimeUnitType,
 } from '~/types'
-import { convertPropertyGroupToProperties } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { isCohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/cohortUtils'
-
-function createCohortFormData(cohort: CohortType): FormData {
-    const rawCohort = {
-        ...cohort,
-        groups: JSON.stringify(
-            cohort.is_static
-                ? []
-                : cohort.groups.map((group: CohortGroupType) => ({ ...group, id: undefined, matchType: undefined }))
-        ),
-    }
-    // Must use FormData to encode file binary in request
-    const cohortFormData = new FormData()
-    for (const [itemKey, value] of Object.entries(rawCohort)) {
-        cohortFormData.append(itemKey, value as string | Blob)
-    }
-    return cohortFormData
-}
-
-function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
-    const matchType = group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE
-
-    return {
-        matchType,
-        id: Math.random().toString().substr(2, 5),
-        ...group,
-    }
-}
-
-function processCohortOnSet(cohort: CohortType, isGroup: boolean = false): CohortType {
-    return {
-        ...cohort,
-        ...(isGroup
-            ? {
-                  properties: cohort.properties,
-              }
-            : {
-                  groups:
-                      cohort.groups?.map((group) => ({
-                          ...addLocalCohortGroupId(group),
-                          ...(group.properties
-                              ? { properties: convertPropertyGroupToProperties(group.properties) }
-                              : {}),
-                      })) ?? [],
-              }),
-    }
-}
-
-export const NEW_CRITERIA = {
-    type: BehavioralFilterKey.Behavioral,
-    value: BehavioralEventType.PerformEvent,
-    event_type: TaxonomicFilterGroupType.Events,
-    time_value: 30,
-    time_interval: TimeUnitType.Day,
-}
-
-export const NEW_CRITERIA_GROUP = {
-    type: FilterLogicalOperator.Or,
-    values: [NEW_CRITERIA],
-}
-
-export const NEW_COHORT: CohortType = {
-    id: 'new',
-    groups: [
-        {
-            id: Math.random().toString().substr(2, 5),
-            matchType: PROPERTY_MATCH_TYPE,
-            properties: [],
-        },
-    ],
-    properties: {
-        type: FilterLogicalOperator.Or,
-        values: [NEW_CRITERIA_GROUP],
-    },
-}
+import {
+    createCohortFormData,
+    isCohortCriteriaGroup,
+    NEW_COHORT,
+    NEW_CRITERIA,
+    NEW_CRITERIA_GROUP,
+    processCohortOnSet,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
 
 export interface CohortLogicProps {
     id?: CohortType['id']
@@ -151,23 +80,27 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
-                    properties: {
-                        ...state.properties,
-                        type,
+                    filters: {
+                        properties: {
+                            ...state.filters.properties,
+                            type,
+                        },
                     },
                 }),
                 setInnerGroupType: (state, { type, groupIndex }) => ({
                     ...state,
-                    properties: {
-                        ...state.properties,
-                        values: state.properties.values.map((group, groupI) =>
-                            groupI === groupIndex
-                                ? {
-                                      ...group,
-                                      type,
-                                  }
-                                : group
-                        ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                    filters: {
+                        properties: {
+                            ...state.filters.properties,
+                            values: state.filters.properties.values.map((group, groupI) =>
+                                groupI === groupIndex
+                                    ? {
+                                          ...group,
+                                          type,
+                                      }
+                                    : group
+                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        },
                     },
                 }),
                 duplicateFilter: (state, { groupIndex, criteriaIndex }) => {
@@ -176,33 +109,37 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     if (criteriaIndex !== undefined) {
                         return {
                             ...newFilters,
-                            properties: {
-                                ...newFilters.properties,
-                                values: newFilters.properties.values.map((group, groupI) =>
-                                    groupI === groupIndex && isCohortCriteriaGroup(group)
-                                        ? {
-                                              ...group,
-                                              values: [
-                                                  ...group.values.slice(0, criteriaIndex),
-                                                  group.values[criteriaIndex],
-                                                  ...group.values.slice(criteriaIndex),
-                                              ],
-                                          }
-                                        : group
-                                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            filters: {
+                                properties: {
+                                    ...newFilters.filters.properties,
+                                    values: newFilters.filters.properties.values.map((group, groupI) =>
+                                        groupI === groupIndex && isCohortCriteriaGroup(group)
+                                            ? {
+                                                  ...group,
+                                                  values: [
+                                                      ...group.values.slice(0, criteriaIndex),
+                                                      group.values[criteriaIndex],
+                                                      ...group.values.slice(criteriaIndex),
+                                                  ],
+                                              }
+                                            : group
+                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                                },
                             },
                         }
                     }
 
                     return {
                         ...newFilters,
-                        properties: {
-                            ...newFilters.properties,
-                            values: [
-                                ...newFilters.properties.values.slice(0, groupIndex),
-                                newFilters.properties.values[groupIndex],
-                                ...newFilters.properties.values.slice(groupIndex),
-                            ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        filters: {
+                            properties: {
+                                ...newFilters.filters.properties,
+                                values: [
+                                    ...newFilters.filters.properties.values.slice(0, groupIndex),
+                                    newFilters.filters.properties.values[groupIndex],
+                                    ...newFilters.filters.properties.values.slice(groupIndex),
+                                ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            },
                         },
                     }
                 },
@@ -212,26 +149,30 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     if (groupIndex !== undefined) {
                         return {
                             ...newFilters,
-                            properties: {
-                                ...newFilters.properties,
-                                values: newFilters.properties.values.map((group, groupI) =>
-                                    groupI === groupIndex && isCohortCriteriaGroup(group)
-                                        ? {
-                                              ...group,
-                                              values: [...group.values, NEW_CRITERIA],
-                                          }
-                                        : group
-                                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            filters: {
+                                properties: {
+                                    ...newFilters.filters.properties,
+                                    values: newFilters.filters.properties.values.map((group, groupI) =>
+                                        groupI === groupIndex && isCohortCriteriaGroup(group)
+                                            ? {
+                                                  ...group,
+                                                  values: [...group.values, NEW_CRITERIA],
+                                              }
+                                            : group
+                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                                },
                             },
                         }
                     }
                     return {
                         ...newFilters,
-                        properties: {
-                            ...newFilters.properties,
-                            values: [...newFilters.properties.values, NEW_CRITERIA_GROUP] as
-                                | CohortCriteriaGroupFilter[]
-                                | AnyCohortCriteriaType[],
+                        filters: {
+                            properties: {
+                                ...newFilters.filters.properties,
+                                values: [...newFilters.filters.properties.values, NEW_CRITERIA_GROUP] as
+                                    | CohortCriteriaGroupFilter[]
+                                    | AnyCohortCriteriaType[],
+                            },
                         },
                     }
                 },
@@ -241,79 +182,61 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     if (criteriaIndex !== undefined) {
                         return {
                             ...newFilters,
-                            properties: {
-                                ...newFilters.properties,
-                                values: newFilters.properties.values.map((group, groupI) =>
-                                    groupI === groupIndex && isCohortCriteriaGroup(group)
-                                        ? {
-                                              ...group,
-                                              values: [
-                                                  ...group.values.slice(0, criteriaIndex),
-                                                  ...group.values.slice(criteriaIndex + 1),
-                                              ],
-                                          }
-                                        : group
-                                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            filters: {
+                                properties: {
+                                    ...newFilters.filters.properties,
+                                    values: newFilters.filters.properties.values.map((group, groupI) =>
+                                        groupI === groupIndex && isCohortCriteriaGroup(group)
+                                            ? {
+                                                  ...group,
+                                                  values: [
+                                                      ...group.values.slice(0, criteriaIndex),
+                                                      ...group.values.slice(criteriaIndex + 1),
+                                                  ],
+                                              }
+                                            : group
+                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                                },
                             },
                         }
                     }
                     return {
                         ...newFilters,
-                        properties: {
-                            ...newFilters.properties,
-                            values: [
-                                ...newFilters.properties.values.slice(0, groupIndex),
-                                ...newFilters.properties.values.slice(groupIndex + 1),
-                            ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        filters: {
+                            properties: {
+                                ...newFilters.filters.properties,
+                                values: [
+                                    ...newFilters.filters.properties.values.slice(0, groupIndex),
+                                    ...newFilters.filters.properties.values.slice(groupIndex + 1),
+                                ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            },
                         },
                     }
                 },
                 setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
                     const newFilters = { ...state }
 
-                    console.log('SET', newCriteria, groupIndex, criteriaIndex)
-
-                    console.log('SETFINALE', newFilters, {
-                        ...newFilters,
-                        properties: {
-                            ...newFilters.properties,
-                            values: newFilters.properties.values.map((group, groupI) =>
-                                groupI === groupIndex && isCohortCriteriaGroup(group)
-                                    ? {
-                                          ...group,
-                                          values: group.values.map((criteria, criteriaI) =>
-                                              criteriaI === criteriaIndex
-                                                  ? {
-                                                        ...criteria,
-                                                        ...newCriteria,
-                                                    }
-                                                  : criteria
-                                          ),
-                                      }
-                                    : group
-                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                        },
-                    })
-
                     return {
                         ...newFilters,
-                        properties: {
-                            ...newFilters.properties,
-                            values: newFilters.properties.values.map((group, groupI) =>
-                                groupI === groupIndex && isCohortCriteriaGroup(group)
-                                    ? {
-                                          ...group,
-                                          values: group.values.map((criteria, criteriaI) =>
-                                              criteriaI === criteriaIndex
-                                                  ? {
-                                                        ...criteria,
-                                                        ...newCriteria,
-                                                    }
-                                                  : criteria
-                                          ),
-                                      }
-                                    : group
-                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                        filters: {
+                            properties: {
+                                ...newFilters.filters.properties,
+                                values: newFilters.filters.properties.values.map((group, groupI) =>
+                                    groupI === groupIndex && isCohortCriteriaGroup(group)
+                                        ? {
+                                              ...group,
+                                              values: group.values.map((criteria, criteriaI) =>
+                                                  criteriaI === criteriaIndex
+                                                      ? {
+                                                            ...criteria,
+                                                            ...newCriteria,
+                                                        }
+                                                      : criteria
+                                              ),
+                                          }
+                                        : group
+                                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                            },
                         },
                     }
                 },
@@ -330,9 +253,14 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     forms: ({ actions }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            validator: ({ name, csv, is_static, groups }) => ({
+            validator: ({ name, csv, is_static, groups, filters }) => ({
                 name: !name ? 'You need to set a name' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
+                filters: {
+                    properties: {
+                        values: filters.properties.values.map(validateGroup),
+                    },
+                },
                 // Return type of validator[groups](...) must be the shape of groups. Returning the error message
                 // for groups as a value for id is a hacky stopgap.
                 groups: is_static

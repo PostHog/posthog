@@ -1,5 +1,6 @@
 import {
     CohortType,
+    FilterLogicalOperator,
     GroupType,
     LicensePlan,
     LicenseType,
@@ -150,6 +151,12 @@ export const MOCK_DEFAULT_COHORT: CohortType = {
     id: 1,
     name: 'Paying Users',
     groups: [],
+    filters: {
+        properties: {
+            type: FilterLogicalOperator.Or,
+            values: [],
+        },
+    },
 }
 
 export const MOCK_GROUP_TYPES: GroupType[] = [

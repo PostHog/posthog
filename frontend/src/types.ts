@@ -578,6 +578,7 @@ export interface CohortGroupType {
 // Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
+    id: string // Criteria filter id
     key: string
     value: BehavioralFilterType
     type: BehavioralFilterKey
@@ -619,7 +620,9 @@ export interface CohortType {
     name?: string
     csv?: UploadFile
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
-    properties: CohortCriteriaGroupFilter
+    filters: {
+        properties: CohortCriteriaGroupFilter
+    }
 }
 
 export interface InsightHistory {
@@ -1540,6 +1543,7 @@ export interface PropertyGroupFilterValue {
 }
 
 export interface CohortCriteriaGroupFilter {
+    id: string
     type: FilterLogicalOperator
     values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
 }

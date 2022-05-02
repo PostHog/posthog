@@ -4,7 +4,7 @@ import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
-import { cleanBehavioralTypeCriteria } from 'scenes/cohorts/CohortFilters/cohortUtils'
+import { cleanBehavioralTypeCriteria } from 'scenes/cohorts/cohortUtils'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string

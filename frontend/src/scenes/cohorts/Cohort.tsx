@@ -18,7 +18,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { IconCopy, IconDelete, IconPlusMini, IconUploadFile } from 'lib/components/icons'
 import { UploadFile } from 'antd/es/upload/interface'
@@ -26,27 +26,18 @@ import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
 import { Tooltip } from 'lib/components/Tooltip'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import clsx from 'clsx'
 import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { alphabet } from 'lib/utils'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { isCohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/cohortUtils'
+import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+import { CohortKeaField } from 'scenes/cohorts/CohortFilters/CohortField'
+import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 
 export const scene: SceneExport = {
     component: Cohort,
     paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
-}
-
-const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
-    [CohortTypeEnum.Static]: {
-        label: 'Static · Updated manually',
-    },
-    [CohortTypeEnum.Dynamic]: {
-        label: 'Dynamic · Updates automatically',
-    },
 }
 
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
@@ -63,11 +54,11 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
         addFilter,
         setCriteria,
     } = useActions(logic)
-    const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
+    const { cohort, cohortLoading, newCohortFiltersEnabled, cohortErrors } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
-    console.log('BLAHHHHH', cohort)
+    console.log('COHORT', cohort, cohortErrors)
 
     return (
         <div className="cohort">
@@ -224,7 +215,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                         {newCohortFiltersEnabled && (
                                             <Row align="middle" wrap={false} justify="space-between" className="pl">
                                                 <AndOrFilterSelect
-                                                    value={cohort.properties.type}
+                                                    value={cohort.filters.properties.type}
                                                     onChange={(value) => {
                                                         setOuterGroupsType(value)
                                                     }}
@@ -236,43 +227,22 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                     </Row>
                                     {newCohortFiltersEnabled ? (
                                         <>
-                                            {cohort.properties.values.map((group, groupIndex) =>
+                                            {cohort.filters.properties.values.map((group, groupIndex) =>
                                                 isCohortCriteriaGroup(group) ? (
-                                                    <Group key={groupIndex} name={['groups', groupIndex]}>
+                                                    <Group
+                                                        key={groupIndex}
+                                                        name={['filters', 'properties', 'values', groupIndex]}
+                                                    >
                                                         {groupIndex !== 0 && (
                                                             <div className="cohort-detail__matching-group__logical-divider">
-                                                                {cohort.properties.type}
+                                                                {cohort.filters.properties.values[groupIndex].type}
                                                             </div>
                                                         )}
-                                                        <KeaField
+                                                        <CohortKeaField
                                                             name="id"
-                                                            template={({ error, kids }) => {
-                                                                return (
-                                                                    <div
-                                                                        className={clsx(
-                                                                            'cohort-detail__matching-group',
-                                                                            error &&
-                                                                                'cohort-detail__matching-group--error'
-                                                                        )}
-                                                                    >
-                                                                        {kids}
-                                                                        <Row>
-                                                                            {error && (
-                                                                                <div
-                                                                                    style={{
-                                                                                        color: 'var(--danger)',
-                                                                                        marginTop: 16,
-                                                                                    }}
-                                                                                >
-                                                                                    {error}
-                                                                                </div>
-                                                                            )}
-                                                                        </Row>
-                                                                    </div>
-                                                                )
-                                                            }}
+                                                            className="cohort-detail__matching-group"
                                                         >
-                                                            <div>
+                                                            <>
                                                                 <Row align="middle" wrap={false} className="pl pr">
                                                                     <Lettermark
                                                                         name={alphabet[groupIndex]}
@@ -311,9 +281,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                                 index={criteriaIndex}
                                                                                 logicalOperator={group.type}
                                                                                 criteria={criteria}
-                                                                                type={
-                                                                                    criteria.value as BehavioralFilterType
-                                                                                }
+                                                                                type={criteriaToBehavioralFilterType(
+                                                                                    criteria
+                                                                                )}
                                                                                 onChange={setCriteria}
                                                                                 onDuplicate={() =>
                                                                                     duplicateFilter(
@@ -351,8 +321,8 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                         </>
                                                                     )
                                                                 })}
-                                                            </div>
-                                                        </KeaField>
+                                                            </>
+                                                        </CohortKeaField>
                                                     </Group>
                                                 ) : null
                                             )}

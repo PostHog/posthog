@@ -18,8 +18,8 @@ import {
     BehavioralEventType,
     BehavioralLifecycleType,
     DateOperatorType,
-    PropertyOperator,
     PropertyMathType,
+    PropertyOperator,
     TimeUnitType,
     ValueOptionType,
 } from '~/types'
@@ -30,6 +30,8 @@ import {
     CohortTextField,
 } from 'scenes/cohorts/CohortFilters/CohortField'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { CohortTypeEnum } from 'lib/constants'
 
 /*
  * Cohort filters are broken down into 3 layers of components.
@@ -817,5 +819,33 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
     },
     [FilterType.CohortId]: function _renderField() {
         return <></>
+    },
+}
+
+export const CRITERIA_VALIDATIONS = {
+    [FilterType.EventsAndActions]: 'Event or action cannot be empty.',
+    [FilterType.EventProperties]: 'Event property cannot be empty.',
+    [FilterType.EventPropertyValues]: 'Event property value cannot be empty',
+    [FilterType.EventType]: 'Event type cannot be empty.',
+    [FilterType.Number]: 'Period values must be at least 1 day and cannot be empty.',
+    [FilterType.NumberTicker]: 'Number cannot be empty.',
+    [FilterType.TimeUnit]: 'Time interval cannot be empty.',
+    [FilterType.MathOperator]: 'Math operator cannot be empty.',
+    [FilterType.CohortId]: 'Cohort id cannot be empty.',
+    [FilterType.CohortValues]: 'Cohort value cannot be empty.',
+    [FilterType.Value]: 'Event property value selector cannot be empty.',
+    [FilterType.DateOperator]: 'Date cannot be empty or invalid.',
+    [FilterType.MathOperator]: 'Math operator cannot be empty.',
+    [FilterType.Actors]: 'Actors selector cannot be empty.',
+    [FilterType.Aggregation]: 'Aggregation selector cannot be empty.',
+    [FilterType.Behavioral]: 'Behavioral selector cannot be empty.',
+}
+
+export const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
+    [CohortTypeEnum.Static]: {
+        label: 'Static · Updated manually',
+    },
+    [CohortTypeEnum.Dynamic]: {
+        label: 'Dynamic · Updates automatically',
     },
 }

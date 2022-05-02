@@ -56,6 +56,10 @@ export interface Field {
     hide?: boolean // If field is hidden, key is included in final payload but no component is rendered
 }
 
+export interface FieldWithFieldKey extends Omit<Field, 'fieldKey'> {
+    fieldKey: string
+}
+
 export interface Row {
     type: BehavioralFilterKey
     value: BehavioralFilterType
