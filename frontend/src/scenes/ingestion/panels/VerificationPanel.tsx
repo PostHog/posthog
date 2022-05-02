@@ -8,6 +8,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from 'lib/components/LemonButton'
 import { PanelSupport } from './PanelComponents'
 import './Panels.scss'
+import { IconCheckCircleOutline } from 'lib/components/icons'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
@@ -23,7 +24,7 @@ export function VerificationPanel(): JSX.Element {
 
     return (
         <CardContainer index={index} onBack={() => setVerify(false)}>
-            <div style={{ paddingLeft: 24, paddingRight: 24 }}>
+            <div style={{ paddingLeft: 24, paddingRight: 24 }} className="text-center">
                 {!currentTeam?.ingested_event ? (
                     <>
                         <div className="ingestion-listening-for-events">
@@ -41,12 +42,13 @@ export function VerificationPanel(): JSX.Element {
                     </>
                 ) : (
                     <>
+                        <IconCheckCircleOutline style={{ color: 'var(--success)' }} />
                         <h1 className="ingestion-title">Successfully sent events!</h1>
                         <p className="prompt-text text-muted">
                             You will now be able to explore PostHog and take advantage of all its features to understand
                             your users.
                         </p>
-                        <div className="mb" style={{ paddingTop: 24, borderTop: '2px dashed var(--border)' }}>
+                        <div className="mb">
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"
@@ -54,7 +56,7 @@ export function VerificationPanel(): JSX.Element {
                                 fullWidth
                                 center
                             >
-                                Continue to PostHog
+                                Complete
                             </LemonButton>
                         </div>
                         <PanelSupport />
