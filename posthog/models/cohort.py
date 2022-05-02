@@ -77,7 +77,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    filters: models.JSONField = models.JSONField(null=True)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)

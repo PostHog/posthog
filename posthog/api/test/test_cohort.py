@@ -282,7 +282,6 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_feature_enabled):
 
