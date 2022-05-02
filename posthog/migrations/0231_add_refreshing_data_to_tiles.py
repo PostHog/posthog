@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0229_add_filters_hash_to_dashboard_table"),
+        ("posthog", "0230_cohort_filters"),
     ]
 
     operations = [

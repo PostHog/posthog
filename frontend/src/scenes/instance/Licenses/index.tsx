@@ -1,6 +1,6 @@
 import React from 'react'
 import { Alert, Form, Button, Table, Input } from 'antd'
-import { licenseLogic } from './logic'
+import { isLicenseExpired, licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
@@ -8,15 +8,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LicenseType } from '~/types'
 
 export const scene: SceneExport = {
     component: Licenses,
     logic: licenseLogic,
-}
-
-export function isLicenseExpired(license: LicenseType): boolean {
-    return new Date(license.valid_until) < new Date()
 }
 
 const columns = [

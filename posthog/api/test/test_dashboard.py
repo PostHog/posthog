@@ -159,7 +159,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
-    def test_return_cached_results(self):
+    def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
             "events": [{"id": "$pageview"}],
