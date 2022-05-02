@@ -87,10 +87,6 @@ def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
 
 
-def get_default_person_display_name_properties() -> List[str]:
-    return ["email", "name", "username"]
-
-
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
