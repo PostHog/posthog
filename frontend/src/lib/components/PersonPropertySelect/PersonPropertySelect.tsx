@@ -8,37 +8,53 @@ import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { SortableContainer, SortableElement } from 'react-sortable-hoc'
 
 interface PersonPropertySelectProps {
-    addText: string;
+    addText: string
     onChange: (names: string[]) => void
-    selectedProperties: string[];
-    sortable?: boolean;
+    selectedProperties: string[]
+    sortable?: boolean
 }
 
-const PropertyTag = ({ name, onRemove }: { name: string; onRemove: (val: string) => void }): JSX.Element => (
-    <Tag
-        closable
-        onClose={(): void => onRemove(name)}
-        style={{
-            margin: '0.25rem',
-            padding: '0.25rem 0.5em',
-            background: '#D9D9D9',
-            border: '1px solid #D9D9D9',
-            borderRadius: '40px',
-            fontSize: 'inherit',
-        }}
-    >
-        {name}
-    </Tag>
+const PropertyTag = ({
+    name,
+    onRemove,
+    sortable = false,
+}: {
+    name: string
+    onRemove: (val: string) => void
+    sortable?: boolean
+}): JSX.Element => (
+    <span style={{ display: 'inline-block' }}>
+        <Tag
+            closable
+            onClose={(): void => onRemove(name)}
+            style={{
+                display: 'inline-block',
+                margin: '0.25rem',
+                padding: '0.25rem 0.5em',
+                background: '#D9D9D9',
+                border: '1px solid #D9D9D9',
+                borderRadius: '40px',
+                fontSize: 'inherit',
+                cursor: sortable ? 'move' : 'auto',
+            }}
+        >
+            {name}
+        </Tag>
+    </span>
 )
 
 const SortableProperty = SortableElement(PropertyTag)
 
-const SortablePropertyList = SortableContainer(({ children } : { children: React.ReactNode }) => {
-    return <span>{children}</span>
+const SortablePropertyList = SortableContainer(({ children }: { children: React.ReactNode }) => {
+    return <div style={{ display: 'table' }}>{children}</div>
 })
 
-
-export const PersonPropertySelect = ({ onChange, selectedProperties, addText, sortable = false }: PersonPropertySelectProps): JSX.Element => {
+export const PersonPropertySelect = ({
+    onChange,
+    selectedProperties,
+    addText,
+    sortable = false,
+}: PersonPropertySelectProps): JSX.Element => {
     const { open, toggle, hide } = usePopup()
 
     const handleChange = (name: string): void => {
@@ -50,8 +66,8 @@ export const PersonPropertySelect = ({ onChange, selectedProperties, addText, so
     }
 
     const handleSort = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
-        const newSelectedProperties = [...selectedProperties];
-        const [removed] = newSelectedProperties.splice(oldIndex, 1);
+        const newSelectedProperties = [...selectedProperties]
+        const [removed] = newSelectedProperties.splice(oldIndex, 1)
         newSelectedProperties.splice(newIndex, 0, removed)
         onChange(newSelectedProperties)
     }
@@ -59,22 +75,22 @@ export const PersonPropertySelect = ({ onChange, selectedProperties, addText, so
     return (
         <div style={{ marginBottom: 16 }}>
             {sortable ? (
-                <SortablePropertyList onSortEnd={handleSort} axis={'x'}>
+                <SortablePropertyList onSortEnd={handleSort} axis="x" lockAxis="x" lockToContainerEdges>
                     {selectedProperties.map((value, index) => (
                         <SortableProperty
                             key={`item-${value}`}
                             index={index}
                             name={value}
                             onRemove={handleRemove}
-                            disabled={!sortable}
+                            sortable
                         />
                     ))}
                 </SortablePropertyList>
-            ) : 
-                selectedProperties?.map(value => 
-                    <PropertyTag key={`item-${value}`} name={value}  onRemove={handleRemove} />
-                )
-            }
+            ) : (
+                selectedProperties?.map((value) => (
+                    <PropertyTag key={`item-${value}`} name={value} onRemove={handleRemove} />
+                ))
+            )}
             <Popup
                 visible={open}
                 onClickOutside={() => hide()}
