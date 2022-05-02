@@ -416,7 +416,7 @@ export function Paths(): JSX.Element {
                                                 )}
                                             </Menu>
                                         }
-                                        placement="bottomCenter"
+                                        placement="bottom"
                                     >
                                         <Button
                                             key={idx}
