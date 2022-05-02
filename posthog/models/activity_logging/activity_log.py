@@ -1,6 +1,6 @@
 import dataclasses
-import datetime
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag", "Person"]
+    type: Literal["FeatureFlag", "Person", "Insight"]
     action: Literal["changed", "created", "deleted", "merged", "split"]
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -35,16 +35,19 @@ class Detail:
     changes: Optional[List[Change]] = None
     merge: Optional[Merge] = None
     name: Optional[str] = None
+    short_id: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (Detail, Change, Merge)):
             return obj.__dict__
-        if isinstance(obj, datetime.datetime):
+        if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
+        if isinstance(obj, User):
+            return {"first_name": obj.first_name, "email": obj.email}
 
         return json.JSONEncoder.default(self, obj)
 
@@ -78,14 +81,34 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
-field_exclusions: Dict[Literal["FeatureFlag", "Person"], List[str]] = {
+field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
     "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+    "Insight": [
+        "id",
+        "filters_hash",
+        "created_at",
+        "refreshing",
+        "dive_dashboard",
+        "updated_at",
+        "type",
+        "funnel",
+        "deprecated_tags",
+        "last_modified_at",
+        "layouts",
+        "color",
+        "order",
+        "result",
+        "dashboard",
+        "last_refresh",
+    ],
 }
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person"], previous: Optional[models.Model], current: Optional[models.Model]
+    model_type: Literal["FeatureFlag", "Person", "Insight"],
+    previous: Optional[models.Model],
+    current: Optional[models.Model],
 ) -> List[Change]:
     """
     Identifies changes between two models by comparing fields
@@ -164,7 +187,7 @@ class ActivityPage:
 
 
 def load_activity(
-    scope: Literal["FeatureFlag", "Person"],
+    scope: Literal["FeatureFlag", "Person", "Insight"],
     team_id: int,
     item_id: Optional[int] = None,
     limit: int = 10,
