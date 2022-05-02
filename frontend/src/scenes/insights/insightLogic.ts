@@ -190,7 +190,6 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
 
-                    // TODO capture dashboard context?
                     dashboardsModel.actions.updateDashboardItem(updatedInsight, null)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     for (const id of updatedInsight.dashboards ?? []) {
@@ -740,8 +739,7 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
-            // TODO can you call save insight from a dashboard?
-            // dashboardsModel.actions.updateDashboardItem(savedInsight)
+            dashboardsModel.actions.updateDashboardItem(savedInsight, null)
 
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
