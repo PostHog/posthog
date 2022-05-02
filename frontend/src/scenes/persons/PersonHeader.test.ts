@@ -118,7 +118,7 @@ describe('the person header', () => {
             }
 
             it(testCase.testName, () => {
-                expect(asDisplay(person, ['email', 'name', 'username'])).toEqual(testCase.personDisplay)
+                expect(asDisplay(person)).toEqual(testCase.personDisplay)
             })
         })
     })
