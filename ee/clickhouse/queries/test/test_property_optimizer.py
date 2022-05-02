@@ -253,5 +253,165 @@ class TestPersonPushdown(unittest.TestCase):
             },
         )
 
+    def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
+        filter = BASE_FILTER.with_data(
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "OR",
+                                            "values": [
+                                                {
+                                                    "type": "OR",
+                                                    "values": [
+                                                        {
+                                                            "key": "event_prop2",
+                                                            "value": ["foo2", "bar2"],
+                                                            "type": "event",
+                                                        }
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                        {
+                                            "type": "AND",
+                                            "values": [{"key": "person_prop2", "value": "efg2", "type": "person"},],
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [
+                                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                            ],
+                                        }
+                                    ],
+                                },
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [
+                                                {
+                                                    "type": "OR",
+                                                    "values": [
+                                                        {"key": "person_prop", "value": "efg", "type": "person"}
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            }
+        )
+
+        property_groups = PropertyOptimizer().parse_property_groups(filter.property_groups)
+        inner = property_groups.inner
+        outer = property_groups.outer
+
+        assert inner is not None
+        assert outer is not None
+
+        self.assertEqual(
+            inner.to_dict(),
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "type": "OR",
+                                                "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            outer.to_dict(),
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "type": "OR",
+                                                "values": [
+                                                    {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"}
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        "type": "AND",
+                                        "values": [{"key": "person_prop2", "value": "efg2", "type": "person"},],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"},],
+                                    }
+                                ],
+                            },
+                            # {"type": "OR", "values": [
+                            #     {"type": "AND", "values": [
+                            #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
+                            #     }]}
+                            # this was pushed down
+                        ],
+                    },
+                ],
+            },
+        )
+
 
 # TODO: add macobo-groups in mixture to tests as well
