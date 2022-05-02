@@ -18,7 +18,6 @@ import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
-import { kafkaHealthcheck } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -53,7 +52,6 @@ export async function startPluginsServer(
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
-    let kafkaHealthcheckJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
     let redisQueueForPluginJobs: Queue | undefined | null
@@ -86,7 +84,6 @@ export async function startPluginsServer(
         pingJob && schedule.cancelJob(pingJob)
         pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
-        kafkaHealthcheckJob && schedule.cancelJob(kafkaHealthcheckJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
@@ -225,29 +222,6 @@ export async function startPluginsServer(
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
 
-        serverInstance.kafkaSuccessiveHealthchecksFailed = 0
-        if (hub!.kafka) {
-            kafkaHealthcheckJob = schedule.scheduleJob('* * * * *', async () => {
-                const [kafkaHealthy, error] = await kafkaHealthcheck(
-                    hub!.kafka!,
-                    hub!.statsd,
-                    serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
-                )
-                if (kafkaHealthy) {
-                    status.info('💚', `Kafka healthcheck succeeded`)
-                    serverInstance.kafkaSuccessiveHealthchecksFailed = 0
-                } else {
-                    Sentry.captureException(error, { tags: { context: 'healthcheck' } })
-                    status.info(
-                        '💔',
-                        `Kafka healthcheck failed with error: ${
-                            error?.message || 'unknown error'
-                        }. Successive failure count: ${++serverInstance.kafkaSuccessiveHealthchecksFailed!}.`
-                    )
-                }
-            })
-        }
-
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
 
@@ -287,7 +261,7 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverConfig)
+        httpServer = createHttpServer(hub!, serverConfig)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
