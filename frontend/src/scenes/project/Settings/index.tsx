@@ -32,7 +32,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconRefresh } from 'lib/components/icons'
-import {  PersonDisplayNameProperties } from './PersonDisplayNameProperties'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
