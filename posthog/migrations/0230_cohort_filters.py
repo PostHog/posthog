@@ -10,5 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="cohort", name="filters", field=models.JSONField(null=True),),
+        migrations.AddField(model_name="cohort", name="filters", field=models.JSONField(null=True, blank=True),),
     ]
