@@ -58,6 +58,7 @@ from posthog.utils import format_query_params_absolute_url
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
+    properties = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -75,6 +76,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "properties",
         ]
         read_only_fields = [
             "id",
@@ -99,6 +101,9 @@ class CohortSerializer(serializers.ModelSerializer):
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
+
+    def get_properties(self, cohort: Cohort) -> Dict:
+        return cohort.properties.to_dict()
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
