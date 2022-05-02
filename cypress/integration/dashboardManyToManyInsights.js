@@ -1,4 +1,5 @@
 import { uuid } from 'lib/utils'
+import decideResponse from 'cypress/fixtures/api/decide'
 
 let dashboardOne
 let dashboardTwo
@@ -33,6 +34,12 @@ function addInsightToDashboard(name) {
 }
 
 describe('Dashboard', () => {
+    before(() => {
+        cy.intercept('POST', '**/decide/*', (req) => req.reply(decideResponse(['multi-dashboard-insights']))).as(
+            'setFlags'
+        )
+    })
+
     beforeEach(() => {
         dashboardOne = `dashboard one ${uuid()}`
         dashboardTwo = `dashboard two ${uuid()}`
