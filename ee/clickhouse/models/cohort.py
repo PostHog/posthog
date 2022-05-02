@@ -26,9 +26,10 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Cohort, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -355,7 +356,12 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
 
 
 def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
+    should_use_new_query = (
+        settings.TEST or cohort.has_behavioral_filter or cohort.team.behavioral_cohort_querying_enabled
+    )
+    cohort_filter, cohort_params = format_person_query(
+        cohort, 0, custom_match_field="id", using_new_query=should_use_new_query
+    )
 
     before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
     logger.info(
@@ -396,18 +402,22 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
     return None
 
 
-def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyGroup:
     """
     'Simplifies' cohort property filters, removing team-specific context from properties.
     """
     from ee.clickhouse.models.cohort import is_precalculated_query
 
     if cohort.is_static:
-        return [Property(type="static-cohort", key="id", value=cohort.pk)]
+        return PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(type="static-cohort", key="id", value=cohort.pk)]
+        )
 
     # Cohort has been precalculated
     if is_precalculated_query(cohort):
-        return [Property(type="precalculated-cohort", key="id", value=cohort.pk)]
+        return PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(type="precalculated-cohort", key="id", value=cohort.pk)]
+        )
 
     # Cohort can have multiple match groups.
     # Each group is either
@@ -415,25 +425,20 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
     # 2. "user has properties XYZ", including belonging to another cohort
     #
     # Users who match _any_ of the groups are considered to match the cohort.
-    group_filters: List[List[Property]] = []
-    for group in cohort.groups:
-        if group.get("action_id") or group.get("event_id"):
-            # :TODO: Support hasdone as separate property type
-            return [Property(type="cohort", key="id", value=cohort.pk)]
-        elif group.get("properties"):
-            # :TRICKY: This will recursively simplify all the properties
-            # :TRICKY: cohort groups will only contain 1 level deep properties which means we can use _property_groups_flat to return
-            # TODO: Update this when cohort groups use property_groups
-            filter = Filter(data=group, team=team)
-            group_filters.append(filter.property_groups.flat)
 
-    if len(group_filters) > 1:
-        # :TODO: Support or properties
-        return [Property(type="cohort", key="id", value=cohort.pk)]
-    elif len(group_filters) == 1:
-        return group_filters[0]
-    else:
-        return []
+    for property in cohort.properties.flat:
+        if property.type == "behavioral":
+            # TODO: Support behavioral property type in other insights
+            return PropertyGroup(
+                type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
+            )
+
+        elif property.type == "cohort":
+            # :TRICKY: We need to ensure we don't have infinite loops in here
+            # guaranteed during cohort creation
+            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
+
+    return cohort.properties
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

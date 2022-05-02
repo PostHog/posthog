@@ -76,6 +76,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
+    filters: models.JSONField = models.JSONField(null=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -92,11 +93,11 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    # deprecated
+    # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
     @property
-    def properties(self) -> PropertyGroup:
+    def properties(self):
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -133,11 +134,24 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+        if self.filters:
+            properties = Filter(data=self.filters, team=self.team).property_groups
+            if not properties.values:
+                raise ValueError("Cohort has no properties")
+            return properties
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+
+    @property
+    def has_behavioral_filter(self) -> bool:
+        for prop in self.properties.flat:
+            if prop.key == "behavioral":
+                return True
+        return False
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types
@@ -187,7 +201,7 @@ class Cohort(models.Model):
             raise err
 
     def calculate_people_ch(self, pending_version):
-        from ee.clickhouse.models.cohort import recalculate_cohortpeople, recalculate_cohortpeople_with_new_query
+        from ee.clickhouse.models.cohort import recalculate_cohortpeople
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
@@ -231,13 +245,6 @@ class Cohort(models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
-
-        try:
-            new_query_count = recalculate_cohortpeople_with_new_query(self)
-            if new_query_count != count:
-                raise ValueError("Count mismatch between new query and old query", new_query_count, count)
-        except Exception as exception:
-            capture_exception(exception)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
