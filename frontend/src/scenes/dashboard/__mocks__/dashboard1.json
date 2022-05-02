@@ -26,7 +26,7 @@
             "filters_hash": "cache_047cf098889443aedbcf8dc0d8324f30",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
@@ -227,7 +227,7 @@
             "filters_hash": "cache_d2bb26ae515b0bc13b530da044ce7e0f",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
@@ -386,7 +386,7 @@
             "filters_hash": "cache_950108d673eadd0f35bcbc6198bc073f",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
@@ -553,7 +553,7 @@
             "filters_hash": "cache_137486649ad59a8c60a1fb4d75e16fb6",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
@@ -981,7 +981,7 @@
             "filters_hash": "cache_1511038b6f6d660b29aefda6cca9f264",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
@@ -1187,7 +1187,7 @@
             "filters_hash": "cache_3fbba30540e42272dc5742216364a13d",
             "order": null,
             "deleted": false,
-            "dashboard": [1],
+            "dashboards": [1],
             "layouts": {
                 "sm": {
                     "h": 5,
