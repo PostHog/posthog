@@ -12,7 +12,6 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
@@ -147,10 +146,10 @@ class Cohort(models.Model):
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
-    @cached_property
+    @property
     def has_behavioral_filter(self) -> bool:
         for prop in self.properties.flat:
-            if prop.key == "behavioral":
+            if prop.type == "behavioral":
                 return True
         return False
 
