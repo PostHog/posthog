@@ -7,9 +7,10 @@ export function transpileFrontend(rawCode: string): string {
         babelrc: false,
         configFile: false,
         filename: 'frontend.tsx',
+        plugins: ['transform-react-jsx'],
         presets: [
             ['typescript', { isTSX: true, allExtensions: true }],
-            ['env', { targets: { esmodules: true } }],
+            ['env', { targets: { esmodules: false } }],
         ],
     })
     if (!code) {
