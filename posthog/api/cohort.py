@@ -143,18 +143,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["filters"] = request.data.get("filters", None)
-
-        new_filters = validated_data.get("filters", None)
-
-        if new_filters is not None and not team.behavioral_cohort_querying_enabled:
-            raise ValidationError("New cohort filters have not been enabled on this team")
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
-        cohort.filters = new_filters or cohort.filters
+        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
 
