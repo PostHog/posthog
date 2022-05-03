@@ -29,7 +29,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
                             } else {
                                 actions.testWebhookFailure(response.error)
                             }
-                        } catch (error) {
+                        } catch (error: any) {
                             actions.testWebhookFailure(error.message)
                         }
                     }

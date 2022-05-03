@@ -43,6 +43,9 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
+    # Monitoring tasks
+    sender.add_periodic_task(60.0, monitoring_check_clickhouse_schema_drift.s(), name="Monitor ClickHouse schema drift")
+
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
     # Heartbeat every 10sec to make sure the worker is alive
@@ -147,6 +150,21 @@ def teardown_instrumentation(task_id, task, **kwargs):
 @app.task(ignore_result=True)
 def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
+
+
+@app.task(ignore_result=True, bind=True)
+def enqueue_clickhouse_execute_with_progress(
+    self, team_id, query_id, query, args=None, settings=None, with_column_types=False
+):
+    """
+    Kick off query with progress reporting
+    Iterate over the progress status
+    Save status to redis
+    Once complete save results to redis
+    """
+    from posthog.client import execute_with_progress
+
+    execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
 
 
 CLICKHOUSE_TABLES = [
@@ -299,6 +317,13 @@ def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
+
+
+@app.task(ignore_result=True)
+def monitoring_check_clickhouse_schema_drift():
+    from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
+
+    check_clickhouse_schema_drift()
 
 
 @app.task(ignore_result=True)

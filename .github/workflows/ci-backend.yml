@@ -122,7 +122,7 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Validate django migrations
+        name: Validate Django migrations
         runs-on: ubuntu-latest
 
         steps:
@@ -313,4 +313,4 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations" --durations=100 --durations-min=1.0

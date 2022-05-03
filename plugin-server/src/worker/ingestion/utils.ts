@@ -3,6 +3,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
 import { TimestampFormat } from '../../types'
+import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../config/kafka-topics'
 
@@ -27,14 +28,18 @@ export function generateEventDeadLetterQueueMessage(
 
     const deadLetterQueueEvent = {
         ...usefulEvent,
+        event: safeClickhouseString(usefulEvent.event),
+        distinct_id: safeClickhouseString(usefulEvent.distinct_id),
+        site_url: safeClickhouseString(usefulEvent.site_url),
+        ip: safeClickhouseString(usefulEvent.ip || ''),
         id: new UUIDT().toString(),
         event_uuid: event.uuid,
         properties: JSON.stringify(event.properties ?? {}),
         now: eventNow,
         error_timestamp: currentTimestamp,
         raw_payload: JSON.stringify(event),
-        error_location: errorLocation,
-        error: errorMessage,
+        error_location: safeClickhouseString(errorLocation),
+        error: safeClickhouseString(errorMessage),
         tags: ['plugin_server', 'ingest_event'],
     }
 

@@ -1,5 +1,6 @@
 import {
     CohortType,
+    GroupType,
     LicensePlan,
     LicenseType,
     OrganizationInviteType,
@@ -37,7 +38,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
-    updated_at: '2022-03-17T16:09:21.566252Z',
+    updated_at: '2022-03-17T16:09:21.566253Z',
     anonymize_ips: false,
     completed_snippet_onboarding: true,
     ingested_event: true,
@@ -48,6 +49,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     is_demo: false,
     timezone: 'Europe/Brussels',
     data_attributes: ['data-attr'],
+    person_display_name_properties: ['email', 'name', 'username'],
     correlation_config: {
         excluded_event_names: ['$autocapture', '$capture_metrics', '$feature_flag_called', '$groupidentify'],
         excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],
@@ -57,7 +59,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
-    primary_dashboard: 20464,
+    primary_dashboard: 1,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -150,3 +152,24 @@ export const MOCK_DEFAULT_COHORT: CohortType = {
     name: 'Paying Users',
     groups: [],
 }
+
+export const MOCK_GROUP_TYPES: GroupType[] = [
+    {
+        group_type: 'organization',
+        group_type_index: 0,
+        name_singular: null,
+        name_plural: 'organizations',
+    },
+    {
+        group_type: 'instance',
+        group_type_index: 1,
+        name_singular: null,
+        name_plural: 'instances',
+    },
+    {
+        group_type: 'project',
+        group_type_index: 2,
+        name_singular: null,
+        name_plural: 'projects',
+    },
+]

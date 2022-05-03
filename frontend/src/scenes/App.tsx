@@ -5,7 +5,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogicType } from './AppType'
@@ -17,6 +17,7 @@ import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -75,7 +76,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SceneLoading /> : null
+    return showingDelayedSpinner ? <Loading /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -110,13 +111,14 @@ function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Elem
 }
 
 function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (() => (showingDelayedSpinner ? <Loading /> : null))
 
     const toastContainer = (
         <ToastContainer

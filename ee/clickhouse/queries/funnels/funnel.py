@@ -88,9 +88,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
@@ -188,7 +186,11 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
         return ", ".join(cols)
 
-    def build_step_subquery(self, level_index: int, max_steps: int):
+    def build_step_subquery(
+        self, level_index: int, max_steps: int, event_names_alias: str = "events", extra_fields: List[str] = []
+    ):
+        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
+
         if level_index >= max_steps:
             return f"""
             SELECT
@@ -196,7 +198,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
-            FROM ({self._get_inner_event_query()})
+            {parsed_extra_fields}
+            FROM ({self._get_inner_event_query(entity_name=event_names_alias, extra_fields=extra_fields)})
             """
         else:
             return f"""
@@ -205,12 +208,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
+            {parsed_extra_fields}
             FROM (
                 SELECT
                 aggregation_target,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}
+                {parsed_extra_fields}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """

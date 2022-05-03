@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -8,14 +8,12 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from ee.idl.gen import events_pb2
-from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from posthog.client import sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
+from posthog.settings import TEST
 
 
 def create_event(
@@ -26,7 +24,6 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
-    site_url: Optional[str] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
@@ -42,21 +39,72 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
-    pb_event = events_pb2.Event()
-    pb_event.uuid = str(event_uuid)
-    pb_event.event = event
-    pb_event.properties = json.dumps(properties)
-    pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-    pb_event.team_id = team.pk
-    pb_event.distinct_id = str(distinct_id)
-    pb_event.elements_chain = elements_chain
-    pb_event.created_at = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-
-    p = ClickhouseProducer()
-
-    p.produce_proto(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS, data=pb_event)
+    sync_execute(
+        INSERT_EVENT_SQL(),
+        {
+            "uuid": str(event_uuid),
+            "event": event,
+            "properties": json.dumps(properties),
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "team_id": team.pk,
+            "distinct_id": str(distinct_id),
+            "elements_chain": elements_chain,
+            "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        },
+    )
 
     return str(event_uuid)
+
+
+def bulk_create_events(events: List[Dict[str, Any]]):
+    """
+    TEST ONLY
+    Insert events in bulk. List of dicts:
+    bulk_create_events([{
+        "event": "user signed up",
+        "distinct_id": "1",
+        "team": team,
+        "timestamp": "2022-01-01T12:00:00"
+    }])
+    """
+    if not TEST:
+        raise Exception("This function is only meant for setting up tests")
+    inserts = []
+    params: Dict[str, Any] = {}
+    for index, event in enumerate(events):
+        timestamp = event.get("timestamp")
+        if not timestamp:
+            timestamp = timezone.now()
+        # clickhouse specific formatting
+        if isinstance(timestamp, str):
+            timestamp = isoparse(timestamp)
+        else:
+            timestamp = timestamp.astimezone(pytz.utc)
+
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        elements_chain = ""
+        if event.get("elements") and len(event["elements"]) > 0:
+            elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
+
+        inserts.append(
+            "(%(uuid_{i})s, %(event_{i})s, %(properties_{i})s, %(timestamp_{i})s, %(team_id_{i})s, %(distinct_id_{i})s, %(elements_chain_{i})s, %(created_at_{i})s, now(), 0)".format(
+                i=index
+            )
+        )
+        event = {
+            "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
+            "event": event["event"],
+            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
+            "timestamp": timestamp,
+            "team_id": event["team"].pk if event.get("team") else event["team_id"],
+            "distinct_id": str(event["distinct_id"]),
+            "elements_chain": elements_chain,
+            "created_at": timestamp,
+        }
+
+        params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
+    sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
 def get_events_by_team(team_id: Union[str, int]):

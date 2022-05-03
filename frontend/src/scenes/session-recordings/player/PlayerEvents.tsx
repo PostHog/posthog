@@ -1,7 +1,13 @@
 import './PlayerEvents.scss'
 import React, { useCallback, useEffect, useRef } from 'react'
 import { Col, Empty, Input, Row, Skeleton } from 'antd'
-import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
+import {
+    ArrowDownOutlined,
+    ArrowUpOutlined,
+    CloseOutlined,
+    SearchOutlined,
+    InfoCircleOutlined,
+} from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import List, { ListRowProps } from 'react-virtualized/dist/es/List'
@@ -18,6 +24,7 @@ import {
     DEFAULT_ROW_HEIGHT,
 } from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
@@ -118,16 +125,37 @@ export function PlayerEvents(): JSX.Element {
                     <Col
                         className={clsx('event-item-content', {
                             rendering: !isRowIndexRendered(index),
+                            'out-of-band-event': event.isOutOfBandEvent,
                         })}
                     >
                         <Row className="event-item-content-top-row">
-                            <PropertyKeyInfo
-                                className="event-item-content-title"
-                                value={event.event}
-                                disableIcon
-                                disablePopover
-                                ellipsis={true}
-                            />
+                            <div>
+                                <PropertyKeyInfo
+                                    className="event-item-content-title"
+                                    value={event.event}
+                                    disableIcon
+                                    disablePopover
+                                    ellipsis={true}
+                                    style={{ maxWidth: 150 }}
+                                />
+                                {event.isOutOfBandEvent && (
+                                    <Tooltip
+                                        className="out-of-band-event-tooltip"
+                                        title={
+                                            <>
+                                                <b>Out of band event</b>
+                                                <p>
+                                                    This event originated from a different client library than this
+                                                    recording. As a result, it's timing and placement might not be
+                                                    precise.
+                                                </p>
+                                            </>
+                                        }
+                                    >
+                                        <InfoCircleOutlined />
+                                    </Tooltip>
+                                )}
+                            </div>
                             <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
                         </Row>
                         {hasDescription && (

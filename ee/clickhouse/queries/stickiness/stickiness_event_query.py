@@ -40,7 +40,7 @@ class StickinessEventsQuery(EnterpriseEventQuery):
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp))) as num_intervals
+                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp, %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -59,7 +59,7 @@ class StickinessEventsQuery(EnterpriseEventQuery):
 
     def aggregation_target(self):
         return get_aggregation_target_field(
-            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS
+            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:

@@ -47,14 +47,14 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request, team=self.team)
 
-        date_from, date_to, date_params = parse_timestamps(filter, team_id=self.team.pk)
+        date_from, date_to, date_params = parse_timestamps(filter, team=self.team)
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, **prop_filter_params, **date_params},
+            {"team_id": self.team.pk, "timezone": "UTC", **prop_filter_params, **date_params},
         )
         return response.Response(
             [

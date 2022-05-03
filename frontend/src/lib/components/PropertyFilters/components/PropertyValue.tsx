@@ -47,7 +47,7 @@ function getValidationError(operator: PropertyOperator, value: any): string | nu
     if (isOperatorRegex(operator)) {
         try {
             new RegExp(value)
-        } catch (e) {
+        } catch (e: any) {
             return e.message
         }
     }

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import dns.resolver
 import dns.rrset
+import pytest
 import pytz
 from django.utils import timezone
 from freezegun import freeze_time
@@ -107,6 +108,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
 
+    @pytest.mark.skip_on_multitenancy
     def test_creating_domain_on_self_hosted_is_automatically_verified(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

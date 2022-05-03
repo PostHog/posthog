@@ -2,7 +2,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
@@ -11,12 +10,11 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
-import { LinkButton } from 'lib/components/LinkButton'
 import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
@@ -92,7 +90,7 @@ export function Experiments(): JSX.Element {
                                 <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
@@ -123,14 +121,9 @@ export function Experiments(): JSX.Element {
                 }
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                        <LinkButton
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
-                            icon={<PlusOutlined />}
-                        >
-                            New Experiment
-                        </LinkButton>
+                        <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                            New experiment
+                        </LemonButton>
                     ) : undefined
                 }
             />

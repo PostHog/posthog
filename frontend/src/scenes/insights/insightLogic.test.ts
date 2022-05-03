@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 const API_FILTERS = {
@@ -28,7 +28,7 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(() => {
-        useFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
+        useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/insights/trend/': (req) => {
@@ -87,6 +87,7 @@ describe('insightLogic', () => {
             },
             post: {
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                '/api/projects/:team/insights/:id/viewed': [201],
                 '/api/projects/:team/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },

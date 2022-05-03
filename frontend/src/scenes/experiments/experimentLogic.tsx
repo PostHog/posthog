@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -227,7 +226,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     })
                     response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
-            } catch (error) {
+            } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
                 return
             }
@@ -268,7 +267,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: ``,
                 description: '',
                 tags: [],
                 filters: newInsightFilters,
@@ -345,7 +344,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                                 `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
                             )
                             return response as Experiment
-                        } catch (error) {
+                        } catch (error: any) {
                             if (error.status === 404) {
                                 router.actions.push(urls.experiments())
                             } else {
@@ -374,7 +373,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                             `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/results`
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.code === 'no_data') {
                             return null
                         }
@@ -414,7 +413,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New Experiment',
+                    name: experimentData?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],
@@ -649,12 +648,13 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         ],
     },
     urlToAction: ({ actions, values, props }) => ({
-        '/experiments/:id': ({ id }) => {
+        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return
             }
-            if (id) {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()

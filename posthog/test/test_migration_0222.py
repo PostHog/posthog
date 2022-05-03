@@ -1,4 +1,8 @@
+import pytest
+
 from posthog.test.base import TestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class DeletedPrimaryDashboardTestCase(TestMigrations):
@@ -80,3 +84,4 @@ class DeletedPrimaryDashboardTestCase(TestMigrations):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.all().delete()
         Team.objects.all().delete()
+        super().tearDown()

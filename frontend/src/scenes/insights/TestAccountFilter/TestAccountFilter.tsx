@@ -3,6 +3,8 @@ import React from 'react'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconSettings } from 'lib/components/icons'
 
 export function TestAccountFilter({
     filters,
@@ -24,7 +26,19 @@ export function TestAccountFilter({
             }}
             id="test-account-filter"
             type="primary"
-            label="Filter out internal and test users"
+            label={
+                <div className="flex-center">
+                    <span>Filter out internal and test users</span>
+                    <LemonButton
+                        icon={<IconSettings />}
+                        to="/project/settings#internal-users-filtering"
+                        type="stealth"
+                        compact
+                        className="ml-025"
+                    />
+                </div>
+            }
+            style={{ width: '100%' }}
         />
     )
 }

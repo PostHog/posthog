@@ -24,6 +24,9 @@
     display: flex;
     align-items: center;
     height: 100%;
+    &--left {
+        flex-grow: 1;
+    }
     &--left > * {
         margin-right: 1rem;
     }

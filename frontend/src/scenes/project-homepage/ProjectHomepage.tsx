@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -6,48 +6,84 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
-import { Button, Row, Skeleton, Typography } from 'antd'
+import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/components/LemonButton'
+import { RecentRecordings } from './RecentRecordings'
+import { RecentInsights } from './RecentInsights'
+import { NewlySeenPersons } from './NewlySeenPersons'
+import useSize from '@react-hook/size'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { realm } = useValues(preflightLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+    const topListContainerRef = useRef<HTMLDivElement | null>(null)
+    const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
         <div style={{ display: 'flex' }}>
-            <Button
+            <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
                 }}
                 className="mr-05"
+                type="secondary"
             >
                 Invite members
-            </Button>
-            <Button
+            </LemonButton>
+            <LemonButton
                 data-attr="project-home-new-insight"
                 onClick={() => {
                     router.actions.push(urls.insightNew())
                 }}
+                type="secondary"
             >
                 New insight
-            </Button>
+            </LemonButton>
         </div>
     )
 
     return (
         <div className="project-homepage">
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+            {(featureFlags[FEATURE_FLAGS.HOMEPAGE_LISTS_EXPERIMENT] === 'test' || realm !== 'cloud') && (
+                <div
+                    ref={topListContainerRef}
+                    className={
+                        topListContainerWidth && topListContainerWidth < 600
+                            ? 'top-list-container-vertical'
+                            : 'top-list-container-horizontal'
+                    }
+                >
+                    <div className="top-list">
+                        <RecentInsights />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <NewlySeenPersons />
+                    </div>
+                    <div className="spacer" />
+                    <div className="top-list">
+                        <RecentRecordings />
+                    </div>
+                </div>
+            )}
             {currentTeam?.primary_dashboard ? (
                 <div>
                     <div>
@@ -56,18 +92,22 @@ export function ProjectHomepage(): JSX.Element {
                                 {!dashboard && <Skeleton active paragraph={false} />}
                                 {dashboard?.name && (
                                     <>
-                                        <HomeIcon className="mr-05" style={{ width: 18, height: 18 }} />
+                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <Typography.Title className="dashboard-name" level={4}>
                                             {dashboard?.name}
                                         </Typography.Title>
                                     </>
                                 )}
                             </div>
-                            <Button data-attr="project-home-new-insight" onClick={showPrimaryDashboardModal}>
+                            <LemonButton
+                                type="secondary"
+                                data-attr="project-home-new-insight"
+                                onClick={showPrimaryDashboardModal}
+                            >
                                 Change dashboard
-                            </Button>
+                            </LemonButton>
                         </Row>
-                        <LemonSpacer large />
+                        <LemonDivider large />
                     </div>
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
@@ -76,13 +116,13 @@ export function ProjectHomepage(): JSX.Element {
                 </div>
             ) : (
                 <div className="empty-state-container">
-                    <HomeIcon className="mb" />
+                    <IconCottage className="mb-05 text-warning" style={{ fontSize: '2rem' }} />
                     <h1>There isn’t a default dashboard set for this project</h1>
                     <p className="mb">
                         Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
                         here.
                     </p>
-                    <Button
+                    <LemonButton
                         type="primary"
                         data-attr="project-home-new-insight"
                         onClick={() => {
@@ -90,7 +130,7 @@ export function ProjectHomepage(): JSX.Element {
                         }}
                     >
                         Select a default dashboard
-                    </Button>
+                    </LemonButton>
                 </div>
             )}
             <PrimaryDashboardModal />

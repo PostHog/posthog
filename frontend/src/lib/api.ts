@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
     ActorType,
@@ -8,12 +8,14 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    FeatureFlagType,
     FilterType,
+    LicenseType,
     PluginLogEntry,
     PropertyDefinition,
     TeamType,
     UserType,
-} from '../types'
+} from '~/types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -22,11 +24,19 @@ import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { PersonFilters } from 'scenes/persons/personsLogic'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+
+export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+}
+
+export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+    total_count: number
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -97,6 +107,7 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
+    // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
     }
@@ -105,10 +116,12 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Plugins
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
 
+    // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
@@ -117,10 +130,16 @@ class ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
     }
 
+    // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
+    public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.events(teamId).addPathComponent(id)
+    }
+
+    // # Data management
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
@@ -129,6 +148,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
     }
 
+    // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
@@ -137,6 +157,7 @@ class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
     }
@@ -157,8 +178,48 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    // # Persons
     public persons(): ApiRequest {
         return this.addPathComponent('person')
+    }
+
+    public person(id: number): ApiRequest {
+        return this.persons().addPathComponent(id)
+    }
+
+    public personActivity(id: number | undefined): ApiRequest {
+        if (typeof id === 'number') {
+            return this.person(id).addPathComponent('activity')
+        }
+        return this.persons().addPathComponent('activity')
+    }
+
+    // # Feature flags
+    public featureFlags(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feature_flags')
+    }
+
+    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.featureFlag(id, teamId).addPathComponent('activity')
+        }
+        return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    // # Licenses
+    public licenses(): ApiRequest {
+        return this.addPathComponent('license')
+    }
+
+    public license(id: LicenseType['id']): ApiRequest {
+        return this.persons().addPathComponent(id)
     }
 
     // Request finalization
@@ -256,7 +317,40 @@ const api = {
         },
     },
 
+    activity: {
+        list(
+            activityLogProps: ActivityLogProps,
+            page: number = 1,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<CountedPaginatedResponse> {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+                [ActivityScope.FEATURE_FLAG]: (props) => {
+                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                },
+                [ActivityScope.PERSON]: (props) => {
+                    return new ApiRequest().personActivity(props.id)
+                },
+            }
+
+            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
+            return requestForScope[activityLogProps.scope](activityLogProps)
+                .withQueryString(toParams(pagingParameters))
+                .get()
+        },
+    },
+
     events: {
+        async get(
+            id: EventType['id'],
+            includePerson: boolean = false,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<EventType> {
+            let apiRequest = new ApiRequest().event(id, teamId)
+            if (includePerson) {
+                apiRequest = apiRequest.withQueryString(toParams({ include_person: true }))
+            }
+            return await apiRequest.get()
+        },
         async list(
             filters: Partial<FilterType>,
             limit: number = 10,
@@ -443,6 +537,18 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    licenses: {
+        async get(licenseId: LicenseType['id']): Promise<LicenseType> {
+            return await new ApiRequest().license(licenseId).get()
+        },
+        async list(): Promise<PaginatedResponse<LicenseType>> {
+            return await new ApiRequest().licenses().get()
+        },
+        async create(key: LicenseType['key']): Promise<LicenseType> {
+            return await new ApiRequest().licenses().create({ data: { key } })
         },
     },
 

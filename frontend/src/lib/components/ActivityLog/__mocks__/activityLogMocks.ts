@@ -3,10 +3,14 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
         user: { first_name: 'Paul', email: 'paul@posthog.com' },
-        activity: 'updated',
+        activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1825',
-        detail: { changes: [], name: '8545-ff-activity-log' },
+        detail: {
+            merge: null,
+            changes: [],
+            name: 'an_incredible_feature_flag',
+        },
         created_at: '2022-03-21T16:01:54.776439Z',
     },
     {
@@ -15,6 +19,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1474',
         detail: {
+            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -58,6 +63,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1846',
         detail: {
+            merge: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
             name: 'test-ff',
         },
@@ -68,7 +74,11 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1846',
-        detail: { changes: null, name: 'test-ff' },
+        detail: {
+            merge: null,
+            changes: null,
+            name: 'test-ff',
+        },
         created_at: '2022-03-21T15:50:15.625221Z',
     },
     {
@@ -76,7 +86,11 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1825',
-        detail: { changes: null, name: '8545-ff-activity-log' },
+        detail: {
+            merge: null,
+            changes: null,
+            name: 'feature_that_will_dazzle',
+        },
         created_at: '2022-03-21T13:22:14.605131Z',
     },
     {
@@ -85,6 +99,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1353',
         detail: {
+            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -168,7 +183,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     },
                 },
             ],
-            name: '6619-query-events-by-date',
+            name: 'fantastic_new_feature',
         },
         created_at: '2022-03-21T12:48:27.811085Z',
     },
@@ -178,6 +193,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
         detail: {
+            merge: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
             name: 'cloud-announcement',
         },
@@ -189,6 +205,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
         detail: {
+            merge: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
             name: 'cloud-announcement',
         },
@@ -200,6 +217,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '984',
         detail: {
+            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -251,6 +269,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1474',
         detail: {
+            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -285,3 +304,5 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-03-19T16:58:47.747634Z',
     },
 ]
+
+export const personActivityResponseJson: ActivityLogItem[] = []

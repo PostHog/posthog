@@ -30,12 +30,13 @@ export const EMPTY_BREAKDOWN_VALUES = {
     isEmpty: true,
 }
 
-export function formatDisplayPercentage(percentage: number): string {
+export function formatDisplayPercentage(percentage: number, includePercentSign: boolean = false): string {
     if (Number.isNaN(percentage)) {
         percentage = 0
     }
     // Returns a formatted string properly rounded to ensure consistent results
-    return (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
+    const result = (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
+    return includePercentSign ? `${result}%` : result
 }
 
 export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {
@@ -69,12 +70,17 @@ export function humanizeOrder(order: number): number {
     return order + 1
 }
 
-export function getSeriesColor(index?: number, isSingleSeries: boolean = false, fallbackColor?: string): string {
+export function getSeriesColor(
+    index?: number,
+    isSingleSeries: boolean = false,
+    fallbackColor?: string,
+    numSeries?: number
+): string {
     if (isSingleSeries) {
         return 'var(--primary)'
     }
     if (typeof index === 'number' && index >= 0) {
-        return getChartColors('white')[index]
+        return getChartColors('white', Math.max(numSeries || 0, index + 1))[index]
     }
     return fallbackColor ?? getChartColors('white')[0]
 }

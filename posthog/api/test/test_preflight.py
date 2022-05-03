@@ -39,12 +39,7 @@ class TestPreflight(APIBaseTest):
                 "cloud": False,
                 "demo": False,
                 "realm": "hosted-clickhouse",
-                "available_social_auth_providers": {
-                    "google-oauth2": False,
-                    "github": False,
-                    "gitlab": False,
-                    "saml": False,
-                },
+                "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                 "can_create_org": False,
                 "email_service_available": False,
             },
@@ -71,12 +66,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": False,
                     "demo": False,
                     "realm": "hosted-clickhouse",
-                    "available_social_auth_providers": {
-                        "google-oauth2": False,
-                        "github": False,
-                        "gitlab": False,
-                        "saml": False,
-                    },
+                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": False,
@@ -112,12 +102,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "available_social_auth_providers": {
-                        "google-oauth2": False,
-                        "github": False,
-                        "gitlab": False,
-                        "saml": False,
-                    },
+                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                     "can_create_org": True,
                     "email_service_available": True,
                 },
@@ -143,12 +128,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "available_social_auth_providers": {
-                        "google-oauth2": False,
-                        "github": False,
-                        "gitlab": False,
-                        "saml": False,
-                    },
+                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": False,
@@ -188,12 +168,7 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "available_social_auth_providers": {
-                        "google-oauth2": True,
-                        "github": False,
-                        "gitlab": False,
-                        "saml": False,
-                    },
+                    "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False,},
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": True,
@@ -227,55 +202,11 @@ class TestPreflight(APIBaseTest):
                 "cloud": False,
                 "demo": True,
                 "realm": "demo",
-                "available_social_auth_providers": {
-                    "google-oauth2": False,
-                    "github": False,
-                    "gitlab": False,
-                    "saml": False,
-                },
+                "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                 "can_create_org": True,
                 "email_service_available": False,
             },
         )
-
-    @pytest.mark.ee
-    @pytest.mark.skip_on_multitenancy
-    def test_ee_preflight_with_saml(self):
-
-        from ee.models.license import License, LicenseManager
-
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
-        )
-
-        self.client.logout()  # make sure it works anonymously
-
-        with self.settings(SAML_CONFIGURED=True):
-            response = self.client.get("/_preflight/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                response.json(),
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": False,
-                    "demo": False,
-                    "realm": "hosted-clickhouse",
-                    "available_social_auth_providers": {
-                        "google-oauth2": False,
-                        "github": False,
-                        "gitlab": False,
-                        "saml": True,
-                    },
-                    "can_create_org": False,
-                    "email_service_available": False,
-                },
-            )
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
