@@ -25,9 +25,10 @@ interface Props {
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, shareToken } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, shareToken, placement } }: { params: Props }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
         shareToken,
+        placement,
     }),
 }
 

@@ -46,15 +46,23 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
-    connect: {
+    path: ['scenes', 'dashboard', 'dashboardLogic'],
+    connect: () => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
-    },
+    }),
 
     props: {} as DashboardLogicProps,
 
-    key: (props) => props.id || 'dashboardLogic',
+    key: (props) => {
+        if (!props.id) {
+            throw Error('Must init dashboardLogic with a key')
+        }
+        if (typeof props.id === 'string') {
+            throw Error('Must init dashboardLogic with a numeric key')
+        }
+        return props.id
+    },
 
     actions: {
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
