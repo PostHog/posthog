@@ -118,9 +118,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
         new_filters = validated_data.get("filters", None)
 
-        if new_filters is not None and not team.behavioral_cohort_querying_enabled:
-            raise ValidationError("New cohort filters have not been enabled on this team")
-
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -147,9 +144,6 @@ class CohortSerializer(serializers.ModelSerializer):
         validated_data["filters"] = request.data.get("filters", None)
 
         new_filters = validated_data.get("filters", None)
-
-        if new_filters is not None and not team.behavioral_cohort_querying_enabled:
-            raise ValidationError("New cohort filters have not been enabled on this team")
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
