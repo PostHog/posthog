@@ -111,7 +111,7 @@ class Cohort(models.Model):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
                     try:
-                        count = int(group.get("count") or 0)
+                        count = max(0, int(group.get("count") or 0))
                     except ValueError:
                         count = 0
 
@@ -125,7 +125,7 @@ class Cohort(models.Model):
                                     value="performed_event_multiple" if count else "performed_event",
                                     event_type=event_type,
                                     time_interval="day",
-                                    time_value=group.get("days"),
+                                    time_value=group.get("days") or 365,
                                     operator=group.get("count_operator"),
                                     operator_value=count,
                                 ),
