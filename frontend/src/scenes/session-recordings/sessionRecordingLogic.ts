@@ -32,6 +32,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 import equal from 'fast-deep-equal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+
 import { urls } from 'scenes/urls'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
