@@ -279,7 +279,7 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            id={isViewedOnDashboard ? String(insight.id) : undefined}
+            id={isViewedOnDashboard ? insight.short_id : undefined}
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
             columns={columns}
