@@ -648,12 +648,13 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         ],
     },
     urlToAction: ({ actions, values, props }) => ({
-        '/experiments/:id': ({ id }) => {
+        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return
             }
-            if (id) {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()

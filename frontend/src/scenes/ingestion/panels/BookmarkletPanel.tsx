@@ -22,7 +22,7 @@ export function BookmarkletPanel(): JSX.Element {
         >
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
-                    <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Just exploring?</h1>
+                    <h1 className="ingestion-title mb-05">Just exploring?</h1>
                     <h2 style={{ fontSize: 20, fontWeight: 800 }}>
                         Immediately run PostHog on your website for some initial exploring
                     </h2>
