@@ -172,6 +172,11 @@ class FeatureFlagMatcher:
         self.distinct_id = distinct_id
         self.groups = groups
         self.cache = cache or FlagsMatcherCache(self.feature_flag.team_id)
+        self.person_id = list(
+            PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=feature_flag.team_id).values_list(
+                "person_id"
+            )
+        )[0][0]
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -264,7 +269,7 @@ class FeatureFlagMatcher:
         If relevant group is not passed to the flag, None is returned and handled in get_match.
         """
         if self.feature_flag.aggregation_group_type_index is None:
-            return self.distinct_id
+            return self.person_id
         else:
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(self.feature_flag.aggregation_group_type_index)
