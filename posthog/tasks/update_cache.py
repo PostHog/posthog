@@ -82,7 +82,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
 def _update_cache_for_queryset(
     cache_type: CacheType, filter: Filter, key: str, team: Team, queryset: QuerySet
 ) -> Optional[List[Dict[str, Any]]]:
-    if queryset.count() == 0:
+    if not queryset.exists():
         return None
 
     queryset.update(refreshing=True)
