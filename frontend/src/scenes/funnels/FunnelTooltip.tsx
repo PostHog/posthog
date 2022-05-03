@@ -11,6 +11,8 @@ import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/util
 import { ensureTooltipElement } from 'scenes/insights/LineGraph/LineGraph'
 import { Provider } from 'react-redux'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { cohortsModel } from '~/models/cohortsModel'
+import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 2
@@ -21,6 +23,8 @@ interface FunnelTooltipProps {
 }
 
 function FunnelTooltip({ stepIndex, series}: FunnelTooltipProps): JSX.Element {
+    const { cohorts } = useValues(cohortsModel)
+
     return (
         <div className="FunnelBarChartTooltip">
             <LemonRow
@@ -32,7 +36,7 @@ function FunnelTooltip({ stepIndex, series}: FunnelTooltipProps): JSX.Element {
                         filter={getActionFilterFromFunnelStep(series)}
                         style={{ display: 'inline-block' }}
                     />{' '}
-                    • {series.breakdown_value}
+                    • {formatBreakdownLabel(cohorts, series.breakdown_value)}
                 </strong>
             </LemonRow>
             <LemonDivider style={{ marginTop: '0.125rem' }} />
