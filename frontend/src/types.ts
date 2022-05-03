@@ -1732,6 +1732,7 @@ export enum BehavioralEventType {
     PerformMultipleEvents = 'performed_event_multiple',
     PerformSequenceEvents = 'performed_event_sequence',
     NotPerformedEvent = 'not_performed_event',
+    NotPerformSequenceEvents = 'not_performed_event_sequence',
     HaveProperty = 'have_property',
     NotHaveProperty = 'not_have_property',
 }
@@ -1746,7 +1747,6 @@ export enum BehavioralLifecycleType {
     PerformEventRegularly = 'performed_event_regularly',
     StopPerformEvent = 'stopped_performing_event',
     StartPerformEventAgain = 'restarted_performing_event',
-    PerformEventOnce = 'performed_event_once',
 }
 
 export enum TimeUnitType {

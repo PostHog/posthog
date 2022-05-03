@@ -3,13 +3,13 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
         user: { first_name: 'Paul', email: 'paul@posthog.com' },
-        activity: 'updated',
+        activity: 'created',
         scope: ActivityScope.FEATURE_FLAG,
         item_id: '1825',
         detail: {
             merge: null,
             changes: [],
-            name: '8545-ff-activity-log',
+            name: 'an_incredible_feature_flag',
         },
         created_at: '2022-03-21T16:01:54.776439Z',
     },
@@ -89,7 +89,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             merge: null,
             changes: null,
-            name: '8545-ff-activity-log',
+            name: 'feature_that_will_dazzle',
         },
         created_at: '2022-03-21T13:22:14.605131Z',
     },

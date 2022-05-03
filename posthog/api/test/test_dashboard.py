@@ -104,15 +104,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
+        self._create_insight(
             {
                 "dashboards": [dashboard.pk],
                 "name": "dashboard item",
-                "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error
-            },
+                "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error,
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
         dashboard_item = Insight.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
         self.assertEqual(list(dashboard_item.dashboards.all()), [dashboard])
@@ -160,7 +159,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
-    def test_return_cached_results(self):
+    def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -226,9 +225,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by one query for each additional insight
+        # then only climbs by three queries for each additional insight
+        # TODO optimise loading tiles to reduce this from three
         self.assertTrue(
-            all(j - i == 1 for i, j in zip(query_counts[2:], query_counts[3:])),
+            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts} for queries: \n\n {queries}",
         )
 
@@ -568,16 +568,32 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(patch_response.json()["items"][0]["result"], None)
+        patch_response_json = patch_response.json()
+        self.assertEqual(patch_response_json["items"][0]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
 
-        # updating the dashboard saves the insights with new filters_hash
-        insight_one_updated_filter_hash = self._get_insight(insight_one_id)["filters_hash"]
-        insight_two_updated_filter_hash = self._get_insight(insight_two_id)["filters_hash"]
+        # doesn't change the filters hash on the Insight itself
+        self.assertEqual(insight_one_original_filter_hash, Insight.objects.get(pk=insight_one_id).filters_hash)
+        self.assertEqual(insight_two_original_filter_hash, Insight.objects.get(pk=insight_two_id).filters_hash)
 
-        self.assertEqual(insight_one_updated_filter_hash, insight_two_updated_filter_hash)
-        self.assertNotEqual(insight_one_original_filter_hash, insight_one_updated_filter_hash)
+        # the updated filters_hashes are from the dashboard tiles
+        tile_one = DashboardTile.objects.filter(insight__id=insight_one_id).first()
+        if tile_one is None:
+            breakpoint()
+        self.assertEqual(
+            patch_response_json["items"][0]["filters_hash"],
+            tile_one.filters_hash
+            if tile_one is not None
+            else f"should have been able to load a single tile for {insight_one_id}",
+        )
+        tile_two = DashboardTile.objects.filter(insight__id=insight_two_id).first()
+        self.assertEqual(
+            patch_response_json["items"][1]["filters_hash"],
+            tile_two.filters_hash
+            if tile_two is not None
+            else f"should have been able to load a single tile for {insight_two_id}",
+        )
 
         # cache results
         response = self.client.get(
@@ -641,6 +657,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
         self.assertEqual(response.status_code, expected_status)

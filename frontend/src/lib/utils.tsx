@@ -148,13 +148,19 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
-export function percentage(division: number): string {
+/** Return percentage from number, e.g. 0.234 is 23.4%. */
+export function percentage(
+    division: number,
+    maximumFractionDigits: number = 2,
+    fixedPrecision: boolean = false
+): string {
     return division
-        ? division.toLocaleString(undefined, {
-              style: 'percent',
-              maximumFractionDigits: 2,
-          })
-        : ''
+        .toLocaleString('en-US', {
+            style: 'percent',
+            maximumFractionDigits,
+            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+        })
+        .replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -466,9 +472,9 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-// Number to number with commas (e.g. 1234 -> 1,234)
+/** Format number with space as the thousands separator. */
 export function humanFriendlyNumber(d: number): string {
-    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    return d.toLocaleString('en-US').replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -1009,18 +1015,12 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(
-    count: number,
-    singular: string,
-    plural?: string,
-    includeNumber: boolean = true,
-    formatNumber: boolean = false
-): string {
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.

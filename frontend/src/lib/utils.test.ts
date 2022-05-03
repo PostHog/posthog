@@ -189,7 +189,7 @@ describe('pluralize()', () => {
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(28321, 'member')).toEqual('28 321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
