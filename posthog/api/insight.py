@@ -304,7 +304,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         result = self.get_result(insight)
         if result is not None:
-            if dashboard_tile is not None:
+            if dashboard_tile:
                 return dashboard_tile.last_refresh
             else:
                 return insight.last_refresh
