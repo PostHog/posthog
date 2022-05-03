@@ -1295,7 +1295,6 @@ export interface PreflightStatus {
     redis: boolean
     db: boolean
     clickhouse: boolean
-    event_service: boolean
     kafka: boolean
     /** An initiated instance is one that already has any organization(s). */
     initiated: boolean

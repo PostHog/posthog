@@ -29,7 +29,6 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
-import requests
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -541,16 +540,6 @@ def is_plugin_server_alive() -> bool:
     try:
         ping = get_client().get("@posthog-plugin-server/ping")
         return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
-    except BaseException:
-        return False
-
-
-def is_event_service_alive() -> bool:
-    absolute_url = absolute_uri("/_health")
-
-    try:
-        r = requests.get(absolute_url)
-        return r.status_code == 200
     except BaseException:
         return False
 

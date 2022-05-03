@@ -78,11 +78,6 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
                         status: preflight?.clickhouse ? 'validated' : 'error',
                     },
                     {
-                        id: 'eventService',
-                        name: 'Event ingestion service',
-                        status: preflight?.event_service ? 'validated' : 'error',
-                    },
-                    {
                         id: 'kafka',
                         name: 'Queue · Kafka',
                         status: preflight?.kafka ? 'validated' : 'error',

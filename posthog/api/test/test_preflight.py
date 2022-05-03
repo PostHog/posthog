@@ -169,7 +169,6 @@ class TestPreflight(APIBaseTest):
                     "demo": False,
                     "clickhouse": True,
                     "kafka": True,
-                    "event_service": True,
                     "realm": "cloud",
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False,},
                     "opt_out_capture": False,
