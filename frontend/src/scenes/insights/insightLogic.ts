@@ -357,6 +357,12 @@ export const insightLogic = kea<insightLogicType>([
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
+            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                if (item.short_id === state.short_id) {
+                    return { ...item }
+                }
+                return state
+            },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [

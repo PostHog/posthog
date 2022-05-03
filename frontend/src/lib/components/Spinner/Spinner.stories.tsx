@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { Spinner as Spinner } from './Spinner'
 
 export default {
-    title: 'Components/Spinner',
+    title: 'Lemon UI/Spinner',
     component: Spinner,
 } as ComponentMeta<typeof Spinner>
 

@@ -83,7 +83,7 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
 
 export function PanelSupport(): JSX.Element {
     return (
-        <p className="text-center mb-0 pb-05">
+        <p className="text-center mb-0 pb-05 text-muted">
             Need help?{' '}
             <a data-attr="support-docs-help" href="https://posthog.com/support" target="_blank">
                 Visit support

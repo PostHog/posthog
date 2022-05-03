@@ -1,6 +1,6 @@
 import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/components/InfoMessage/AlertMessage'
+import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import React from 'react'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -65,7 +65,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             closable={!loading}
         >
             {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                <AlertMessage style={{ marginBottom: 16 }}>
+                <AlertMessage type="info" style={{ marginBottom: 16 }}>
                     <>
                         As you are changing email settings, we'll attempt to send a <b>test email</b> so you can verify
                         everything works (unless you are turning email off).

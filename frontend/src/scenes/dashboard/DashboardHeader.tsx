@@ -3,7 +3,8 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -99,7 +100,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                             '-'}{' '}
                                                         on {humanFriendlyDetailedTime(dashboard.created_at)}
                                                     </LemonRow>
-                                                    <LemonSpacer />
+                                                    <LemonDivider />
                                                 </>
                                             )}
                                             {canEditDashboard && (
@@ -156,7 +157,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
-                                            <LemonSpacer />
+                                            <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>
                                                     duplicateDashboard({
@@ -186,7 +187,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     ) : undefined
                                 }
                             />
-                            <LemonSpacer vertical />
+                            <LemonDivider vertical />
                             {dashboard && (
                                 <CollaboratorBubbles
                                     dashboard={dashboard}

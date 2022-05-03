@@ -313,4 +313,4 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations" --durations=100 --durations-min=1.0

@@ -1,10 +1,17 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { licenseLogicType } from './logicType'
-import { APIErrorType, LicenseType } from '~/types'
+import { licenseLogicType } from './licenseLogicType'
+import { APIErrorType, LicensePlan, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/preflightLogic'
-import { isLicenseExpired } from '.'
 import { lemonToast } from 'lib/components/lemonToast'
+import { dayjs } from 'lib/dayjs'
+
+export function isLicenseExpired(license: LicenseType): boolean {
+    return new Date(license.valid_until) < new Date()
+}
+
+/** The higher the plan, the higher its sorting value - sync with back-end License model */
+const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = { [LicensePlan.Scale]: 10, [LicensePlan.Enterprise]: 20 }
 
 export const licenseLogic = kea<licenseLogicType>({
     path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
@@ -20,11 +27,11 @@ export const licenseLogic = kea<licenseLogicType>({
             [] as LicenseType[],
             {
                 loadLicenses: async () => {
-                    return values.preflight?.cloud ? [] : (await api.get('api/license')).results
+                    return values.preflight?.cloud ? [] : (await api.licenses.list()).results
                 },
-                createLicense: async (payload: { key: string }) => {
+                createLicense: async ({ key }: { key: string }) => {
                     try {
-                        const license = (await api.create('api/license', payload)) as LicenseType
+                        const license = await api.licenses.create(key)
                         lemonToast.success(
                             `Activated license – you can now use all features of the ${license.plan} plan`
                         )
@@ -52,9 +59,21 @@ export const licenseLogic = kea<licenseLogicType>({
     selectors: {
         relevantLicense: [
             (s) => [s.licenses],
-            (licenses): LicenseType | undefined => {
-                // We determine the most relevant license to be the one that's still active OR the one addded last
-                return licenses.find((license) => !isLicenseExpired(license)) || licenses[licenses.length - 1]
+            (licenses): LicenseType | null => {
+                // KEEP IN SYNC FOR WITH LicenseManager.first_valid FOR THE ACTIVE LICENSE
+                // We determine the most relevant license to be the top one that's still active
+                // OR the one that expired most recently
+                if (licenses.length === 0) {
+                    return null
+                }
+                const validLicenses = licenses.filter((license) => !isLicenseExpired(license))
+                if (validLicenses.length > 0) {
+                    return validLicenses.sort(
+                        (a, b) => PLAN_TO_SORTING_VALUE[b.plan] - PLAN_TO_SORTING_VALUE[a.plan]
+                    )[0]
+                }
+                const expiredLicenses = licenses.slice()
+                return expiredLicenses.sort((a, b) => dayjs(b.valid_until).diff(dayjs(a.valid_until)))[0]
             },
         ],
     },

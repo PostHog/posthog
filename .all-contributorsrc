@@ -1863,6 +1863,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "pxpeterxu",
+      "name": "Peter Xu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2924388?v=4",
+      "profile": "https://wanderlog.com/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

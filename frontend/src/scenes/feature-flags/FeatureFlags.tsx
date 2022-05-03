@@ -12,14 +12,12 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -33,9 +31,6 @@ function OverViewTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -71,17 +66,16 @@ function OverViewTab(): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
-                const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
                         <LemonSwitch
-                            id={switchId}
+                            id={`feature-flag-${featureFlag.id}-switch`}
                             checked={featureFlag.active}
                             onChange={(active) =>
                                 featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
                             }
-                            style={{ marginLeft: '0.5rem' }}
+                            label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                            style={{ fontWeight: 400, padding: 0 }}
                         />
                     </div>
                 )
@@ -120,7 +114,7 @@ function OverViewTab(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
                                         type="stealth"
@@ -158,13 +152,6 @@ function OverViewTab(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                {!showActivityLog && (
-                    <div className="mb float-right">
-                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                            New feature flag
-                        </LemonButton>
-                    </div>
-                )}
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}
@@ -181,9 +168,6 @@ function OverViewTab(): JSX.Element {
 }
 
 export function FeatureFlags(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
-
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
 
@@ -191,33 +175,21 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 title="Feature Flags"
-                caption={
-                    showActivityLog
-                        ? ''
-                        : 'Feature Flags are a way of turning functionality in your app on or off, based on user properties.'
-                }
                 buttons={
-                    showActivityLog ? (
-                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                            New feature flag
-                        </LemonButton>
-                    ) : (
-                        false
-                    )
+                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                        New feature flag
+                    </LemonButton>
                 }
             />
-            {showActivityLog ? (
-                <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverViewTab />
-                    </Tabs.TabPane>
-                    <Tabs.TabPane tab="History" key="history">
-                        <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
-                    </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverViewTab />
-            )}
+
+            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
+                <Tabs.TabPane tab="Overview" key="overview">
+                    <OverViewTab />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="History" key="history">
+                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                </Tabs.TabPane>
+            </Tabs>
         </div>
     )
 }

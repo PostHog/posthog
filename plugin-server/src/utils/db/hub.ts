@@ -48,6 +48,11 @@ export async function createHub(
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
     let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
+
+    const conversionBufferEnabledTeams = new Set(
+        serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
+
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -246,6 +251,7 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
+        conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main

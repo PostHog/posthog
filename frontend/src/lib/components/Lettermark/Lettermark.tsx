@@ -3,22 +3,33 @@ import React from 'react'
 import './Lettermark.scss'
 
 export enum LettermarkColor {
+    Default = 'default',
     Gray = 'gray',
 }
 
 export interface LettermarkProps {
+    /** Name or value the lettermark should represent. */
     name?: string | number | null
     color?: LettermarkColor
-    /** Whether (up to) two letters should be shown instead of one. */
-    double?: boolean
 }
 
-export function Lettermark({ name, color, double }: LettermarkProps): JSX.Element {
-    const initialLetter = name
-        ? String(name)
-              .slice(0, double ? 2 : 1)
-              .toLocaleUpperCase()
+/** An icon-sized lettermark.
+ *
+ * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
+ */
+export function Lettermark({ name, color = LettermarkColor.Default }: LettermarkProps): JSX.Element {
+    const representation = name
+        ? typeof name === 'number'
+            ? String(Math.floor(name))
+            : name.toLocaleUpperCase().charAt(0)
         : '?'
 
-    return <div className={clsx('Lettermark', color && `Lettermark--${color}`)}>{initialLetter}</div>
+    return (
+        <div
+            className={clsx('Lettermark', color && color !== LettermarkColor.Default && `Lettermark--${color}`)}
+            title={String(name)}
+        >
+            {representation}
+        </div>
+    )
 }

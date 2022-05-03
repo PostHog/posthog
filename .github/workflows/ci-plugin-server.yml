@@ -50,7 +50,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -131,7 +131,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -212,7 +212,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -294,7 +294,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
