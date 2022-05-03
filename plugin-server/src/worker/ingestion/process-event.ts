@@ -593,6 +593,16 @@ export class EventsProcessor {
 
         const personInfo = await this.db.getPersonData(teamId, distinctId)
 
+        const updatedPersonProperties = personInfo ? JSON.stringify(personInfo?.properties) : {}
+
+        let eventPersonProperties: Properties | null = null
+        if (personInfo) {
+            // For consistency, we'd like events to contain the properties that they set, even if those were changed
+            // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
+            // $set properties if they exist.
+            eventPersonProperties = { ...updatedPersonProperties, ...(properties.$set || {}) }
+        }
+
         const eventPayload: IEvent = {
             uuid,
             event: safeClickhouseString(event),
@@ -615,7 +625,7 @@ export class EventsProcessor {
                       JSON.stringify({
                           ...eventPayload,
                           person_id: personInfo?.uuid,
-                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
+                          person_properties: eventPersonProperties,
                       })
                   )
 
