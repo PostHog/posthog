@@ -1,5 +1,5 @@
-from django.db import IntegrityError
 import pytest
+from django.db import IntegrityError
 
 from posthog.test.base import NonAtomicTestMigrations
 
