@@ -58,8 +58,7 @@ export const insightsModel = kea<insightsModelType>({
             }
 
             const originalDashboards = item.dashboards || []
-            const dashboards = originalDashboards.filter((d: number) => d !== fromDashboard)
-            dashboards.push(toDashboard)
+            const dashboards = [...originalDashboards.filter((d: number) => d !== fromDashboard), toDashboard]
 
             const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
                 dashboards,
