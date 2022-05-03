@@ -177,7 +177,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
         dashboard_tile: Optional[DashboardTile] = None
-        if dashboard is not None:
+        if dashboard:
             dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
 
         return dashboard_tile
