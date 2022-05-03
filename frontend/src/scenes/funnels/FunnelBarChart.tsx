@@ -84,11 +84,11 @@ function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Elemen
                 {Array(5)
                     .fill(null)
                     .map((_, i) => (
-                        <div key={i} className="StepBars__gridline StepBars__gridline--horizontal" />
+                        <div key={`gridline-${stepIndex}-${i}`} className="StepBars__gridline StepBars__gridline--horizontal" />
                     ))}
             </div>
             {step?.nested_breakdown?.map((series) => (
-                <StepBar key={stepIndex} step={step} stepIndex={stepIndex} series={series} />
+                <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
             ))}
         </div>
     )
