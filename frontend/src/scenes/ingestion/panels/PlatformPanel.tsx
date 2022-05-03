@@ -27,7 +27,7 @@ export function PlatformPanel(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="ingestion-btn"
+                                    className="mb-05"
                                     onClick={() => setPlatform(platform)}
                                 >
                                     {platform}
@@ -37,18 +37,12 @@ export function PlatformPanel(): JSX.Element {
                                 onClick={() => setPlatform(THIRD_PARTY)}
                                 fullWidth
                                 center
+                                className="mb-05"
                                 type="primary"
-                                className="ingestion-btn"
                             >
                                 {THIRD_PARTY}
                             </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                className="ingestion-btn inverted"
-                                fullWidth
-                                center
-                                onClick={() => setPlatform(BOOKMARKLET)}
-                            >
+                            <LemonButton type="secondary" fullWidth center onClick={() => setPlatform(BOOKMARKLET)}>
                                 {BOOKMARKLET}
                             </LemonButton>
                         </Col>

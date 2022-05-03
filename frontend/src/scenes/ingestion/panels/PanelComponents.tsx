@@ -15,43 +15,19 @@ export function PanelFooter(): JSX.Element {
         <Col className="panel-footer">
             {platform === BOOKMARKLET ? (
                 <div>
-                    <LemonButton
-                        type="primary"
-                        fullWidth
-                        center
-                        className="ingestion-btn"
-                        onClick={() => setVerify(true)}
-                    >
+                    <LemonButton type="primary" fullWidth center onClick={() => setVerify(true)}>
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        center
-                        type="secondary"
-                        className="ingestion-btn inverted"
-                        onClick={() => setPlatform(null)}
-                    >
+                    <LemonButton fullWidth center type="secondary" onClick={() => setPlatform(null)}>
                         Back to setup
                     </LemonButton>
                 </div>
             ) : (
                 <div>
-                    <LemonButton
-                        type="primary"
-                        fullWidth
-                        center
-                        className="ingestion-btn"
-                        onClick={() => setVerify(true)}
-                    >
+                    <LemonButton type="primary" fullWidth center className="mb-05" onClick={() => setVerify(true)}>
                         Continue
                     </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        center
-                        type="secondary"
-                        className="ingestion-btn inverted"
-                        onClick={() => setVerify(true)}
-                    >
+                    <LemonButton fullWidth center type="secondary" onClick={() => setVerify(true)}>
                         Skip for now
                     </LemonButton>
                 </div>
@@ -83,7 +59,7 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
 
 export function PanelSupport(): JSX.Element {
     return (
-        <p className="text-center mb-0 pb-05 text-muted">
+        <p className="text-center mb-0 pb-05 mt text-muted">
             Need help?{' '}
             <a data-attr="support-docs-help" href="https://posthog.com/support" target="_blank">
                 Visit support

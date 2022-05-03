@@ -14,26 +14,6 @@
     }
 }
 
-.welcome-panel,
-.panel-footer,
-.framework-panel {
-    .ingestion-btn {
-        margin-bottom: $default_spacing / 2;
-        background-color: black;
-
-        &:hover {
-            background-color: black;
-            opacity: 0.8;
-        }
-
-        &.inverted {
-            background-color: white;
-            color: black;
-            border: 2px solid black;
-        }
-    }
-}
-
 .bookmarklet-warning {
     border: 2px dashed $border;
     padding: 8px;
