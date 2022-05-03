@@ -8,9 +8,11 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
 from django.utils.timezone import now
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import renderers, request, serializers, status, viewsets
+from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -71,6 +73,13 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
     if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
+
+
+class PlainRenderer(renderers.BaseRenderer):
+    format = "txt"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return smart_str(data, encoding=self.charset)
 
 
 class PluginsAccessLevelPermission(BasePermission):
@@ -204,6 +213,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"plugin": PluginSerializer(plugin).data})
+
+    @action(methods=["GET"], detail=True)
+    @renderer_classes((PlainRenderer))
+    def frontend(self, request: request.Request, **kwargs):
+        plugin = self.get_object()
+        content = plugin.transpiled_frontend or ""
+        return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
     @action(methods=["POST"], detail=True)
     def upgrade(self, request: request.Request, **kwargs):

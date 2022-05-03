@@ -15,5 +15,5 @@ export function transpileFrontend(rawCode: string): string {
     if (!code) {
         throw new Error('Could not transpile frontend.tsx')
     }
-    return code
+    return `"use strict";\nexport function getFrontendPluginExports (require) { let exports = {}; ${code}; return exports; }`
 }
