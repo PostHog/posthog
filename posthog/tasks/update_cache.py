@@ -70,8 +70,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         elif insight_result is not None:
             result = insight_result
         else:
-            statsd.incr("update_cache_item_error", tags={"team": team_id})
-            raise RuntimeError(f"the provided filters_hash did not generate a result: {filter}")
+            statsd.incr("update_cache_item_no_results", tags={"team": team_id, "cache_key": key})
+            return []
 
     finally:
         timer.stop()
