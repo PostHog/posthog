@@ -1,8 +1,5 @@
-from uuid import uuid4
-
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.breakdown_props import get_breakdown_prop_values
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -10,20 +7,14 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
     @test_with_materialized_columns(event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"])
     @snapshot_clickhouse_queries
     def test_breakdown_person_props(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -62,12 +53,12 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 }
             )
             res = get_breakdown_prop_values(
-                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team.pk
+                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team
             )
             self.assertEqual(res, ["test"])
 
     def test_breakdown_person_props_with_entity_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -75,7 +66,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
             properties={"key": "val"},
         )
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -84,7 +75,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"$browser": "test"}}])
+        cohort = Cohort.objects.create(
+            team=self.team, name="a", groups=[{"properties": [{"key": "$browser", "value": "test", "type": "person"}]}]
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         entity_params = [
@@ -115,12 +108,12 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk)
+                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
                 self.assertEqual(res, ["test"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -128,9 +121,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
             properties={"key": "val"},
         )
-        Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2", "$os": "test2"}
-        )
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2", "$os": "test2"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -138,9 +129,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
             properties={"key": "val2"},
         )
-        Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test3", "$os": "test3"}
-        )
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test3", "$os": "test3"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -183,7 +172,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk))
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
                 self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries
@@ -227,7 +216,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
 
         filter = Filter(
@@ -247,5 +236,5 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk)
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])

@@ -72,8 +72,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -113,6 +113,26 @@
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.2
+  '
+  
+  SELECT COUNT(1)
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
+  WHERE id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+       GROUP BY id
+       HAVING max(is_deleted) = 0
+       AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3
   '
   
   SELECT countIf(steps = 1) step_1,
@@ -179,8 +199,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -291,8 +311,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-07-01 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -398,8 +418,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-07-01 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -509,8 +529,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-07-01 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -620,8 +640,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-07-01 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -700,8 +720,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -727,8 +747,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
@@ -839,8 +859,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59'
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (NOT has([''], "$group_0")) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
@@ -870,8 +890,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -987,8 +1007,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -1017,8 +1037,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -1127,8 +1147,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -1161,8 +1181,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -1271,8 +1291,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -1305,8 +1325,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -1415,8 +1435,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -1449,8 +1469,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -1559,8 +1579,8 @@
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))

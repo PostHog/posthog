@@ -6,7 +6,16 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, EventDefinition, Insight, Person, PropertyDefinition
+from posthog.models import (
+    Action,
+    ActionStep,
+    Dashboard,
+    DashboardTile,
+    EventDefinition,
+    Insight,
+    Person,
+    PropertyDefinition,
+)
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -32,9 +41,8 @@ class AppDataGenerator(DataGenerator):
         dashboard = Dashboard.objects.create(
             name="App Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
         )
-        Insight.objects.create(
+        insight = Insight.objects.create(
             team=self.team,
-            dashboard=dashboard,
             name="Installed App -> Rated App -> Rated App 5 Stars",
             filters={
                 "actions": [
@@ -57,6 +65,8 @@ class AppDataGenerator(DataGenerator):
                 "date_from": "yStart",
             },
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash
 
     def populate_person_events(self, person: Person, distinct_id: str, _index: int):
         start_day = random.randint(1, self.n_days)

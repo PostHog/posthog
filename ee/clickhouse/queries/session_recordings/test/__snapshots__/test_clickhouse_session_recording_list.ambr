@@ -6,7 +6,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$pageview', 1, 0)) as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -62,7 +62,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$autocapture', 1, 0)) as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -143,6 +143,26 @@
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
   '
   
+  SELECT COUNT(1)
+  FROM
+    (SELECT id,
+            argMax(properties, person._timestamp) as properties,
+            sum(is_deleted) as is_deleted
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id) as person
+  WHERE id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+       GROUP BY id
+       HAVING max(is_deleted) = 0
+       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$some_prop'), '^"|"$', '')))))
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.3
+  '
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -201,7 +221,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$pageview', 1, 0)) as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,
@@ -257,7 +277,7 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         sum(if(event = '$autocapture', 1, 0)) as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0
   FROM
     (SELECT distinct_id,
             event,

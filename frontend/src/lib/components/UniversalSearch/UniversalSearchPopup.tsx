@@ -22,11 +22,11 @@ import clsx from 'clsx'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { useMountedLogic, useValues } from 'kea'
 import { IconMagnifier } from '../icons'
-import { Input } from 'antd'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { LemonInput } from '../LemonInput/LemonInput'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -141,9 +141,9 @@ export function UniversalSearchPopup({
         taxonomicFilterLogicKey: 'universalSearch',
     }
     const logic = taxonomicFilterLogic(universalSearchLogicProps)
-    const { searchQuery, searchPlaceholder } = useValues(logic)
+    const { searchQuery } = useValues(logic)
 
-    // Command+S shortcut to get to universal search
+    // Command+S shortcut to get to universal search popup
     useEventListener('keydown', (event) => {
         if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
@@ -172,7 +172,7 @@ export function UniversalSearchPopup({
                         // @ts-ignore
                         offset: ({ placement }) => {
                             if (placement === 'right-start') {
-                                return [-10, -249 - 243]
+                                return [-25, -250]
                             } else {
                                 return []
                             }
@@ -197,13 +197,14 @@ export function UniversalSearchPopup({
                         )}
                         style={style}
                     >
-                        <Input
-                            style={{ flexGrow: 1, cursor: 'pointer', opacity: visible ? '0' : '1' }}
-                            data-attr="universal-search-field"
-                            placeholder={'Search ' + searchPlaceholder}
-                            value={searchQuery}
-                            prefix={<IconMagnifier className={clsx('magnifier-icon', 'magnifier-icon-active222')} />}
-                        />
+                        {!visible && (
+                            <LemonInput
+                                data-attr="universal-search-field"
+                                placeholder={'Search...'}
+                                value={searchQuery}
+                                icon={<IconMagnifier />}
+                            />
+                        )}
                     </div>
                 )}
             </Popup>

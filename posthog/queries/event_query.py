@@ -50,12 +50,11 @@ class EventQuery(metaclass=ABCMeta):
     ) -> None:
         self._filter = filter
         self._team_id = team.pk
+        self._team = team
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
-        self.params: Dict[str, Any] = {
-            "team_id": self._team_id,
-        }
+        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone_for_charts}
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
@@ -126,8 +125,8 @@ class EventQuery(metaclass=ABCMeta):
             return True
         if cohort.is_static:
             return True
-        for group in cohort.groups:
-            if group.get("properties"):
+        for property in cohort.properties.flat:
+            if property.type == "person":
                 return True
         return False
 
@@ -153,7 +152,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
 
         query = f"""
         {parsed_date_from}

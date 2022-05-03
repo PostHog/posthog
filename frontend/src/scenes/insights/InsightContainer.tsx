@@ -8,10 +8,10 @@ import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -61,14 +61,9 @@ export function InsightContainer(
         showErrorMessage,
         csvExportUrl,
     } = useValues(insightLogic)
-    const { reportInsightViewedForRecentInsights } = useActions(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
-
-    useEffect(() => {
-        reportInsightViewedForRecentInsights()
-    }, [])
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -180,7 +175,6 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
-                            disabled={!canEditInsight}
                         />
                     )
                 }
