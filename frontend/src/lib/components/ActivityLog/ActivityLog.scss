@@ -16,6 +16,12 @@
         }
     }
 
+    .summary-card {
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 1rem;
+    }
+
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
@@ -46,7 +52,7 @@
             .sentence-list {
                 display: inline;
 
-                div {
+                .sentence-part {
                     display: inline;
                 }
             }

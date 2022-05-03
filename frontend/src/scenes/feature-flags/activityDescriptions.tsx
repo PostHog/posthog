@@ -157,20 +157,30 @@ interface SentenceListProps {
 export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
-            {prefix && <div>{prefix}&#32;</div>}
+            {prefix && <div className="sentence-part">{prefix}&#32;</div>}
             <>
                 {listParts.flatMap((part, index, all) => {
                     const isntFirst = index > 0
                     const isLast = index === all.length - 1
                     const atLeastThree = all.length >= 2
                     return [
-                        isntFirst && <div key={`${index}-a`}>,&#32;</div>,
-                        isLast && atLeastThree && <div key={`${index}-b`}>and&#32;</div>,
-                        <div key={`${index}-c`}>{part}</div>,
+                        isntFirst && (
+                            <div className="sentence-part" key={`${index}-a`}>
+                                ,&#32;
+                            </div>
+                        ),
+                        isLast && atLeastThree && (
+                            <div className="sentence-part" key={`${index}-b`}>
+                                and&#32;
+                            </div>
+                        ),
+                        <div className="sentence-part" key={`${index}-c`}>
+                            {part}
+                        </div>,
                     ]
                 })}
             </>
-            {suffix && <div>&#32;{suffix}</div>}
+            {suffix && <div className="sentence-part">&#32;{suffix}</div>}
         </div>
     )
 }

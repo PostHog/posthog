@@ -1,9 +1,11 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { InsightModel } from '~/types'
+import { FilterType, InsightModel } from '~/types'
 import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
+import { FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
+import 'lib/components/InsightCard/InsightCard.scss'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -27,11 +29,19 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     },
     filters: function onChangedFilter(change) {
         // const filtersBefore = change?.before as FeatureFlagFilters
-        // const filtersAfter = change?.after as FeatureFlagFilters
+        const filtersAfter = change?.after as Partial<FilterType>
 
         const changes: (string | JSX.Element | null)[] = []
 
-        changes.push(<>changed settings</>)
+        changes.push(
+            <>
+                changed details to:
+                <div className="summary-card">
+                    <QuerySummary filters={filtersAfter} />
+                    <FiltersSummary filters={filtersAfter} />
+                </div>
+            </>
+        )
         if (changes.length > 0) {
             return changes
         }
@@ -159,7 +169,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX
         }
 
         if (changes.length) {
-            return <SentenceList listParts={changes} suffix={<> the insight: {nameOrLinkToInsight(logItem)}</>} />
+            return <SentenceList listParts={changes} suffix={<> on the insight: {nameOrLinkToInsight(logItem)}</>} />
         }
     }
 

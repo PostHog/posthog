@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag' | 'Person'
+    type: 'FeatureFlag' | 'Person' | 'Insight'
     action: 'changed' | 'created' | 'deleted'
     field?: string
     before?: string | Record<string, any> | boolean
@@ -18,7 +18,7 @@ export interface PersonMerge {
 export interface ActivityLogDetail {
     merge: PersonMerge | null
     changes: ActivityChange[] | null
-    name: string
+    name: string | null
     short_id?: InsightShortId | null
 }
 
