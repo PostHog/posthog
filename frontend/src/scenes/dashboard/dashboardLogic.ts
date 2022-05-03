@@ -314,7 +314,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 interval: number
                 enabled: boolean
             },
-            { persist: true },
+            { persist: true, prefix: '1_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
