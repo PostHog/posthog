@@ -51,5 +51,7 @@ export function PersonPropertySelect_(): JSX.Element {
         '$initial_geoip_subdivision_name',
     ])
 
-    return <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} />
+    return (
+        <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} addText={'Add'} />
+    )
 }
