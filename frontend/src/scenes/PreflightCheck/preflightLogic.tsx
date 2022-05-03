@@ -165,7 +165,6 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         areChecksExpanded: [
             (s) => [s.checksSummary, s.areChecksManuallyExpanded],
             (checksSummary, areChecksManuallyExpanded) => {
-                console.log(checksSummary, areChecksManuallyExpanded)
                 return areChecksManuallyExpanded ?? checksSummary?.summaryStatus !== 'validated'
             },
         ],

@@ -25,15 +25,19 @@ export const scene: SceneExport = {
 }
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
+    const size = {
+        height: '20px',
+        width: '20px',
+    }
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
     if (status === 'validated') {
-        return <IconCheckCircleOutline />
+        return <IconCheckCircleOutline {...size} />
     } else if (status === 'warning' || status === 'optional') {
-        return <IconWarningAmber />
+        return <IconWarningAmber {...size} />
     }
-    return <IconErrorOutline />
+    return <IconErrorOutline {...size} />
 }
 
 function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
