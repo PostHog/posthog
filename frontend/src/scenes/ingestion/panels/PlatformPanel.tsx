@@ -18,8 +18,8 @@ export function PlatformPanel(): JSX.Element {
             {onboarding1 ? (
                 <div style={{ maxWidth: 400 }}>
                     <div className="welcome-panel">
-                        <h1>Welcome to PostHog</h1>
-                        <p className="fw-500">First things first, where do you want to send events from?</p>
+                        <h1 className="ingestion-title">Welcome to PostHog</h1>
+                        <p>First things first, where do you want to send events from?</p>
                         <Col style={{ marginBottom: 16 }}>
                             {platforms.map((platform) => (
                                 <LemonButton
@@ -46,9 +46,7 @@ export function PlatformPanel(): JSX.Element {
                                 {BOOKMARKLET}
                             </LemonButton>
                         </Col>
-                        <Col className="panel-footer">
-                            <PanelSupport />
-                        </Col>
+                        <PanelSupport />
                     </div>
                 </div>
             ) : (
