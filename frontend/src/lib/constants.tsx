@@ -57,7 +57,9 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
+// Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 // Event constants
 export const ACTION_TYPE = 'action_type'

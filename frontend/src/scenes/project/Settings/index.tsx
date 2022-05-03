@@ -32,6 +32,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconRefresh } from 'lib/components/icons'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -246,6 +247,11 @@ export function ProjectSettings(): JSX.Element {
                     Data attributes
                 </h2>
                 <DataAttributes />
+                <Divider />
+                <h2 className="subtitle" id="person-display-name">
+                    Person Display Name
+                </h2>
+                <PersonDisplayNameProperties />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration

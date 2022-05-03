@@ -50,6 +50,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     is_demo: false,
     timezone: 'Europe/Brussels',
     data_attributes: ['data-attr'],
+    person_display_name_properties: ['email', 'name', 'username'],
     correlation_config: {
         excluded_event_names: ['$autocapture', '$capture_metrics', '$feature_flag_called', '$groupidentify'],
         excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],

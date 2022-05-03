@@ -28,7 +28,7 @@
             "filters_hash": "cache_326f130bff02303a942a0ae6495bac06",
             "order": null,
             "deleted": false,
-            "dashboard": 5,
+            "dashboards": [5],
             "dive_dashboard": null,
             "layouts": {
                 "lg": { "h": 5, "w": 6, "x": 6, "y": 0 },
@@ -106,7 +106,7 @@
             "filters_hash": "cache_842d74f509f93324df344c388f89e007",
             "order": null,
             "deleted": false,
-            "dashboard": 5,
+            "dashboards": [5],
             "dive_dashboard": null,
             "layouts": {
                 "lg": { "h": 5, "w": 6, "x": 0, "y": 0 },
