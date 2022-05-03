@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import pytest
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -728,14 +727,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.assertRaises(ValueError, lambda: cohort1.calculate_people_ch(pending_version=0))
 
-        count_result = sync_execute(
-            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-        )[0][0]
-        self.assertEqual(count_result, 2)
-
-    @pytest.mark.skip("Old cohorts don't handle this case")
     def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
@@ -788,7 +781,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
-    @pytest.mark.skip("Old cohorts don't handle this case")
     def test_query_with_multiple_new_style_cohorts(self):
 
         action1 = Action.objects.create(team=self.team, name="action1")
@@ -909,7 +901,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
-    # TODO: remove this when old queries are deprecated
     def test_new_and_old_aligned(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
 
