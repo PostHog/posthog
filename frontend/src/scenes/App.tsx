@@ -18,9 +18,12 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { appsLogic } from 'scenes/appsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
+    connect: [teamLogic, organizationLogic, appsLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

@@ -1550,6 +1550,7 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    frontend_apps?: number[]
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
 }
