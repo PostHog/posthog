@@ -44,7 +44,7 @@ services:
 
     # Used for/by 1. celery broker 2. django.core.cache
     redis:
-        image: 'redis:alpine'
+        image: 'redis:6.2.7-alpine'
         ports:
             - '6379:6379'
 

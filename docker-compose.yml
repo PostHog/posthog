@@ -10,7 +10,7 @@ services:
             - postgres-data:/var/lib/postgresql/data
     redis:
         container_name: posthog_redis
-        image: redis:6-alpine
+        image: 'redis:6.2.7-alpine'
     clickhouse:
         #
         # Note: please keep the default version in sync across
