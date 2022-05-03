@@ -23,13 +23,20 @@ export interface PreflightItemInterface {
     id: string
 }
 
+interface PreflightCheckSummary {
+    summaryString: string
+    summaryStatus: PreflightCheckStatus
+}
+
 export interface EnvironmentConfigOption {
     key: string
     metric: string
     value: string
 }
 
-export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightItemInterface, PreflightMode>>({
+export const preflightLogic = kea<
+    preflightLogicType<EnvironmentConfigOption, PreflightCheckSummary, PreflightItemInterface, PreflightMode>
+>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     connect: {
         values: [teamLogic, ['currentTeam']],
@@ -135,10 +142,12 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         ],
         checksSummary: [
             (s) => [s.checks],
-            (checks) => {
+            (checks): PreflightCheckSummary => {
                 const statusCounts = {} as Record<PreflightCheckStatus, number>
-                for (const check of checks ?? []) {
-                    statusCounts[check.status] = (statusCounts[check.status] || 0) + 1
+                if (checks.length > 0) {
+                    for (const check of checks) {
+                        statusCounts[check.status] = (statusCounts[check.status] || 0) + 1
+                    }
                 }
 
                 let summaryString = ''
