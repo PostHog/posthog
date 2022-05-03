@@ -143,7 +143,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     rename: () => void
     duplicate: () => void
     moveToDashboardOld?: (dashboardId: DashboardType['id']) => void
-    moveToDashboard?: (dashboardIdentifiers: Pick<DashboardType, 'id' | 'name'>) => void
+    moveToDashboard?: (dashboard: DashboardType) => void
 }
 
 interface InsightMetaProps
