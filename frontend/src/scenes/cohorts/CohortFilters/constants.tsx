@@ -491,7 +491,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
     [BehavioralEventType.HaveProperty]: {
         type: BehavioralFilterKey.Person,
-        value: BehavioralEventType.HaveProperty,
         fields: [
             {
                 fieldKey: 'key',
@@ -510,7 +509,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
     [BehavioralEventType.NotHaveProperty]: {
         type: BehavioralFilterKey.Person,
-        value: BehavioralEventType.HaveProperty,
         negation: true,
         fields: [
             {
@@ -530,7 +528,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
     [BehavioralCohortType.InCohort]: {
         type: BehavioralFilterKey.Cohort,
-        value: BehavioralCohortType.InCohort,
         fields: [
             { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {
@@ -542,7 +539,6 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralCohortType.NotInCohort]: {
         type: BehavioralFilterKey.Cohort,
         negation: true,
-        value: BehavioralCohortType.InCohort,
         fields: [
             { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {

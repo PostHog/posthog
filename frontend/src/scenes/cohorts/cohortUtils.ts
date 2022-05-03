@@ -212,6 +212,7 @@ export function validateGroup(
             }
         })
     })
+
     if (
         group.type === FilterLogicalOperator.And &&
         negatedCriteria.length > 0 &&
@@ -228,7 +229,11 @@ export function validateGroup(
     }
 
     // Specific criteria value scenarios
-    if (criteria.some((c) => c.value === BehavioralLifecycleType.PerformEventRegularly)) {
+    const regularEventCriteria = criteria.filter((c) => c.value === BehavioralLifecycleType.PerformEventRegularly)
+    if (
+        regularEventCriteria.length > 0 &&
+        regularEventCriteria.every((c) => typeof c.min_periods === 'number' && typeof c.total_periods === 'number')
+    ) {
         return {
             values: criteria.map((c) =>
                 c.value === BehavioralLifecycleType.PerformEventRegularly
@@ -248,10 +253,9 @@ export function validateGroup(
     // Generic criteria values cannot be empty
     return {
         values: criteria.map((c) => {
-            if (!c.value) {
-                return {}
-            }
-            const requiredFields = ROWS[c.value].fields.filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
+            const requiredFields = ROWS[criteriaToBehavioralFilterType(c)].fields.filter(
+                (f) => !!f.fieldKey
+            ) as FieldWithFieldKey[]
             return Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
@@ -270,17 +274,27 @@ export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType):
         if (criteria.value === BehavioralEventType.PerformEvent) {
             return BehavioralEventType.NotPerformedEvent
         }
-        if (criteria.value === BehavioralEventType.HaveProperty) {
+        if (criteria.type === BehavioralFilterKey.Person) {
             return BehavioralEventType.NotHaveProperty
         }
-        if (criteria.value === BehavioralCohortType.InCohort) {
+        if (criteria.type === BehavioralFilterKey.Cohort) {
             return BehavioralCohortType.NotInCohort
         }
+    }
+    if (criteria.type === BehavioralFilterKey.Person) {
+        return BehavioralEventType.HaveProperty
+    }
+    if (criteria.type === BehavioralFilterKey.Cohort) {
+        return BehavioralCohortType.InCohort
     }
     return criteria.value ?? BehavioralEventType.PerformEvent
 }
 
-export function behavioralFilterTypeToCriteria(value: BehavioralFilterType): AnyCohortCriteriaType {
+export function determineFilterType(
+    type: BehavioralFilterKey,
+    value: BehavioralFilterType,
+    negation: boolean = false
+): AnyCohortCriteriaType {
     if (value === BehavioralEventType.NotPerformSequenceEvents) {
         return {
             type: BehavioralFilterKey.Behavioral,
@@ -295,22 +309,21 @@ export function behavioralFilterTypeToCriteria(value: BehavioralFilterType): Any
             negation: true,
         }
     }
-    if (value === BehavioralEventType.NotHaveProperty) {
+    if (type === BehavioralFilterKey.Person) {
         return {
-            type: BehavioralFilterKey.Behavioral,
-            value: BehavioralEventType.HaveProperty,
-            negation: true,
+            type: BehavioralFilterKey.Person,
+            negation,
         }
     }
-    if (value === BehavioralCohortType.NotInCohort) {
+    if (type === BehavioralFilterKey.Cohort) {
         return {
             type: BehavioralFilterKey.Cohort,
-            value: BehavioralCohortType.InCohort,
-            negation: true,
+            negation,
         }
     }
 
     return {
+        type,
         value,
         negation: false,
     }

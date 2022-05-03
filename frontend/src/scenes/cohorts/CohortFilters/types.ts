@@ -62,7 +62,7 @@ export interface FieldWithFieldKey extends Omit<Field, 'fieldKey'> {
 
 export interface Row {
     type: BehavioralFilterKey
-    value: BehavioralFilterType
+    value?: BehavioralFilterType // Optional since some payloads override the value field
     fields: Field[]
     negation?: boolean
 }
