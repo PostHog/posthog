@@ -33,8 +33,6 @@ import equal from 'fast-deep-equal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { urls } from 'scenes/urls'
-
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
@@ -544,13 +542,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 actions.loadRecordingSnapshots(sessionRecordingId)
             }
         }
-
+        // Anytime the URL changes, we check if sessionRecordingId is in the hash params.
+        // If so, load the recording.
         return {
-            '/recordings': urlToAction,
-            '/home': urlToAction,
-            '/person/*': urlToAction,
-            '/insights/*': urlToAction,
-            [urls.webPerformanceWaterfall('*')]: urlToAction,
+            '*': urlToAction,
         }
     },
 })

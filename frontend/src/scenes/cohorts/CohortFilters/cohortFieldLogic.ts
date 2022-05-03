@@ -1,28 +1,28 @@
 import { kea } from 'kea'
 import { LemonSelectOption, LemonSelectOptions } from 'lib/components/LemonSelect'
-import { FilterGroupTypes, GroupOption } from 'scenes/cohorts/CohortFilters/types'
-import type { cohortSelectorLogicType } from './cohortSelectorLogicType'
-import { FILTER_GROUPS } from 'scenes/cohorts/CohortFilters/options'
+import { FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
+import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType } from '~/types'
+import type { cohortFieldLogicType } from './cohortFieldLogicType'
 
-export interface CohortSelectorLogicProps {
+export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
-    value: keyof LemonSelectOptions | null
-    groupTypes: FilterGroupTypes[]
-    onChange?: (value: keyof LemonSelectOptions, option: LemonSelectOption, group: LemonSelectOptions) => void
+    value: string | number | null
+    fieldOptionGroupTypes?: FieldOptionsType[]
+    onChange?: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => void
 }
 
-export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLogicProps>>({
-    path: ['scenes', 'cohorts', 'CohortFilters', 'cohortSelectorLogic'],
+export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>({
+    path: ['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic'],
     key: (props) => `${props.cohortFilterLogicKey}`,
-    props: {} as CohortSelectorLogicProps,
+    props: {} as CohortFieldLogicProps,
     connect: {
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
     },
     actions: {
-        setValue: (value: keyof LemonSelectOptions | null) => ({ value }),
-        onChange: (value: keyof LemonSelectOptions, option: LemonSelectOption, group: LemonSelectOptions) => ({
+        setValue: (value: string | number | null) => ({ value }),
+        onChange: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => ({
             value,
             option,
             group,
@@ -30,21 +30,21 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
     },
     reducers: {
         value: [
-            null as keyof LemonSelectOptions | null,
+            null as string | number | null,
             {
                 setValue: (_, { value }) => value,
             },
         ],
     },
     selectors: {
-        groups: [
-            (s) => [(_, props) => props.groupTypes, s.groupTypes, s.aggregationLabel],
-            (propGroupTypes, groupTypes, aggregationLabel): GroupOption[] => {
+        fieldOptionGroups: [
+            (s) => [(_, props) => props.fieldOptionGroupTypes, s.groupTypes, s.aggregationLabel],
+            (fieldOptionGroupTypes, groupTypes, aggregationLabel): FieldValues[] => {
                 const allGroups = {
-                    ...FILTER_GROUPS,
-                    [FilterGroupTypes.Actors]: {
+                    ...FIELD_VALUES,
+                    [FieldOptionsType.Actors]: {
                         label: 'Actors',
-                        type: FilterGroupTypes.Actors,
+                        type: FieldOptionsType.Actors,
                         values: {
                             [ActorGroupType.Person]: {
                                 label: 'Persons',
@@ -58,14 +58,16 @@ export const cohortSelectorLogic = kea<cohortSelectorLogicType<CohortSelectorLog
                         },
                     },
                 }
-                return [...(propGroupTypes?.map((type: FilterGroupTypes) => allGroups[type]) ?? [])]
+                return [...(fieldOptionGroupTypes?.map((type: FieldOptionsType) => allGroups[type]) ?? [])]
             },
         ],
         currentOption: [
-            (s) => [s.groups, s.value],
-            (groups, value) =>
+            (s) => [s.fieldOptionGroups, s.value],
+            (fieldOptionGroups, value) =>
                 value
-                    ? groups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[value]
+                    ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
+                          value
+                      ]
                     : null,
         ],
     },

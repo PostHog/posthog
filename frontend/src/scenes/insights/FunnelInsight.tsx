@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { FunnelVizType, InsightType } from '~/types'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -16,7 +15,6 @@ export function FunnelInsight(): JSX.Element {
         useValues(funnelLogic(insightProps))
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
     const noPadding = filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical
@@ -38,7 +36,6 @@ export function FunnelInsight(): JSX.Element {
                     'non-empty-state': nonEmptyState,
                     'no-padding': noPadding,
                 })}
-                style={featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? { height: '26rem' } : undefined}
             >
                 <Funnel />
             </div>
