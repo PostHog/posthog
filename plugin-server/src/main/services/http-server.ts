@@ -1,8 +1,8 @@
 import * as Sentry from '@sentry/node'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
-import { kafkaHealthcheck } from 'main/utils'
 
 import { status } from '../../utils/status'
+import { kafkaHealthcheck } from '../utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
