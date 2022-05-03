@@ -333,6 +333,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })
+                    actions.checkIfFinishedCalculating(cohort)
                     return cohort
                 },
             },
