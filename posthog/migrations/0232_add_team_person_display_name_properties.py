@@ -4,6 +4,8 @@ from django.db import migrations, models
 
 import django.contrib.postgres.fields
 
+import pytest
+
 
 class Migration(migrations.Migration):
 
