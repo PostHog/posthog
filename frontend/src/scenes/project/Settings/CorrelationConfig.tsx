@@ -79,6 +79,7 @@ export function CorrelationConfig(): JSX.Element {
                     <PersonPropertySelect
                         onChange={(properties) => handleChange(properties)}
                         selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
+                        addText="Add exclusion"
                     />
                     <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
                         <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />
