@@ -1,6 +1,5 @@
-import { getContext, useActions, useValues } from 'kea'
-import React, { useEffect, useMemo, useRef } from 'react'
-import ReactDOM from 'react-dom'
+import {  useActions, useValues } from 'kea'
+import React, {  useMemo, useRef } from 'react'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -9,15 +8,13 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
+import { humanFriendlyDuration,  percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { ensureTooltipElement } from 'scenes/insights/LineGraph/LineGraph'
-import { Provider } from 'react-redux'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { useFunnelTooltip } from './FunnelTooltip'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -158,98 +155,6 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
     )
 }
 
-/** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
-const FUNNEL_TOOLTIP_OFFSET_PX = 2
-
-function useFunnelBarChartTooltip(): React.RefObject<HTMLDivElement> {
-    const { isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(funnelLogic)
-
-    const vizRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        const svgRect = vizRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
-        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-        const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (tooltipCoordinates) {
-            ReactDOM.render(
-                <Provider store={getContext().store}>
-                    {currentTooltip && (
-                        <div className="FunnelBarChartTooltip">
-                            <LemonRow
-                                icon={<Lettermark name={currentTooltip[0] + 1} color={LettermarkColor.Gray} />}
-                                fullWidth
-                            >
-                                <strong>
-                                    <EntityFilterInfo
-                                        filter={getActionFilterFromFunnelStep(currentTooltip[1])}
-                                        style={{ display: 'inline-block' }}
-                                    />{' '}
-                                    • {currentTooltip[1].breakdown_value}
-                                </strong>
-                            </LemonRow>
-                            <LemonDivider style={{ marginTop: '0.125rem' }} />
-                            <table>
-                                <tbody>
-                                    <tr>
-                                        <td>{currentTooltip[0] === 0 ? 'Entered' : 'Converted'}</td>
-                                        <td>{humanFriendlyNumber(currentTooltip[1].count)}</td>
-                                    </tr>
-                                    {currentTooltip[0] > 0 && (
-                                        <tr>
-                                            <td>Dropped off</td>
-                                            <td>{humanFriendlyNumber(currentTooltip[1].droppedOffFromPrevious)}</td>
-                                        </tr>
-                                    )}
-                                    <tr>
-                                        <td>Conversion so far</td>
-                                        <td>{percentage(currentTooltip[1].conversionRates.total, 1, true)}</td>
-                                    </tr>
-                                    {currentTooltip[0] > 0 && (
-                                        <tr>
-                                            <td>Conversion from previous</td>
-                                            <td>
-                                                {percentage(currentTooltip[1].conversionRates.fromPrevious, 1, true)}
-                                            </td>
-                                        </tr>
-                                    )}
-                                    {currentTooltip[0] > 0 && currentTooltip[1].average_conversion_time != null && (
-                                        <tr>
-                                            <td>Average time from previous</td>
-                                            <td>
-                                                {humanFriendlyDuration(currentTooltip[1].average_conversion_time, 3)}
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </Provider>,
-                tooltipEl
-            )
-            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-            let xOffset: number
-            if (
-                svgRect &&
-                tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
-            ) {
-                xOffset = -(tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX)
-            } else {
-                xOffset = FUNNEL_TOOLTIP_OFFSET_PX
-            }
-            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1]}px`
-        } else {
-            tooltipEl.style.left = 'revert'
-            tooltipEl.style.top = 'revert'
-        }
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
-
-    return vizRef
-}
-
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string
     '--bar-row-height': string
@@ -262,7 +167,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
-    const vizRef = useFunnelBarChartTooltip()
+    const vizRef = useFunnelTooltip()
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
