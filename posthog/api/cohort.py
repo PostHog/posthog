@@ -58,7 +58,7 @@ from posthog.utils import format_query_params_absolute_url
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
-    properties = serializers.SerializerMethodField()
+    filters = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -76,7 +76,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
-            "properties",
+            "filters",
         ]
         read_only_fields = [
             "id",
@@ -102,13 +102,19 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def get_properties(self, cohort: Cohort) -> Dict:
-        return cohort.properties.to_dict()
+    def get_filters(self, cohort: Cohort) -> Dict:
+        if cohort.filters:
+            return cohort.filters
+
+        return {
+            "properties": cohort.properties.to_dict(),
+        }
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
+        validated_data["filters"] = request.data.get("filters", None)
 
         new_filters = validated_data.get("filters", None)
 
@@ -138,6 +144,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
+        validated_data["filters"] = request.data.get("filters", None)
 
         new_filters = validated_data.get("filters", None)
 

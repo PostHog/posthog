@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.property import Property, PropertyGroup
+from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
 
@@ -76,7 +76,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    filters: models.JSONField = models.JSONField(null=True)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -147,9 +147,15 @@ class Cohort(models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
     @property
-    def has_behavioral_filter(self) -> bool:
+    def has_complex_behavioral_filter(self) -> bool:
         for prop in self.properties.flat:
-            if prop.type == "behavioral":
+            if prop.type == "behavioral" and prop.value in [
+                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
+                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+            ]:
                 return True
         return False
 
