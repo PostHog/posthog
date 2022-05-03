@@ -84,9 +84,10 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): FormData {
     const rawCohort = {
         ...cohort,
+        created_by: JSON.stringify(cohort.created_by),
         ...(isNewCohortFilterEnabled
             ? {
-                  filters: JSON.stringify(cohort.is_static ? [] : cohort.filters),
+                  filters: JSON.stringify(cohort.is_static ? {} : cohort.filters),
                   groups: JSON.stringify([]),
               }
             : {

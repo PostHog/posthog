@@ -203,7 +203,7 @@ class Team(UUIDClassicModel):
 
     @property
     def behavioral_cohort_querying_enabled(self) -> bool:
-        return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
+        return True  # str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
 
     def __str__(self):
         if self.name:

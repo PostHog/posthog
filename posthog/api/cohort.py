@@ -1,4 +1,5 @@
 import csv
+import json
 from datetime import datetime
 from typing import Any, Dict
 
@@ -102,9 +103,9 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def get_filters(self, cohort: Cohort) -> Dict:
+    def get_filters(self, cohort: Cohort):
         if cohort.filters:
-            return cohort.filters
+            return json.loads(cohort.filters)
 
         return {
             "properties": cohort.properties.to_dict(),
