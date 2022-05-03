@@ -1,8 +1,7 @@
 import json
 from typing import Optional
-from uuid import uuid4
 
-from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
+from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -16,6 +15,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
 from posthog.models.utils import PersonPropertiesMode
+from posthog.test.base import _create_event, _create_person
 
 
 def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
@@ -48,19 +48,9 @@ def _filter_persons(filter: Filter, team: Team):
     return [str(uuid) for uuid, _ in rows]
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return str(person.uuid)
-
-
-def _create_event(**kwargs):
-    uuid = uuid4()
-    kwargs.update({"event_uuid": uuid})
-    create_event(**kwargs)
-    return str(uuid)
-
-
 class TestFilters(PGTestFilters):
+    maxDiff = None
+
     def test_simplify_cohorts(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -78,7 +68,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
                 }
             },
         )
@@ -88,7 +78,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
                 }
             },
         )
@@ -135,13 +125,35 @@ class TestFilters(PGTestFilters):
     def test_simplify_multi_group_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": {"$some_prop": "something"}}, {"properties": {"$another_prop": "something"}}],
+            groups=[
+                {"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]},
+                {"properties": [{"key": "$another_prop", "value": "something", "type": "person"}]},
+            ],
         )
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk,}],}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "$some_prop", "value": "something",}],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "$another_prop", "value": "something",}],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
         )
 
     def test_recursive_cohort(self):
@@ -159,7 +171,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                    "values": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person",}],
                 }
             },
         )
@@ -728,3 +740,110 @@ class TestFiltering(
         result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
 
         self.assertEqual(result, person2_distinct_id)
+
+    def test_simplify_nested(self):
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "email", "operator": "icontains", "value": "arg2",},
+                                {"type": "person", "key": "email", "operator": "icontains", "value": "arg3",},
+                            ],
+                        },
+                    ],
+                }
+            }
+        )
+
+        # Can't remove the single prop groups if the parent group has multiple. The second list of conditions becomes property groups
+        # because of simplify now will return prop groups by default to ensure type consistency
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": "arg2",}
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": "arg3",}
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {"type": "person", "key": "email", "operator": "icontains", "value": ".com",}
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "arg2",},],
+                        },
+                    ],
+                }
+            }
+        )
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": ".com",}],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "arg2",}],
+                        },
+                    ],
+                }
+            },
+        )

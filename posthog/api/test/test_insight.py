@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.case import skip
 from unittest.mock import patch
-from uuid import uuid4
 
 import pytz
 from django.db import DEFAULT_DB_ALIAS, connections
@@ -13,13 +12,13 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
     Cohort,
     Dashboard,
+    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -29,17 +28,7 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -219,7 +208,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
 
         blue_insight_id, _ = self._create_insight(
-            {"filter": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
+            {"filters": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
         )
 
         response = self.client.patch(
@@ -330,11 +319,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
         )
 
+    @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
-        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
+                "name": "a created dashboard",
                 "filters": {
                     "events": [{"id": "$pageview"}],
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -343,8 +333,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["description"], None)
-        self.assertEqual(response.json()["tags"], [])
+        response_data = response.json()
+        self.assertEqual(response_data["description"], None)
+        self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
         self.assertEqual(len(objects), 1)
@@ -352,25 +343,184 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
+        self.assert_insight_activity(
+            response_data["id"],
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(response_data["id"]),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": response_data["short_id"],
+                    },
+                }
+            ],
+        )
+
+    def test_create_insight_items_on_a_dashboard(self):
+        dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_id],
+            }
+        )
+
+        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
+        self.assertIsNotNone(tile.filters_hash)
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_create_insight_logs_derived_name_if_there_is_no_name(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "derived_name": "pageview unique users",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["derived_name"], "pageview unique users")
+
+        self.assert_insight_activity(
+            response_data["id"],
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(response_data["id"]),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "pageview unique users",
+                        "short_id": response_data["short_id"],
+                    },
+                }
+            ],
+        )
+
     def test_update_insight(self):
-        insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
+        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+            insight_id, insight = self._create_insight({"name": "insight name"})
+            short_id = insight["short_id"]
+
+            frozen_time.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "insight new name"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+            self.assertEqual(
+                response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            )
+            self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+
+            self.assertEqual(response.json()["name"], "insight new name")
+
+            self.assert_insight_activity(
+                insight_id,
+                [
+                    {
+                        "user": {"first_name": "", "email": "user1@posthog.com"},
+                        "activity": "updated",
+                        "created_at": "2012-01-14T03:31:34Z",
+                        "scope": "Insight",
+                        "item_id": str(insight_id),
+                        "detail": {
+                            "changes": [
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "name",
+                                    "before": "insight name",
+                                    "after": "insight new name",
+                                },
+                            ],
+                            "merge": None,
+                            "name": "insight new name",
+                            "short_id": short_id,
+                        },
+                    },
+                    {
+                        "user": {"first_name": "", "email": "user1@posthog.com"},
+                        "activity": "created",
+                        "created_at": "2012-01-14T03:21:34Z",
+                        "scope": "Insight",
+                        "item_id": str(insight_id),
+                        "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
+                    },
+                ],
+            )
+
+    def test_hard_delete_insight(self):
+        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+            insight_id, insight = self._create_insight(
+                {"name": "insight new name", "description": "Internal system metrics.",}
+            )
+            short_id = insight["short_id"]
+
+            frozen_time.tick(delta=timedelta(minutes=10))
+
+            response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+            self.assert_insight_activity(
+                insight_id=None,
+                expected=[
+                    {
+                        "user": {"first_name": "", "email": "user1@posthog.com"},
+                        "activity": "deleted",
+                        "created_at": "2012-01-14T03:31:34Z",
+                        "scope": "Insight",
+                        "item_id": str(insight_id),
+                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
+                    },
+                    {
+                        "user": {"first_name": "", "email": "user1@posthog.com"},
+                        "activity": "created",
+                        "created_at": "2012-01-14T03:21:34Z",
+                        "scope": "Insight",
+                        "item_id": str(insight_id),
+                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
+                    },
+                ],
+            )
+
+    def test_cannot_set_filters_hash_via_api(self):
+        insight_id, insight = self._create_insight({"name": "should not update the filters_hash"})
+        original_filters_hash = insight["filters_hash"]
+        self.assertIsNotNone(original_filters_hash)
+
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.",},
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters_hash": "should not update the value"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_data = response.json()
-        self.assertEqual(response_data["name"], "insight new name")
-        self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-        self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(
-            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
-
-        insight.refresh_from_db()
-        self.assertEqual(insight.name, "insight new name")
+        self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -397,7 +547,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
 
     def test_save_new_funnel(self):
-
         dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
 
         response = self.client.post(
@@ -813,8 +962,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Breakdown with ints in funnels
-        cohort_one_id = self._create_one_person_cohort({"prop": 5})
-        cohort_two_id = self._create_one_person_cohort({"prop": 6})
+        cohort_one_id = self._create_one_person_cohort([{"key": "prop", "value": 5, "type": "person"}])
+        cohort_two_id = self._create_one_person_cohort([{"key": "prop", "value": 6, "type": "person"}])
 
         events = [
             {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
@@ -827,7 +976,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
-    def _create_one_person_cohort(self, properties: Dict[str, Any]) -> int:
+    def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": properties}]},
@@ -1133,11 +1282,95 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_saving_an_insight_with_new_filters_updates_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Chrome"}],},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertNotEqual(before_save, after_save)
+
+    def test_saving_an_insight_with_unchanged_filters_does_not_update_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "a non-filter change"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertEqual(before_save, after_save)
+
+    def test_saving_a_dashboard_with_new_filters_updates_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-7d"},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertNotEqual(before_save, after_save)
+
+    def test_saving_a_dashboard_with_unchanged_filters_does_not_update_the_dashboard_tile(self):
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},},
+        )
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"name": "the dashboard's name"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
+
+        self.assertIsNotNone(before_save)
+        self.assertIsNotNone(after_save)
+        self.assertEqual(before_save, after_save)
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
         self.assertEqual(response.status_code, expected_status)
@@ -1152,6 +1385,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_json = response.json()
         return response_json["id"], response_json
+
+    def _add_insight_to_dashboard(
+        self, dashboard_ids: List[int], insight_id: int, expected_status: int = status.HTTP_200_OK
+    ):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": dashboard_ids,},
+        )
+        self.assertEqual(response.status_code, expected_status)
 
     def _get_insight(
         self,
@@ -1171,3 +1412,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         response_json = response.json()
         return response_json
+
+    def _get_insight_activity(
+        self, insight_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        if insight_id is None:
+            url = f"/api/projects/{team_id}/insights/activity"
+        else:
+            url = f"/api/projects/{team_id}/insights/{insight_id}/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_insight_activity(self, insight_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_insight_activity(insight_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
+        )

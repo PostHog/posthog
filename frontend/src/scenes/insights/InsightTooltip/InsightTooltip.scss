@@ -33,13 +33,11 @@
             overflow: hidden;
         }
         .LemonTable__content > table > thead {
+            letter-spacing: 0;
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
-            }
-            .datum-label-column {
-                letter-spacing: 0;
             }
             .datum-counts-column {
                 .ant-typography {

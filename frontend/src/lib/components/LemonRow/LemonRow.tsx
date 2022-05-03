@@ -83,6 +83,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center'
             ),
+            disabled,
             ...props,
             ref,
         },

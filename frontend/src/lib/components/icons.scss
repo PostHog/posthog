@@ -1,5 +1,4 @@
 // Antd arrows rotated at convenient angles
-
 .anticon-wraper-arrow {
     &.topLeft {
         svg {
@@ -21,4 +20,20 @@
             transform: rotate(-135deg);
         }
     }
+}
+
+.icon-count-bubble {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    top: -0.375rem;
+    right: -0.375rem;
+    color: var(--white);
+    background: var(--primary);
+    font-size: 0.5625rem;
+    box-sizing: content-box;
+    border-radius: 100%;
+    text-align: center;
+    border: 2px solid var(--bg-light);
 }

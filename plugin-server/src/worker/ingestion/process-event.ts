@@ -22,7 +22,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { Client } from '../../utils/celery/client'
-import { DB } from '../../utils/db/db'
+import { DB, GroupIdentifier } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
     elementsToString,
@@ -573,6 +573,17 @@ export class EventsProcessor {
         }
     }
 
+    getGroupIdentifiers(properties: Properties): GroupIdentifier[] {
+        const res: GroupIdentifier[] = []
+        for (let index = 0; index < this.db.MAX_GROUP_TYPES_PER_TEAM; index++) {
+            const key = `$group_${index}`
+            if (properties.hasOwnProperty(key)) {
+                res.push({ index: index, key: properties[key] })
+            }
+        }
+        return res
+    }
+
     async createEvent(
         preIngestionEvent: PreIngestionEvent
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
@@ -592,6 +603,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const personInfo = await this.db.getPersonData(teamId, distinctId)
+        const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
         const updatedPersonProperties = personInfo ? JSON.stringify(personInfo?.properties) : {}
 
@@ -626,6 +638,7 @@ export class EventsProcessor {
                           ...eventPayload,
                           person_id: personInfo?.uuid,
                           person_properties: eventPersonProperties,
+                          ...groupProperties,
                       })
                   )
 

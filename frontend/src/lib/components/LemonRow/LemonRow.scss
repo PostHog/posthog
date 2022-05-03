@@ -48,7 +48,7 @@
         background: var(--bg-side);
     }
 
-    &.LemonRow--disabled > * {
+    &.LemonRow--disabled {
         opacity: var(--opacity-disabled);
     }
 }

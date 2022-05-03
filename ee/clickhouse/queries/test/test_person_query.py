@@ -3,14 +3,9 @@ import pytest
 from ee.clickhouse.materialized_columns import materialize
 from posthog.client import sync_execute
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
+from posthog.test.base import _create_person
 
 
 def person_query(team: Team, filter: Filter, **kwargs):

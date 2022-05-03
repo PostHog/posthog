@@ -168,7 +168,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "alpha-feature"},
+                    "detail": {"changes": None, "merge": None, "name": "alpha-feature", "short_id": None},
                 }
             ],
         )
@@ -402,6 +402,7 @@ class TestFeatureFlag(APIBaseTest):
                         ],
                         "merge": None,
                         "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
                     },
                 },
                 {
@@ -410,7 +411,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "a-feature-flag-that-is-updated"},
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -452,7 +458,7 @@ class TestFeatureFlag(APIBaseTest):
                     "activity": "deleted",
                     "scope": "FeatureFlag",
                     "item_id": str(instance.pk),
-                    "detail": {"changes": None, "merge": None, "name": "potato"},
+                    "detail": {"changes": None, "merge": None, "name": "potato", "short_id": None},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -510,6 +516,7 @@ class TestFeatureFlag(APIBaseTest):
                         ],
                         "merge": None,
                         "name": "feature_with_activity",
+                        "short_id": None,
                     },
                 },
                 {
@@ -518,7 +525,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None,},
                 },
             ],
         )
@@ -571,7 +578,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "flag-two"},
+                    "detail": {"changes": None, "merge": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -591,6 +598,7 @@ class TestFeatureFlag(APIBaseTest):
                         ],
                         "merge": None,
                         "name": "feature_with_activity",
+                        "short_id": None,
                     },
                 },
                 {
@@ -599,7 +607,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
                 },
             ],
         )
