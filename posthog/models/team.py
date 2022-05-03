@@ -201,6 +201,10 @@ class Team(UUIDClassicModel):
             "timezone-for-charts", distinct_id, groups={"organization": str(self.organization_id)}
         )
 
+    @property
+    def behavioral_cohort_querying_enabled(self) -> bool:
+        return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
+
     def __str__(self):
         if self.name:
             return self.name

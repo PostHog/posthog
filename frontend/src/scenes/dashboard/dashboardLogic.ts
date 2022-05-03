@@ -5,19 +5,19 @@ import { router } from 'kea-router'
 import { dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardPrivilegeLevel, OrganizationMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
-    InsightModel,
+    ChartDisplayType,
     DashboardLayoutSize,
     DashboardMode,
+    DashboardPlacement,
     DashboardType,
     FilterType,
+    InsightModel,
     InsightShortId,
     InsightType,
-    DashboardPlacement,
-    ChartDisplayType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -103,6 +103,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     },
 
     loaders: ({ actions, props }) => ({
+        // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
             {
@@ -198,7 +199,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         }
                         return {
                             ...state,
-                            items: newItems,
+                            items: newItems
+                                .filter((i) => !i.deleted)
+                                .filter((i) => (i.dashboards || []).includes(props.id || -1)),
                         } as DashboardType
                     }
                     return null
