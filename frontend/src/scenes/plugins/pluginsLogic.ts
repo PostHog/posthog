@@ -1,9 +1,7 @@
-import React from 'react'
 import { kea } from 'kea'
-import * as allKea from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { FrontendPlugin, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -17,9 +15,6 @@ import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
-import { AdHocInsight } from 'scenes/insights/AdHocInsight'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
 
 type PluginForm = FormInstance
 
@@ -67,8 +62,6 @@ async function loadPaginatedResults(
 export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
-        initFrontendPlugin: (frontendPlugin: FrontendPlugin) => ({ frontendPlugin }),
-        stopFrontendPlugin: (frontendPlugin: FrontendPlugin) => ({ frontendPlugin }),
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
@@ -457,13 +450,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
-        frontendPlugins: [
-            [] as FrontendPlugin[],
-            {
-                initFrontendPlugin: (state, { frontendPlugin }) => [...state, frontendPlugin],
-                stopFrontendPlugin: (state, { frontendPlugin }) => state.filter((p) => p.id !== frontendPlugin.id),
-            },
-        ],
     },
 
     selectors: {
@@ -516,10 +502,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         pluginConfig: { ...plugin.pluginConfig, order: index + 1 },
                         hasMoved: movedPlugins[plugin.id],
                     })) as PluginTypeWithConfig[],
-        ],
-        enabledFrontendPlugins: [
-            (s) => [s.enabledPlugins],
-            (enabledPlugins) => enabledPlugins.filter((p) => p.source_frontend),
         ],
         nextPluginOrder: [
             (s) => [s.enabledPlugins],
@@ -724,9 +706,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 }
             }
         },
-        initFrontendPlugin: ({ frontendPlugin }) => {
-            console.log('initFrontendPlugin', { frontendPlugin })
-        },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
             const { editingPlugin } = values
             if (!editingPlugin) {
@@ -774,44 +753,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             actions.loadPluginConfigs()
             if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
                 actions.loadRepository()
-            }
-        },
-    }),
-
-    subscriptions: ({ actions, values }: pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>) => ({
-        enabledFrontendPlugins: (enabledFrontendPlugins: PluginTypeWithConfig[]) => {
-            for (const plugin of enabledFrontendPlugins) {
-                if (!values.frontendPlugins.find((p) => p.id === plugin.id)) {
-                    const exports: FrontendPlugin = {
-                        id: plugin.id,
-                    }
-                    try {
-                        // @ts-ignore
-                        // eslint-disable-next-line
-                        const require = (module: string): any => {
-                            if (module === 'react') {
-                                return React
-                            } else if (module === 'kea') {
-                                return allKea
-                            } else if (module === '@posthog/apps-common') {
-                                return { AdHocInsight: AdHocInsight, LemonButton: LemonButton, LemonRow: LemonRow }
-                            } else {
-                                throw new Error(`Can not import from unknown module "${module}"`)
-                            }
-                        }
-                        // TODO: less YOLO
-                        // eval(`${plugin.frontend_soruce}`)
-                        actions.initFrontendPlugin(exports)
-                    } catch (e) {
-                        actions.initFrontendPlugin({ ...exports, error: e })
-                        console.error('Can not load frontend for plugin', plugin)
-                    }
-                }
-            }
-            for (const plugin of values.frontendPlugins) {
-                if (!enabledFrontendPlugins.find((p) => p.id === plugin.id)) {
-                    actions.stopFrontendPlugin(plugin)
-                }
             }
         },
     }),

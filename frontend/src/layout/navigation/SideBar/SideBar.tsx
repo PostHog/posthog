@@ -41,8 +41,8 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { router } from 'kea-router'
+import { appsLogic } from 'scenes/appsLogic'
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -104,7 +104,7 @@ function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
-    const { frontendPlugins } = useValues(pluginsLogic)
+    const { apps } = useValues(appsLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -225,17 +225,15 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     <LemonDivider />
-                    {frontendPlugins.map((frontendPlugin) => (
+                    {Object.values(apps).map((app) => (
                         <PageButton
-                            key={frontendPlugin.id}
+                            key={app.id}
                             icon={<IconComment />}
-                            title={frontendPlugin.scene?.title || 'Title'}
+                            title={app.title || `App #${app.id}`}
                             identifier={
-                                currentLocation.pathname === urls.frontendPlugin(frontendPlugin.id)
-                                    ? Scene.FrontendPlugin
-                                    : 'nope'
+                                currentLocation.pathname === urls.frontendPlugin(app.id) ? Scene.FrontendPlugin : 'nope'
                             }
-                            to={urls.frontendPlugin(frontendPlugin.id)}
+                            to={urls.frontendPlugin(app.id)}
                         />
                     ))}
                     {canViewPlugins(currentOrganization) && (

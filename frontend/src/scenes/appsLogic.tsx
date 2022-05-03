@@ -7,20 +7,19 @@ import { AdHocInsight } from 'scenes/insights/AdHocInsight'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonRow } from 'lib/components/LemonRow'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { FrontendPlugin } from '~/types'
 
 export const appsLogic = kea<appsLogicType>({
     path: ['scenes', 'appsLogic'],
     actions: {
-        loadApp: (id: number) => ({ id }),
+        loadFrontendPlugin: (id: number) => ({ id }),
     },
     loaders: ({ values }) => ({
         apps: [
-            {} as Record<string, any>,
+            {} as Record<string, FrontendPlugin>,
             {
-                loadApp: async ({ id }) => {
+                loadFrontendPlugin: async ({ id }) => {
                     try {
-                        // @ts-ignore
-                        // eslint-disable-next-line
                         const require = (module: string): any => {
                             if (module === 'react') {
                                 return React
@@ -36,13 +35,18 @@ export const appsLogic = kea<appsLogicType>({
                         const exports = await import(
                             `${siteUrl}/api/organizations/${organizationLogic.values.currentOrganization?.id}/plugins/${id}/frontend`
                         )
-                        console.log({ exports })
-                        const app = exports.getFrontendPluginExports(require)
-                        // debugger
-                        return { ...values.apps, [id]: app }
+                        if ('getFrontendPluginExports' in exports) {
+                            const app = exports.getFrontendPluginExports(require)
+                            if ('scene' in app) {
+                                return { ...values.apps, [id]: { ...app.scene, id } }
+                            }
+                            throw Error(`Could not find exported "scene" for plugin ${id}`)
+                        }
+                        throw Error(`Could not find exported "getFrontendPluginExports" for plugin ${id}`)
                     } catch (error) {
                         console.error(`Can not load frontend for plugin ${id}`)
                         console.error(error)
+                        throw error
                     }
                 },
             },
@@ -52,19 +56,8 @@ export const appsLogic = kea<appsLogicType>({
         afterMount: () => {
             const appContext = getAppContext()
             for (const id of appContext?.frontend_apps || []) {
-                actions.loadApp(id)
+                actions.loadFrontendPlugin(id)
             }
         },
     }),
 })
-
-//
-//             }
-//         }
-//         for (const plugin of values.frontendPlugins) {
-//             if (!enabledFrontendPlugins.find((p) => p.id === plugin.id)) {
-//                 actions.stopFrontendPlugin(plugin)
-//             }
-//         }
-//     },
-// }),

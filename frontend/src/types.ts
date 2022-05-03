@@ -817,11 +817,10 @@ export interface PluginType {
 export interface FrontendPlugin {
     id: number
     error?: any
-    scene?: {
-        title?: string
-        logic?: LogicWrapper
-        component?: (...args: any[]) => JSX.Element
-    }
+    title?: string
+    logic?: LogicWrapper
+    component?: (...args: any[]) => JSX.Element
+    onInit?: () => void
 }
 
 export interface JobPayloadFieldOptions {
