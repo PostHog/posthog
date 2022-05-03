@@ -1429,3 +1429,15 @@ export function IconUploadFile(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
         </svg>
     )
 }
+
+/** Material Design Check Circle Outline icon. */
+export function IconCheckCircleOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M24 0.666748C11.12 0.666748 0.666626 11.1201 0.666626 24.0001C0.666626 36.8801 11.12 47.3334 24 47.3334C36.88 47.3334 47.3333 36.8801 47.3333 24.0001C47.3333 11.1201 36.88 0.666748 24 0.666748ZM24 42.6668C13.71 42.6668 5.33329 34.2901 5.33329 24.0001C5.33329 13.7101 13.71 5.33342 24 5.33342C34.29 5.33342 42.6666 13.7101 42.6666 24.0001C42.6666 34.2901 34.29 42.6668 24 42.6668ZM34.71 13.6867L19.3333 29.0634L13.29 23.0434L9.99996 26.3334L19.3333 35.6668L38 17.0001L34.71 13.6867Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
