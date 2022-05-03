@@ -1,6 +1,20 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, PropsWithChildren } from 'react'
 import './icons.scss'
+
+interface IconWithCountProps {
+    count: number
+    showZero?: boolean
+}
+
+export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+    return (
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
+            {children}
+            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
+        </span>
+    )
+}
 
 export function IconJavascript({ style }: { style?: CSSProperties }): JSX.Element {
     return (
@@ -1411,6 +1425,18 @@ export function IconUploadFile(props: React.SVGProps<SVGSVGElement>): JSX.Elemen
             <path
                 fill="currentColor"
                 d="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M12,12L16,16H13.5V19H10.5V16H8L12,12Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Check Circle Outline icon. */
+export function IconCheckCircleOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M24 0.666748C11.12 0.666748 0.666626 11.1201 0.666626 24.0001C0.666626 36.8801 11.12 47.3334 24 47.3334C36.88 47.3334 47.3333 36.8801 47.3333 24.0001C47.3333 11.1201 36.88 0.666748 24 0.666748ZM24 42.6668C13.71 42.6668 5.33329 34.2901 5.33329 24.0001C5.33329 13.7101 13.71 5.33342 24 5.33342C34.29 5.33342 42.6666 13.7101 42.6666 24.0001C42.6666 34.2901 34.29 42.6668 24 42.6668ZM34.71 13.6867L19.3333 29.0634L13.29 23.0434L9.99996 26.3334L19.3333 35.6668L38 17.0001L34.71 13.6867Z"
+                fill="currentColor"
             />
         </svg>
     )
