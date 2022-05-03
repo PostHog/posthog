@@ -27,7 +27,6 @@ class TestLatestMigrations(TestCase):
     def _get_newest_migration_file(path: str) -> str:
         migrations = [file for file in glob.glob(path) if file.endswith(".py") and not file.endswith("__init__.py")]
         latest_file = max(sorted(migrations))
-        breakpoint()
         return os.path.basename(latest_file).replace(".py", "")
 
     @staticmethod
