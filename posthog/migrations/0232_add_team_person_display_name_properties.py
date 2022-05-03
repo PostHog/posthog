@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0230_cohort_filters"),
+        ("posthog", "0231_add_refreshing_data_to_tiles"),
     ]
 
     operations = [
