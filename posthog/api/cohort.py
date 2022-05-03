@@ -1,5 +1,6 @@
 import csv
 from datetime import datetime
+import json
 from typing import Any, Dict
 
 from django.conf import settings
@@ -53,11 +54,10 @@ from posthog.tasks.calculate_cohort import (
     insert_cohort_from_insight_filter,
 )
 from posthog.utils import format_query_params_absolute_url
-
-
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
+    # Note: This nullifies validated_data payload on create/update
     filters = serializers.SerializerMethodField()
 
     class Meta:
@@ -115,11 +115,12 @@ class CohortSerializer(serializers.ModelSerializer):
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
         validated_data["filters"] = request.data.get("filters", None)
-
         new_filters = validated_data.get("filters", None)
 
         if new_filters is not None and not team.behavioral_cohort_querying_enabled:
             raise ValidationError("New cohort filters have not been enabled on this team")
+
+        validated_data["filters"] = json.loads(new_filters) if new_filters else None
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -143,13 +144,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        validated_data["filters"] = request.data.get("filters", None)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
-        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
+        cohort.filters = json.loads(validated_data["filters"]) if request.data.get("filters", None) else cohort.filters
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
