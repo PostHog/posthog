@@ -1,6 +1,7 @@
 import { Button, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import React, { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -9,7 +10,10 @@ export function PersonDisplayNameProperties(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const [value, setValue] = useState([] as string[])
 
-    useEffect(() => setValue(currentTeam?.person_display_name_properties || []), [currentTeam])
+    useEffect(
+        () => setValue(currentTeam?.person_display_name_properties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES),
+        [currentTeam]
+    )
 
     if (!currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />

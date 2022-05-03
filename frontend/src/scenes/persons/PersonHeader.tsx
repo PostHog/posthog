@@ -5,6 +5,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 
 export interface PersonHeaderProps {
     person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
@@ -16,7 +17,7 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
     let displayId
 
     const team = teamLogic.findMounted()?.values?.currentTeam
-    const personDisplayNameProperties = team?.person_display_name_properties ?? ['email', 'name', 'username']
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
     const customPropertyKey = personDisplayNameProperties.find((x) => person?.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined

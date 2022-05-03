@@ -207,7 +207,7 @@ export async function createUserTeamAndOrganization(
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],
-        person_display_name_properties: '{email,name,username}',
+        person_display_name_properties: [],
         access_control: false,
     })
 }
