@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 from typing import Any, Dict, Optional, Type
 
 import structlog
@@ -94,7 +95,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "saved",
             "updated_at",
         ]
-        read_only_fields = ("short_id", "updated_at")
+        read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
@@ -107,7 +108,15 @@ class InsightBasicSerializer(serializers.ModelSerializer):
 
 class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     result = serializers.SerializerMethodField()
-    last_refresh = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+    The datetime this insight's results were generated.
+    If added to one or more dashboards the insight can be refreshed separately on each.
+    Returns the appropriate last_refresh datetime for the context the insight is viewed in
+    (see from_dashboard query parameter).
+    """,
+    )
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -162,12 +171,20 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "refreshing",
         )
+
+    @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
+        dashboard_tile: Optional[DashboardTile] = None
+        if dashboard:
+            dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+
+        return dashboard_tile
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
-        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         created_by = validated_data.pop("created_by", request.user)
@@ -181,7 +198,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+
+                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
                 insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
@@ -260,9 +278,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         cache_key = insight.filters_hash
         if dashboard is not None:
-            dashboard_tile: Optional[DashboardTile] = (
-                DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
-            )
+            dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
             if dashboard_tile is not None:
                 cache_key = dashboard_tile.filters_hash
                 if cache_key is None:
@@ -284,13 +300,24 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if should_refresh(self.context["request"]):
             return now()
 
+        dashboard_tile = self.dashboard_tile_from_context(insight, self.context.get("dashboard", None))
+
         result = self.get_result(insight)
         if result is not None:
-            return insight.last_refresh
-        if insight.last_refresh is not None:
-            # Update last_refresh without updating "updated_at" (insight edit date)
-            insight.last_refresh = None
-            insight.save(update_fields=["last_refresh"])
+            if dashboard_tile:
+                return dashboard_tile.last_refresh
+            else:
+                return insight.last_refresh
+
+        if dashboard_tile is not None:
+            if dashboard_tile.last_refresh is not None:
+                dashboard_tile.last_refresh = None
+                dashboard_tile.save(update_fields=["last_refresh"])
+        else:
+            if insight.last_refresh is not None:
+                # Update last_refresh without updating "updated_at" (insight edit date)
+                insight.last_refresh = None
+                insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
