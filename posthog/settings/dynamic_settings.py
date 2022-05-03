@@ -28,11 +28,6 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
-    "NEW_COHORT_QUERY_TEAMS": (
-        get_from_env("NEW_COHORT_QUERY_TEAMS", ""),
-        "Whether cohort calculations should use the new query or the old query.",
-        str,
-    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
@@ -124,7 +119,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "NEW_COHORT_QUERY_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
