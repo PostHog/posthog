@@ -8,12 +8,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { LemonButton } from 'lib/components/LemonButton'
 import {
-    CheckCircleOutlined,
-    ErrorIcon,
+    IconCheckCircleOutline,
+    IconErrorOutline,
     IconUnfoldLess,
     IconUnfoldMore,
-    RefreshIcon,
-    WarningIcon,
+    IconRefresh,
+    IconWarningAmber,
 } from 'lib/components/icons'
 import clsx from 'clsx'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -29,11 +29,11 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
     if (status === 'validated') {
-        return <CheckCircleOutlined />
+        return <IconCheckCircleOutline />
     } else if (status === 'warning' || status === 'optional') {
-        return <WarningIcon />
+        return <IconWarningAmber />
     }
-    return <ErrorIcon />
+    return <IconErrorOutline />
 }
 
 function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
@@ -167,7 +167,7 @@ export function PreflightCheck(): JSX.Element {
                                     disabled={preflightLoading || !preflight}
                                     style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
                                 >
-                                    <RefreshIcon />
+                                    <IconRefresh />
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
