@@ -107,7 +107,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                 if prop.type == "cohort":
                     try:
                         cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
-                        if (prop for prop in cohort.properties.flat if prop.type == "behavioral"):
+                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                             raise serializers.ValidationError(
                                 f"Cohorts with behavioral filters cannot be used in feature flags: {cohort.name}"
                             )
