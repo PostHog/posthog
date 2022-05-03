@@ -358,7 +358,7 @@ export const insightLogic = kea<insightLogicType>({
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
                 if (item.short_id === state.short_id) {
-                    return { ...state, dashboards: item.dashboards }
+                    return { ...item }
                 }
                 return state
             },
