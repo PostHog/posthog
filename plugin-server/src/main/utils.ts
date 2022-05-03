@@ -72,10 +72,9 @@ export async function kafkaHealthcheck(
         let timer: Date | null = new Date()
         await consumer.run({
             eachMessage: async () => {
-                const oldTimer = timer
-                timer = null
-                if (oldTimer) {
-                    statsd?.timing('kafka_healthcheck_consumer_latency', oldTimer)
+                if (timer) {
+                    statsd?.timing('kafka_healthcheck_consumer_latency', timer)
+                    timer = null
                 }
                 await Promise.resolve()
                 kafkaConsumerWorking = true
