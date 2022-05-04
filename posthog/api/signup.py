@@ -16,7 +16,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo.matrix import HoglifyMatrix, MatrixManager
+from posthog.demo.matrix import HedgeboxMatrix, MatrixManager
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, OrganizationMembership, Team, User
 from posthog.permissions import CanCreateOrg
@@ -96,10 +96,10 @@ class SignupSerializer(serializers.Serializer):
                 organization, email, None, first_name, OrganizationMembership.Level.ADMIN
             )
             demo_time = time.time()
-            matrix = HoglifyMatrix(
+            matrix = HedgeboxMatrix(
                 start=dt.datetime.now() - dt.timedelta(days=30), end=dt.datetime.now(), n_clusters=1,
             )
-            team = MatrixManager.create_team(matrix, organization, new_user)
+            team = MatrixManager.create_team_and_run(matrix, organization, new_user)
             print(f"[DEMO] Prepared in {time.time() - demo_time}!")
             self._organization, self._team, self._user = organization, team, new_user
         else:

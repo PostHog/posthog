@@ -1,17 +1,7 @@
 import time
-from abc import ABC
 from typing import List, Optional, Tuple
 
-from posthog.models import (
-    Action,
-    Group,
-    GroupTypeMapping,
-    Organization,
-    Person,
-    PersonDistinctId,
-    Team,
-    User,
-)
+from posthog.models import Action, Group, Organization, Person, PersonDistinctId, Team, User
 from posthog.models.utils import UUIDT
 
 from .models import SimGroup, SimPerson
@@ -23,7 +13,6 @@ def save_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, Pers
         return  # Don't save a person who never participated
     from ee.clickhouse.models.event import create_event
     from ee.clickhouse.models.person import create_person, create_person_distinct_id
-    from ee.clickhouse.models.session_recording_event import create_session_recording_event
 
     person_uuid_str = str(UUIDT(unix_time_ms=int(subject.first_seen_at.timestamp() * 1000)))
     person_distinct_id_str = str(UUIDT(unix_time_ms=int(subject.first_seen_at.timestamp() * 1000)))
@@ -43,17 +32,6 @@ def save_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, Pers
             timestamp=event.timestamp,
             properties=event.properties,
         )
-    for snapshot in subject.snapshots:
-        snapshot_uuid = UUIDT(unix_time_ms=int(snapshot.timestamp.timestamp() * 1000))
-        create_session_recording_event(
-            uuid=snapshot_uuid,
-            team_id=team_id,
-            distinct_id=person_distinct_id_str,
-            session_id=snapshot.session_id,
-            window_id=snapshot.window_id,
-            timestamp=snapshot.timestamp,
-            snapshot_data=snapshot.snapshot_data,
-        )
     return (person, person_distinct_id)
 
 
@@ -63,9 +41,9 @@ def save_group(team_id: int, subject: SimGroup) -> Group:
     return create_group(team_id, subject.type_index, subject.key, subject.properties)
 
 
-class MatrixManager(ABC):
+class MatrixManager:
     @classmethod
-    def create_team(
+    def create_team_and_run(
         cls, matrix: Matrix, organization: Organization, user: User, simulate_journeys: bool = True, **kwargs
     ) -> Team:
         team = Team.objects.create(

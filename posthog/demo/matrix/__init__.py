@@ -1,3 +1,5 @@
 # There is no spoon.
 from .db import MatrixManager
-from .hoglify import HoglifyMatrix
+from .hedgebox import HedgeboxMatrix
+
+__all__ = ["MatrixManager", "HedgeboxMatrix"]

@@ -2,11 +2,13 @@ import datetime as dt
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Callable, DefaultDict, Dict, List, Optional, Tuple, Type
+from typing import DefaultDict, Dict, List, Optional, Sequence, Tuple, Type
 
 from posthog.models import Team, User
 
-from .models import Effect, SimEvent, SimGroup, SimPerson, SimSnapshot
+from .models import Effect, SimGroup, SimPerson
+
+ALL_NEIGHBOR_OFFSETS: Sequence[Tuple[int, int]] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 
 
 class Cluster:
@@ -50,9 +52,11 @@ class Cluster:
         """
         max_x, max_y = len(self.people_matrix[0]) - 1, len(self.people_matrix) - 1
         if target_offset is not None:
+            if target_offset not in ALL_NEIGHBOR_OFFSETS:
+                raise ValueError(f"Invalid target offset: {target_offset}")
             offsets = [target_offset]
         else:
-            offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+            offsets = ALL_NEIGHBOR_OFFSETS
         neighbors: List[SimPerson] = []
         for offset in offsets:
             absolute_x = (origin[0] + offset[0]) % max_x
@@ -70,8 +74,6 @@ class Cluster:
 
 
 class Matrix(ABC):
-    """The Matrix, where people go on with their lives."""
-
     start: dt.datetime
     end: dt.datetime
     clusters: List[Cluster]
