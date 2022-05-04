@@ -42,7 +42,7 @@
 }
 
 .ingestion-card-container {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
     max-width: 65vw;
     max-height: 80vh;
     border-radius: $radius;
