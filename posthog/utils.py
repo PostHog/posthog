@@ -359,7 +359,15 @@ def cors_response(request, response):
     response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
     response["Access-Control-Allow-Credentials"] = "true"
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response["Access-Control-Allow-Headers"] = "X-Requested-With"
+
+    # Handle headers that sentry randomly sends for every request.
+    #  Would cause a CORS failure otherwise.
+    allow_headers = request.META.get("headers", {}).get("access-control-request-headers", "").split(",")
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+
+    response["Access-Control-Allow-Headers"] = "X-Requested-With" + (
+        "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
+    )
     return response
 
 
