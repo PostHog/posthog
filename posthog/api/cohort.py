@@ -157,7 +157,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return new_filters
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
-        request: Request = self.context["request"]
+        request = self.context["request"]
         new_filters = self._validate_filters(request)
 
         cohort.name = validated_data.get("name", cohort.name)
