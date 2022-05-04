@@ -5601,11 +5601,6 @@ babel-plugin-jest-hoist@^27.5.1:
     "@types/babel__core" "^7.0.0"
     "@types/babel__traverse" "^7.0.6"
 
-babel-plugin-kea@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/babel-plugin-kea/-/babel-plugin-kea-0.1.0.tgz#e48f50d1981082b53111a3f59c3abef9a6c3e51e"
-  integrity sha512-vZLD1yM4BLAFwJKIMPyWezljsqsp1OWsW8vQBW57G+d1k2hODwd3wtXD/f/j7aXDxeV/v2a7hHDN2UH8QyapPA==
-
 babel-plugin-macros@^3.0.1:
   version "3.1.0"
   resolved "https://registry.yarnpkg.com/babel-plugin-macros/-/babel-plugin-macros-3.1.0.tgz#9ef6dc74deb934b4db344dc973ee851d148c50c1"

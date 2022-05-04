@@ -158,7 +158,6 @@
         "babel-jest": "^27.0.6",
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
-        "babel-plugin-kea": "^0.1.0",
         "concurrently": "^5.3.0",
         "cors": "^2.8.5",
         "css-loader": "^3.4.2",
