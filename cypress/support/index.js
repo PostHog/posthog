@@ -1,6 +1,5 @@
 import 'givens/setup'
 import './commands'
-import decideResponse from 'cypress/fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
