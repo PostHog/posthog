@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
-import { API, MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,6 +21,8 @@ export const ingestionLogic = kea<ingestionLogicType>({
             verify,
         }),
         setActiveTab: (tab: string) => ({ tab }),
+        setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
+        setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         completeOnboarding: true,
     },
 
@@ -52,6 +54,18 @@ export const ingestionLogic = kea<ingestionLogicType>({
             'browser',
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        instructionsModalOpen: [
+            false,
+            {
+                setInstructionsModal: (_, { isOpen }) => isOpen,
+            },
+        ],
+        thirdPartySource: [
+            null,
+            {
+                setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
             },
         ],
     },

@@ -4,36 +4,15 @@ import { LemonButton } from 'lib/components/LemonButton'
 import React from 'react'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
-import { Segment } from './ThirdPartyIcons'
 import './Panels.scss'
+import { LemonModal } from 'lib/components/LemonModal'
+import { thirdPartySources } from '../constants'
+import { IconOpenInNew } from 'lib/components/icons'
+import { PanelSupport } from './PanelComponents'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
-    const { setPlatform, setVerify } = useActions(ingestionLogic)
-
-    const thirdPartyDataSources = [
-        { name: 'Segment', type: 'integration', icon: <Segment /> },
-        {
-            name: 'Rudderstack',
-            type: 'integration',
-            icon: (
-                <img
-                    style={{ height: 36, width: 36 }}
-                    src={'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png'}
-                />
-            ),
-        },
-        {
-            name: 'Redshift',
-            type: 'plugin',
-            icon: (
-                <img
-                    style={{ height: 48, width: 48 }}
-                    src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
-                />
-            ),
-        },
-    ]
+    const { setPlatform, setVerify, setInstructionsModal, setThirdPartySource } = useActions(ingestionLogic)
 
     return (
         <CardContainer
@@ -44,7 +23,7 @@ export function ThirdPartyPanel(): JSX.Element {
         >
             <div style={{ paddingLeft: 24, paddingRight: 24 }}>
                 <h1 className="ingestion-title">Set up apps</h1>
-                {thirdPartyDataSources.map((source) => (
+                {thirdPartySources.map((source, idx) => (
                     <div
                         key={source.name}
                         style={{
@@ -67,7 +46,14 @@ export function ThirdPartyPanel(): JSX.Element {
                                 <LemonButton className="mr-05" type="secondary">
                                     About
                                 </LemonButton>
-                                <LemonButton type="primary" center>
+                                <LemonButton
+                                    type="primary"
+                                    center
+                                    onClick={() => {
+                                        setThirdPartySource(idx)
+                                        setInstructionsModal(true)
+                                    }}
+                                >
                                     Configure
                                 </LemonButton>
                             </Row>
@@ -75,6 +61,64 @@ export function ThirdPartyPanel(): JSX.Element {
                     </div>
                 ))}
             </div>
+            <IntegrationInstructionsModal />
         </CardContainer>
+    )
+}
+
+export function IntegrationInstructionsModal(): JSX.Element {
+    const { instructionsModalOpen, thirdPartySource } = useValues(ingestionLogic)
+    const { setInstructionsModal } = useActions(ingestionLogic)
+
+    return (
+        <LemonModal visible={instructionsModalOpen} onCancel={() => setInstructionsModal(false)}>
+            {thirdPartySource?.name && (
+                <div>
+                    <h1>Integrate with {thirdPartySource.name} </h1>
+                    <p>{thirdPartySource.name} is a </p>
+                    <div style={{ borderTop: '2px dashed var(--border)' }}>
+                        <div
+                            style={{
+                                padding: 20,
+                                marginTop: 24,
+                                marginBottom: 16,
+                                backgroundColor: 'var(--bg-side)',
+                                fontWeight: 500,
+                            }}
+                        >
+                            The{' '}
+                            <a
+                                target="_blank"
+                                href={`https://posthog.com/docs/integrate/third-party/${thirdPartySource.name}`}
+                            >
+                                official {thirdPartySource.name} docs page for the PostHog integration
+                            </a>{' '}
+                            provides a detailed overview of how to set up this integration.
+                        </div>
+                    </div>
+                    <LemonButton
+                        type="secondary"
+                        fullWidth
+                        center
+                        sideIcon={<IconOpenInNew style={{ color: 'var(--primary)' }} />}
+                    >
+                        Take me to {thirdPartySource.name}
+                    </LemonButton>
+                    <div style={{ borderBottom: '2px dashed var(--border)' }}>
+                        <h3>Steps:</h3>
+                        <ol className="pl">
+                            <li>Complete the steps in the {thirdPartySource.name} integration.</li>
+                            <li>
+                                Close this step, and click <strong>continue</strong> to begin listening for events.
+                            </li>
+                        </ol>
+                    </div>
+                    <LemonButton fullWidth center type="primary">
+                        Done
+                    </LemonButton>
+                </div>
+            )}
+            <PanelSupport />
+        </LemonModal>
     )
 }

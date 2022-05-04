@@ -13,6 +13,8 @@ import androidLogo from './static/android-logo.svg'
 import appleLogo from './static/apple-logo.svg'
 import posthogLogo from './static/posthog-logo.svg'
 import bashLogo from './static/bash-logo.svg'
+import React from 'react'
+import { Segment } from './panels/ThirdPartyIcons'
 
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
 export const AUTOCAPTURE = 'AUTOCAPTURE'
@@ -122,3 +124,27 @@ export const logos = {
     [API]: bashLogo,
     default: posthogLogo,
 }
+
+export const thirdPartySources = [
+    { name: 'Segment', type: 'integration', icon: <Segment /> },
+    {
+        name: 'Rudderstack',
+        type: 'integration',
+        icon: (
+            <img
+                style={{ height: 36, width: 36 }}
+                src={'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png'}
+            />
+        ),
+    },
+    {
+        name: 'Redshift',
+        type: 'plugin',
+        icon: (
+            <img
+                style={{ height: 48, width: 48 }}
+                src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
+            />
+        ),
+    },
+]
