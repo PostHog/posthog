@@ -2,7 +2,7 @@ import { getContext, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { funnelLogic } from './funnelLogic'
-import {  FunnelStepWithConversionMetrics } from '~/types'
+import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/components/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -26,15 +26,12 @@ interface FunnelTooltipProps {
     groupTypeLabel: string
 }
 
-function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel}: FunnelTooltipProps): JSX.Element {
+function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
 
     return (
         <div className="FunnelTooltip">
-            <LemonRow
-                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-                fullWidth
-            >
+            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
                     <EntityFilterInfo
                         filter={getActionFilterFromFunnelStep(series)}
@@ -63,23 +60,20 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel}: F
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>
-                            <td>
-                                {percentage(series.conversionRates.fromPrevious, 1, true)}
-                            </td>
+                            <td>{percentage(series.conversionRates.fromPrevious, 1, true)}</td>
                         </tr>
                     )}
                     {stepIndex > 0 && series.average_conversion_time != null && (
                         <tr>
                             <td>Average time from previous</td>
-                            <td>
-                                {humanFriendlyDuration(series.average_conversion_time, 3)}
-                            </td>
+                            <td>{humanFriendlyDuration(series.average_conversion_time, 3)}</td>
                         </tr>
                     )}
                 </tbody>
             </table>
-            {showPersonsModal && <ClickToInspectActors groupTypeLabel={groupTypeLabel}/>}
-        </div>)
+            {showPersonsModal && <ClickToInspectActors groupTypeLabel={groupTypeLabel} />}
+        </div>
+    )
 }
 
 export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
@@ -98,7 +92,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                 <Provider store={getContext().store}>
                     {currentTooltip && (
                         <FunnelTooltip
-                        showPersonsModal={showPersonsModal}
+                            showPersonsModal={showPersonsModal}
                             stepIndex={currentTooltip[0]}
                             series={currentTooltip[1]}
                             groupTypeLabel={aggregationLabel(filters.aggregation_group_type_index).plural}

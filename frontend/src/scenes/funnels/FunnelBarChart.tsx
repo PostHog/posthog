@@ -1,5 +1,5 @@
-import {  useActions, useValues } from 'kea'
-import React, {  useMemo, useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import React, { useMemo, useRef } from 'react'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -8,7 +8,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { humanFriendlyDuration,  percentage, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
@@ -81,7 +81,10 @@ function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Elemen
                 {Array(5)
                     .fill(null)
                     .map((_, i) => (
-                        <div key={`gridline-${stepIndex}-${i}`} className="StepBars__gridline StepBars__gridline--horizontal" />
+                        <div
+                            key={`gridline-${stepIndex}-${i}`}
+                            className="StepBars__gridline StepBars__gridline--horizontal"
+                        />
                     ))}
             </div>
             {step?.nested_breakdown?.map((series) => (

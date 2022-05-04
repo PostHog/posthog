@@ -25,7 +25,8 @@
         stroke-dashoffset: -30;
         stroke-dasharray: 60;
     }
-    &.Spinner--inverse, .LemonButton--primary & {
+    &.Spinner--inverse,
+    .LemonButton--primary & {
         color: #fff;
     }
     &.Spinner--sm {
