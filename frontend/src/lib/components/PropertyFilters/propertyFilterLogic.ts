@@ -56,7 +56,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         remove: () => actions.update(),
         update: () => {
             const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
-
             props.onChange(cleanedFilters)
         },
     }),

@@ -30,12 +30,12 @@ export function PathItemFilters({
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
-    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { filtersWithNew, filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
     useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
-            setFilters([...propertyFilters, {}])
+        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+            setFilters(propertyFilters)
         }
     }, [propertyFilters])
 
