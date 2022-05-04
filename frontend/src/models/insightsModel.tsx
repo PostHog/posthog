@@ -112,7 +112,7 @@ export const insightsModel = kea<insightsModelType>({
                         deleted: true,
                     }
                 )
-                dashboardsModel.actions.updateDashboardItem(deletedItem, null)
+                dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 lemonToast.success(
                     <>
@@ -137,8 +137,8 @@ export const insightsModel = kea<insightsModelType>({
                                     ),
                                 ])
                                 lemonToast.success('Panel move reverted')
-                                dashboardsModel.actions.updateDashboardItem(restoredItem, null)
-                                dashboardsModel.actions.updateDashboardItem(removedItem, null)
+                                dashboardsModel.actions.updateDashboardItem(restoredItem)
+                                dashboardsModel.actions.updateDashboardItem(removedItem)
                             },
                         },
                     }
