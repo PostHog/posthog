@@ -331,7 +331,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             >
                                                                                 <LemonButton
                                                                                     type="primary-alt"
-                                                                                    compact
+                                                                                    size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)

@@ -13,7 +13,7 @@ declare module 'react' {
 }
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
-    extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
+    extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref' | 'size'> {
     /** If icon width is relaxed, width of icon box is set to auto. Default icon width is 1em  */
     relaxedIconWidth?: boolean
     icon?: React.ReactElement | null
@@ -31,8 +31,8 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
-    /** A compact row is slightly smaller than normal to better look inline with text. */
-    compact?: boolean
+    /** Variation on sizes - default is medium. Small looks better inline with text. Large is a chunkier row.  */
+    size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
 }
 
@@ -55,8 +55,8 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         extendedContent,
         tooltip,
         sideIcon,
+        size = 'medium',
         loading = false,
-        compact = false,
         fullWidth = false,
         center = false,
         outlined = false,
@@ -76,12 +76,13 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 'LemonRow',
                 className,
                 status && `LemonRow--status-${status}`,
-                compact && 'LemonRow--compact',
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 disabled && 'LemonRow--disabled',
                 outlined && 'LemonRow--outlined',
-                center && 'LemonRow--center'
+                center && 'LemonRow--center',
+                size === 'large' && 'LemonRow--large',
+                size === 'small' && 'LemonRow--small'
             ),
             disabled,
             ...props,

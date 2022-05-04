@@ -105,7 +105,23 @@
     padding: 0;
 }
 
-.LemonRow--compact {
+.LemonRow--large {
+    padding: 1rem 1rem;
+    font-size: 1rem;
+
+    &.LemonRow--symbolic {
+        min-height: 0;
+        height: 1.75rem;
+        width: 1.75rem;
+        padding: 0;
+    }
+
+    .LemonRow__icon {
+        font-size: 1.75rem;
+    }
+}
+
+.LemonRow--small {
     min-height: 2rem;
     padding: 0.125rem 0.5rem;
 

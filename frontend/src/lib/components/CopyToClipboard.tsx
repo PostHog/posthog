@@ -49,7 +49,7 @@ export function CopyToClipboardInline({
         >
             <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
             <LemonButton
-                compact
+                size="small"
                 icon={<IconCopy />}
                 className="copy-icon"
                 onClick={!selectable ? undefined : copy}
