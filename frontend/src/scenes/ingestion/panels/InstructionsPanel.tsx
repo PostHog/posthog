@@ -35,7 +35,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, totalSteps, platform, framework } = useValues(ingestionLogic)
+    const { index, platform, framework } = useValues(ingestionLogic)
     const { setFramework, setVerify } = useActions(ingestionLogic)
 
     if (!framework) {
@@ -48,8 +48,7 @@ export function InstructionsPanel(): JSX.Element {
         return (
             <CardContainer
                 index={index}
-                totalSteps={totalSteps}
-                nextButton={true}
+                showFooter={true}
                 onSubmit={() => setVerify(true)}
                 onBack={() => setFramework(null)}
             >
@@ -67,8 +66,7 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setFramework(null)}
         >

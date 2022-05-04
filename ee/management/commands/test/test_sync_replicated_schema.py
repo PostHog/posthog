@@ -13,6 +13,7 @@ from posthog.test.base import BaseTest
 class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self, create_tables=True):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")

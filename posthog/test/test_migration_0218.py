@@ -1,6 +1,9 @@
+import pytest
 from django.db import IntegrityError
 
 from posthog.test.base import NonAtomicTestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
@@ -39,3 +42,4 @@ class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
     def tearDown(self):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.filter(id=self.dashboard.id).delete()
+        super().tearDown()

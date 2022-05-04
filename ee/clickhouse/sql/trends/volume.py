@@ -1,5 +1,5 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toDateTime(timestamp, %(timezone)s)) as date FROM ({event_query}) GROUP BY {interval}(toDateTime(timestamp, %(timezone)s))
+SELECT {aggregate_operation} as data, {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date FROM ({event_query}) GROUP BY date
 """
 
 VOLUME_TOTAL_AGGREGATE_SQL = """

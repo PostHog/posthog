@@ -1854,6 +1854,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "joetrollo",
+      "name": "Joe Trollo",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7506225?v=4",
+      "profile": "https://joetrol.lol",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pxpeterxu",
+      "name": "Peter Xu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2924388?v=4",
+      "profile": "https://wanderlog.com/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

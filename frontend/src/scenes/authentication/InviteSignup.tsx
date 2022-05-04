@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React, { lazy, Suspense, useRef, useState } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
@@ -377,7 +377,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <SceneLoading />
+        return <Loading />
     }
 
     return (

@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
@@ -16,14 +17,14 @@ import {
     Hub,
     Person,
     PostgresSessionRecordingEvent,
+    PreIngestionEvent,
     PropertyUpdateOperation,
     SessionRecordingEvent,
     Team,
-    TeamId,
     TimestampFormat,
 } from '../../types'
 import { Client } from '../../utils/celery/client'
-import { DB } from '../../utils/db/db'
+import { DB, GroupIdentifier } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
     elementsToString,
@@ -35,6 +36,7 @@ import {
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
+import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
@@ -111,7 +113,7 @@ export class EventsProcessor {
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<EventProcessingResult | void> {
+    ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
@@ -120,7 +122,7 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
-        let result: EventProcessingResult | void
+        let result: PreIngestionEvent | null = null
         try {
             // Sanitize values, even though `sanitizeEvent` should have gotten to them
             const properties: Properties = data.properties ?? {}
@@ -134,7 +136,11 @@ export class EventsProcessor {
             const personUuid = new UUIDT().toString()
 
             // TODO: we should just handle all person's related changes together not here and in capture separately
-            const ts = this.handleTimestamp(data, now, sentAt)
+            const parsedTs = this.handleTimestamp(data, now, sentAt)
+            const ts = parsedTs.isValid ? parsedTs : DateTime.now()
+            if (!parsedTs.isValid) {
+                this.pluginsServer.statsd?.increment('process_event_invalid_timestamp', { teamId: String(teamId) })
+            }
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
@@ -179,7 +185,7 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    const [event, eventId, elements] = await this.capture(
+                    result = await this.capture(
                         eventUuid,
                         personUuid,
                         ip,
@@ -192,11 +198,6 @@ export class EventsProcessor {
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
-                    result = {
-                        event,
-                        eventId,
-                        elements,
-                    }
                 } finally {
                     clearTimeout(timeout3)
                 }
@@ -525,7 +526,7 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime
-    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+    ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
@@ -567,22 +568,48 @@ export class EventsProcessor {
             )
         }
 
-        return await this.createEvent(eventUuid, event, team.id, distinctId, properties, timestamp, elementsList)
+        return {
+            eventUuid,
+            event,
+            distinctId,
+            properties,
+            timestamp,
+            elementsList,
+            teamId: team.id,
+        }
     }
 
-    private async createEvent(
-        uuid: string,
-        event: string,
-        teamId: TeamId,
-        distinctId: string,
-        properties?: Properties,
-        timestamp?: DateTime | string,
-        elements?: Element[]
+    getGroupIdentifiers(properties: Properties): GroupIdentifier[] {
+        const res: GroupIdentifier[] = []
+        for (let index = 0; index < this.db.MAX_GROUP_TYPES_PER_TEAM; index++) {
+            const key = `$group_${index}`
+            if (properties.hasOwnProperty(key)) {
+                res.push({ index: index, key: properties[key] })
+            }
+        }
+        return res
+    }
+
+    async createEvent(
+        preIngestionEvent: PreIngestionEvent
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+        const {
+            eventUuid: uuid,
+            event,
+            teamId,
+            distinctId,
+            properties,
+            timestamp,
+            elementsList: elements,
+        } = preIngestionEvent
+
         const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+
+        const personInfo = await this.db.getPersonData(teamId, distinctId)
+        const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
         const eventPayload: IEvent = {
             uuid,
@@ -599,9 +626,17 @@ export class EventsProcessor {
 
         if (this.kafkaProducer) {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+            // proto ingestion is deprecated and we won't support new additions to the schema
             const message = useExternalSchemas
                 ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-                : Buffer.from(JSON.stringify(eventPayload))
+                : Buffer.from(
+                      JSON.stringify({
+                          ...eventPayload,
+                          person_id: personInfo?.uuid,
+                          person_properties: personInfo ? JSON.stringify(personInfo?.properties) : null,
+                          ...groupProperties,
+                      })
+                  )
 
             await this.kafkaProducer.queueMessage({
                 topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
@@ -637,6 +672,24 @@ export class EventsProcessor {
         }
 
         return [eventPayload, eventId, elements]
+    }
+
+    async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
+        if (this.kafkaProducer) {
+            const partitionKeyHash = crypto.createHash('sha256')
+            partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+            const partitionKey = partitionKeyHash.digest('hex')
+
+            await this.kafkaProducer.queueMessage({
+                topic: KAFKA_BUFFER,
+                messages: [
+                    {
+                        key: partitionKey,
+                        value: Buffer.from(JSON.stringify(bufferEvent)),
+                    },
+                ],
+            })
+        }
     }
 
     private async createSessionRecordingEvent(

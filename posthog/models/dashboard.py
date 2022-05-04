@@ -40,6 +40,7 @@ class Dashboard(models.Model):
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
@@ -98,7 +99,7 @@ class Dashboard(models.Model):
         """
         return {
             "pinned": self.pinned,
-            "item_count": self.items.count(),
+            "item_count": self.insights.count(),
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",

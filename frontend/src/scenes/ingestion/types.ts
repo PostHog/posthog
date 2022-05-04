@@ -6,6 +6,8 @@ import {
     WEB,
     webFrameworks,
     clientFrameworks,
+    THIRD_PARTY,
+    BOOKMARKLET,
 } from 'scenes/ingestion/constants'
 
 export type Framework =
@@ -14,4 +16,5 @@ export type Framework =
     | typeof API
     | null
     | keyof typeof clientFrameworks
-export type PlatformType = typeof WEB | typeof MOBILE | typeof BACKEND | null
+
+export type PlatformType = typeof WEB | typeof MOBILE | typeof BACKEND | typeof THIRD_PARTY | typeof BOOKMARKLET | null

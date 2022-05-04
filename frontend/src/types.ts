@@ -6,8 +6,6 @@ import {
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
-    COHORT_DYNAMIC,
-    COHORT_STATIC,
     BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
@@ -233,6 +231,7 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+    person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
 
@@ -566,10 +565,10 @@ export interface CohortGroupType {
     count_operator?: string
     properties?: AnyPropertyFilter[]
     matchType: MatchType
+    name?: string
 }
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
-export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
@@ -682,6 +681,17 @@ export interface BillingType {
     subscription_url: string
     current_bill_amount: number | null
     should_display_current_bill: boolean
+    billing_limit: number | null
+    billing_limit_exceeded: boolean | null
+    tiers: BillingTierType[] | null
+}
+
+export interface BillingTierType {
+    name: string
+    price_per_event: number
+    number_of_events: number
+    subtotal: number
+    running_total: number
 }
 
 export interface PlanInterface {
@@ -726,7 +736,7 @@ export interface InsightModel {
     last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
-    dashboard: number | null
+    dashboards: number[] | null
     result: any | null
     updated_at: string
     tags?: string[]
@@ -1680,4 +1690,91 @@ export interface InstanceSetting {
     description?: string
     editable: boolean
     is_secret: boolean
+}
+
+export enum BaseMathType {
+    Total = 'total',
+    DailyActive = 'dau',
+    WeeklyActive = 'weekly_active',
+    MonthlyActive = 'monthly_active',
+}
+
+export enum PropertyMathType {
+    Average = 'avg',
+    Sum = 'sum',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+    P90 = 'p90',
+    P95 = 'p95',
+    P99 = 'p99',
+}
+
+export enum ActorGroupType {
+    Person = 'person',
+    GroupPrefix = 'group',
+}
+
+export enum BehavioralEventType {
+    PerformEvent = 'performed_event',
+    PerformMultipleEvents = 'performed_event_multiple',
+    PerformSequenceEvents = 'performed_event_sequence',
+    NotPerformedEvent = 'not_performed_event',
+    NotPerformSequenceEvents = 'not_performed_event_sequence',
+    HaveProperty = 'have_property',
+    NotHaveProperty = 'not_have_property',
+}
+
+export enum BehavioralCohortType {
+    InCohort = 'in_cohort',
+    NotInCohort = 'not_in_cohort',
+}
+
+export enum BehavioralLifecycleType {
+    PerformEventFirstTime = 'performed_event_first_time',
+    PerformEventRegularly = 'performed_event_regularly',
+    StopPerformEvent = 'stopped_performing_event',
+    StartPerformEventAgain = 'restarted_performing_event',
+}
+
+export enum TimeUnitType {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+    Year = 'year',
+}
+
+export enum DateOperatorType {
+    BeforeTheLast = 'before_the_last',
+    Between = 'between',
+    NotBetween = 'not_between',
+    OnTheDate = 'on_the_date',
+    NotOnTheDate = 'not_on_the_date',
+    Since = 'since',
+    Before = 'before',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export enum OperatorType {
+    Equals = 'equals',
+    NotEquals = 'not_equals',
+    Contains = 'contains',
+    NotContains = 'not_contains',
+    MatchesRegex = 'matches_regex',
+    NotMatchesRegex = 'not_matches_regex',
+    GreaterThan = 'gt',
+    LessThan = 'lt',
+    Set = 'set',
+    NotSet = 'not_set',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
+}
+
+export enum ValueOptionType {
+    MostRecent = 'most_recent',
+    Previous = 'previous',
+    OnDate = 'on_date',
 }

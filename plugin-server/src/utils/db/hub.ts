@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel } from 'kafkajs'
+import { Kafka, logLevel, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -13,7 +13,7 @@ import { ConnectionOptions } from 'tls'
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
-import { Hub, PluginId, PluginsServerConfig } from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -49,6 +49,11 @@ export async function createHub(
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
     let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
+
+    const conversionBufferEnabledTeams = new Set(
+        serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
+
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -91,7 +96,7 @@ export async function createHub(
         status.info('👍', `StatsD`)
     }
 
-    let kafkaSsl: ConnectionOptions | undefined
+    let kafkaSsl: ConnectionOptions | boolean | undefined
     if (
         serverConfig.KAFKA_CLIENT_CERT_B64 &&
         serverConfig.KAFKA_CLIENT_CERT_KEY_B64 &&
@@ -107,6 +112,20 @@ export async function createHub(
             #for this connection even though the certificate doesn't include host information. We rely
             on the ca trust_cert for this purpose. */
             rejectUnauthorized: false,
+        }
+    } else if (
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
+    ) {
+        kafkaSsl = true
+    }
+
+    let kafkaSasl: SASLOptions | undefined
+    if (serverConfig.KAFKA_SASL_MECHANISM && serverConfig.KAFKA_SASL_USER && serverConfig.KAFKA_SASL_PASSWORD) {
+        kafkaSasl = {
+            mechanism: serverConfig.KAFKA_SASL_MECHANISM,
+            username: serverConfig.KAFKA_SASL_USER,
+            password: serverConfig.KAFKA_SASL_PASSWORD,
         }
     }
 
@@ -144,6 +163,7 @@ export async function createHub(
             brokers: serverConfig.KAFKA_HOSTS.split(','),
             logLevel: logLevel.WARN,
             ssl: kafkaSsl,
+            sasl: kafkaSasl,
             connectionTimeout: 3000, // default: 1000
             authenticationTimeout: 3000, // default: 1000
         })
@@ -249,6 +269,7 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
+        conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main

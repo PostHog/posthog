@@ -6,7 +6,7 @@ import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
@@ -63,10 +63,10 @@ export function ConfigureSAMLModal(): JSX.Element {
                         )}
                     </Field>
                     {!samlReady && (
-                        <InfoMessage style={{ marginBottom: 16 }}>
+                        <AlertMessage type="info" style={{ marginBottom: 16 }}>
                             SAML will not be enabled unless you enter all attributes above. However you can still
                             settings as draft.
-                        </InfoMessage>
+                        </AlertMessage>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">

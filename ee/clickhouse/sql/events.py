@@ -21,7 +21,14 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    created_at DateTime64(6, 'UTC'),
+    person_id UUID,
+    person_properties VARCHAR,
+    group0_properties VARCHAR,
+    group1_properties VARCHAR,
+    group2_properties VARCHAR,
+    group3_properties VARCHAR,
+    group4_properties VARCHAR
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
@@ -48,7 +55,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -98,7 +105,16 @@ FROM {database}.kafka_events
     database=settings.CLICKHOUSE_DATABASE,
 )
 
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+# we add the settings to prevent poison pills from stopping ingestion
+# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
+# the max block size to consume from kafka such that we skip _all_ broken messages
+# this is an added safety mechanism given we control payloads to this topic
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
+    EVENTS_TABLE_BASE_SQL
+    + """
+    SETTINGS kafka_skip_broken_messages = 100
+"""
+).format(
     table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
@@ -118,6 +134,13 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
+person_id,
+person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
@@ -150,7 +173,14 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 INSERT_EVENT_SQL = (
     lambda: f"""
 INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
+VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0)
+"""
+)
+
+BULK_INSERT_EVENT_SQL = (
+    lambda: f"""
+INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
+VALUES
 """
 )
 
@@ -256,7 +286,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number)) AS day_start
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number), {start_of_week_fix} %(timezone)s) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -276,12 +306,12 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) 
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
+FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s), toDateTime(%(date_to)s), %(timezone)s))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s))
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s)
 """
 
 EVENT_JOIN_PERSON_SQL = """
@@ -308,7 +338,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
 )
 
 GET_CUSTOM_EVENTS = """

@@ -55,6 +55,8 @@ cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
+dataclasses_json==0.5.7
+    # via -r requirements.in
 defusedxml==0.6.0
     # via
     #   -r requirements.in
@@ -164,21 +166,31 @@ lxml==4.7.1
     #   xmlsec
 lzstring==1.0.4
     # via -r requirements.in
+marshmallow-enum==1.5.1
+    # via dataclasses-json
+marshmallow==3.15.0
+    # via
+    #   dataclasses-json
+    #   marshmallow-enum
 monotonic==1.5
     # via posthoganalytics
+mypy-extensions==0.4.3
+    # via typing-inspect
 numpy==1.21.4
     # via -r requirements.in
 oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
+packaging==21.3
+    # via marshmallow
 parso==0.8.1
     # via -r requirements.in
 pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==1.4.4
+posthoganalytics==1.4.7
     # via -r requirements.in
 protobuf==3.13.0
     # via -r requirements.in
@@ -190,6 +202,8 @@ pycparser==2.20
     # via cffi
 pyjwt==2.1.0
     # via social-auth-core
+pyparsing==3.0.7
+    # via packaging
 pyrsistent==0.18.1
     # via jsonschema
 python-dateutil==2.8.1
@@ -262,6 +276,10 @@ tenacity==6.1.0
     # via celery-redbeat
 toronado==0.1.0
     # via -r requirements.in
+typing-extensions==4.1.1
+    # via typing-inspect
+typing-inspect==0.7.1
+    # via dataclasses-json
 tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
@@ -282,9 +300,7 @@ whitenoise==5.2.0
 xmlsec==1.3.12
     # via python3-saml
 zipp==3.1.0
-    # via
-    #   importlib-metadata
-    #   importlib-resources
+    # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

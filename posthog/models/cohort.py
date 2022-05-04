@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 import structlog
 from django.conf import settings
@@ -10,7 +10,11 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
+from posthog.constants import PropertyOperatorType
+from posthog.models.filters.filter import Filter
+from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
+from posthog.settings.base_variables import TEST
 
 from .person import Person
 
@@ -72,7 +76,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: models.JSONField = models.JSONField(default=list)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -89,7 +93,74 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
+    # deprecated in favor of filters
+    groups: models.JSONField = models.JSONField(default=list)
+
+    @property
+    def properties(self):
+        # convert deprecated groups to properties
+        if self.groups:
+            property_groups = []
+            for group in self.groups:
+                if group.get("properties"):
+                    # Do not try simplifying properties at this stage. We'll let this happen at query time.
+                    property_groups.append(
+                        Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
+                    )
+                elif group.get("action_id") or group.get("event_id"):
+                    key = group.get("action_id") or group.get("event_id")
+                    event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
+                    try:
+                        count = max(0, int(group.get("count") or 0))
+                    except ValueError:
+                        count = 0
+
+                    property_groups.append(
+                        PropertyGroup(
+                            PropertyOperatorType.AND,
+                            [
+                                Property(
+                                    key=key,
+                                    type="behavioral",
+                                    value="performed_event_multiple" if count else "performed_event",
+                                    event_type=event_type,
+                                    time_interval="day",
+                                    time_value=group.get("days") or 365,
+                                    operator=group.get("count_operator"),
+                                    operator_value=count,
+                                ),
+                            ],
+                        )
+                    )
+                else:
+                    # invalid state
+                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+
+            return PropertyGroup(PropertyOperatorType.OR, property_groups)
+
+        if self.filters:
+            properties = Filter(data=self.filters, team=self.team).property_groups
+            if not properties.values:
+                raise ValueError("Cohort has no properties")
+            return properties
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+
+    @property
+    def has_complex_behavioral_filter(self) -> bool:
+        for prop in self.properties.flat:
+            if prop.type == "behavioral" and prop.value in [
+                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
+                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+            ]:
+                return True
+        return False
+
     def get_analytics_metadata(self):
+        # TODO: add analytics for new cohort prop types
         action_groups_count: int = 0
         properties_groups_count: int = 0
         for group in self.groups:
@@ -188,6 +259,12 @@ class Cohort(models.Model):
         """
         batchsize = 1000
         from ee.clickhouse.models.cohort import insert_static_cohort
+
+        if TEST:
+            from posthog.test.base import flush_persons_and_events
+
+            # Make sure persons are created in tests before running this
+            flush_persons_and_events()
 
         try:
             cursor = connection.cursor()
