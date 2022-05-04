@@ -45,7 +45,10 @@ export const preflightLogic = kea<
         preflight: [
             null as PreflightStatus | null,
             {
-                loadPreflight: async () => await api.get('_preflight/'),
+                loadPreflight: async () => {
+                    const response = await api.get('_preflight/')
+                    return response
+                },
             },
         ],
     },
@@ -110,12 +113,12 @@ export const preflightLogic = kea<
                         status: preflight?.plugins
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                                ? 'warning'
+                                : 'error',
                         caption:
                             !preflight?.plugins && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
-                                : '',
+                                : undefined,
                     },
                     {
                         id: 'frontend',
@@ -129,13 +132,12 @@ export const preflightLogic = kea<
                             window.location.protocol === 'https:'
                                 ? 'validated'
                                 : preflightMode === 'experimentation'
-                                ? 'optional'
-                                : 'warning',
+                                    ? 'optional'
+                                    : 'warning',
                         caption:
                             !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
                                 ? 'Not required for experimentation mode'
                                 : 'Set up before ingesting real user data',
-                        failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
                     },
                 ] as PreflightItemInterface[]
             },

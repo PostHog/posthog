@@ -1,38 +1,14 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { preflightLogic } from './preflightLogic'
+import _preflight_mock from './__mocks__/preflight.initial.json'
 
 describe('preflightLogic', () => {
     let logic: ReturnType<typeof preflightLogic.build>
 
     beforeEach(() => {
-        useMocks({
-            get: {
-                '_preflight/': {
-                    django: false,
-                    redis: false,
-                    plugins: false,
-                    celery: false,
-                    clickhouse: false,
-                    kafka: false,
-                    db: false,
-                    initiated: false,
-                    cloud: false,
-                    demo: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                    },
-                    can_create_org: true,
-                    email_service_available: false,
-                },
-            },
-        })
         initKeaTests()
         logic = preflightLogic()
         logic.mount()
@@ -54,6 +30,146 @@ describe('preflightLogic', () => {
         it('changing it updates the url', async () => {
             logic.actions.setPreflightMode('live')
             expect(router.values.searchParams).toHaveProperty('mode', 'live')
+        })
+    })
+
+
+
+    describe('checks', () => {
+        it('parses checks correctly for live mode', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setPreflightMode('live')
+            }).toDispatchActions(['loadPreflightSuccess'])
+                .toMatchValues({
+                    checks: [
+                        {
+                            id: 'database',
+                            name: 'Application database · Postgres',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'clickhouse',
+                            name: 'Analytics database · ClickHouse',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'kafka',
+                            name: 'Queue · Kafka',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'backend',
+                            name: 'Backend server · Django',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'redis',
+                            name: 'Cache · Redis',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'celery',
+                            name: 'Background jobs · Celery',
+                            status: 'error',
+                        },
+                        {
+                            id: 'plugins',
+                            name: 'Plugin server · Node',
+                            status: 'error',
+                        },
+                        {
+                            id: 'frontend',
+                            name: 'Frontend build · Webpack',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'tls',
+                            name: 'SSL/TLS certificate',
+                            status: 'warning',
+                            caption: 'Set up before ingesting real user data',
+                        },
+                    ],
+                })
+        })
+
+        it('parses checks correctly for experimentation mode', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setPreflightMode('experimentation')
+            }).toDispatchActions(['loadPreflightSuccess'])
+                .toMatchValues({
+                    checks: [
+                        {
+                            id: 'database',
+                            name: 'Application database · Postgres',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'clickhouse',
+                            name: 'Analytics database · ClickHouse',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'kafka',
+                            name: 'Queue · Kafka',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'backend',
+                            name: 'Backend server · Django',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'redis',
+                            name: 'Cache · Redis',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'celery',
+                            name: 'Background jobs · Celery',
+                            status: 'error',
+                        },
+                        {
+                            id: 'plugins',
+                            name: 'Plugin server · Node',
+                            status: 'warning',
+                            caption: 'Required in production environments'
+                        },
+                        {
+                            id: 'frontend',
+                            name: 'Frontend build · Webpack',
+                            status: 'validated',
+                        },
+                        {
+                            id: 'tls',
+                            name: 'SSL/TLS certificate',
+                            status: 'optional',
+                            caption: 'Not required for experimentation mode',
+                        },
+                    ],
+                })
+        })
+    })
+    describe('check summaries', () => {
+        it('creates check summaries correctly for live mode', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setPreflightMode('live')
+            }).toDispatchActions(['loadPreflightSuccess']).toMatchValues({
+                checksSummary: {
+                    summaryString: '6 successful, 1 warning, 2 errors',
+                    summaryStatus: 'error'
+                }
+            })
+        })
+
+        it('creates check summaries correctly for experimentation mode', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setPreflightMode('experimentation')
+            }).toDispatchActions(['loadPreflightSuccess']).toMatchValues({
+                checksSummary: {
+                    summaryString: '6 successful, 1 warning, 1 error, 1 optional',
+                    summaryStatus: 'error'
+                }
+            })
         })
     })
 })

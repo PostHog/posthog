@@ -4,9 +4,15 @@
     "plugins": true,
     "celery": true,
     "db": true,
+    "clickhouse": true,
+    "kafka": true,
     "initiated": true,
     "cloud": false,
-    "available_social_auth_providers": { "google-oauth2": false, "github": false, "gitlab": false },
+    "available_social_auth_providers": {
+        "google-oauth2": false,
+        "github": false,
+        "gitlab": false
+    },
     "ee_available": true,
     "available_timezones": {
         "Africa/Abidjan": 0.0,
