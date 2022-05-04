@@ -9,7 +9,7 @@
     padding: 40px 16px;
 
     .preflight-box {
-        @extend %mixin-elevated;
+        box-shadow: var(--shadow-elevation);
         max-width: 480px;
         background-color: var(--bg-light);
         border-radius: $radius;
