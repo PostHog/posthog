@@ -55,13 +55,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     props: {} as DashboardLogicProps,
 
     key: (props) => {
-        if (!props.id) {
-            throw Error('Must init dashboardLogic with a key')
-        }
         if (typeof props.id === 'string') {
             throw Error('Must init dashboardLogic with a numeric key')
         }
-        return props.id
+        return props.id ?? 'new'
     },
 
     actions: {
