@@ -850,3 +850,17 @@ class TestCapture(BaseTest):
                 "attr": None,
             },
         )
+
+    def test_sentry_tracing_headers(self):
+        data = {
+            "api_key": self.team.api_token,
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
+        }
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/decide/",
+            headers={"access-control-request-headers": "traceparent,request-id,someotherrandomheader"},
+            HTTP_ORIGIN="https://localhost",
+        )
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")

@@ -46,15 +46,20 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
-    connect: {
+    path: ['scenes', 'dashboard', 'dashboardLogic'],
+    connect: () => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
-    },
+    }),
 
     props: {} as DashboardLogicProps,
 
-    key: (props) => props.id || 'dashboardLogic',
+    key: (props) => {
+        if (typeof props.id === 'string') {
+            throw Error('Must init dashboardLogic with a numeric key')
+        }
+        return props.id ?? 'new'
+    },
 
     actions: {
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
@@ -309,7 +314,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 interval: number
                 enabled: boolean
             },
-            { persist: true },
+            { persist: true, prefix: '1_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -325,24 +330,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
     }),
-    selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems?.items],
+    selectors: () => ({
+        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
-            () => [selectors.allItemsLoading, selectors.refreshStatus],
+            (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
-        isRefreshing: [
-            () => [selectors.refreshStatus],
-            (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading,
-        ],
+        isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            () => [selectors.items],
+            (s) => [s.items],
             (items) => {
                 if (!items || !items.length) {
                     return null
@@ -361,9 +364,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboard, dashboardsModel.selectors.nameSortedDashboards],
-            (sharedDashboard, dashboards): DashboardType | null => {
-                return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
+            () => [
+                dashboardsModel.selectors.sharedDashboard,
+                dashboardsModel.selectors.nameSortedDashboards,
+                (_, { shareToken }) => shareToken,
+                (_, { id }) => id,
+            ],
+            (sharedDashboard, dashboards, shareToken, id): DashboardType | null => {
+                return shareToken ? sharedDashboard : dashboards.find((d) => d.id === id) || null
             },
         ],
         canEditDashboard: [

@@ -38,7 +38,10 @@ import {AlertMessage} from "lib/components/AlertMessage";
 
 export const scene: SceneExport = {
     component: Cohort,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
+    logic: cohortLogic,
+    paramsToProps: ({ params: { id } }): typeof cohortLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
@@ -471,7 +474,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 </div>
                             ) : (
                                 <div style={{ marginTop: 15 }}>
-                                    <Persons cohort={cohort} />
+                                    <Persons cohort={cohort.id} />
                                 </div>
                             )}
                         </div>
