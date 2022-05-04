@@ -18,6 +18,7 @@ import {
 import clsx from 'clsx'
 import { LemonRow } from 'lib/components/LemonRow'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 export const scene: SceneExport = {
     component: PreflightCheck,
@@ -103,7 +104,7 @@ export function PreflightCheck(): JSX.Element {
                             >
                                 Just experimenting
                             </LemonButton>
-                            <div className="divider" />
+                            <LemonDivider thick dashed large />
                             <p className="text-muted text-center">
                                 We will not enforce some security requirements in experimentation mode.
                             </p>
@@ -189,7 +190,7 @@ export function PreflightCheck(): JSX.Element {
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
-                            <div className="divider" />
+                            <LemonDivider thick dashed large />
                             {checksSummary.summaryStatus !== 'down' ? (
                                 <LemonButton
                                     fullWidth

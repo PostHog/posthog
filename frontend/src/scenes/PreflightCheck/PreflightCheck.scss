@@ -15,11 +15,6 @@
         border-radius: $radius;
         padding: 40px;
 
-        .divider {
-            margin: 24px;
-            border-top: 2px dashed var(--border);
-        }
-
         p {
             margin-bottom: $default_spacing/2;
 
