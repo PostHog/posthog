@@ -18,12 +18,13 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
+    cleanCriteria,
     createCohortFormData,
     isCohortCriteriaGroup,
     NEW_COHORT,
     NEW_CRITERIA,
     NEW_CRITERIA_GROUP,
-    processCohortOnSet,
+    processCohortOnSet, setDeeplyNestedCriteria,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
@@ -45,12 +46,17 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
+        onChangeFilterType: (newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number) => ({
+            newCriteria,
+            groupIndex,
+            criteriaIndex,
+        }),
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setInnerGroupType: (type: FilterLogicalOperator, groupIndex: number) => ({ type, groupIndex }),
         duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
         addFilter: (groupIndex?: number) => ({ groupIndex }),
         removeFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
-        setCriteria: (newCriteria: Partial<AnyCohortCriteriaType>, groupIndex: number, criteriaIndex: number) => ({
+        setCriteria: (newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number) => ({
             newCriteria,
             groupIndex,
             criteriaIndex,
@@ -214,32 +220,11 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     }
                 },
                 setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
-                    const newFilters = { ...state }
-
-                    return {
-                        ...newFilters,
-                        filters: {
-                            properties: {
-                                ...newFilters.filters.properties,
-                                values: newFilters.filters.properties.values.map((group, groupI) =>
-                                    groupI === groupIndex && isCohortCriteriaGroup(group)
-                                        ? {
-                                              ...group,
-                                              values: group.values.map((criteria, criteriaI) =>
-                                                  criteriaI === criteriaIndex
-                                                      ? {
-                                                            ...criteria,
-                                                            ...newCriteria,
-                                                        }
-                                                      : criteria
-                                              ),
-                                          }
-                                        : group
-                                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                            },
-                        },
-                    }
+                    return setDeeplyNestedCriteria(state, newCriteria, groupIndex, criteriaIndex)
                 },
+                onChangeFilterType: (state, {newCriteria, groupIndex, criteriaIndex}) => {
+                    return setDeeplyNestedCriteria(state, cleanCriteria(newCriteria), groupIndex, criteriaIndex)
+                }
             },
         ],
         pollTimeout: [

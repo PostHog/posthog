@@ -433,7 +433,7 @@ describe('cohortLogic', () => {
                         Object.fromEntries(
                             row.fields
                                 .filter(({ fieldKey }) => !!fieldKey)
-                                .map(({ fieldKey, type }) => [fieldKey, CRITERIA_VALIDATIONS[type]])
+                                .map(({ fieldKey, type }) => [fieldKey, CRITERIA_VALIDATIONS[type](undefined)])
                         )
                     )
                     await expectLogic(logic, async () => {
@@ -478,7 +478,7 @@ describe('cohortLogic', () => {
                                                             .filter(({ fieldKey }) => !!fieldKey)
                                                             .map(({ fieldKey, type }) => [
                                                                 fieldKey,
-                                                                CRITERIA_VALIDATIONS[type],
+                                                                CRITERIA_VALIDATIONS[type](undefined),
                                                             ])
                                                     ),
                                                 ],

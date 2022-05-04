@@ -1,7 +1,7 @@
 import React from 'react'
 import {
     BehavioralFilterKey,
-    BehavioralFilterType,
+    BehavioralFilterType, CohortClientErrors,
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortTaxonomicFieldProps,
@@ -831,23 +831,22 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
     },
 }
 
-export const CRITERIA_VALIDATIONS = {
-    [FilterType.EventsAndActions]: 'Event or action cannot be empty.',
-    [FilterType.EventProperties]: 'Event property cannot be empty.',
-    [FilterType.EventPropertyValues]: 'Event property value cannot be empty',
-    [FilterType.EventType]: 'Event type cannot be empty.',
-    [FilterType.Number]: 'Period values must be at least 1 day and cannot be empty.',
-    [FilterType.NumberTicker]: 'Number cannot be empty.',
-    [FilterType.TimeUnit]: 'Time interval cannot be empty.',
-    [FilterType.MathOperator]: 'Math operator cannot be empty.',
-    [FilterType.CohortId]: 'Cohort id cannot be empty.',
-    [FilterType.CohortValues]: 'Cohort value cannot be empty.',
-    [FilterType.Value]: 'Event property value selector cannot be empty.',
-    [FilterType.DateOperator]: 'Date cannot be empty or invalid.',
-    [FilterType.MathOperator]: 'Math operator cannot be empty.',
-    [FilterType.Actors]: 'Actors selector cannot be empty.',
-    [FilterType.Aggregation]: 'Aggregation selector cannot be empty.',
-    [FilterType.Behavioral]: 'Behavioral selector cannot be empty.',
+export const CRITERIA_VALIDATIONS: Record<string, (d: string | number | null | undefined) => CohortClientErrors | undefined> = {
+    [FilterType.EventsAndActions]: () => CohortClientErrors.EmptyEventsAndActions,
+    [FilterType.EventProperties]: () => CohortClientErrors.EmptyEventProperties,
+    [FilterType.EventPropertyValues]: () => CohortClientErrors.EmptyEventPropertyValues,
+    [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
+    [FilterType.Number]: (d) => Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber,
+    [FilterType.NumberTicker]: () => CohortClientErrors.EmptyNumberTicker,
+    [FilterType.TimeUnit]: () => CohortClientErrors.EmptyTimeUnit,
+    [FilterType.MathOperator]: () => CohortClientErrors.EmptyMathOperator,
+    [FilterType.CohortId]: () => CohortClientErrors.EmptyCohortId,
+    [FilterType.CohortValues]: () => CohortClientErrors.EmptyCohortValues,
+    [FilterType.Value]: () => CohortClientErrors.EmptyValue,
+    [FilterType.DateOperator]: () => CohortClientErrors.EmptyDateOperator,
+    [FilterType.Actors]: () => CohortClientErrors.EmptyActors,
+    [FilterType.Aggregation]: () => CohortClientErrors.EmptyAggregation,
+    [FilterType.Behavioral]: () => CohortClientErrors.EmptyBehavioral,
 }
 
 export const COHORT_TYPE_OPTIONS: LemonSelectOptions = {

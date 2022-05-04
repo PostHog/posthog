@@ -12,9 +12,14 @@ import {
     TimeUnitType,
 } from '~/types'
 import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE} from 'lib/constants'
-import {BehavioralFilterKey, BehavioralFilterType, FieldWithFieldKey} from 'scenes/cohorts/CohortFilters/types'
+import {
+    BehavioralFilterKey,
+    BehavioralFilterType,
+    CohortClientErrors,
+    FieldWithFieldKey
+} from 'scenes/cohorts/CohortFilters/types'
 import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
-import {convertPropertyGroupToProperties} from 'lib/utils'
+import {areObjectValuesEmpty, convertPropertyGroupToProperties} from 'lib/utils'
 import {DeepPartialMap, ValidationErrorType} from 'kea-forms'
 import equal from 'fast-deep-equal'
 import {CRITERIA_VALIDATIONS, ROWS} from 'scenes/cohorts/CohortFilters/constants'
@@ -87,7 +92,6 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
         ...(cohort.description ? {description: cohort.description} : {}),
         ...(cohort.csv ? {csv: cohort.csv} : {}),
         ...(cohort.is_static ? {is_static: cohort.is_static} : {}),
-        created_by: JSON.stringify(cohort.created_by),
         ...(isNewCohortFilterEnabled
             ? {
                   filters: JSON.stringify(cohort.is_static ? {} : cohort.filters),
@@ -189,6 +193,7 @@ export function validateGroup(
         .filter((g) => !isCohortCriteriaGroup(g))
         .map((c, index) => ({ ...c, index }))
     const negatedCriteria = criteria.filter((c) => !!c.negation)
+    const negatedCriteriaIndices = new Set(negatedCriteria.map(c => c.index))
 
     if (
         // Negation criteria can only be used when matching ALL criteria
@@ -197,7 +202,12 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         return {
-            id: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+            id: CohortClientErrors.NegationCriteriaMissingOther,
+            values: criteria.map((c) => ({
+                value: negatedCriteriaIndices.has(c.index)
+                    ? CohortClientErrors.NegationCriteriaMissingOther
+                    : undefined,
+            })) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
         }
     }
 
@@ -208,7 +218,7 @@ export function validateGroup(
         criteria.forEach((c) => {
             if (
                 baseCriteria.index !== c.index &&
-                equal(Object.assign({}, baseCriteria, { index: undefined }), Object.assign({}, c, { index: undefined, negation: !c.negation }))
+                equal(cleanCriteria(baseCriteria), Object.assign({}, cleanCriteria(c), { negation: !c.negation }))
             ) {
                 negatedFailingCriteriaIndices.add(c.index)
                 negatedFailingCriteriaIndices.add(baseCriteria.index)
@@ -224,10 +234,10 @@ export function validateGroup(
         negatedFailingCriteriaIndices.size > 0
     ) {
         return {
-            id: 'These criteria cancel each other out, and would result in no matching persons.',
+            id: CohortClientErrors.NegationCriteriaCancel,
             values: criteria.map((c) => ({
                 value: negatedFailingCriteriaIndices.has(c.index)
-                    ? 'These criteria cancel each other out, and would result in no matching persons.'
+                    ? CohortClientErrors.NegationCriteriaCancel
                     : undefined,
             })) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
         }
@@ -244,10 +254,9 @@ export function validateGroup(
                 c.value === BehavioralLifecycleType.PerformEventRegularly
                     ? (c.min_periods ?? 0) > (c.total_periods ?? 0)
                         ? {
-                              id: 'The lowerbound period value must not be greater than the upperbound value.',
-                              min_periods: 'The lowerbound period value must not be greater than the upperbound value.',
-                              total_periods:
-                                  'The lowerbound period value must not be greater than the upperbound value.',
+                              id: CohortClientErrors.RegularEventMismatch,
+                              min_periods: CohortClientErrors.RegularEventMismatch,
+                              total_periods: CohortClientErrors.RegularEventMismatch,
                           }
                         : {}
                     : {}
@@ -261,12 +270,19 @@ export function validateGroup(
             const requiredFields = ROWS[criteriaToBehavioralFilterType(c)].fields.filter(
                 (f) => !!f.fieldKey
             ) as FieldWithFieldKey[]
-            return Object.fromEntries(
-                requiredFields.map(({ fieldKey, type }) => [
-                    fieldKey,
-                    c[fieldKey] !== undefined && c[fieldKey] !== null ? undefined : CRITERIA_VALIDATIONS?.[type],
-                ])
-            )
+
+            const criteriaErrors = Object.fromEntries(
+                    requiredFields.map(({fieldKey, type}) => [
+                        fieldKey,
+                        c[fieldKey] !== undefined && c[fieldKey] !== null ? undefined : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
+                    ])
+                )
+            const consolidatedErrors = Object.values(criteriaErrors).filter(e => !!e).join(" ")
+
+            return {
+                ...(areObjectValuesEmpty(criteriaErrors) ? {} : {id: consolidatedErrors}),
+                ...criteriaErrors
+            }
         }),
     }
 }
@@ -336,4 +352,56 @@ export function resolveCohortFieldValue(criteria: AnyCohortCriteriaType, fieldKe
         return criteriaToBehavioralFilterType(criteria)
     }
     return criteria?.[fieldKey] ?? null
+}
+
+export function setDeeplyNestedCriteria(oldCohort: CohortType, newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number): CohortType {
+    return {
+        ...oldCohort,
+        filters: {
+            properties: {
+                ...oldCohort.filters.properties,
+                values: oldCohort.filters.properties.values.map((group, groupI) =>
+                    groupI === groupIndex && isCohortCriteriaGroup(group)
+                        ? {
+                            ...group,
+                            values: group.values.map((criteria, criteriaI) =>
+                                criteriaI === criteriaIndex
+                                    ? {
+                                        ...criteria,
+                                        ...newCriteria,
+                                    }
+                                    : criteria
+                            ),
+                        }
+                        : group
+                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+            },
+        },
+    }
+}
+
+// Populate empty values with default values on changing type, pruning any extra variables
+export function cleanCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
+    const populatedCriteria = {}
+    const {fields, ...apiProps} = ROWS[criteriaToBehavioralFilterType(criteria)]
+    Object.entries(apiProps).forEach(([key, defaultValue]) => {
+        const nextValue = criteria[key] ?? defaultValue
+        if (nextValue !== undefined && nextValue !== null) {
+            populatedCriteria[key] = nextValue
+        }
+    })
+    fields.forEach(({fieldKey, defaultValue}) => {
+        const nextValue = fieldKey ? criteria[fieldKey] ?? defaultValue : null
+        if (fieldKey && nextValue !== undefined && nextValue !== null) {
+            populatedCriteria[fieldKey] = nextValue
+        }
+    })
+    return {
+        ...populatedCriteria,
+        ...determineFilterType(
+            populatedCriteria['type'],
+            populatedCriteria['value'],
+            populatedCriteria['negation']
+        ),
+    }
 }

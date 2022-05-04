@@ -1,7 +1,7 @@
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType } from '~/types'
-import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {LemonSelectOptions} from 'lib/components/LemonSelect'
+import {BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType} from '~/types'
+import {CohortFieldLogicProps} from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
 
 export enum FilterType {
     Behavioral = 'behavioral',
@@ -97,3 +97,24 @@ export type CohortFieldProps =
     | CohortNumberFieldProps
     | CohortTaxonomicFieldProps
     | CohortTextFieldProps
+
+export enum CohortClientErrors {
+    NegationCriteriaMissingOther = 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+    NegationCriteriaCancel = 'These criteria cancel each other out, and would result in no matching persons.',
+    RegularEventMismatch = 'The lowerbound period value must not be greater than the upperbound value.',
+    EmptyEventsAndActions = 'Event or action cannot be empty.',
+    EmptyEventProperties = 'Event property cannot be empty.',
+    EmptyEventPropertyValues = 'Event property value cannot be empty',
+    EmptyEventType = 'Event type cannot be empty.',
+    EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
+    EmptyNumberTicker =  'Number cannot be empty.',
+    EmptyTimeUnit = 'Time interval cannot be empty.',
+    EmptyMathOperator = 'Math operator cannot be empty.',
+    EmptyCohortId = 'Cohort id cannot be empty.',
+    EmptyCohortValues = 'Cohort value cannot be empty.',
+    EmptyValue = 'Event property value selector cannot be empty.',
+    EmptyDateOperator = 'Date cannot be empty or invalid.',
+    EmptyActors = 'Actors selector cannot be empty.',
+    EmptyAggregation = 'Aggregation selector cannot be empty.',
+    EmptyBehavioral = 'Behavioral selector cannot be empty.',
+}

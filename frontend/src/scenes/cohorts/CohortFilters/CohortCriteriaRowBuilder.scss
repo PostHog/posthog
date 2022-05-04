@@ -1,21 +1,31 @@
 .CohortCriteriaRow {
-    padding: 0 1rem;
+    padding: 0 0.5rem;
 
-    .CohortCriteriaRow__CohortField {
-        margin: 0.25rem 0;
+    .CohortCriteriaRow__Criteria {
+        border-radius: var(--radius);
+        border: 1px solid transparent;
+        padding: 0.25rem 0.5rem;
 
-        &.CohortCriteriaRow__CohortField--error {
-            .CohortField {
-                border: 1px solid var(--danger);
+        &.CohortCriteriaRow__Criteria--error {
+            border: 1px solid var(--danger);
+        }
+
+        .CohortCriteriaRow__Criteria__error-row {
+            margin: 0.25rem 0;
+        }
+
+        .CohortCriteriaRow__Criteria__Field {
+            margin: 0.25rem 0;
+
+            &.CohortCriteriaRow__Criteria__Field--error {
+                .CohortField {
+                    border: 1px solid var(--danger);
+                }
             }
-        }
 
-        &:not(:last-child) {
-            margin-right: 0.5rem;
-        }
-
-        .CohortCriteriaRow__CohortField__error-row {
-
+            &:not(:last-child) {
+                margin-right: 0.5rem;
+            }
         }
     }
 
@@ -41,7 +51,7 @@
         flex: 1;
     }
 
-    .CohortCriteriaRow__arrow {
+    .CohortCriteriaRow__Criteria__arrow {
         color: var(--text-muted);
         font-size: 18px;
         font-weight: bold;

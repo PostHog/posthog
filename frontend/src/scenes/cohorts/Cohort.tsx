@@ -1,6 +1,6 @@
 import './Cohort.scss'
 import React from 'react'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { Field as KeaField, Group } from 'kea-forms'
 import { Col, Divider, Row } from 'antd'
 import { AvailableFeature, CohortGroupType, CohortType } from '~/types'
@@ -38,7 +38,6 @@ import {AlertMessage} from "lib/components/AlertMessage";
 
 export const scene: SceneExport = {
     component: Cohort,
-    logic: cohortLogic,
     paramsToProps: ({ params: { id } }): typeof cohortLogic['props'] => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
@@ -56,7 +55,6 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
         duplicateFilter,
         removeFilter,
         addFilter,
-        setCriteria,
     } = useActions(logic)
     const { cohort, cohortLoading, newCohortFiltersEnabled, cohortErrors } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -240,7 +238,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                         {groupIndex !== 0 && (
                                                             <div
                                                                 className="cohort-detail__matching-group__logical-divider">
-                                                                {cohort.filters.properties.values[groupIndex].type}
+                                                                {cohort.filters.properties.type}
                                                             </div>
                                                         )}
                                                         <KeaField
@@ -300,31 +298,21 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                     return isCohortCriteriaGroup(criteria) ? null : (
                                                                         <Group key={criteriaIndex}
                                                                                name={["values", criteriaIndex]}>
-                                                                            <CohortCriteriaRowBuilder
-                                                                                groupIndex={groupIndex}
-                                                                                index={criteriaIndex}
-                                                                                logicalOperator={group.type}
-                                                                                criteria={criteria}
-                                                                                type={criteriaToBehavioralFilterType(
-                                                                                    criteria
-                                                                                )}
-                                                                                onChange={setCriteria}
-                                                                                onDuplicate={() =>
-                                                                                    duplicateFilter(
-                                                                                        groupIndex,
-                                                                                        criteriaIndex
-                                                                                    )
-                                                                                }
-                                                                                onRemove={() =>
-                                                                                    removeFilter(
-                                                                                        groupIndex,
-                                                                                        criteriaIndex
-                                                                                    )
-                                                                                }
-                                                                                hideDeleteIcon={
-                                                                                    group.values.length <= 1
-                                                                                }
-                                                                            />
+                                                                            <BindLogic logic={cohortLogic}
+                                                                                       props={logicProps}>
+                                                                                <CohortCriteriaRowBuilder
+                                                                                    groupIndex={groupIndex}
+                                                                                    index={criteriaIndex}
+                                                                                    logicalOperator={group.type}
+                                                                                    criteria={criteria}
+                                                                                    type={criteriaToBehavioralFilterType(
+                                                                                        criteria
+                                                                                    )}
+                                                                                    hideDeleteIcon={
+                                                                                        group.values.length <= 1
+                                                                                    }
+                                                                                />
+                                                                            </BindLogic>
                                                                             {criteriaIndex ===
                                                                                 group.values.length - 1 && (
                                                                                     <Row>
