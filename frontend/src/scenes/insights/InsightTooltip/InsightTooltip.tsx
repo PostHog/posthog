@@ -15,7 +15,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
 
-function ClickToInspectActors({
+export function ClickToInspectActors({
     isTruncated,
     groupTypeLabel,
 }: {

@@ -2,7 +2,7 @@
     overflow: hidden;
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
-    font-size: 14px;
+    font-size: 0.8125rem;
     z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
     max-width: 30rem;
@@ -10,6 +10,10 @@
     background: var(--bg-light);
     position: absolute;
     pointer-events: none;
+
+    .LemonRow {
+        font-size: 0.8125rem;
+    }
 
     .LemonTable {
         font-size: 0.75rem;

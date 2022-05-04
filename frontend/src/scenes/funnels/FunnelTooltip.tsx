@@ -13,20 +13,24 @@ import { Provider } from 'react-redux'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
+import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { groupsModel } from '~/models/groupsModel'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 2
 
 interface FunnelTooltipProps {
+    showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
+    groupTypeLabel: string
 }
 
-function FunnelTooltip({ stepIndex, series}: FunnelTooltipProps): JSX.Element {
+function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel}: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <div className="FunnelBarChartTooltip">
+        <div className="FunnelTooltip">
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 fullWidth
@@ -39,7 +43,7 @@ function FunnelTooltip({ stepIndex, series}: FunnelTooltipProps): JSX.Element {
                     • {formatBreakdownLabel(cohorts, series.breakdown_value)}
                 </strong>
             </LemonRow>
-            <LemonDivider style={{ marginTop: '0.125rem' }} />
+            <LemonDivider style={{ marginTop: '0.25rem' }} />
             <table>
                 <tbody>
                     <tr>
@@ -74,11 +78,13 @@ function FunnelTooltip({ stepIndex, series}: FunnelTooltipProps): JSX.Element {
                     )}
                 </tbody>
             </table>
+            {showPersonsModal && <ClickToInspectActors groupTypeLabel={groupTypeLabel}/>}
         </div>)
 }
 
-export function useFunnelTooltip(): React.RefObject<HTMLDivElement> {
-    const { isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(funnelLogic)
+export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
+    const { filters, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(funnelLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
 
@@ -92,8 +98,10 @@ export function useFunnelTooltip(): React.RefObject<HTMLDivElement> {
                 <Provider store={getContext().store}>
                     {currentTooltip && (
                         <FunnelTooltip
+                        showPersonsModal={showPersonsModal}
                             stepIndex={currentTooltip[0]}
                             series={currentTooltip[1]}
+                            groupTypeLabel={aggregationLabel(filters.aggregation_group_type_index).plural}
                         />
                     )}
                 </Provider>,

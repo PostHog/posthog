@@ -167,7 +167,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
-    const vizRef = useFunnelTooltip()
+    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
