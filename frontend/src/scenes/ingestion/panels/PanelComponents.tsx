@@ -18,7 +18,7 @@ export function PanelFooter(): JSX.Element {
                     <LemonButton type="primary" fullWidth center onClick={() => setVerify(true)}>
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
-                    <LemonButton fullWidth center type="secondary" onClick={() => setPlatform(null)}>
+                    <LemonButton className="mt-05" fullWidth center type="secondary" onClick={() => setPlatform(null)}>
                         Back to setup
                     </LemonButton>
                 </div>
@@ -27,7 +27,7 @@ export function PanelFooter(): JSX.Element {
                     <LemonButton type="primary" fullWidth center className="mb-05" onClick={() => setVerify(true)}>
                         Continue
                     </LemonButton>
-                    <LemonButton fullWidth center type="secondary" onClick={() => setVerify(true)}>
+                    <LemonButton className="mt-05" fullWidth center type="secondary" onClick={() => setVerify(true)}>
                         Skip for now
                     </LemonButton>
                 </div>
