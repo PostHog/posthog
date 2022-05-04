@@ -57,6 +57,11 @@ Object {
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": Array [],
+        "person_display_name_properties": Array [
+          "email",
+          "name",
+          "username",
+        ],
         "primary_dashboard": 1,
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
