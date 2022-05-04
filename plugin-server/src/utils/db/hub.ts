@@ -211,7 +211,12 @@ export async function createHub(
     let objectStorage: ObjectStorage
     try {
         objectStorage = connectObjectStorage(serverConfig)
+    } catch (e) {
+        status.error('❌', `could not initialise storage: ${e}`)
+        throw e
+    }
 
+    try {
         if (serverConfig.OBJECT_STORAGE_ENABLED) {
             await objectStorage.healthCheck()
             status.info('👍', `storage 🪣`)
@@ -219,7 +224,7 @@ export async function createHub(
             status.info('🪣', `storage not in use`)
         }
     } catch (e) {
-        status.error('❌', `could not read from storage: ${e}`)
+        status.error('❌', `storage failed healthcheck: ${e}`)
         throw e
     }
 
