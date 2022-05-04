@@ -30,15 +30,15 @@
         margin: 0.5rem;
         align-self: stretch;
 
-        &--large {
+        &.LemonDivider--large {
             margin: 0.5rem 1rem;
         }
 
-        &--thick {
+        &.LemonDivider--thick {
             width: 2px;
         }
 
-        &--dashed {
+        &.LemonDivider--dashed {
             background: repeating-linear-gradient(
                 to bottom,
                 currentColor,
