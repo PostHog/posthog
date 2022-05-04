@@ -1,3 +1,4 @@
+# Keep this file in sync with the /.dockerignore
 *
 !package.json
 !yarn.lock
