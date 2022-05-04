@@ -5,12 +5,14 @@ export function InsightSaveButton({
     saveAs,
     saveInsight,
     isSaved,
+    insightSaving,
     insightChanged,
     addingToDashboard,
 }: {
     saveAs: () => void
     saveInsight: (redirect: boolean) => void
     isSaved: boolean | undefined
+    insightSaving: boolean
     insightChanged: boolean
     addingToDashboard: boolean
 }): JSX.Element {
@@ -24,6 +26,7 @@ export function InsightSaveButton({
             onClick={() => saveInsight(true)}
             data-attr="insight-save-button"
             disabled={disabled}
+            loading={!disabled && insightSaving}
             sideAction={{
                 popup: {
                     overlay: (

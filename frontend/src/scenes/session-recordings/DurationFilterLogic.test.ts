@@ -47,6 +47,18 @@ describe('durationFilterLogic', () => {
             })
         })
 
+        it('setTimeValue to null is handled', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTimeValue(null)
+            })
+                .toMatchValues({ timeValue: null, durationString: '> 0 minutes' })
+                .toFinishListeners()
+
+            expect(filterValue).toMatchObject({
+                value: 0,
+            })
+        })
+
         it('setUnit changes the value and updates the string', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setUnit(TimeUnit.HOURS)

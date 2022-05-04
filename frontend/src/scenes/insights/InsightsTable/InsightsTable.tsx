@@ -3,10 +3,10 @@ import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { PHCheckbox } from 'lib/components/PHCheckbox'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -15,16 +15,17 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport, IconEdit } from 'lib/components/icons'
+import { IconEdit } from 'lib/components/icons'
+import { countryCodeToName } from '../WorldMap'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -68,7 +69,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportUrl, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -98,7 +99,10 @@ export function InsightsTable({
         }
     }
 
-    const calcColumnMenu = (
+    const isDisplayModeNonTimeSeries: boolean =
+        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+
+    const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>
             {Object.keys(CALC_COLUMN_LABELS).map((key) => (
                 <Menu.Item
@@ -116,13 +120,13 @@ export function InsightsTable({
     )
 
     // Build up columns to include. Order matters.
-    const columns: LemonTableColumns<IndexedTrendResult> = []
+    const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
         columns.push({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
-                    <PHCheckbox
+                    <LemonCheckbox
                         color={colorList[item.id]}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
@@ -196,6 +200,16 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
+        if (filters.display === ChartDisplayType.WorldMap) {
+            columns.push({
+                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
+                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                key: 'breakdown_addendum',
+                sorter: (a, b) => {
+                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                },
+            })
+        }
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
@@ -228,26 +242,23 @@ export function InsightsTable({
 
     if (showTotalCount) {
         columns.push({
-            title: (
+            title: calcColumnMenu ? (
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]}
                         <DownOutlined className="ml-025" />
                     </span>
                 </Dropdown>
+            ) : (
+                CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(count: any, item: IndexedTrendResult) {
-                if (calcColumnState === 'average') {
+                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
+                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
+                } else if (calcColumnState === 'average') {
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
-                } else if (
-                    calcColumnState === 'total' &&
-                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        filters.display === ACTIONS_TABLE ||
-                        filters.display === ACTIONS_PIE_CHART)
-                ) {
-                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
                 return (
                     <>
@@ -267,31 +278,18 @@ export function InsightsTable({
     }
 
     return (
-        <>
-            {csvExportUrl && !isViewedOnDashboard && (
-                <Tooltip title="Export this table as csv." placement="left">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                        href={csvExportUrl}
-                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
-                    >
-                        Export
-                    </LemonButton>
-                </Tooltip>
-            )}
-            <LemonTable
-                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-                embedded={embedded}
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                loading={resultsLoading}
-                emptyState="No insight results"
-                data-attr="insights-table-graph"
-                className="insights-table"
-            />
-        </>
+        <LemonTable
+            id={isViewedOnDashboard ? insight.short_id : undefined}
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+            embedded={embedded}
+            columns={columns}
+            rowKey="id"
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            loading={resultsLoading}
+            emptyState="No insight results"
+            data-attr="insights-table-graph"
+            className="insights-table"
+        />
     )
 }
 

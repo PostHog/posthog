@@ -19,7 +19,7 @@ def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
 
 def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
     response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
     return response.json()
 
 
@@ -360,7 +360,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             all_people_ids = [str(person["id"]) for person in people]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.uuid), str(person4.uuid)]))
 
         def test_stickiness_people_with_entity_filter(self):
             person1, _, _, _ = self._create_multiple_people()
@@ -386,7 +386,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             self.assertEqual(len(people), 1)
-            self.assertEqual(str(people[0]["id"]), str(person1.id))
+            self.assertEqual(str(people[0]["id"]), str(person1.uuid))
 
         def test_stickiness_people_paginated(self):
             for i in range(150):

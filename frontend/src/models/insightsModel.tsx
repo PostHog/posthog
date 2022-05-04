@@ -21,6 +21,12 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
             move,
         }),
+        moveToDashboard: (item: InsightModel, fromDashboard: number, toDashboard: number, toDashboardName: string) => ({
+            item,
+            fromDashboard,
+            toDashboard,
+            toDashboardName,
+        }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
     }),
     listeners: ({ actions }) => ({
@@ -46,6 +52,43 @@ export const insightsModel = kea<insightsModelType>({
                 },
             })
         },
+        moveToDashboard: async ({ item, fromDashboard, toDashboard, toDashboardName }) => {
+            if (!item) {
+                return
+            }
+
+            const originalDashboards = item.dashboards || []
+            const dashboards = [...originalDashboards.filter((d: number) => d !== fromDashboard), toDashboard]
+
+            const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
+                dashboards,
+            })
+            dashboardsModel.actions.updateDashboardItem(updatedItem)
+
+            lemonToast.success(
+                <>
+                    Insight moved to{' '}
+                    <b>
+                        <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </b>
+                </>,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: async () => {
+                            const restoredItem = await api.update(
+                                `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                                {
+                                    dashboards: originalDashboards,
+                                }
+                            )
+                            lemonToast.success('Panel move reverted')
+                            dashboardsModel.actions.updateDashboardItem(restoredItem)
+                        },
+                    },
+                }
+            )
+        },
         duplicateInsight: async ({ item, dashboardId, move }) => {
             if (!item) {
                 return
@@ -57,7 +100,7 @@ export const insightsModel = kea<insightsModelType>({
             })
 
             const { id: _discard, short_id: __discard, ...rest } = item // eslint-disable-line
-            const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
+            const newItem = dashboardId ? { ...rest, dashboards: [dashboardId], layouts } : { ...rest, layouts }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null

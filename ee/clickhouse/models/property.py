@@ -302,7 +302,7 @@ def prop_filter_json_extract(
     prop_var: str = "properties",
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
-    property_operator: PropertyOperatorType = PropertyOperatorType.AND,
+    property_operator: str = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:

@@ -25,6 +25,12 @@ export enum PluginSection {
     Disabled = 'disabled',
 }
 
+export interface PluginSelectionType {
+    name: string
+    url?: string
+    tab: PluginTab
+}
+
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
@@ -53,7 +59,7 @@ async function loadPaginatedResults(
     return results
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
+export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
@@ -639,6 +645,24 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 return pluginNameToMaintainerMap
             },
         ],
+        allPossiblePlugins: [
+            (s) => [s.repository, s.plugins],
+            (repository, plugins) => {
+                const allPossiblePlugins: PluginSelectionType[] = []
+                for (const plugin of Object.values(plugins) as PluginType[]) {
+                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Installed })
+                }
+
+                const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
+
+                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                    if (!installedUrls.has(plugin.url)) {
+                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Repository })
+                    }
+                }
+                return allPossiblePlugins
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -707,6 +731,16 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             }
         },
     }),
+
+    urlToAction: ({ actions }) => ({
+        '/project/plugins': (_, { tab, name }) => {
+            if (tab && name) {
+                actions.setSearchTerm(name)
+                actions.setPluginTab(tab as PluginTab)
+            }
+        },
+    }),
+
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPlugins()

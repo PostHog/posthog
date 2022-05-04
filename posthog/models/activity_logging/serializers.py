@@ -29,6 +29,7 @@ class DetailSerializer(serializers.Serializer):
     changes = ChangeSerializer(many=True)
     merge = MergeSerializer(required=False)
     name = serializers.CharField(read_only=True)
+    short_id = serializers.CharField(read_only=True)
 
 
 class ActivityLogSerializer(serializers.Serializer):

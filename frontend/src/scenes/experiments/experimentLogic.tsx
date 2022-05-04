@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -268,7 +267,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: ``,
                 description: '',
                 tags: [],
                 filters: newInsightFilters,
@@ -649,12 +648,13 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         ],
     },
     urlToAction: ({ actions, values, props }) => ({
-        '/experiments/:id': ({ id }) => {
+        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return
             }
-            if (id) {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()

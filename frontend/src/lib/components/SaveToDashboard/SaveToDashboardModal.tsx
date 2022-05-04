@@ -1,14 +1,24 @@
 import React, { FormEvent } from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Modal } from 'antd'
+import { Modal, Select } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { InsightModel } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from '../lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import './AddToDashboard.scss'
+import { IconMagnifier } from 'lib/components/icons'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { LemonButton } from 'lib/components/LemonButton'
+import { Link } from 'lib/components/Link'
+import { DashboardType, InsightModel } from '~/types'
+import clsx from 'clsx'
+import { LemonModal } from 'lib/components/LemonModal'
+import { pluralize } from 'lib/utils'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -16,8 +26,132 @@ interface SaveToDashboardModalProps {
     insight: Partial<InsightModel>
 }
 
+interface DashboardRelationRowProps {
+    dashboard: DashboardType
+    insight: Partial<InsightModel>
+    isHighlighted: boolean
+    isAlreadyOnDashboard: boolean
+    style: React.CSSProperties
+}
+
+const DashboardRelationRow = ({
+    style,
+    isHighlighted,
+    isAlreadyOnDashboard,
+    dashboard,
+    insight,
+}: DashboardRelationRowProps): JSX.Element => {
+    const logic = saveToDashboardModalLogic({
+        insight: insight,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
+    const { addToDashboard, removeFromDashboard } = useActions(logic)
+
+    return (
+        <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
+            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+            <LemonButton
+                type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                compact={true}
+                onClick={(e) => {
+                    e.preventDefault()
+                    isAlreadyOnDashboard
+                        ? removeFromDashboard(insight, dashboard.id)
+                        : addToDashboard(insight, dashboard.id)
+                }}
+            >
+                {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+            </LemonButton>
+        </div>
+    )
+}
+
+export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
+    const logic = saveToDashboardModalLogic({
+        insight: insight,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
+
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
+    const { setSearchQuery, addNewDashboard } = useActions(logic)
+
+    const { insightLoading } = useValues(insightLogic)
+
+    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
+        return (
+            <DashboardRelationRow
+                key={rowIndex}
+                dashboard={orderedDashboards[rowIndex]}
+                insight={insight}
+                isHighlighted={rowIndex === scrollIndex}
+                isAlreadyOnDashboard={currentDashboards.some(
+                    (currentDashboard: DashboardType) => currentDashboard.id === orderedDashboards[rowIndex].id
+                )}
+                style={style}
+            />
+        )
+    }
+
+    return (
+        <LemonModal
+            onCancel={closeModal}
+            afterClose={closeModal}
+            confirmLoading={insightLoading}
+            visible={visible}
+            wrapClassName="add-to-dashboard-modal"
+        >
+            <section>
+                <h5>Add to dashboard</h5>
+                <LemonInput
+                    data-attr="dashboard-searchfield"
+                    placeholder={`Search for dashboards...`}
+                    value={searchQuery}
+                    className={searchQuery && 'LemonInput--with-input'}
+                    icon={<IconMagnifier />}
+                    onChange={(newValue) => setSearchQuery(newValue)}
+                />
+                <div className={'existing-links-info'}>
+                    This insight is referenced on <strong>{insight.dashboards?.length}</strong>{' '}
+                    {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
+                </div>
+                <div className="list-wrapper">
+                    <AutoSizer>
+                        {({ height, width }) => (
+                            <List
+                                width={width}
+                                height={height}
+                                rowCount={orderedDashboards.length}
+                                overscanRowCount={100}
+                                rowHeight={40}
+                                rowRenderer={renderItem}
+                                scrollToIndex={scrollIndex}
+                            />
+                        )}
+                    </AutoSizer>
+                </div>
+            </section>
+            <section className="space-between-items">
+                <LemonButton type="secondary" compact onClick={addNewDashboard}>
+                    Add to a new dashboard
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    compact
+                    onClick={closeModal}
+                    style={{ marginTop: 0 }} /* lemon section styling was adding a margin top */
+                >
+                    Close
+                </LemonButton>
+            </section>
+        </LemonModal>
+    )
+}
+
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({ id: insight.short_id, fromDashboard: insight.dashboard || undefined })
+    const logic = saveToDashboardModalLogic({
+        insight: insight,
+        fromDashboard: insight.dashboards?.[0] || undefined,
+    })
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
@@ -27,7 +161,7 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
 
     async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
-        updateInsight({ ...insight, dashboard: dashboardId }, () => {
+        updateInsight({ ...insight, dashboards: [dashboardId] }, () => {
             reportSavedInsightToDashboard()
             lemonToast.success('Insight added to dashboard', {
                 button: {

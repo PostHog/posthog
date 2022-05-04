@@ -122,6 +122,10 @@ export function Login(): JSX.Element {
                                     placeholder="email@yourcompany.com"
                                     type="email"
                                     onBlur={() => precheck({ email: form.getFieldValue('email') })}
+                                    onPressEnter={() => {
+                                        precheck({ email: form.getFieldValue('email') })
+                                        document.getElementById('password')?.focus()
+                                    }}
                                     autoComplete="off"
                                 />
                             </Form.Item>

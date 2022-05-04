@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Button, Progress, Space, Tabs } from 'antd'
@@ -23,16 +23,18 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/components/icons'
 
+const { TabPane } = Tabs
+
 export const scene: SceneExport = {
     component: AsyncMigrations,
     logic: asyncMigrationsLogic,
 }
 
-const { TabPane } = Tabs
+const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings } =
+    const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings, isAnyMigrationRunning } =
         useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
@@ -45,13 +47,21 @@ export function AsyncMigrations(): JSX.Element {
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
 
+    useEffect(() => {
+        if (isAnyMigrationRunning) {
+            const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }
+    }, [isAnyMigrationRunning])
+
     const columns: LemonTableColumns<AsyncMigration> = [
         {
             title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const link =
-                    'https://posthog.com/docs/self-host/configure/async-migrations/' +
-                    asyncMigration.name.split('_').join('-')
+                    'https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/' +
+                    asyncMigration.name +
+                    '.py'
                 return (
                     <>
                         <div className="row-name">

@@ -10,7 +10,7 @@ services:
         ports:
             - '5432:5432'
     redis:
-        image: 'redis:alpine'
+        image: redis:6.2.7-alpine
         ports:
             - '6379:6379'
     clickhouse:
@@ -19,7 +19,6 @@ services:
         #       `posthog` and the `charts-clickhouse` repos
         #
         image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
-        # image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.6.5}
         depends_on:
             - kafka
             - zookeeper

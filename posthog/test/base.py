@@ -1,7 +1,8 @@
 import inspect
 import re
+import uuid
 from functools import wraps
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 import sqlparse
@@ -10,10 +11,17 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from ee.clickhouse.models.event import bulk_create_events
+from ee.clickhouse.models.person import bulk_create_persons, create_person
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.person import Person
+
+persons_cache_tests: List[Dict[str, Any]] = []
+events_cache_tests: List[Dict[str, Any]] = []
 
 
 def _setup_test_data(klass):
@@ -114,6 +122,20 @@ class TestMixin:
     def setUp(self):
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+    def tearDown(self):
+        if len(persons_cache_tests) > 0:
+            persons_cache_tests.clear()
+            raise Exception(
+                "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
+            )
+
+        if len(events_cache_tests) > 0:
+            events_cache_tests.clear()
+            raise Exception(
+                "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
+            )
+        super().tearDown()  # type: ignore
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
@@ -335,3 +357,45 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
     Can be used to test migrations where atomic=False.
     """
+
+
+def flush_persons_and_events():
+    if len(persons_cache_tests) > 0:
+        bulk_create_persons(persons_cache_tests)
+        persons_cache_tests.clear()
+    if len(events_cache_tests) > 0:
+        bulk_create_events(events_cache_tests)
+        events_cache_tests.clear()
+
+
+def _create_event(**kwargs):
+    """
+    Create an event in tests. NOTE: all events get batched and only created when sync_execute is called
+    """
+    if not kwargs.get("event_uuid"):
+        kwargs["event_uuid"] = str(uuid.uuid4())
+    if not kwargs.get("timestamp"):
+        kwargs["timestamp"] = now()
+    events_cache_tests.append(kwargs)
+    return kwargs["event_uuid"]
+
+
+def _create_person(*args, **kwargs):
+    """
+    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
+    Pass immediate=True to create immediately and get a pk back
+    """
+    kwargs["uuid"] = uuid.uuid4()
+    # If we've done freeze_time just create straight away
+    if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
+        if kwargs.get("immediate"):
+            del kwargs["immediate"]
+        create_person(
+            team_id=kwargs.get("team_id") or kwargs["team"].pk, properties=kwargs.get("properties"), uuid=kwargs["uuid"]
+        )
+        return Person.objects.create(**kwargs)
+    if len(args) > 0:
+        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
+
+    persons_cache_tests.append(kwargs)
+    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})

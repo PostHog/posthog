@@ -23,7 +23,7 @@ import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
+import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
@@ -32,7 +32,6 @@ import {
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
-import { isLicenseExpired } from 'scenes/instance/Licenses'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -114,13 +113,7 @@ function InviteMembersButton(): JSX.Element {
     )
 }
 
-function License({
-    license,
-    expired,
-}: {
-    license: LicenseType | undefined
-    expired: boolean | undefined
-}): JSX.Element {
+function License({ license, expired }: { license: LicenseType | null; expired: boolean | null }): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
 
     return (

@@ -6,9 +6,9 @@ import { Divider, Select, SelectProps, Tag } from 'antd'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { Button } from 'antd'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 import { IconSelectEvents, IconSelectProperties } from 'lib/components/icons'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -65,10 +65,10 @@ export function CorrelationConfig(): JSX.Element {
             </h2>
             <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
 
-            <InfoMessage>
+            <AlertMessage type="info">
                 Correlation analysis can automatically surface relevant signals for conversion, and help you understand
                 why your users dropped off and what makes them convert.
-            </InfoMessage>
+            </AlertMessage>
             <Divider />
             {currentTeam && (
                 <>
@@ -79,6 +79,7 @@ export function CorrelationConfig(): JSX.Element {
                     <PersonPropertySelect
                         onChange={(properties) => handleChange(properties)}
                         selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
+                        addText="Add exclusion"
                     />
                     <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
                         <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />

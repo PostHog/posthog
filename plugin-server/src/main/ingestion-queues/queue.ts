@@ -2,7 +2,15 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
+import {
+    CeleryTriggeredJobOperation,
+    Hub,
+    PluginConfig,
+    PreIngestionEvent,
+    Queue,
+    Team,
+    WorkerMethods,
+} from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
@@ -55,6 +63,11 @@ export async function startQueues(
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'ingestEvent'
             return piscina.run({ task: 'ingestEvent', args: { event } })
+        },
+        ingestBufferEvent: (event: PreIngestionEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'ingestBufferEvent'
+            return piscina.run({ task: 'ingestBufferEvent', args: { event } })
         },
         ...workerMethods,
     }

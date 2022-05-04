@@ -40,8 +40,8 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
     const {
         dashboard,
         canEditDashboard,
-        allItemsLoading,
         items,
+        itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
         receivedErrorsFromAPI,
@@ -81,7 +81,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (!dashboard && !allItemsLoading) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
@@ -94,7 +94,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
-                <EmptyDashboardComponent loading={allItemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
                     <div className="dashboard-items-actions">

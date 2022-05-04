@@ -26,7 +26,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconExport, IconSync } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -158,8 +158,8 @@ export function EventsTable({
         },
     }
 
-    const defaultColumns = useMemo<LemonTableColumns<EventsTableRowItem>>(() => {
-        const _localColumns = [
+    const defaultColumns = useMemo(() => {
+        const _localColumns: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[] = [
             {
                 title: 'Event',
                 key: 'event',
@@ -171,7 +171,6 @@ export function EventsTable({
                     const { event } = item
                     return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
                 },
-                ellipsis: true,
             },
             {
                 title: 'URL / Screen',
@@ -194,10 +193,13 @@ export function EventsTable({
                     }
                     return <Property value={event.properties[param]} />
                 },
-                ellipsis: true,
             },
             {
-                title: 'Source',
+                title: (
+                    <Tooltip title='This is the "Library" property on events. Sent by the SDK as "$lib"'>
+                        Source
+                    </Tooltip>
+                ),
                 key: 'source',
                 render: function renderSource(_, { event }: EventsTableRowItem) {
                     if (!event) {
@@ -215,7 +217,7 @@ export function EventsTable({
                     return <Property value={event.properties['$lib']} />
                 },
             },
-        ] as LemonTableColumns<EventsTableRowItem>
+        ]
         if (showPersonColumn) {
             _localColumns.splice(1, 0, personColumn)
         }

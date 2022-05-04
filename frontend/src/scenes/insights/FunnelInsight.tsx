@@ -16,6 +16,9 @@ export function FunnelInsight(): JSX.Element {
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
 
+    const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
+    const noPadding = filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical
+
     return (
         <>
             <PersonsModal
@@ -30,9 +33,8 @@ export function FunnelInsight(): JSX.Element {
             />
             <div
                 className={clsx('funnel-insights-container', {
-                    'non-empty-state': (isValidFunnel && areFiltersValid) || insightLoading,
-                    'no-padding':
-                        filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical,
+                    'non-empty-state': nonEmptyState,
+                    'no-padding': noPadding,
                 })}
             >
                 <Funnel />
