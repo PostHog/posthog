@@ -210,9 +210,9 @@ export async function createHub(
     status.info('🤔', `Storage`)
     let objectStorage: ObjectStorage
     try {
-        objectStorage = connectObjectStorage()
+        objectStorage = connectObjectStorage(serverConfig)
 
-        if (defaultConfig.OBJECT_STORAGE_ENABLED) {
+        if (serverConfig.OBJECT_STORAGE_ENABLED) {
             await objectStorage.healthCheck()
             status.info('👍', `storage 🪣`)
         } else {

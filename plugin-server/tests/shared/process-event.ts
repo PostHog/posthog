@@ -117,6 +117,7 @@ export const createProcessEventTests = (
             PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
+            OBJECT_STORAGE_ENABLED: true,
             ...(extraServerConfig ?? {}),
             ...(additionalProps ?? {}),
         })
@@ -1251,7 +1252,7 @@ export const createProcessEventTests = (
         expect(event.session_id).toEqual($sessionId)
         expect(event.distinct_id).toEqual('some-id')
 
-        const expectedFolderDate = now.toFormat('yyyy-mm-dd')
+        const expectedFolderDate = now.toFormat('yyyy-MM-dd')
         expect(event.snapshot_data).toEqual({
             chunk_id: 'chunk_id',
             chunk_index: 'chunk_index',

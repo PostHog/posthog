@@ -763,7 +763,7 @@ export class EventsProcessor {
         // let's intercept the event, parse the metadata and store the data in
         // our object storage system.
 
-        if (!OBJECT_STORAGE_ENABLED) {
+        if (!this.objectStorage.isEnabled) {
             return snapshot_data
         }
 
@@ -775,7 +775,7 @@ export class EventsProcessor {
             team_id: team_id.toString(),
             session_id,
         }
-        // TODO: error handling
+
         this.objectStorage.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.error(err)
