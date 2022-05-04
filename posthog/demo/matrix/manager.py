@@ -4,8 +4,8 @@ from typing import List, Optional, Tuple
 from posthog.models import Action, Group, Organization, Person, PersonDistinctId, Team, User
 from posthog.models.utils import UUIDT
 
+from .matrix import Matrix
 from .models import SimGroup, SimPerson
-from .simulation import Matrix
 
 
 def save_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, PersonDistinctId]]:
@@ -43,13 +43,11 @@ def save_group(team_id: int, subject: SimGroup) -> Group:
 
 class MatrixManager:
     @classmethod
-    def create_team_and_run(
-        cls, matrix: Matrix, organization: Organization, user: User, simulate_journeys: bool = True, **kwargs
-    ) -> Team:
+    def create_team_and_run(cls, matrix: Matrix, organization: Organization, user: User, **kwargs) -> Team:
         team = Team.objects.create(
             organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True, **kwargs
         )
-        return cls.run_on_team(matrix, team, user, simulate_journeys)
+        return cls.run_on_team(matrix, team, user)
 
     @classmethod
     def run_on_team(cls, matrix: Matrix, team: Team, user: User, simulate_journeys: bool = True) -> Team:

@@ -1,4 +1,5 @@
 # There is no spoon.
-from .db import MatrixManager
+from .manager import MatrixManager
+from .matrix import Matrix
 
-__all__ = ["MatrixManager"]
+__all__ = ["Matrix", "MatrixManager"]

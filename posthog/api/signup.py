@@ -16,7 +16,8 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo.matrix import HedgeboxMatrix, MatrixManager
+from posthog.demo.hedgebox import HedgeboxMatrix
+from posthog.demo.matrix import MatrixManager
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, OrganizationMembership, Team, User
 from posthog.permissions import CanCreateOrg
