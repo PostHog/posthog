@@ -1,10 +1,8 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
 
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -16,6 +14,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import lifecycle_test_factory
+from posthog.test.base import _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -26,12 +25,7 @@ def _create_action(**kwargs):
     return action
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action)):  # type: ignore
+class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(ClickhouseTrends, _create_event, _create_person, _create_action)):  # type: ignore
     @snapshot_clickhouse_queries
     def test_test_account_filters_with_groups(self):
         self.team.test_account_filters = [

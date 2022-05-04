@@ -1,8 +1,6 @@
-import dataclasses
 import inspect
 import json
-from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from rest_framework import request
 
@@ -25,6 +23,8 @@ class BaseFilter(BaseParamMixin):
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
         self.kwargs = kwargs
+        if kwargs.get("team"):
+            self.team = kwargs["team"]
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = getattr(self, "simplify")(kwargs["team"])

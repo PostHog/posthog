@@ -4,13 +4,13 @@ import { humanFriendlyDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { Button, Col, Row, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
-import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined, FilterOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -18,6 +18,9 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { IconFilter } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -72,6 +75,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDateRange,
         setDurationFilter,
         enableFilter,
+        reportRecordingsListFilterAdded,
     } = useActions(sessionRecordingsTableLogicInstance)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
@@ -126,11 +130,12 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             fullWidth={true}
                             filters={entityFilters}
                             setFilters={(payload) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                                 setEntityFilters(payload)
                             }}
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                            hideMathSelector={true}
-                            buttonCopy="Add another filter"
+                            mathAvailability={MathAvailability.None}
+                            buttonCopy="Add filter"
                             horizontalUI
                             stripeActionRow={false}
                             propertyFilterWrapperClassName="session-recording-action-property-filter"
@@ -166,26 +171,31 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 ]}
                                 propertyFilters={propertyFilters}
                                 onChange={(properties) => {
+                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
                                     setPropertyFilters(properties)
                                 }}
                             />
                         </div>
                     )}
                 </div>
-                <Button
-                    style={{ display: showFilters ? 'none' : undefined }}
-                    onClick={() => {
-                        enableFilter()
-                        if (isPersonPage) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
+                {!showFilters && (
+                    <LemonButton
+                        type="secondary"
+                        compact
+                        icon={<IconFilter />}
+                        onClick={() => {
+                            enableFilter()
+                            if (isPersonPage) {
+                                const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                if (entityFilterButtons.length > 0) {
+                                    ;(entityFilterButtons[0] as HTMLElement).click()
+                                }
                             }
-                        }
-                    }}
-                >
-                    <FilterOutlined /> Filter recordings
-                </Button>
+                        }}
+                    >
+                        Filter recordings
+                    </LemonButton>
+                )}
 
                 <Row className="time-filter-row">
                     <Row className="time-filter">
@@ -201,6 +211,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
                                 setDateRange(changedDateFrom, changedDateTo)
                             }}
                             dateOptions={{
@@ -215,6 +226,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         <Typography.Text className="filter-label">Duration</Typography.Text>
                         <DurationFilter
                             onChange={(newFilter) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
                                 setDurationFilter(newFilter)
                             }}
                             initialFilter={durationFilter}

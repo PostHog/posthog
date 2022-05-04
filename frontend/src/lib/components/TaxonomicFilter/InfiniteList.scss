@@ -19,11 +19,53 @@
         padding: 4px 12px;
         cursor: pointer;
         border: none;
-        white-space: nowrap;
-        overflow-x: auto;
+
+        .taxonomic-list-row-contents {
+            display: flex;
+            align-items: center;
+
+            .taxonomic-list-row-contents-icon {
+                width: 30px;
+
+                svg.taxonomy-icon {
+                    vertical-align: middle;
+                    flex-shrink: 0;
+                    height: 18.5px;
+
+                    &.taxonomy-icon-muted {
+                        path {
+                            fill: var(--taxonomy-icon-muted);
+                        }
+                    }
+
+                    &.taxonomy-icon-verified {
+                        height: 24px;
+                        path {
+                            fill: var(--success);
+                        }
+
+                        &:not(.taxonomy-icon-ph) {
+                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
+                        }
+                    }
+                }
+            }
+        }
+
+        & > div {
+            max-width: 100%;
+
+            & > span {
+                max-width: 100%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
 
         &.hover {
-            background: rgba(0, 0, 0, 0.1);
+            background-color: var(--primary-bg-hover);
+            border-radius: var(--radius);
         }
 
         &.selected {
@@ -35,6 +77,9 @@
             .ant-skeleton-paragraph {
                 margin-bottom: 0;
             }
+        }
+        &.expand-row {
+            color: var(--primary);
         }
     }
 }

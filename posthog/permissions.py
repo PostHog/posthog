@@ -2,10 +2,11 @@ from typing import cast
 
 from django.conf import settings
 from django.db.models import Model
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
+from rest_framework.views import APIView
 
-from posthog.constants import AvailableFeature
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.utils import get_can_create_org
 
@@ -118,8 +119,11 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
 
-        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
-        if view.basename == "organizations" and view.action not in ["list", "create"]:
+        if request.method in SAFE_METHODS:
+            return True
+
+        # When request is not creating (or listing) an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
@@ -167,7 +171,7 @@ class TeamMemberAccessPermission(BasePermission):
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         return requesting_level is not None
 
 
@@ -188,7 +192,7 @@ class TeamMemberLightManagementPermission(BasePermission):
                 team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (
@@ -207,7 +211,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         team = view.team
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (
@@ -218,12 +222,26 @@ class TeamMemberStrictManagementPermission(BasePermission):
         return requesting_level >= minimum_level
 
 
-class StaffUser(BasePermission):
-    """
-    Allows access to only staff users
-    """
-
+class IsStaffUser(IsAdminUser):
     message = "You are not a staff user, contact your instance admin."
 
-    def has_permission(self, request, _):
-        return request.user.is_staff
+
+class PremiumFeaturePermission(BasePermission):
+    """
+    Requires the user to have proper permission for the feature.
+    `premium_feature` must be defined as a view attribute.
+    Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        assert hasattr(
+            view, "premium_feature"
+        ), "this permission class requires the `premium_feature` attribute to be set in the view."
+
+        if not request.user or not request.user.organization:  # type: ignore
+            return True
+
+        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+            raise EnterpriseFeatureException()
+
+        return True

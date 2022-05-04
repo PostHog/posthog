@@ -1,28 +1,18 @@
-import { BuiltLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
-import { mockAPI, MOCK_DEFAULT_ORGANIZATION } from '../lib/api.mock'
+import { initKeaTests } from '~/test/init'
+import { MOCK_DEFAULT_ORGANIZATION } from '../lib/api.mock'
 import { AppContext } from '../types'
-import { organizationLogic, OrganizationUpdatePayload } from './organizationLogic'
-import { organizationLogicType } from './organizationLogicType'
-
-jest.mock('lib/api')
+import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
-    let logic: BuiltLogic<organizationLogicType<OrganizationUpdatePayload>>
-
-    mockAPI()
+    let logic: ReturnType<typeof organizationLogic.build>
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
             window.POSTHOG_APP_CONTEXT = { current_user: { organization: { id: 'WXYZ' } } } as unknown as AppContext
-        })
-
-        initKeaTestLogic({
-            logic: organizationLogic,
-            onLogic: (l) => {
-                logic = l
-            },
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
         })
 
         it('loads organization from window', async () => {
@@ -35,20 +25,16 @@ describe('organizationLogic', () => {
     })
 
     describe('if POSTHOG_APP_CONTEXT not available', () => {
-        initKeaTestLogic({
-            logic: organizationLogic,
-            onLogic: (l) => {
-                logic = l
-            },
+        beforeEach(async () => {
+            window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
         })
-
         it('loads organization from API', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
             await expectLogic(logic).toMatchValues({
-                currentOrganization: {
-                    available_features: [],
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                },
+                currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: [] },
             })
         })
     })

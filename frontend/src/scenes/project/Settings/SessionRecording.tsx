@@ -24,7 +24,7 @@ export function SessionRecording(): JSX.Element {
                     }}
                     htmlFor="opt-in-session-recording-switch"
                 >
-                    Record user sessions on Permitted Domains
+                    Record user sessions on Authorized URLs
                 </label>
             </div>
         </div>

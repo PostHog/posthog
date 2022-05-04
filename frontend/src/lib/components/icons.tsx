@@ -1,48 +1,18 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React, { CSSProperties } from 'react'
-import { ArrowUpOutlined } from '@ant-design/icons'
-
+import React, { CSSProperties, PropsWithChildren } from 'react'
 import './icons.scss'
 
-export function IconText({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
-            <g clipPath="url(#clip0)">
-                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
-                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
-                <path
-                    d="M22.8694 18.382H26.7333V18.3797H32.0001V16.3069H17.6038V18.3797H22.8694V18.382Z"
-                    fill="currentColor"
-                />
-                <path
-                    d="M22.8694 23.632H26.7333V23.6297H32.0001V21.5569H17.6038V23.6297H22.8694V23.632Z"
-                    fill="currentColor"
-                />
-                <path
-                    d="M22.8694 28.8825H26.7333V28.8802H32.0001V26.8074H17.6038V28.8802H22.8694V28.8825Z"
-                    fill="currentColor"
-                />
-            </g>
-            <defs>
-                <clipPath id="clip0">
-                    <rect width="1em" height="1em" fill="white" />
-                </clipPath>
-            </defs>
-        </svg>
-    )
+interface IconWithCountProps {
+    count: number
+    showZero?: boolean
 }
 
-export function IllustrationDanger({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M16 2.11495C8.33206 2.11495 2.1157 8.33095 2.1157 16C2.1157 23.6691 8.33206 29.8851 16 29.8851C23.6679 29.8851 29.8843 23.6691 29.8843 16C29.8843 8.33095 23.6679 2.11495 16 2.11495ZM0 16C0 7.16367 7.16282 0 16 0C24.8372 0 32 7.16367 32 16C32 24.8363 24.8372 32 16 32C7.16282 32 0 24.8363 0 16Z"
-                fill="currentcolor"
-            />
-            <path d="M14 6H17.7025V20.3251H14V6ZM17.7025 22.6171V25.4821H14V22.6171H17.7025Z" fill="currentcolor" />
-        </svg>
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
+            {children}
+            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
+        </span>
     )
 }
 
@@ -69,17 +39,6 @@ export function IconPython({ style }: { style?: CSSProperties }): JSX.Element {
             <path
                 d="M16.1154 31.8333C24.2389 31.8333 23.7317 28.3104 23.7317 28.3104L23.7226 24.6607H15.9705V23.5649H26.8017C26.8017 23.5649 32 24.1544 32 15.9577C32 7.76089 27.4628 8.05157 27.4628 8.05157H24.755V11.8552C24.755 11.8552 24.901 16.3924 20.2903 16.3924C15.6796 16.3924 12.6015 16.3924 12.6015 16.3924C12.6015 16.3924 8.28171 16.3225 8.28171 20.5673C8.28171 24.812 8.28171 27.5859 8.28171 27.5859C8.28171 27.5859 7.62584 31.8333 16.1154 31.8333ZM20.3899 29.379C19.6186 29.379 18.9952 28.7556 18.9952 27.9844C18.9952 27.2131 19.6186 26.5897 20.3899 26.5897C21.1612 26.5897 21.7846 27.2131 21.7846 27.9844C21.7846 28.7556 21.1612 29.379 20.3899 29.379Z"
                 fill="currentColor"
-            />
-        </svg>
-    )
-}
-
-export function IconRocket({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
-            <path
-                d="M1.93583 8.68802L4.3024 9.66887C4.03547 10.3422 3.82272 11.0362 3.66576 11.7438L3.57572 12.1517L6.96852 15.5461L7.37648 15.4585V15.4577C8.08323 15.3015 8.77725 15.0888 9.45055 14.8219L10.4314 17.1884L10.4322 17.1876C10.4513 17.2354 10.4936 17.2705 10.5438 17.2801C10.5948 17.2896 10.6465 17.2737 10.6824 17.237L12.1652 15.7542H12.166C12.6553 15.265 12.9142 14.5909 12.88 13.9001L12.8266 12.9471C15.5723 10.9192 18.3499 7.36396 19.1069 1.15929C19.1507 0.843758 19.0448 0.525835 18.8201 0.300355C18.5954 0.0748555 18.2783 -0.0327031 17.9627 0.00872519C11.7597 0.771264 8.20188 3.55206 6.17493 6.28906L5.22434 6.24046C4.53432 6.20301 3.86102 6.45798 3.3702 6.94403L1.88737 8.42686C1.84514 8.46272 1.82602 8.51769 1.83558 8.57188C1.84594 8.62606 1.88418 8.66988 1.93598 8.68821L1.93583 8.68802ZM11.4497 5.07288C11.9755 4.54939 12.7644 4.39401 13.4496 4.67846C14.1349 4.96291 14.5811 5.63144 14.5811 6.37325C14.5811 7.11586 14.1349 7.78438 13.4496 8.06883C12.7644 8.35328 11.9755 8.19792 11.4497 7.67362C11.1038 7.32941 10.9094 6.86168 10.9094 6.37325C10.9094 5.88562 11.1039 5.41789 11.4497 5.07288ZM1.4936 15.8169C1.10077 15.6791 0.67927 15.6456 0.269719 15.7189C0.195618 15.7348 0.118327 15.7117 0.0657394 15.6576C-0.00039497 15.5922 -0.0187205 15.4918 0.0203212 15.4066C0.45537 14.4727 1.60753 12.5939 3.69441 14.1118C3.71672 14.1317 3.72867 14.1596 3.72867 14.189C3.72867 14.2185 3.71672 14.2472 3.69441 14.2663C3.12789 14.7125 2.80756 15.4018 2.83147 16.1229C2.83466 16.2097 2.90398 16.279 2.99083 16.2822C3.70794 16.3109 4.39717 15.9978 4.84658 15.4376C4.8665 15.4129 4.89598 15.3994 4.92705 15.3994C4.95893 15.3994 4.98841 15.4129 5.00833 15.4376C5.29837 15.7826 6.09515 16.9085 5.21231 17.9953C4.82666 18.4591 4.27367 18.7523 3.67369 18.8113C2.81713 18.9029 1.2347 19.1826 0.587675 19.9212C0.535087 19.9833 0.451423 20.012 0.371742 19.9953C0.291266 19.9778 0.226724 19.918 0.204415 19.8391C-0.0242667 19.0599 -0.378845 17.3181 1.49363 15.8168L1.4936 15.8169Z"
-                fill="white"
             />
         </svg>
     )
@@ -252,6 +211,15 @@ export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Elemen
     )
 }
 
+/** Material Design Swap Horiz Less icon. */
+export function IconSwapHoriz({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6.99 11-3.99 4 3.99 4v-3h7.01v-2h-7.01zm14.01-2-3.99-4v3h-7.01v2h7.01v3z" fill="currentColor" />
+        </svg>
+    )
+}
+
 /** Material Design Chevron Left icon. */
 export function IconChevronLeft(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -285,14 +253,43 @@ export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Task Alt icon. */
-export function IconCheckmark(): JSX.Element {
+/** A plus button like IconPlus, but more compact */
+export function IconPlusMini(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m16.7917 11.1667h-3.9584v-3.95837c0-.11458-.0937-.20833-.2083-.20833h-1.25c-.1146 0-.2083.09375-.2083.20833v3.95837h-3.95837c-.11458 0-.20833.0937-.20833.2083v1.25c0 .1146.09375.2083.20833.2083h3.95837v3.9584c0 .1145.0937.2083.2083.2083h1.25c.1146 0 .2083-.0938.2083-.2083v-3.9584h3.9584c.1145 0 .2083-.0937.2083-.2083v-1.25c0-.1146-.0938-.2083-.2083-.2083z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Task Alt icon. */
+export function IconCheckmark({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="m21 5.862-10.269 10.278-3.816-3.816 1.269-1.269 2.547 2.547 9-9zm-1.989 4.536c.117.513.189 1.053.189 1.602 0 3.978-3.222 7.2-7.2 7.2s-7.2-3.222-7.2-7.2 3.222-7.2 7.2-7.2c1.422 0 2.736.414 3.852 1.125l1.296-1.296c-1.458-1.026-3.231-1.629-5.148-1.629-4.968 0-9 4.032-9 9s4.032 9 9 9 9-4.032 9-9c0-1.071-.198-2.097-.54-3.051z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design Radio Button Unchecked icon. */
+export function IconRadioButtonUnchecked({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="24px"
+            viewBox="0 0 24 24"
+            width="24px"
+            fill="#00000080"
+            style={style}
+        >
+            <path d="M0 0h24v24H0z" fill="none" />
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
         </svg>
     )
 }
@@ -333,6 +330,19 @@ export function IconSettings({ style }: { style?: CSSProperties }): JSX.Element 
     )
 }
 
+/** Material Design Dns icon. */
+export function IconServer({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
+            <path d="m0 0h24v24h-24z" fill="none" />
+            <path
+                d="m19 15v4h-14v-4zm1-2h-16c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zm-13 5.5c-.82 0-1.5-.67-1.5-1.5s.68-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm12-13.5v4h-14v-4zm1-2h-16c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zm-13 5.5c-.82 0-1.5-.67-1.5-1.5s.68-1.5 1.5-1.5 1.5.68 1.5 1.5-.67 1.5-1.5 1.5z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Menu icon. */
 export function IconMenu(): JSX.Element {
     return (
@@ -366,6 +376,56 @@ export function IconSync(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
+/** Material Design Subtitles icon. */
+export function IconSubtitles(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m20 4h-16c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm0 14h-16v-12h16zm-14-8h2v2h-2zm0 4h8v2h-8zm10 0h2v2h-2zm-6-4h8v2h-8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Subtitles Off icon. */
+export function IconSubtitlesOff(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m20.0001 4h-13.17002l2 2h11.17002v11.17l1.76 1.76c.15-.28.24-.59.24-.93v-12c0-1.1-.9-2-2-2z" />
+                <path d="m18.0001 10h-5.17l2 2h3.17z" />
+                <path d="m1.04004 3.86922 1.2 1.2c-.15.28-.24.59-.24.93v11.99998c0 1.1.9 2 2 2h13.16996l2.96 2.96 1.41-1.41-19.08996-19.09998zm2.96 2.96 3.17 3.17h-1.17v1.99998h2v-1.17l3.16996 3.17h-5.16996v2h7.16996l2 2h-11.16996z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Calculate icon. */
+export function IconCalculate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m19 3h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z" />
+                <path d="m11.25 7.7207h-5v1.5h5z" />
+                <path d="m18 15.75h-5v1.5h5z" />
+                <path d="m18 13.25h-5v1.5h5z" />
+                <path d="m8 18h1.5v-2h2v-1.5h-2v-2h-1.5v2h-2v1.5h2z" />
+                <path d="m14.09 10.95 1.41-1.41 1.41 1.41 1.06-1.06-1.41-1.42 1.41-1.41-1.06-1.06-1.41 1.41-1.41-1.41-1.06 1.06 1.41 1.41-1.41 1.42z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Subdirectory Arrow Right icon. */
+export function IconSubdirectoryArrowRight(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
 export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -380,9 +440,9 @@ export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Ele
 }
 
 /** Material Design Assistant Photo icon. */
-export function IconFlag(): JSX.Element {
+export function IconFlag(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m12.36 6 .08.39.32 1.61h5.24v6h-3.36l-.08-.39-.32-1.61h-7.24v-6zm1.64-2h-9v17h2v-7h5.6l.4 2h7v-10h-5.6z"
                 fill="currentColor"
@@ -425,9 +485,9 @@ export function IconExtension(): JSX.Element {
 }
 
 /** Material Design Groups icon. */
-export function IconCohort(): JSX.Element {
+export function IconCohort(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58-.74.32-1.22 1.04-1.22 1.85v1.57h4.5v-1.61c0-.83.23-1.61.63-2.29zm14.87-1.1c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29v1.61h4.5zm-7.76-2.78c-1.17-.52-2.61-.9-4.24-.9s-3.07.39-4.24.9c-1.08.48-1.76 1.56-1.76 2.74v1.61h12v-1.61c0-1.18-.68-2.26-1.76-2.74zm-8.17 2.35c.09-.23.13-.39.91-.69.97-.38 1.99-.56 3.02-.56s2.05.18 3.02.56c.77.3.81.46.91.69zm3.93-8c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm0-2c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
                 fill="currentColor"
@@ -460,6 +520,27 @@ export function IconExclamation(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
     )
 }
 
+/** Material Design Error Outline icon. */
+export function IconErrorOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 15h2v2h-2zm0-8h2v6h-2zm.99-5c-5.52 0-9.99 4.48-9.99 10s4.47 10 9.99 10c5.53 0 10.01-4.48 10.01-10s-4.48-10-10.01-10zm.01 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Warning Amber Outline icon. */
+export function IconWarningAmber(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
 /** Material Design Comment icon. */
 export function IconComment(): JSX.Element {
     return (
@@ -472,7 +553,7 @@ export function IconComment(): JSX.Element {
     )
 }
 
-/** Material Design Comment Outlined icon. */
+/** Material Design Person Outlined icon. */
 export function IconPerson(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -484,7 +565,7 @@ export function IconPerson(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Comment Filled icon. */
+/** Material Design Person Filled icon. */
 export function IconPersonFilled(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
@@ -497,6 +578,23 @@ export function IconPersonFilled(props: React.SVGProps<SVGSVGElement>): JSX.Elem
         >
             <path d="M0 0h24v24H0z" fill="none" />
             <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+        </svg>
+    )
+}
+
+/** Material Design Emoji People icon. */
+export function IconEmojiPeople(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            {...props}
+        >
+            <circle cx="12" cy="4" r="2" />
+            <path d="m15.89 8.11c-.39-.39-1.06-1.11-2.36-1.11-.21 0-1.42 0-2.54 0-2.75-.01-4.99-2.25-4.99-5h-2c0 3.16 2.11 5.84 5 6.71v13.29h2v-6h2v6h2v-11.95l3.95 3.95 1.41-1.41z" />
         </svg>
     )
 }
@@ -632,7 +730,6 @@ export function IconCopy(props: React.SVGProps<SVGSVGElement>): JSX.Element {
 export function IconOpenInNew(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
-            <path d="m0 0h24v24h-24z" fill="none" />
             <path
                 d="m19 19h-14v-14h7v-2h-7c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-5-16v2h3.59l-9.83 9.83 1.41 1.41 9.83-9.83v3.59h2v-7z"
                 fill="currentColor"
@@ -656,21 +753,36 @@ export function IconBill(): JSX.Element {
     )
 }
 
-// AntD arrows rotated at convenient angles
-
-export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+/** Material Design Trending Flat icon. */
+export function IconTrendingFlat(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <span className="anticon anticon-wraper-arrow bottomRight">
-            <ArrowUpOutlined style={style} />
-        </span>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m20 12-4-4v3h-12v2h12v3z" fill="currentColor" />
+        </svg>
     )
 }
 
-export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+/** Material Design Trending Flat icon, rotated to indicate dropoff. This is different from Trending Down. */
+export function IconTrendingFlatDown(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <span className="anticon anticon-wraper-arrow topRight">
-            <ArrowUpOutlined style={style} />
-        </span>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m17.6567 17.6558v-5.6568l-2.1214 2.1213-8.48523-8.48531-1.41422 1.41422 8.48525 8.48529-2.1213 2.1213z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Schedule (clock) icon. */
+export function IconSchedule(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11.992 4c-4.416 0-7.992 3.584-7.992 8s3.576 8 7.992 8c4.424 0 8.008-3.584 8.008-8s-3.584-8-8.008-8zm.008 14.4c-3.536 0-6.4-2.864-6.4-6.4s2.864-6.4 6.4-6.4 6.4 2.864 6.4 6.4-2.864 6.4-6.4 6.4zm.4-10.4h-1.2v4.8l4.2 2.52.6-.984-3.6-2.136z"
+                fill="currentColor"
+            />{' '}
+        </svg>
     )
 }
 
@@ -774,9 +886,9 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
     )
 }
 
-export function PageviewIcon(): JSX.Element {
+export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -787,9 +899,9 @@ export function PageviewIcon(): JSX.Element {
     )
 }
 
-export function AutocaptureIcon(): JSX.Element {
+export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
                 fill="currentColor"
@@ -807,9 +919,9 @@ export function AutocaptureIcon(): JSX.Element {
     )
 }
 
-export function PageleaveIcon(): JSX.Element {
+export function PageleaveIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
                 fill="currentColor"
@@ -866,12 +978,72 @@ export function IconClose(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Delete icon. */
+/** Material Design Cancel icon. */
+export function IconCancel(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m12 2c-5.53 0-10 4.47-10 10s4.47 10 10 10 10-4.47 10-10-4.47-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13-3.59 3.59-3.59-3.59-1.41 1.41 3.59 3.59-3.59 3.59 1.41 1.41 3.59-3.59 3.59 3.59 1.41-1.41-3.59-3.59 3.59-3.59z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Delete (Trash) icon. */
 export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path
                 d="m16 9v10h-8v-10zm-1.5-6h-5l-1 1h-3.5v2h14v-2h-3.5zm3.5 4h-12v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Edit / Create / Mode icon. */
+export function IconEdit(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m14.06 9.02.92.92-9.06 9.06h-.92v-.92zm3.6-6.02c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19-11.06 11.06v3.75h3.75l11.06-11.06z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Save icon. */
+export function IconSave(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m17 3h-12c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-12zm2 16h-14v-14h11.17l2.83 2.83zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm-6-6h9v4h-9z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Lock icon. */
+export function IconLock(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m18 8h-1v-2c0-2.76-2.24-5-5-5s-5 2.24-5 5v2h-1c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zm-9-2c0-1.66 1.34-3 3-3s3 1.34 3 3v2h-6zm9 14h-12v-10h12zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Lock Open icon. */
+export function IconLockOpen(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m18 8h-1v-2c0-2.76-2.24-5-5-5s-5 2.24-5 5h2c0-1.66 1.34-3 3-3s3 1.34 3 3v2h-9c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zm0 12h-12v-10h12zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"
                 fill="currentColor"
             />
         </svg>
@@ -886,6 +1058,51 @@ export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Ele
                 d="m14.12 10.47-2.12 2.12-2.13-2.12-1.41 1.41 2.13 2.12-2.12 2.12 1.41 1.41 2.12-2.12 2.12 2.12 1.41-1.41-2.12-2.12 2.12-2.12zm1.38-6.47-1-1h-5l-1 1h-3.5v2h14v-2zm-9.5 15c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-12h-12zm2-10h8v10h-8z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design Workspace Premium icon. */
+export function IconPremium(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m9.68 13.69 2.32-1.76 2.31 1.76-.88-2.85 2.32-1.84h-2.84l-.91-2.81-.91 2.81h-2.84l2.31 1.84zm10.32-3.69c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 2.03.76 3.87 2 5.28v7.72l6-2 6 2v-7.72c1.24-1.41 2-3.25 2-5.28zm-8-6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6 2.69-6 6-6zm0 15-4 1.02v-3.1c1.18.68 2.54 1.08 4 1.08s2.82-.4 4-1.08v3.1z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Refresh icon. */
+export function IconRefresh(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m17.65 6.35c-1.45-1.45-3.44-2.35-5.65-2.35-4.41999 0-7.98999 3.58-7.98999 8s3.57 8 7.98999 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.30999 0-5.99999-2.69-5.99999-6s2.69-6 5.99999-6c1.66 0 3.14.69 4.22 1.78l-3.22 3.22h7v-7z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconPlay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="m10 8.64 5.27 3.36-5.27 3.36zm-2-3.64v14l11-7z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconReplay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m12 5v-4l-5 5 5 5v-4c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+                fill="currentColor"
+            />{' '}
         </svg>
     )
 }
@@ -910,15 +1127,11 @@ export function IconKeyboard(props: React.SVGProps<SVGSVGElement>): JSX.Element 
 /** Material Design Search icon. */
 export function IconMagnifier(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg
-            width="1em"
-            height="1em"
-            viewBox="0 0 18 18"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="currentColor"
-            {...props}
-        >
-            <path d="M12.5 11H11.71L11.43 10.73C12.41 9.59 13 8.11 13 6.5C13 2.91 10.09 0 6.5 0C2.91 0 0 2.91 0 6.5C0 10.09 2.91 13 6.5 13C8.11 13 9.59 12.41 10.73 11.43L11 11.71V12.5L16 17.49L17.49 16L12.5 11ZM6.5 11C4.01 11 2 8.99 2 6.5C2 4.01 4.01 2 6.5 2C8.99 2 11 4.01 11 6.5C11 8.99 8.99 11 6.5 11Z" />
+        <svg width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m15.5 14h-.79l-.28-.27c.98-1.14 1.57-2.62 1.57-4.23 0-3.59-2.91-6.5-6.5-6.5s-6.5 2.91-6.5 6.5 2.91 6.5 6.5 6.5c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99 1.49-1.49zm-6 0c-2.49 0-4.5-2.01-4.5-4.5s2.01-4.5 4.5-4.5 4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5z"
+                fill="currentColor"
+            />{' '}
         </svg>
     )
 }
@@ -950,6 +1163,279 @@ export function IconHeatmap(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M17.5 1.49056C17.5 0.00305736 15.5844 -0.557568 14.7406 0.675557C7 11.9899 18 12.4993 18 17.9993C18 20.2262 16.1806 22.0281 13.9469 21.9987C11.7487 21.9706 10 20.1381 10 17.9399V12.5956C10 11.2393 8.34562 10.5812 7.41062 11.5643C5.7375 13.3218 4 16.3324 4 19.9993C4 26.6162 9.38312 31.9993 16 31.9993C22.6169 31.9993 28 26.6162 28 19.9993C28 9.35618 17.5 7.93681 17.5 1.49056V1.49056Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export interface UnverifiedEventStackProps extends React.SVGProps<SVGSVGElement> {
+    width?: string
+    height?: string
+}
+
+export function UnverifiedEventStack({
+    width = '20',
+    height = '20',
+    ...props
+}: UnverifiedEventStackProps): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function VerifiedEventStack({ width = 26, height = 26, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 26 26"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
+                fill="currentColor"
+            />
+            <path
+                d="M18.7289 21.0449L17.0628 19.3716L16 20.4417L18.7289 23.1777L24 17.8923L22.9372 16.8223L18.7289 21.0449Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function ActionStack({ width = 20, height = 20, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM10.6851 10.3414L10.1453 11.9998H8.49756L11.0082 4.72705H12.9897L15.4968 11.9998H13.8491L13.3093 10.3414H10.6851ZM11.9706 6.38898L11.0757 9.14111H12.9223L12.0274 6.38898H11.9706Z"
+                fill="#747EA2"
+            />
+        </svg>
+    )
+}
+
+export function CohortIcon({ width = 24, height = 12, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 12"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                d="M4 7C5.1 7 6 6.1 6 5C6 3.9 5.1 3 4 3C2.9 3 2 3.9 2 5C2 6.1 2.9 7 4 7ZM5.13 8.1C4.76 8.04 4.39 8 4 8C3.01 8 2.07 8.21 1.22 8.58C0.48 8.9 0 9.62 0 10.43V12H4.5V10.39C4.5 9.56 4.73 8.78 5.13 8.1ZM20 7C21.1 7 22 6.1 22 5C22 3.9 21.1 3 20 3C18.9 3 18 3.9 18 5C18 6.1 18.9 7 20 7ZM24 10.43C24 9.62 23.52 8.9 22.78 8.58C21.93 8.21 20.99 8 20 8C19.61 8 19.24 8.04 18.87 8.1C19.27 8.78 19.5 9.56 19.5 10.39V12H24V10.43ZM16.24 7.65C15.07 7.13 13.63 6.75 12 6.75C10.37 6.75 8.93 7.14 7.76 7.65C6.68 8.13 6 9.21 6 10.39V12H18V10.39C18 9.21 17.32 8.13 16.24 7.65ZM8.07 10C8.16 9.77 8.2 9.61 8.98 9.31C9.95 8.93 10.97 8.75 12 8.75C13.03 8.75 14.05 8.93 15.02 9.31C15.79 9.61 15.83 9.77 15.93 10H8.07ZM12 2C12.55 2 13 2.45 13 3C13 3.55 12.55 4 12 4C11.45 4 11 3.55 11 3C11 2.45 11.45 2 12 2ZM12 0C10.34 0 9 1.34 9 3C9 4.66 10.34 6 12 6C13.66 6 15 4.66 15 3C15 1.34 13.66 0 12 0Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function PropertyIcon({ width = 18, height = 10, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 18 10"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4ZM0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function VerifiedPropertyIcon({
+    width = 21,
+    height = 16,
+    ...props
+}: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 21 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H11H18V4H4V6ZM4 8H11V10H4V8ZM4 0V2H18V0H4ZM14.0628 11.5494L15.7289 13.2226L19.9372 9L21 10.07L15.7289 15.3555L13 12.6194L14.0628 11.5494Z"
+                fill="#77B96C"
+            />
+        </svg>
+    )
+}
+
+export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H13V20H2C0.9 20 0 19.1 0 18V4ZM20 2V13H18V2H6V14H13V16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0H18C19.1 0 20 0.9 20 2ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998ZM23.66 17.37L22.52 18.37C22.6 18.87 22.6 19.13 22.52 19.64L23.66 20.64L22.66 22.37L21.21 21.88C20.89 22.15 20.53 22.36 20.13 22.51L19.83 24H17.83L17.53 22.49C17.13 22.34 16.77 22.13 16.45 21.86L15 22.35L14 20.62L15.14 19.62C15.06 19.12 15.06 18.86 15.14 18.36L14 17.36L15 15.63L16.45 16.12C16.77 15.85 17.13 15.64 17.53 15.49L17.83 14H19.83L20.13 15.5C20.53 15.65 20.89 15.86 21.21 16.13L22.66 15.64L23.66 17.37ZM16.8301 19C16.8301 20.1 17.7301 21 18.8301 21C19.9301 21 20.8301 20.1 20.8301 19C20.8301 17.9 19.9301 17 18.8301 17C17.7301 17 16.8301 17.9 16.8301 19Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function LiveIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                d="M8.184 16.179C7.203 15.207 6.6 13.857 6.6 12.363C6.6 10.869 7.203 9.519 8.184 8.547L9.462 9.825C8.805 10.473 8.4 11.373 8.4 12.363C8.4 13.353 8.805 14.253 9.453 14.91L8.184 16.179ZM15.816 16.179C16.797 15.207 17.4 13.857 17.4 12.363C17.4 10.869 16.797 9.519 15.816 8.547L14.538 9.825C15.195 10.473 15.6 11.373 15.6 12.363C15.6 13.353 15.195 14.253 14.547 14.91L15.816 16.179ZM12 10.563C11.01 10.563 10.2 11.373 10.2 12.363C10.2 13.353 11.01 14.163 12 14.163C12.99 14.163 13.8 13.353 13.8 12.363C13.8 11.373 12.99 10.563 12 10.563ZM19.2 12.363C19.2 14.352 18.39 16.152 17.085 17.448L18.363 18.726C19.992 17.097 21 14.847 21 12.363C21 9.879 19.992 7.629 18.363 6L17.085 7.278C18.39 8.574 19.2 10.374 19.2 12.363ZM6.915 7.278L5.637 6C4.008 7.629 3 9.879 3 12.363C3 14.847 4.008 17.097 5.637 18.726L6.915 17.448C5.61 16.152 4.8 14.352 4.8 12.363C4.8 10.374 5.61 8.574 6.915 7.278Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Cottage icon. */
+export function IconCottage(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11.9 4.8 5.4 4.122v-1.422h1.8v2.799l2.7 2.061-1.089 1.431-1.611-1.233v8.442h-14.39995v-8.442l-1.611 1.224-1.089-1.422zm-5.39995 14.4h4.49995v-3.6h1.8v3.6h4.5v-8.01l-5.4-4.122-5.39995 4.122zm7.19995-16.2c0 1.494 1.206 2.7 2.7 2.7.495 0 .9.405.9.9h1.8c0-1.494-1.206-2.7-2.7-2.7-.495 0-.9-.405-.9-.9z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconCorporate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12 7V3H2V21H22V7H12ZM10 19H4V17H10V19ZM10 15H4V13H10V15ZM10 11H4V9H10V11ZM10 7H4V5H10V7ZM20 19H12V9H20V19ZM18 11H14V13H18V11ZM18 15H14V17H18V15Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Tune icon. */
+export function IconTuning(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M3,17V19H9V17H3M3,5V7H13V5H3M13,21V19H21V17H13V15H11V21H13M7,9V11H3V13H7V15H9V9H7M21,13V11H11V13H21M15,9H17V7H21V5H17V3H15V9Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Tray Arrow Down icon. */
+export function IconExport(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M2 12H4V17H20V12H22V17C22 18.11 21.11 19 20 19H4C2.9 19 2 18.11 2 17V12M12 15L17.55 9.54L16.13 8.13L13 11.25V2H11V11.25L7.88 8.13L6.46 9.55L12 15Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Filter List icon. */
+export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
+            <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
+        </svg>
+    )
+}
+
+export function IconPlayCircle(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M9.99988 0C4.47988 0 -0.00012207 4.48 -0.00012207 10C-0.00012207 15.52 4.47988 20 9.99988 20C15.5199 20 19.9999 15.52 19.9999 10C19.9999 4.48 15.5199 0 9.99988 0ZM9.99988 18C5.58988 18 1.99988 14.41 1.99988 10C1.99988 5.59 5.58988 2 9.99988 2C14.4099 2 17.9999 5.59 17.9999 10C17.9999 14.41 14.4099 18 9.99988 18ZM7.49988 14.5L14.4999 10L7.49988 5.5V14.5Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconBookmarkBorder(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="15" height="18" viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12.5 0H2.5C1.4 0 0.5 0.9 0.5 2V18L7.5 15L14.5 18V2C14.5 0.9 13.6 0 12.5 0ZM12.5 15L7.5 12.82L2.5 15V2H12.5V15Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Upload File icon. */
+export function IconUploadFile(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M12,12L16,16H13.5V19H10.5V16H8L12,12Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Check Circle Outline icon. */
+export function IconCheckCircleOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M24 0.666748C11.12 0.666748 0.666626 11.1201 0.666626 24.0001C0.666626 36.8801 11.12 47.3334 24 47.3334C36.88 47.3334 47.3333 36.8801 47.3333 24.0001C47.3333 11.1201 36.88 0.666748 24 0.666748ZM24 42.6668C13.71 42.6668 5.33329 34.2901 5.33329 24.0001C5.33329 13.7101 13.71 5.33342 24 5.33342C34.29 5.33342 42.6666 13.7101 42.6666 24.0001C42.6666 34.2901 34.29 42.6668 24 42.6668ZM34.71 13.6867L19.3333 29.0634L13.29 23.0434L9.99996 26.3334L19.3333 35.6668L38 17.0001L34.71 13.6867Z"
                 fill="currentColor"
             />
         </svg>

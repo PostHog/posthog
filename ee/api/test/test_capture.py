@@ -8,11 +8,11 @@ from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.api.utils import get_team
+from posthog.api.utils import get_event_ingestion_context
 from posthog.test.base import APIBaseTest
 
 
-def mocked_get_team_from_token(_: Any) -> None:
+def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
@@ -78,7 +78,7 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEquals(type(kafka_produce_call1["data"]["uuid"]), str)
         self.assertEquals(type(kafka_produce_call2["data"]["uuid"]), str)
 
-    @patch("posthog.models.Team.objects.get_team_from_token", side_effect=mocked_get_team_from_token)
+    @patch("posthog.api.utils.get_event_ingestion_context_for_token", side_effect=mocked_get_ingest_context_from_token)
     @patch("posthog.api.capture.log_event_to_dead_letter_queue")
     def test_unable_to_fetch_team(self, log_event_to_dead_letter_queue, _):
         # In this situation we won't ingest the events, we'll add them to the dead letter queue
@@ -124,9 +124,9 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(log_event_to_dead_letter_queue_call2[4], "django_server_capture_endpoint")  # error_location
 
     # unit test the underlying util that handles the DB being down
-    @patch("posthog.models.Team.objects.get_team_from_token", side_effect=mocked_get_team_from_token)
+    @patch("posthog.api.utils.get_event_ingestion_context_for_token", side_effect=mocked_get_ingest_context_from_token)
     def test_determine_team_from_request_data_ch(self, _):
-        team, db_error, _ = get_team(HttpRequest(), {}, "")
+        team, db_error, _ = get_event_ingestion_context(HttpRequest(), {}, "")
 
         self.assertEqual(team, None)
         self.assertEqual(db_error, "Exception('test exception')")

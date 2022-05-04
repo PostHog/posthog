@@ -1,16 +1,15 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
+from posthog.models.action.util import format_action_filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.util import get_trunc_func_ch
 
 
-class StickinessEventsQuery(ClickhouseEventQuery):
+class StickinessEventsQuery(EnterpriseEventQuery):
     _entity: Entity
     _filter: StickinessFilter
 
@@ -19,7 +18,11 @@ class StickinessEventsQuery(ClickhouseEventQuery):
         super().__init__(*args, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        prop_query, prop_params = self._get_props(self._filter.properties + self._entity.properties)
+
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups)
+        )
+
         self.params.update(prop_params)
 
         actions_query, actions_params = self.get_actions_query()
@@ -37,7 +40,7 @@ class StickinessEventsQuery(ClickhouseEventQuery):
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp))) as num_intervals
+                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp, %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -56,11 +59,11 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
     def aggregation_target(self):
         return get_aggregation_target_field(
-            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS
+            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return format_action_filter(self._entity.get_action())
+            return format_action_filter(team_id=self._team_id, action=self._entity.get_action())
         else:
             return "event = %(event)s", {"event": self._entity.id}

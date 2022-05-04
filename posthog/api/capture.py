@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -9,17 +10,22 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception, configure_scope
+from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-from posthog.api.utils import get_data, get_team, get_token
+from posthog.api.utils import (
+    EventIngestionContext,
+    get_data,
+    get_event_ingestion_context,
+    get_token,
+    safe_clickhouse_string,
+)
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
-from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address
@@ -37,9 +43,9 @@ def parse_kafka_event_data(
 ) -> Dict:
     return {
         "uuid": str(event_uuid),
-        "distinct_id": distinct_id,
-        "ip": ip,
-        "site_url": site_url,
+        "distinct_id": safe_clickhouse_string(distinct_id),
+        "ip": safe_clickhouse_string(ip) if ip else ip,
+        "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "team_id": team_id,
         "now": now.isoformat(),
@@ -47,13 +53,14 @@ def parse_kafka_event_data(
     }
 
 
-def log_event(data: Dict, event_name: str) -> None:
+def log_event(data: Dict, event_name: str, partition_key: str) -> None:
     if settings.DEBUG:
         print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
+        KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
@@ -70,15 +77,15 @@ def log_event_to_dead_letter_queue(
 ):
     data = event.copy()
 
-    data["failure_timestamp"] = datetime.now().isoformat()
-    data["error_location"] = error_location
-    data["error"] = error_message
+    data["error_timestamp"] = datetime.now().isoformat()
+    data["error_location"] = safe_clickhouse_string(error_location)
+    data["error"] = safe_clickhouse_string(error_message)
     data["elements_chain"] = ""
     data["id"] = str(UUIDT())
-    data["event"] = event_name
+    data["event"] = safe_clickhouse_string(event_name)
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
-
+    data["tags"] = ["django_server"]
     data["event_uuid"] = event["uuid"]
     del data["uuid"]
 
@@ -132,10 +139,12 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
+def _ensure_web_feature_flags_in_properties(
+    event: Dict[str, Any], ingestion_context: EventIngestionContext, distinct_id: str
+):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags = get_overridden_feature_flags(team, distinct_id)
+        flags = get_overridden_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
         event["properties"]["$active_feature_flags"] = list(flags.keys())
         for k, v in flags.items():
             event["properties"][f"$feature/{k}"] = v
@@ -167,7 +176,7 @@ def get_event(request):
             ),
         )
 
-    team, db_error, error_response = get_team(request, data, token)
+    ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
 
     if error_response:
         return error_response
@@ -197,7 +206,7 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if not team or team.anonymize_ips else get_ip_address(request)
+    ip = None if not ingestion_context or ingestion_context.anonymize_ips else get_ip_address(request)
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
@@ -211,7 +220,7 @@ def get_event(request):
             else:
                 statsd.incr("invalid_event_uuid")
 
-        event = parse_event(event, distinct_id, team)
+        event = parse_event(event, distinct_id, ingestion_context)
         if not event:
             continue
 
@@ -236,9 +245,8 @@ def get_event(request):
             )
             continue
 
-        statsd.incr("posthog_cloud_plugin_server_ingestion")
         try:
-            capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+            capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:
             timer.stop()
             capture_exception(e, {"data": data})
@@ -263,7 +271,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_event(event, distinct_id, team):
+def parse_event(event, distinct_id, ingestion_context):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
@@ -275,8 +283,8 @@ def parse_event(event, distinct_id, team):
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
         scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
-    if team:
-        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+    if ingestion_context:
+        _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
     return event
 
@@ -305,4 +313,5 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         sent_at=sent_at,
         event_uuid=event_uuid,
     )
-    log_event(parsed_event, event["event"])
+    partition_key = hashlib.sha256(f"{team_id}:{distinct_id}".encode()).hexdigest()
+    log_event(parsed_event, event["event"], partition_key=partition_key)

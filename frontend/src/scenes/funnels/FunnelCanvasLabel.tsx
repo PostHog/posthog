@@ -62,6 +62,14 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
+        ...(filters.funnel_viz_type === FunnelVizType.Trends
+            ? [
+                  <>
+                      <span className="text-muted-alt">Conversion rate </span>
+                      <FunnelStepsPicker />
+                  </>,
+              ]
+            : []),
     ]
 
     return (

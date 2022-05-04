@@ -5,13 +5,13 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { ArrowBottomRightOutlined, IconInfinity } from 'lib/components/icons'
+import { IconTrendingFlatDown, IconInfinity } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
@@ -21,14 +21,16 @@ import {
     humanizeOrder,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStepReference, StepOrderValue } from '~/types'
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { FunnelStepDropdown } from './FunnelStepDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
+import { FunnelBarChart } from './FunnelBarChart'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 
 interface BarProps {
     percentage: number
@@ -285,7 +287,8 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
-export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Element {
+/** @deprecated */
+export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
@@ -298,24 +301,21 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         isModalActive,
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
     if (layout === FunnelLayout.vertical) {
-        return <FunnelStepTable />
+        return featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? (
+            <BindLogic logic={funnelLogic} props={insightProps}>
+                <FunnelBarChart {...props} />
+            </BindLogic>
+        ) : (
+            <FunnelStepTable />
+        )
     }
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div
-            data-attr="funnel-bar-graph"
-            className={clsx(
-                'funnel-bar-graph',
-                FunnelLayout.horizontal,
-                color && color !== 'white' && 'colored',
-                color
-            )}
-            style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
-        >
+        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
@@ -588,7 +588,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             disabled={!isModalActive}
                                         >
                                             <span className="value-inspector-button-icon">
-                                                <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                                <IconTrendingFlatDown style={{ color: 'var(--danger)' }} />
                                             </span>
                                             <b>
                                                 {humanizeStepCount(dropOffCount)}{' '}

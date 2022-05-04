@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
@@ -10,12 +11,16 @@ class AvailableFeature(str, Enum):
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
+    SSO_ENFORCEMENT = "sso_enforcement"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
+    EXPERIMENTATION = "experimentation"
+    TAGGING = "tagging"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -32,8 +37,10 @@ TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
+TRENDS_WORLD_MAP = "WorldMap"
 
-TRENDS_DISPLAY_BY_VALUE = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE]
+# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+NON_TIME_SERIES_DISPLAY_TYPES = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE, TRENDS_WORLD_MAP]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -54,6 +61,20 @@ INSIGHT_TO_DISPLAY = {
     "SESSIONS": TRENDS_LINEAR,
 }
 
+DISPLAY_TYPES = Literal[
+    "ActionsLineGraph",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPie",
+    "ActionsBar",
+    "ActionsBarValue",
+    "WorldMap",
+]
+
+DEPRECATED_DISPLAY_TYPES = Literal[
+    "PathsViz", "FunnelViz",
+]
+
 
 TRENDS_STICKINESS = "Stickiness"
 TRENDS_LIFECYCLE = "Lifecycle"
@@ -71,8 +92,10 @@ ACTIONS = "actions"
 EVENTS = "events"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
+PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
+SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
@@ -115,6 +138,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
@@ -147,6 +171,8 @@ PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
+
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group"]
 
 
 class FunnelOrderType(str, Enum):
@@ -189,5 +215,21 @@ class RetentionQueryType(str, Enum):
     TARGET_FIRST_TIME = "target_first_time"
 
 
+class ExperimentSignificanceCode(str, Enum):
+    SIGNIFICANT = "significant"
+    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
+    LOW_WIN_PROBABILITY = "low_win_probability"
+    HIGH_LOSS = "high_loss"
+    HIGH_P_VALUE = "high_p_value"
+
+
+class PropertyOperatorType(str, Enum):
+    AND = "AND"
+    OR = "OR"
+
+
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+BREAKDOWN_VALUES_LIMIT = 25
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
+CSV_EXPORT_LIMIT = 10000

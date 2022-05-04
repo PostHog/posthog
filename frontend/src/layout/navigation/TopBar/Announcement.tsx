@@ -5,8 +5,9 @@ import { CloseOutlined } from '@ant-design/icons'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 import { useActions, useValues } from 'kea'
-import { GroupsIntroductionBanner } from 'lib/introductions/GroupsIntroductionBanner'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LinkButton } from 'lib/components/LinkButton'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -23,10 +24,24 @@ export function Announcement(): JSX.Element | null {
                 <a href="https://posthog.com/signup">deploy your own PostHog instance, or sign up for PostHog Cloud</a>.
             </b>
         )
+    } else if (shownAnnouncementType === AnnouncementType.AttentionRequired) {
+        message = (
+            <div>
+                <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
+                next release.
+                <LinkButton
+                    to="/instance/async_migrations"
+                    className="NewFeatureAnnouncement__button"
+                    data-attr="site-banner-async-migrations"
+                >
+                    Click here to fix
+                </LinkButton>
+            </div>
+        )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
-    } else if (shownAnnouncementType === AnnouncementType.GroupAnalytics) {
-        message = <GroupsIntroductionBanner />
+    } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
+        message = <NewFeatureBanner />
     }
 
     return (

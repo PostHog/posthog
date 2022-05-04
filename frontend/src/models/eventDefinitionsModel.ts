@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { posthogEvents } from 'lib/utils'
-import { EventDefinition, SelectOption } from '~/types'
+import { EventDefinition } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,12 +11,7 @@ export interface EventDefinitionStorage {
     results: EventDefinition[]
 }
 
-interface EventsGroupedInterface {
-    label: string
-    options: SelectOption[]
-}
-
-export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
+export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage>>({
     path: ['models', 'eventDefinitionsModel'],
     actions: () => ({
         updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
@@ -91,29 +85,6 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
             (s) => [s.eventDefinitions],
             (eventDefinitions): EventDefinition[] =>
                 eventDefinitions.filter((definition) => !definition.name.startsWith('$')),
-        ],
-        customEventNames: [
-            (s) => [s.eventNames],
-            (eventNames): string[] => eventNames.filter((event) => !event.startsWith('$')),
-        ],
-        eventNamesGrouped: [
-            (s) => [s.eventNames],
-            (eventNames): EventsGroupedInterface[] => {
-                const data: EventsGroupedInterface[] = [
-                    { label: 'Custom events', options: [] },
-                    { label: 'PostHog events', options: [] },
-                ]
-
-                eventNames.forEach((name: string) => {
-                    const format = { label: name, value: name }
-                    if (posthogEvents.includes(name)) {
-                        return data[1].options.push(format)
-                    }
-                    data[0].options.push(format)
-                })
-
-                return data
-            },
         ],
     },
 })

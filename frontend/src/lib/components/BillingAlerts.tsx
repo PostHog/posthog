@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { WarningOutlined, ToolFilled } from '@ant-design/icons'
+import { WarningOutlined, AlertOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
@@ -15,7 +15,7 @@ export function BillingAlerts(): JSX.Element | null {
 
     return (
         <>
-            <div style={{ marginTop: 32 }} />
+            <div style={{ marginTop: '1.5rem' }} />
             {alertToShow === BillingAlertType.SetupBilling && (
                 <Card>
                     <div style={{ display: 'flex' }}>
@@ -39,13 +39,32 @@ export function BillingAlerts(): JSX.Element | null {
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                             <WarningOutlined className="text-warning" style={{ paddingRight: 16 }} />
                             <div>
-                                <b>Warning!</b> Nearing the monthly limit of events for your organization. You have
-                                already used{' '}
+                                <b>Warning!</b> Nearing the monthly limit of events or billing limit for your
+                                organization. You have already used{' '}
                                 <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
                                     {percentage && percentage * 100}%
                                 </b>{' '}
-                                of your event allocation this month. To avoid losing access to your data,{' '}
+                                of your event allocation this month. To avoid losing data or access to it,{' '}
                                 <b>we recommend upgrading</b> your billing plan now.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
+                            <LinkButton type="primary" to="/organization/billing">
+                                <ToolFilled /> Manage billing
+                            </LinkButton>
+                        </div>
+                    </div>
+                </Card>
+            )}
+            {alertToShow === BillingAlertType.UsageLimitExceeded && (
+                <Card>
+                    <div style={{ display: 'flex' }}>
+                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                            <AlertOutlined className="text-warning" style={{ paddingRight: 16 }} />
+                            <div>
+                                <b>Alert!</b> The monthly limit of events or billing limit for your organization has
+                                been exceeded. To avoid losing data or access to it, <b>we recommend increasing</b> your
+                                billing limit.
                             </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>

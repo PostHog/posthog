@@ -1,12 +1,12 @@
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
-from django.urls.base import reverse
+from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from posthog.api import (
     api_not_found,
@@ -14,47 +14,73 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    organizations_router,
+    project_dashboards_router,
     projects_router,
     router,
     signup,
     user,
 )
+from posthog.api.decide import hostname_in_app_urls
 from posthog.demo import demo_route
+from posthog.models import User
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+
+ee_urlpatterns: List[Any] = []
+try:
+    from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+except ImportError:
+    pass
+else:
+    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
 
+try:
+    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
+    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
+except ImportError:
+    pass
+else:
+    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
+
+
+@csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
-def login_view(request):
-    """
-    Checks if SAML is enforced and prevents using password authentication if it's the case.
-    """
-    if getattr(settings, "SAML_ENFORCED", False):
-        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
-    return home(request)
-
-
-def authorize_and_redirect(request):
+def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
-    url = request.GET["redirect"]
+    if not request.META.get("HTTP_REFERER"):
+        return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
+
+    current_team = cast(User, request.user).team
+    referer_url = urlparse(request.META["HTTP_REFERER"])
+    redirect_url = urlparse(request.GET["redirect"])
+
+    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
+
+    if referer_url.hostname != redirect_url.hostname:
+        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
+
+    if referer_url.scheme != redirect_url.scheme:
+        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=400)
+
+    if referer_url.port != redirect_url.port:
+        return HttpResponse(
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
+        )
+
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": urlparse(url).hostname, "redirect_url": url,},
+        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
     )
-
-
-# Try to include EE endpoints
-ee_urlpatterns: List[Any] = []
-from ee.urls import extend_api_router
-from ee.urls import urlpatterns as ee_urlpatterns
-
-extend_api_router(router, projects_router=projects_router)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
@@ -64,7 +90,14 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
 
 
 urlpatterns = [
-    # internals
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    # Optional UI:
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    # Health check probe endpoints for K8s
+    # NOTE: We have _health, livez, and _readyz. _health is deprecated and
+    # is only included for compatability with old installations. For new
+    # operations livez and readyz should be used.
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -94,20 +127,25 @@ urlpatterns = [
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
     opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
+    path(
+        "login/<str:backend>/", authentication.sso_login, name="social_begin"
+    ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
-    path("login", login_view),
 ]
 
 if settings.TEST:
 
+    # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.models import Event
+        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
+        from posthog.client import sync_execute
 
-        Event.objects.all().delete()
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))
@@ -120,6 +158,7 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "login",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

@@ -1,4 +1,3 @@
-import random
 from typing import Callable, Dict, List
 
 from django.utils.timezone import now
@@ -6,21 +5,32 @@ from django.utils.timezone import now
 from posthog.constants import (
     BREAKDOWN,
     BREAKDOWN_TYPE,
+    BREAKDOWNS,
     DATE_FROM,
     DISPLAY,
-    ENTITY_ID,
     ENTITY_TYPE,
+    EXCLUSIONS,
+    FUNNEL_LAYOUT,
+    FUNNEL_VIZ_TYPE,
     INSIGHT,
+    INSIGHT_LIFECYCLE,
+    INSIGHT_RETENTION,
     INSIGHT_TRENDS,
     INTERVAL,
-    PROPERTIES,
+    PERIOD,
+    RETENTION_FIRST_TIME,
+    RETENTION_TYPE,
+    RETURNING_ENTITY,
     SHOWN_AS,
+    TARGET_ENTITY,
     TREND_FILTER_TYPE_EVENTS,
-    TRENDS_CUMULATIVE,
-    TRENDS_PIE,
-    TRENDS_STICKINESS,
+    TRENDS_BAR_VALUE,
+    TRENDS_FUNNEL,
+    TRENDS_LIFECYCLE,
+    FunnelVizType,
 )
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
@@ -28,10 +38,9 @@ DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
-        dashboard=dashboard,
-        name="Daily Active Users (DAUs)",
+        name="Daily active users (DAUs)",
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -40,108 +49,139 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         last_refresh=now(),
         description="Shows the number of unique users that use your app every day.",
     )
-
-    Insight.objects.create(
-        team=dashboard.team,
+    DashboardTile.objects.create(
+        insight=insight,
         dashboard=dashboard,
-        name="Cumulative DAUs",
+        color="blue",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+        },
+    )
+
+    insight = Insight.objects.create(
+        team=dashboard.team,
+        name="Weekly active users (WAUs)",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
-            INTERVAL: "day",
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_CUMULATIVE,
+            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "weekly_active", "type": TREND_FILTER_TYPE_EVENTS}],
+            INTERVAL: "week",
             INSIGHT: INSIGHT_TRENDS,
         },
         last_refresh=now(),
-        color=random.choice(DASHBOARD_COLORS),
-        description="Shows the total cumulative number of unique users that have been using your app.",
+        description="Shows the number of unique users that use your app every week.",
+    )
+    DashboardTile.objects.create(
+        insight=insight,
+        dashboard=dashboard,
+        color="green",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
+        },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
-        dashboard=dashboard,
-        name="Repeat users over time",
+        name="Retention",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
-            ENTITY_ID: "$pageview",
+            TARGET_ENTITY: {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+            RETURNING_ENTITY: {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+            PERIOD: "Week",
+            RETENTION_TYPE: RETENTION_FIRST_TIME,
+            INSIGHT: INSIGHT_RETENTION,
+        },
+        last_refresh=now(),
+        description="Weekly retention of your users.",
+    )
+    DashboardTile.objects.create(
+        insight=insight,
+        dashboard=dashboard,
+        color="blue",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
+        },
+    )
+
+    insight = Insight.objects.create(
+        team=dashboard.team,
+        name="Growth accounting",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
             ENTITY_TYPE: TREND_FILTER_TYPE_EVENTS,
-            INTERVAL: "day",
-            SHOWN_AS: TRENDS_STICKINESS,
-            INSIGHT: INSIGHT_TRENDS,
+            INTERVAL: "week",
+            SHOWN_AS: TRENDS_LIFECYCLE,
+            INSIGHT: INSIGHT_LIFECYCLE,
+            DATE_FROM: "-30d",
         },
         last_refresh=now(),
-        color=random.choice(DASHBOARD_COLORS),
-        description="Shows you how many users visited your app for a specific number of days "
-        '(e.g. a user that visited your app twice in the time period will be shown under "2 days").',
+        description="How many of your users are new, returning, resurrecting, or dormant each week.",
+    )
+    DashboardTile.objects.create(
+        insight=insight,
+        dashboard=dashboard,
+        color="purple",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
+        },
     )
 
-    Insight.objects.create(
+    insight = Insight.objects.create(
         team=dashboard.team,
+        name="Referring domain (last 14 days)",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DISPLAY: TRENDS_BAR_VALUE,
+            BREAKDOWN: "$referring_domain",
+            DATE_FROM: "-14d",
+            BREAKDOWN_TYPE: "event",
+        },
+        last_refresh=now(),
+        description="Shows the most common referring domains for your users over the past 14 days.",
+    )
+    DashboardTile.objects.create(
+        insight=insight,
         dashboard=dashboard,
-        name="Sample - Purchase conversion funnel",
+        color="black",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3, "moved": False, "static": False},
+        },
+    )
+
+    insight = Insight.objects.create(
+        team=dashboard.team,
+        name="Pageview funnel, by browser",
         filters={
             TREND_FILTER_TYPE_EVENTS: [
-                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 0},
-                {
-                    "id": "$autocapture",
-                    "name": "Clicked purchase button",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    PROPERTIES: [
-                        {"key": "$event_type", "type": "event", "value": "click"},
-                        {"key": "text", "type": "element", "value": "Purchase"},
-                    ],
-                    "order": 1,
-                },
-                {
-                    "id": "$autocapture",
-                    "name": "Submitted checkout form",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    PROPERTIES: [
-                        {"key": "$event_type", "type": "event", "value": "submit"},
-                        {"key": "$pathname", "type": "event", "value": "/purchase"},
-                    ],
-                    "order": 2,
-                },
-                {"id": "Order Completed", "name": "Order Completed", "type": TREND_FILTER_TYPE_EVENTS, "order": 3},
+                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 0, "custom_name": "First page view"},
+                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 1, "custom_name": "Second page view"},
+                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 2, "custom_name": "Third page view"},
             ],
             INSIGHT: "FUNNELS",
+            FUNNEL_LAYOUT: "horizontal",
+            INTERVAL: "day",
+            BREAKDOWN_TYPE: "event",
+            BREAKDOWNS: [{"property": "$browser", "type": "event"}],
+            FUNNEL_VIZ_TYPE: FunnelVizType.STEPS,
+            DISPLAY: TRENDS_FUNNEL,
+            EXCLUSIONS: [],
         },
         last_refresh=now(),
         is_sample=True,
-        description="This is a sample of how a user funnel could look like. It represents the number of users that performed "
-        "a specific action at each step.",
+        description="This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
     )
-
-    Insight.objects.create(
-        team=dashboard.team,
+    DashboardTile.objects.create(
+        insight=insight,
         dashboard=dashboard,
-        name="Users by browser (last 2 weeks)",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
-            DATE_FROM: "-14d",
-            INTERVAL: "day",
-            BREAKDOWN_TYPE: "person",
-            BREAKDOWN: "$browser",
-            DISPLAY: TRENDS_PIE,
-            INSIGHT: INSIGHT_TRENDS,
+        color="green",
+        layouts={
+            "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3, "moved": False, "static": False},
         },
-        last_refresh=now(),
-        description="Shows a breakdown of browsers used to visit your app per unique users in the last 14 days.",
-    )
-
-    Insight.objects.create(
-        team=dashboard.team,
-        dashboard=dashboard,
-        name="Users by traffic source",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
-            INTERVAL: "day",
-            BREAKDOWN_TYPE: "event",
-            BREAKDOWN: "$initial_referring_domain",
-            INSIGHT: INSIGHT_TRENDS,
-        },
-        last_refresh=now(),
-        description="Shows a breakdown of where unique users came from when visiting your app.",
     )
 
 

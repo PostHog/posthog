@@ -33,6 +33,7 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
@@ -42,8 +43,9 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -124,7 +126,7 @@ export const commandPaletteLogic = kea<
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,
@@ -509,6 +511,13 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
                         icon: ProjectOutlined,
                         display: 'Go to Project settings',
                         executor: () => {
@@ -533,10 +542,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System status page',
+                        display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push(urls.systemStatus())
+                            push(urls.instanceStatus())
                         },
                     },
                     {
@@ -680,7 +689,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }

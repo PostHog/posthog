@@ -1,27 +1,16 @@
 import json
 import urllib.parse
 from unittest.mock import patch
-from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.client import sync_execute
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+from posthog.test.base import _create_event, _create_person
 
 
 class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
@@ -87,7 +76,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         )
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
-        self.assertEqual(len(people), 1)
+        self.assertEqual(people.count(), 1)
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort(self, _insert_cohort_from_insight_filter):
@@ -157,7 +146,111 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(
-            len(people),
+            people.count(),
+            1,
+            {
+                "a": sync_execute(
+                    "select person_id from person_static_cohort where team_id = {} and cohort_id = {} ".format(
+                        self.team.id, cohort.pk
+                    )
+                ),
+                "b": sync_execute(
+                    "select person_id from person_static_cohort FINAL where team_id = {} and cohort_id = {} ".format(
+                        self.team.id, cohort.pk
+                    )
+                ),
+            },
+        )
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_create_trends_cohort_arg_test(self, _insert_cohort_from_insight_filter):
+        # prior to 8124, subtitute parameters was called on insight cohorting which caused '%' in LIKE arguments to be interepreted as a missing parameter
+
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
+        with freeze_time("2021-01-01 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$domain": "https://app.posthog.com/123"},
+                timestamp="2021-01-01T12:00:00Z",
+            )
+
+        with freeze_time("2021-01-02 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$domain": "https://app.posthog.com/123"},
+                timestamp="2021-01-01T12:00:00Z",
+            )
+
+        params = {
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-01",
+            "display": "ActionsLineGraph",
+            "events": json.dumps([{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]),
+            "entity_id": "$pageview",
+            "entity_type": "events",
+            "insight": "TRENDS",
+            "interval": "day",
+            "properties": json.dumps(
+                [{"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}]
+            ),
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
+            {"name": "test", "is_static": True},
+        ).json()
+        cohort_id = response["id"]
+
+        _insert_cohort_from_insight_filter.assert_called_once_with(
+            cohort_id,
+            {
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
+                "display": "ActionsLineGraph",
+                "events": '[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]',
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+                "properties": '[{"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}]',
+            },
+        )
+        insert_cohort_from_insight_filter(
+            cohort_id,
+            {
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": None,
+                        "math_property": None,
+                        "math_group_type_index": None,
+                        "properties": [],
+                    }
+                ],
+                "properties": [
+                    {"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}
+                ],
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "insight": "TRENDS",
+                "interval": "day",
+            },
+        )
+        cohort = Cohort.objects.get(pk=cohort_id)
+        people = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(
+            people.count(),
             1,
             {
                 "a": sync_execute(
@@ -254,4 +347,4 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(len(people), 1)
+        self.assertEqual(people.count(), 1)

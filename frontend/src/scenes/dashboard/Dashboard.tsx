@@ -1,15 +1,12 @@
-import React from 'react'
-import { SceneLoading } from 'lib/utils'
+import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardMode } from '~/types'
+import { DashboardPlacement, DashboardMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -17,11 +14,12 @@ import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { DashboardHeader } from './DashboardHeader'
 
 interface Props {
     id?: string
     shareToken?: string
-    internal?: boolean
+    placement?: DashboardPlacement
 }
 
 export const scene: SceneExport = {
@@ -30,28 +28,32 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
 }
 
-export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element {
+export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
-            <DashboardView />
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken }}>
+            <DashboardView placement={placement} />
         </BindLogic>
     )
 }
 
-function DashboardView(): JSX.Element {
+function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
     const {
         dashboard,
-        allItemsLoading: loadingFirstTime,
+        canEditDashboard,
         items,
+        itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+
+    useEffect(() => {
+        reportDashboardViewed()
+    }, [])
 
     useKeyboardHotkeys(
-        dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
+        placement === DashboardPlacement.Public || placement === DashboardPlacement.InternalMetrics
             ? {}
             : {
                   e: {
@@ -60,7 +62,7 @@ function DashboardView(): JSX.Element {
                               dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
                               DashboardEventSource.Hotkey
                           ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
+                      disabled: !canEditDashboard || (dashboardMode !== null && dashboardMode !== DashboardMode.Edit),
                   },
                   f: {
                       action: () =>
@@ -69,18 +71,6 @@ function DashboardView(): JSX.Element {
                               DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
-                  },
-                  k: {
-                      action: () =>
-                          setDashboardMode(
-                              dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
-                              DashboardEventSource.Hotkey
-                          ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
-                  },
-                  n: {
-                      action: () => addGraph(),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
                   },
                   escape: {
                       // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
@@ -91,32 +81,31 @@ function DashboardView(): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (dashboardsLoading || loadingFirstTime) {
-        return <SceneLoading />
-    }
-
-    if (!dashboard) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
     return (
         <div className="dashboard">
-            {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
+            {placement !== DashboardPlacement.ProjectHomepage &&
+                placement !== DashboardPlacement.Public &&
+                placement !== DashboardPlacement.InternalMetrics && <DashboardHeader />}
+
             {receivedErrorsFromAPI ? (
-                <InsightErrorState title={'There was an error loading this dashboard'} />
+                <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
-                <EmptyDashboardComponent />
+                <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
                     <div className="dashboard-items-actions">
                         <div
                             className="left-item"
-                            style={dashboardMode === DashboardMode.Public ? { textAlign: 'right' } : undefined}
+                            style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                         >
-                            {dashboardMode === DashboardMode.Public ? <LastRefreshText /> : <DashboardReloadAction />}
+                            {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
-                        {dashboardMode !== DashboardMode.Public && (
+                        {placement !== DashboardPlacement.Public && (
                             <div
                                 className="right-item"
                                 style={{
@@ -132,6 +121,7 @@ function DashboardView(): JSX.Element {
                                     dateFrom={dashboardFilters?.date_from ?? undefined}
                                     dateTo={dashboardFilters?.date_to ?? undefined}
                                     onChange={setDates}
+                                    disabled={!canEditDashboard}
                                     makeLabel={(key) => (
                                         <>
                                             <CalendarOutlined />

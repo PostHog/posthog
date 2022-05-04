@@ -1,9 +1,9 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
+from posthog.models.utils import PersonPropertiesMode
 
 
 def get_entity_filtering_params(
@@ -18,7 +18,7 @@ def get_entity_filtering_params(
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
         action_query, action_params = format_action_filter(
-            action, table_name=table_name, person_properties_mode=person_properties_mode,
+            team_id=team_id, action=action, table_name=table_name, person_properties_mode=person_properties_mode,
         )
         params.update(action_params)
         content_sql_params = {"entity_query": f"AND {action_query}"}

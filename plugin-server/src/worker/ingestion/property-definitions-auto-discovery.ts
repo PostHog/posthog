@@ -1,9 +1,11 @@
-import {
-    DateTimePropertyTypeFormat,
-    PropertyType,
-    PropertyTypeFormat,
-    UnixTimestampPropertyTypeFormat,
-} from '../../types'
+import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeFormat } from '../../types'
+
+// magic copied from https://stackoverflow.com/a/54930905
+// allows candidate to be typed as any
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+export const isNumericString = (candidate: any): boolean => {
+    return !(candidate instanceof Array) && candidate - parseFloat(candidate) + 1 >= 0
+}
 
 export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
     UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
@@ -22,15 +24,11 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
-export function detectPropertyDefinitionTypes(
-    value: unknown,
-    key: string
-): { propertyType: PropertyType | null; propertyTypeFormat: PropertyTypeFormat | null } {
+export const detectPropertyDefinitionTypes = (value: unknown, key: string): PropertyType | null => {
     let propertyType: PropertyType | null = null
-    let propertyTypeFormat: PropertyTypeFormat | null = null
 
     /**
-     * Auto detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
+     * Auto-detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
      *
      * This tries to detect the most likely cases.
      *
@@ -64,14 +62,12 @@ export function detectPropertyDefinitionTypes(
      * 1641478347
      */
     const detectUnixTimestamps = () => {
-        Object.entries(unixTimestampPropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
+        Object.values(unixTimestampPropertyTypeFormatPatterns).find((pattern) => {
             if (
                 (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
                 String(value).match(pattern)
             ) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    UnixTimestampPropertyTypeFormat[dateTimeFormat as keyof typeof UnixTimestampPropertyTypeFormat]
                 return true
             }
         })
@@ -86,11 +82,13 @@ export function detectPropertyDefinitionTypes(
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
-        Object.entries(dateTimePropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
+        if (isNumericString(value)) {
+            propertyType = PropertyType.Numeric
+        }
+
+        Object.values(dateTimePropertyTypeFormatPatterns).find((pattern) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    DateTimePropertyTypeFormat[dateTimeFormat as keyof typeof DateTimePropertyTypeFormat]
                 return true
             }
         })
@@ -98,5 +96,12 @@ export function detectPropertyDefinitionTypes(
         detectUnixTimestamps()
     }
 
-    return { propertyType, propertyTypeFormat }
+    if (
+        typeof value === 'boolean' ||
+        (typeof value === 'string' && ['true', 'false'].includes(value.trim().toLowerCase()))
+    ) {
+        propertyType = PropertyType.Boolean
+    }
+
+    return propertyType
 }

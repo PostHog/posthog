@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, Insight, Person, PropertyDefinition
+from posthog.models import Action, ActionStep, Dashboard, DashboardTile, Insight, Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
@@ -50,9 +50,8 @@ class WebDataGenerator(DataGenerator):
         dashboard = Dashboard.objects.create(
             name="Web Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
         )
-        Insight.objects.create(
+        insight = Insight.objects.create(
             team=self.team,
-            dashboard=dashboard,
             name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
             filters={
@@ -69,6 +68,8 @@ class WebDataGenerator(DataGenerator):
                 "insight": "FUNNELS",
             },
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         start_day = random.randint(1, 7) if index > 0 else 0

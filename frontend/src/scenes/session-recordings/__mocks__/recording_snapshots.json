@@ -217,6 +217,62 @@
                     ]
                 },
                 "timestamp": 1639102187000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {}
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": [],
+                        "payload": [],
+                        "level": "log"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["Login (https://example.com/path/to/file.js:123:456)"],
+                        "payload": [null],
+                        "level": "log"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["Login (https://example.com/path/to/file.js:123:456)"],
+                        "payload": ["A big deal", "And a huge deal"],
+                        "level": "warn"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["adcfvertyu$rf3423"],
+                        "payload": "dcvrtbye",
+                        "level": "error"
+                    }
+                },
+                "timestamp": 1639078787000
             }
         ]
     }

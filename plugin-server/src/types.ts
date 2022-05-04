@@ -24,6 +24,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
+import { PromiseManager } from './worker/vm/promise-manager'
 
 export enum LogLevel {
     None = 'none',
@@ -41,6 +42,19 @@ export const logLevelToNumber: Record<LogLevel, number> = {
     [LogLevel.Log]: 30,
     [LogLevel.Warn]: 40,
     [LogLevel.Error]: 50,
+}
+
+export enum KafkaSecurityProtocol {
+    Plaintext = 'PLAINTEXT',
+    SaslPlaintext = 'SASL_PLAINTEXT',
+    Ssl = 'SSL',
+    SaslSsl = 'SASL_SSL',
+}
+
+export enum KafkaSaslMechanism {
+    Plain = 'plain',
+    ScramSha256 = 'scram-sha-256',
+    ScramSha512 = 'scram-sha-512',
 }
 
 export interface PluginsServerConfig extends Record<string, any> {
@@ -65,6 +79,10 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
+    KAFKA_SASL_USER: string | null
+    KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -100,13 +118,23 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
+    HEALTHCHECK_MAX_STALE_SECONDS: number
     CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
+    MAX_PENDING_PROMISES_PER_WORKER: number
+    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CONVERSION_BUFFER_ENABLED: boolean
+    CONVERSION_BUFFER_ENABLED_TEAMS: string
+    BUFFER_CONVERSION_SECONDS: number
+    PERSON_INFO_TO_REDIS_TEAMS: string
+    PERSON_INFO_CACHE_TTL: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -137,6 +165,7 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
+    promiseManager: PromiseManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -146,6 +175,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
+    conversionBufferEnabledTeams: Set<number>
 }
 
 export interface Pausable {
@@ -214,7 +244,7 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-
+export type PluginPublicJobPayload = Record<string, string>
 export interface Plugin {
     id: number
     organization_id: string
@@ -236,6 +266,8 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    public_jobs?: Record<string, PluginPublicJobPayload>
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -256,7 +288,7 @@ export interface PluginConfig {
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
-    updated_at: string
+    updated_at?: string
 }
 
 export interface PluginJsonConfig {
@@ -301,6 +333,13 @@ export enum PluginLogEntryType {
     Error = 'ERROR',
 }
 
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -330,6 +369,7 @@ export type WorkerMethods = {
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
 }
 
 export type VMMethods = {
@@ -370,6 +410,7 @@ export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    vmResponseVariable: string
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
@@ -498,6 +539,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }
@@ -613,6 +655,8 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
+    version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
@@ -715,6 +759,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean
@@ -800,8 +845,6 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -817,7 +860,6 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {
@@ -847,4 +889,25 @@ export enum OrganizationPluginsAccessLevel {
     CONFIG = 3,
     INSTALL = 6,
     ROOT = 9,
+}
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
+}
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
+}
+
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
 }

@@ -27,10 +27,10 @@ describe('Cohorts', () => {
 
         // save
         cy.get('[data-attr="save-cohort"]').click()
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('[data-attr=success-toast]').contains('Cohort saved').should('exist')
 
         // back to cohorts
-        cy.get('.ant-drawer-close').click({ force: true })
+        cy.clickNavMenu('cohorts')
         cy.get('tbody').contains('Test Cohort')
 
         it('Cohorts new and list', () => {

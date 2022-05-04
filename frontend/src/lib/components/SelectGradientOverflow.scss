@@ -2,13 +2,13 @@
 
 .ant-select-dropdown {
     .scrollable-above::after {
-        @extend .mixin-gradient-overlay;
+        @extend %mixin-gradient-overlay;
         background: linear-gradient(to bottom, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
         bottom: unset;
         top: 0;
     }
     .scrollable-below::after {
-        @extend .mixin-gradient-overlay;
+        @extend %mixin-gradient-overlay;
     }
 }
 

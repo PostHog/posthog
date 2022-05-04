@@ -1,18 +1,19 @@
 from ipaddress import ip_address, ip_network
-from typing import List
+from typing import List, Optional, cast
 
 from django.conf import settings
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import MiddlewareNotUsed
+from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.utils.cache import add_never_cache_headers
 
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+
 from .auth import PersonalAPIKeyAuthentication
 
 
-class AllowIP:
-
+class AllowIPMiddleware:
     trusted_proxies: List[str] = []
 
     def __init__(self, get_response):
@@ -69,39 +70,6 @@ class AllowIP:
         )
 
 
-class ToolbarCookieMiddleware(SessionMiddleware):
-    def process_response(self, request, response):
-        response = super().process_response(request, response)
-
-        # skip adding the toolbar 3rd party cookie on API requests
-        if request.path.startswith("/api/") or request.path.startswith("/e/") or request.path.startswith("/decide/"):
-            return response
-
-        toolbar_cookie_name = settings.TOOLBAR_COOKIE_NAME  # type: str
-        toolbar_cookie_secure = settings.TOOLBAR_COOKIE_SECURE  # type: bool
-
-        if (
-            toolbar_cookie_name not in response.cookies
-            and request.user
-            and request.user.is_authenticated
-            and request.user.toolbar_mode != "disabled"
-        ):
-            response.set_cookie(
-                toolbar_cookie_name,  # key
-                "yes",  # value
-                365 * 24 * 60 * 60,  # max_age = one year
-                None,  # expires
-                "/",  # path
-                None,  # domain
-                toolbar_cookie_secure,  # secure
-                True,  # httponly
-                "Lax",  # samesite, can't be set to "None" here :(
-            )
-            response.cookies[toolbar_cookie_name]["samesite"] = "None"  # must set explicitly
-
-        return response
-
-
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
     """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
 
@@ -118,7 +86,7 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
 
 
 # Work around cloudflare by default caching csv files
-class CSVNeverCacheMiddleware:
+class CsvNeverCacheMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -127,3 +95,62 @@ class CSVNeverCacheMiddleware:
         if request.path.endswith("csv"):
             add_never_cache_headers(response)
         return response
+
+
+class AutoProjectMiddleware:
+    """Automatic switching of the user's current project to that of the item being accessed if possible.
+
+    Sometimes you get sent a link to PostHog that points to an item from a different project than the one you currently
+    are in. With this middleware, if you have access to the target project, you are seamlessly switched to it,
+    instead of seeing a 404 eror.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if request.user.is_authenticated:
+            target_queryset = self.get_target_queryset(request)
+            if target_queryset is not None:
+                self.switch_team_if_needed_and_possible(request, target_queryset)
+        response = self.get_response(request)
+        return response
+
+    def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2:
+            if path_parts[0] == "dashboard":
+                dashboard_id = path_parts[1]
+                if dashboard_id.isnumeric():
+                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
+            elif path_parts[0] == "insights":
+                insight_short_id = path_parts[1]
+                return Insight.objects.filter(deleted=False, short_id=insight_short_id)
+            elif path_parts[0] == "feature_flags":
+                feature_flag_id = path_parts[1]
+                if feature_flag_id.isnumeric():
+                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+            elif path_parts[0] == "action":
+                action_id = path_parts[1]
+                if action_id.isnumeric():
+                    return Action.objects.filter(deleted=False, id=action_id)
+            elif path_parts[0] == "cohorts":
+                cohort_id = path_parts[1]
+                if cohort_id.isnumeric():
+                    return Cohort.objects.filter(deleted=False, id=cohort_id)
+        return None
+
+    def switch_team_if_needed_and_possible(self, request: HttpRequest, target_queryset: QuerySet):
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            actual_item = target_queryset.only("team").select_related("team").first()
+            if actual_item is not None:
+                actual_item_team: Team = actual_item.team
+                if actual_item_team.get_effective_membership_level(user.id) is not None:
+                    user.current_team = actual_item_team
+                    user.current_organization_id = actual_item_team.organization_id
+                    user.save()
+                    # Information for POSTHOG_APP_CONTEXT
+                    setattr(request, "switched_team", current_team.id)

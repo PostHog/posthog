@@ -17,7 +17,9 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
                 'Breadcrumbs__breadcrumb',
                 (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
             )}
-            onClick={() => breadcrumb.popup && setPopoverShown(!popoverShown)}
+            onClick={() => {
+                breadcrumb.popup && setPopoverShown(!popoverShown)
+            }}
             data-attr={`breadcrumb-${index}`}
         >
             {breadcrumb.symbol}
@@ -36,7 +38,15 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
 
     if (breadcrumb.popup) {
         return (
-            <Popup {...breadcrumb.popup} visible={popoverShown} onClickOutside={() => setPopoverShown(false)}>
+            <Popup
+                {...breadcrumb.popup}
+                visible={popoverShown}
+                onClickOutside={() => {
+                    if (popoverShown) {
+                        setPopoverShown(false)
+                    }
+                }}
+            >
                 {breadcrumbContent}
             </Popup>
         )

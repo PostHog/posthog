@@ -19,7 +19,6 @@ jobs:
         if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'performance')  }}
 
         env:
-            SAML_DISABLED: '1'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_test'
             REDIS_URL: 'redis://localhost'
             DEBUG: '1'
@@ -45,7 +44,7 @@ jobs:
                     - 5432:5432
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     # Maps port 6379 on service container to the host
                     # Needed because `redis` host is not discoverable for some reason
@@ -68,10 +67,10 @@ jobs:
                   repository: PostHog/benchmark-results
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Set up Python 3.8
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-benchmark-tests

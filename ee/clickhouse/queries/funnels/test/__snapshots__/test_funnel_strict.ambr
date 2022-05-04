@@ -3,8 +3,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -13,15 +12,15 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
-       AND NOT has([''], $group_0)
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -86,35 +85,27 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e.$group_0 as aggregation_target,
-                           e.$group_0 as $group_0,
+                           e."$group_0" as aggregation_target,
+                           e."$group_0" as "$group_0",
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59'
-                      AND NOT has([''], $group_0) ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+                      AND (NOT has([''], "$group_0")) ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -129,8 +120,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -139,14 +129,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -211,8 +201,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -234,10 +223,10 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -252,8 +241,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -262,14 +250,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -327,8 +315,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -350,10 +337,10 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -372,8 +359,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -382,14 +368,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -447,8 +433,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -470,10 +455,10 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -492,8 +477,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -502,14 +486,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -567,8 +551,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -590,10 +573,10 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -612,8 +595,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -622,14 +604,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -687,8 +669,7 @@
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'buy', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
@@ -710,10 +691,10 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-08 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,

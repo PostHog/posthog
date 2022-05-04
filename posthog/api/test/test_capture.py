@@ -19,7 +19,7 @@ from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
 from posthog.test.base import BaseTest
 
 
-def mocked_get_team_from_token(_: Any) -> None:
+def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
@@ -155,7 +155,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(kafka_produce)

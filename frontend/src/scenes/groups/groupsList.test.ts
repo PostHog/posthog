@@ -1,25 +1,22 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { groupsListLogic } from './groupsListLogic'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 describe('groupsListLogic', () => {
     let logic: ReturnType<typeof groupsListLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (`api/projects/${MOCK_TEAM_ID}/groups/?group_type_index=0` === pathname) {
-            return { result: ['result from api'], next: null, previous: null }
-        }
-    })
-
-    initKeaTestLogic({
-        logic: groupsListLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/${MOCK_TEAM_ID}/groups/': { result: ['result from api'], next: null, previous: null },
+            },
+        })
+        initKeaTests()
+        logic = groupsListLogic()
+        logic.mount()
     })
 
     beforeEach(() => {

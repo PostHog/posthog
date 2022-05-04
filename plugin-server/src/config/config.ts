@@ -1,8 +1,8 @@
 import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/utils'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
+import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
+import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -30,11 +30,16 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_PASSWORD: null,
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
         KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
         KAFKA_TRUSTED_CERT_B64: null,
+        KAFKA_SECURITY_PROTOCOL: null,
+        KAFKA_SASL_MECHANISM: null,
+        KAFKA_SASL_USER: null,
+        KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
@@ -73,13 +78,22 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
+        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         CAPTURE_INTERNAL_METRICS: false,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
-        NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
+        MAX_PENDING_PROMISES_PER_WORKER: 100,
+        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
+        CONVERSION_BUFFER_ENABLED: false,
+        CONVERSION_BUFFER_ENABLED_TEAMS: '',
+        BUFFER_CONVERSION_SECONDS: 60,
+        PERSON_INFO_TO_REDIS_TEAMS: '',
+        PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
     }
 }
 
@@ -94,6 +108,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_PASSWORD: 'ClickHouse password',
         CLICKHOUSE_CA: 'ClickHouse CA certs',
         CLICKHOUSE_SECURE: 'whether to secure ClickHouse connection',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS:
+            'whether to disallow external schemas like protobuf for clickhouse kafka engine',
         REDIS_URL: 'Redis store URL',
         BASE_DIR: 'base path for resolving local plugins',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
@@ -107,6 +123,10 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         KAFKA_CLIENT_CERT_B64: 'Kafka certificate in Base64',
         KAFKA_CLIENT_CERT_KEY_B64: 'Kafka certificate key in Base64',
         KAFKA_TRUSTED_CERT_B64: 'Kafka trusted CA in Base64',
+        KAFKA_SECURITY_PROTOCOL: 'Kafka security protocol, one of "PLAINTEXT", "SSL", "SASL_PLAINTEXT", or "SASL_SSL"',
+        KAFKA_SASL_MECHANISM: 'Kafka SASL mechanism, one of "plain", "scram-sha-256", or "scram-sha-512"',
+        KAFKA_SASL_USER: 'Kafka SASL username',
+        KAFKA_SASL_PASSWORD: 'Kafka SASL password',
         SENTRY_DSN: 'Sentry ingestion URL',
         STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
@@ -131,6 +151,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE:
             'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
+        HEALTHCHECK_MAX_STALE_SECONDS:
+            'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails',
         CAPTURE_INTERNAL_METRICS: 'capture internal metrics for posthog in posthog',
         PISCINA_USE_ATOMICS:
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
@@ -140,6 +162,13 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) teams for which to run the new person properties update flow on',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
+        MAX_PENDING_PROMISES_PER_WORKER:
+            '(advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.',
+        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY:
+            '(advanced) how many kafka partitions the plugin server should consume from concurrently',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
+            '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
     }
 }
 

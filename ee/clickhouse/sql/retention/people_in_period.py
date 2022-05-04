@@ -47,7 +47,7 @@ SELECT DISTINCT
 0,
 0,
 {actor_field_name}
-from events e 
+from events e
 {person_join}
 where {trunc_func}(e.timestamp) = {trunc_func}(toDateTime(%(start_date)s))
 AND e.team_id = %(team_id)s {target_query} {filters}
@@ -71,7 +71,7 @@ SELECT DISTINCT
 0,
 0,
 {actor_field_name}
-from events e 
+from events e
 {person_join}
 WHERE e.team_id = %(team_id)s {target_query} {filters}
 GROUP BY actor_id HAVING

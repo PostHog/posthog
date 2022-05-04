@@ -41,7 +41,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         validated_data["team"] = team
         try:
             requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
-                organization_id=team.organization_id, user__uuid=user_uuid
+                organization_id=team.organization_id, user__uuid=user_uuid, user__is_active=True,
             )
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
@@ -60,7 +60,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_level = self.context["team"].get_effective_membership_level(requesting_user)
+            requesting_level = self.context["team"].get_effective_membership_level(requesting_user.id)
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")
@@ -96,10 +96,13 @@ class ExplicitTeamMemberViewSet(
 ):
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
     pagination_class = None
-    queryset = ExplicitTeamMembership.objects.select_related("team", "parent_membership", "parent_membership__user")
+    queryset = ExplicitTeamMembership.objects.filter(parent_membership__user__is_active=True).select_related(
+        "team", "parent_membership", "parent_membership__user"
+    )
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
+    include_in_docs = False
 
     def get_serializer_context(self) -> Dict[str, Any]:
         serializer_context = super().get_serializer_context()

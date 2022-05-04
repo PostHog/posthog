@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -15,11 +15,14 @@ from posthog.constants import (
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
+    BREAKDOWN_VALUES_LIMIT,
+    BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
     COMPARE,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
+    DISPLAY_TYPES,
     EVENTS,
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
@@ -32,8 +35,10 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
+    TRENDS_WORLD_MAP,
 )
 from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
@@ -42,6 +47,25 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+
+
+class SmoothingIntervalsMixin(BaseParamMixin):
+    @cached_property
+    def smoothing_intervals(self) -> int:
+        interval_candidate_string = self._data.get(SMOOTHING_INTERVALS)
+        if not interval_candidate_string:
+            return 1
+        try:
+            interval_candidate = int(interval_candidate_string)
+            if interval_candidate < 1:
+                raise ValueError(f"Smoothing intervals must be a positive integer!")
+        except ValueError:
+            raise ValueError(f"Smoothing intervals must be a positive integer!")
+        return cast(int, interval_candidate)
+
+    @include_dict
+    def smoothing_intervals_to_dict(self):
+        return {SMOOTHING_INTERVALS: self.smoothing_intervals}
 
 
 class SelectorMixin(BaseParamMixin):
@@ -68,7 +92,7 @@ class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
     def filter_test_accounts(self) -> bool:
         setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
-        if setting == True or setting == "true":
+        if setting is True or setting == "true":
             return True
         return False
 
@@ -120,11 +144,20 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:
-        return self._data.get(BREAKDOWN_LIMIT)
+        if BREAKDOWN_LIMIT in self._data:
+            try:
+                return int(self._data[BREAKDOWN_LIMIT])
+            except ValueError:
+                pass
+        return None
 
     @property
     def breakdown_limit_or_default(self) -> int:
-        return self._breakdown_limit or 10
+        return self._breakdown_limit or (
+            BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+            if getattr(self, "display", None) == TRENDS_WORLD_MAP
+            else BREAKDOWN_VALUES_LIMIT
+        )
 
     @include_dict
     def breakdown_to_dict(self):
@@ -179,18 +212,7 @@ class InsightMixin(BaseParamMixin):
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(
-        self,
-    ) -> Literal[
-        "ActionsLineGraphLinear",
-        "ActionsLineGraphCumulative",
-        "ActionsTable",
-        "ActionsPieChart",
-        "ActionsBarChart",
-        "ActionsBarChartValue",
-        "PathsViz",
-        "FunnelViz",
-    ]:
+    def display(self,) -> Literal[DISPLAY_TYPES]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict
@@ -399,4 +421,16 @@ class EntityMathMixin(BaseParamMixin):
 class IncludeRecordingsMixin(BaseParamMixin):
     @cached_property
     def include_recordings(self) -> bool:
-        return self._data.get("include_recordings") == "true"
+        include_recordings = self._data.get("include_recordings")
+        return include_recordings is True or include_recordings == "true"
+
+    @include_dict
+    def include_recordings_to_dict(self):
+        return {"include_recordings": self.include_recordings} if self.include_recordings else {}
+
+
+class SearchMixin(BaseParamMixin):
+    @cached_property
+    def search(self) -> Optional[str]:
+        search = self._data.get("search", None)
+        return search

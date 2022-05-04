@@ -2,11 +2,14 @@ import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
-import { DateTimePropertyTypeFormat, Hub, PropertyType, UnixTimestampPropertyTypeFormat } from '../../../src/types'
+import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import {
+    dateTimePropertyTypeFormatPatterns,
+    isNumericString,
+} from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -327,10 +330,10 @@ describe('TeamManager()', () => {
         describe('auto-detection of property types', () => {
             const insertPropertyDefinitionQuery = `
 INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`
+DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS NULL`
             const teamId = 2
 
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
@@ -366,10 +369,54 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                        params: [expect.any(String), 'anObjectProperty', false, teamId, null],
                     },
                     postgresQuery
                 )
+            })
+
+            const boolTestCases = [
+                true,
+                false,
+                'true',
+                'false',
+                'True',
+                'False',
+                'TRUE',
+                'FALSE',
+                ' true ',
+                ' false',
+                'true ',
+            ]
+            boolTestCases.forEach((testcase) => {
+                it(`identifies ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).toEqual('Boolean')
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [expect.any(String), 'some_bool', false, teamId, 'Boolean'],
+                        },
+                        postgresQuery
+                    )
+                })
+            })
+
+            // i.e. not using truthiness to detect whether something is boolean
+            const notBoolTestCases = [0, 1, '0', '1', 'yes', 'no', null, undefined, '', [], ' ']
+            notBoolTestCases.forEach((testcase) => {
+                it(`does not identify ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).not.toEqual('Boolean')
+                })
             })
 
             it('identifies a numeric type', async () => {
@@ -383,7 +430,24 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null],
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric'],
+                    },
+                    postgresQuery
+                )
+            })
+
+            it('identifies a numeric type sent as a string', async () => {
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_number: String(randomInteger()),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric'],
                     },
                     postgresQuery
                 )
@@ -400,7 +464,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_string', false, teamId, 'String', null],
+                        params: [expect.any(String), 'some_string', false, teamId, 'String'],
                     },
                     postgresQuery
                 )
@@ -413,49 +477,41 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a number',
                     date: 1234567890.123,
-                    expectedPropertyTypeFormat: 'unix_timestamp',
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a number',
                     date: 1234567890.12345,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a number',
                     date: 1234567890,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
                     date: '1234567890',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a number',
                     date: 1234567890123,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a string',
                     date: '1234567890123',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
                     expectedPropertyType: PropertyType.DateTime,
                 },
             ].flatMap((testcase) => {
@@ -468,16 +524,15 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const toNotMatch = {
                     ...toEdit,
-                    propertyKey: toEdit.propertyKey.replace('timestamp', 'string'),
-                    expectedPropertyType: typeof toEdit.date === 'string' ? PropertyType.String : PropertyType.Numeric,
-                    expectedPropertyTypeFormat: null,
+                    propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
+                    expectedPropertyType: isNumericString(toEdit.date) ? PropertyType.Numeric : PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
             })
 
             unixTimestampTestCases.forEach((testcase) => {
-                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyTypeFormat}`, async () => {
+                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyType}`, async () => {
                     const properties: Record<string, string | number> = {}
                     properties[testcase.propertyKey] = testcase.date
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
@@ -489,10 +544,9 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                             params: [
                                 expect.any(String),
                                 testcase.propertyKey,
-                                typeof testcase.date === 'number',
+                                testcase.expectedPropertyType === PropertyType.Numeric,
                                 teamId,
                                 testcase.expectedPropertyType,
-                                testcase.expectedPropertyTypeFormat,
                             ],
                         },
                         postgresQuery
@@ -505,7 +559,6 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             const dateTimeFormatTestCases: {
                 propertyKey: string
                 date: string
-                patternDescription: string
             }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternEnum: string) => {
                 const patternDescription: string =
                     DateTimePropertyTypeFormat[patternEnum as keyof typeof DateTimePropertyTypeFormat]
@@ -513,94 +566,76 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     return {
                         propertyKey: 'an_rfc_822_format_date',
                         date: 'Wed, 02 Oct 2002 15:00:00 +0200',
-                        patternDescription,
                     }
                 } else if (patternDescription === DateTimePropertyTypeFormat.ISO8601_DATE) {
                     return [
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+00',
                             date: '2022-01-15T11:18:49.233056+00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-00',
                             date: '2022-01-15T11:18:49.233056-00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+04',
                             date: '2022-01-15T11:18:49.233056+04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-04',
                             date: '2022-01-15T11:18:49.233056-04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056z',
                             date: '2022-01-15T11:18:49.233056z',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+00:00',
                             date: '2022-01-15T11:18:49.233+00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-00:00',
                             date: '2022-01-15T11:18:49.233-00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+04:00',
                             date: '2022-01-15T11:18:49.233+04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-04:00',
                             date: '2022-01-15T11:18:49.233-04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233z',
                             date: '2022-01-15T11:18:49.233z',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+00:00',
                             date: '2022-01-15T11:18:49+00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-00:00',
                             date: '2022-01-15T11:18:49-00:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+04:00',
                             date: '2022-01-15T11:18:49+04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-04:00',
                             date: '2022-01-15T11:18:49-04:00',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49z',
                             date: '2022-01-15T11:18:49z',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+11',
                             date: '2022-01-15T11:18:49+11',
-                            patternDescription,
                         },
                         {
                             propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+0530',
                             date: '2022-01-15T11:18:49+0530',
-                            patternDescription,
                         },
                     ]
                 } else {
@@ -615,17 +650,17 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     //iso timestamps can have fractional parts of seconds
                     if (date.includes('T')) {
                         return [
-                            { propertyKey: patternDescription, date, patternDescription },
-                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z'), patternDescription },
+                            { propertyKey: patternDescription, date },
+                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z') },
                         ]
                     } else {
-                        return { propertyKey: patternDescription, date, patternDescription }
+                        return { propertyKey: patternDescription, date }
                     }
                 }
             })
 
             dateTimeFormatTestCases.forEach((testcase) => {
-                it(`matches ${testcase.date} as ${testcase.patternDescription}`, async () => {
+                it(`matches ${testcase.date} as DateTime`, async () => {
                     const properties: Record<string, string> = {}
                     properties[testcase.propertyKey] = testcase.date
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
@@ -634,14 +669,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                         {
                             tag: 'insertPropertyDefinition',
                             query: insertPropertyDefinitionQuery,
-                            params: [
-                                expect.any(String),
-                                testcase.propertyKey,
-                                false,
-                                teamId,
-                                PropertyType.DateTime,
-                                testcase.patternDescription,
-                            ],
+                            params: [expect.any(String), testcase.propertyKey, false, teamId, PropertyType.DateTime],
                         },
                         postgresQuery
                     )
@@ -650,8 +678,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
             it('does identify type if the property was previously saved with no type', async () => {
                 await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
+                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null],
                     'testTag'
                 )
 
@@ -661,19 +689,19 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const results = await teamManager.db.postgresQuery(
                     `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    SELECT property_type from posthog_propertydefinition
                     where name=$1
                 `,
                     ['a_timestamp'],
                     'queryForProperty'
                 )
-                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: 'unix_timestamp' })
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime' })
             })
 
             it('does not replace property type if the property was previously saved with a different type', async () => {
                 await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
+                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime],
                     'testTag'
                 )
 
@@ -683,7 +711,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const results = await teamManager.db.postgresQuery(
                     `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    SELECT property_type from posthog_propertydefinition
                     where name=$1
                 `,
                     ['a_prop_with_type'],
@@ -691,7 +719,6 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 )
                 expect(results.rows[0]).toEqual({
                     property_type: PropertyType.DateTime,
-                    property_type_format: 'YYYY-MM-DD',
                 })
             })
 

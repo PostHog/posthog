@@ -1,5 +1,5 @@
-from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.materialized_columns.analyze import Query, TeamManager, analyze
+from ee.clickhouse.materialized_columns.analyze import Query, TeamManager
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Person, PropertyDefinition
 from posthog.test.base import BaseTest
@@ -10,7 +10,12 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.DUMMY_QUERIES = [
             (
-                f"SELECT JSONExtractString(properties, 'event_prop') FROM events WHERE team_id = {self.team.pk} AND trim(BOTH '\"' FROM JSONExtractRaw(properties, 'another_prop')",
+                f"""
+                SELECT JSONExtractString(properties, 'event_prop')
+                FROM events
+                WHERE team_id = {self.team.pk}
+                  AND {trim_quotes_expr("JSONExtractRaw(properties, 'another_prop')")}
+                """,
                 6723,
             ),
             (f"SELECT JSONExtractString(properties, 'person_prop') FROM person WHERE team_id = {self.team.pk}", 9723),

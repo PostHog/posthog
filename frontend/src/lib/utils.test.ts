@@ -23,8 +23,17 @@ import {
     floorMsToClosestSecond,
     dateMapping,
     getFormattedLastWeekDate,
+    genericOperatorMap,
+    dateTimeOperatorMap,
+    stringOperatorMap,
+    numericOperatorMap,
+    chooseOperatorMap,
+    booleanOperatorMap,
+    roundToDecimal,
+    convertPropertyGroupToProperties,
+    convertPropertiesToPropertyGroup,
 } from './utils'
-import { ActionFilter, ElementType, PropertyOperator } from '~/types'
+import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -161,6 +170,18 @@ describe('compactNumber()', () => {
         expect(compactNumber(null)).toEqual('-')
     })
 })
+
+describe('roundToDecimal()', () => {
+    it('formats number correctly', () => {
+        expect(roundToDecimal(null)).toEqual('-')
+        expect(roundToDecimal(293)).toEqual('293.00')
+        expect(roundToDecimal(102.121233)).toEqual('102.12')
+        expect(roundToDecimal(102.99999)).toEqual('103.00')
+        expect(roundToDecimal(1212)).toEqual('1212.00')
+        expect(roundToDecimal(1212, 3)).toEqual('1212.000')
+    })
+})
+
 describe('pluralize()', () => {
     it('handles singular cases', () => {
         expect(pluralize(1, 'member')).toEqual('1 member')
@@ -168,7 +189,7 @@ describe('pluralize()', () => {
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(28321, 'member')).toEqual('28 321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
@@ -511,6 +532,67 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             expect(floorMsToClosestSecond(0)).toEqual(0)
             expect(floorMsToClosestSecond(1000)).toEqual(1000)
             expect(floorMsToClosestSecond(-1000)).toEqual(-1000)
+        })
+    })
+
+    describe('choosing an operator for taxonomic filters', () => {
+        const testCases = [
+            { propertyType: PropertyType.DateTime, expected: dateTimeOperatorMap },
+            { propertyType: PropertyType.String, expected: stringOperatorMap },
+            { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
+            { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: undefined, expected: genericOperatorMap },
+        ]
+        testCases.forEach((testcase) => {
+            it(`correctly maps ${testcase.propertyType} to operator options`, () => {
+                expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
+            })
+        })
+    })
+})
+
+describe('convertPropertyGroupToProperties()', () => {
+    it('converts a single layer property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }, { key: '$current_url' }] },
+                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
+            { key: '$browser' },
+            { key: '$current_url' },
+            { key: '$lib' },
+        ])
+    })
+
+    it('converts a deeply nested property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
+    })
+})
+
+describe('convertPropertiesToPropertyGroup', () => {
+    it('converts properties to one AND operator property group', () => {
+        const properties = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
+                },
+            ],
         })
     })
 })

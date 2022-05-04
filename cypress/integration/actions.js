@@ -2,9 +2,9 @@ const createAction = (actionName) => {
     cy.get('[data-attr=create-action]').click()
     cy.get('.ant-card-head-title').should('contain', 'event or pageview')
     cy.get('[data-attr=new-action-pageview]').click()
-    cy.get('h1').should('contain', 'Creating action')
+    cy.get('[data-attr=action-name-create]').should('exist')
 
-    cy.get('[data-attr=edit-action-input]').type(actionName)
+    cy.get('[data-attr=action-name-create]').type(actionName)
     cy.get('.ant-radio-group > :nth-child(3)').click()
     cy.get('[data-attr=edit-action-url-input]').type(Cypress.config().baseUrl)
     cy.wait(300)
@@ -16,8 +16,8 @@ const createAction = (actionName) => {
 }
 
 function navigateToActionsTab() {
-    cy.clickNavMenu('events')
-    cy.get('[data-attr=events-actions-tab]').click()
+    cy.clickNavMenu('datamanagement')
+    cy.get('[data-attr=data-management-actions-tab]').click()
 }
 
 describe('Actions', () => {
@@ -57,6 +57,6 @@ describe('Actions', () => {
     it('Click on an action', () => {
         cy.get('[data-attr=actions-table]').should('exist')
         cy.get('[data-attr=action-link-0]').click()
-        cy.get('h1').should('contain', 'Editing action')
+        cy.get('[data-attr=action-name-edit]').should('exist')
     })
 })

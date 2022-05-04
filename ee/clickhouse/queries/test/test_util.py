@@ -4,13 +4,13 @@ from uuid import uuid4
 import pytz
 from freezegun.api import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.breakdown_props import _parse_breakdown_cohorts
-from ee.clickhouse.queries.util import get_earliest_timestamp
+from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
+from posthog.queries.util import get_earliest_timestamp
 
 
 def _create_event(**kwargs):
@@ -41,9 +41,7 @@ def test_get_earliest_timestamp_with_no_events(db, team):
 def test_parse_breakdown_cohort_query(db, team):
     action = Action.objects.create(team=team, name="$pageview")
     ActionStep.objects.create(action=action, event="$pageview")
-    cohort1 = Cohort.objects.create(
-        team=team, groups=[{"action_id": action.pk, "start_date": datetime(2020, 1, 8, 12, 0, 1)}], name="cohort1",
-    )
+    cohort1 = Cohort.objects.create(team=team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1",)
     queries, params = _parse_breakdown_cohorts([cohort1])
     assert len(queries) == 1
     sync_execute(queries[0], params)

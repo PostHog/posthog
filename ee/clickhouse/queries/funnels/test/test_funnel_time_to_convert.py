@@ -1,32 +1,19 @@
 import unittest
-from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
+    @snapshot_clickhouse_queries
     def test_auto_bin_count_single_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -62,7 +49,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -118,7 +105,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -171,7 +158,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
@@ -192,6 +179,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @snapshot_clickhouse_queries
     def test_auto_bin_count_total(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -223,7 +211,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         self.assertEqual(
@@ -241,12 +229,13 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         funnel_trends_steps_specified = ClickhouseFunnelTimeToConvert(
-            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team, ClickhouseFunnel
+            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team
         )
         results_steps_specified = funnel_trends_steps_specified.run()
 
         self.assertEqual(results, results_steps_specified)
 
+    @snapshot_clickhouse_queries
     def test_basic_unordered(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -275,6 +264,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
+                "funnel_order_type": FunnelOrderType.UNORDERED,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},
@@ -283,7 +273,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelUnordered)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -300,6 +290,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @snapshot_clickhouse_queries
     def test_basic_strict(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -336,6 +327,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
+                "funnel_order_type": FunnelOrderType.STRICT,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},
@@ -344,7 +336,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelStrict)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count

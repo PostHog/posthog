@@ -1,21 +1,12 @@
 from unittest.mock import ANY, patch
-from uuid import uuid4
 
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin
-from ee.models.license import License
 from ee.tasks.send_license_usage import send_license_usage
-from posthog.models import organization
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 
 class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -35,6 +26,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         )
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        flush_persons_and_events()
 
         send_license_usage()
         mock_post.assert_called_once_with(
@@ -64,7 +56,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         )
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
-
+        flush_persons_and_events()
         send_license_usage()
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
@@ -84,6 +76,8 @@ class SendLicenseUsageNoLicenseTest(APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+
+        flush_persons_and_events()
 
         send_license_usage()
 

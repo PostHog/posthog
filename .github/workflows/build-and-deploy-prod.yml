@@ -1,10 +1,15 @@
 name: Build & Deploy Production Containers
 
+#
+# Comment the `on:` section below if you want to stop deploys
+#
 on:
     push:
         branches:
             - master
             - main
+
+concurrency: 'prod_deploy' # Ensure only one of this runs at a time
 
 jobs:
     build:
@@ -152,6 +157,14 @@ jobs:
                   SLACK_TITLE: Message
                   SLACK_USERNAME: Max Hedgehog
                   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+            - name: Notify Grafana of deploy for annotations
+              uses: frankie567/grafana-annotation-action@v1.0.2
+              with:
+                  apiHost: https://metrics.posthog.net
+                  apiToken: ${{ secrets.GRAFANA_API_KEY }}
+                  text: Prod deployment of ${{ github.sha }} - ${{ github.event.head_commit.message }}
+                  tags: deployment,github
 
     slack:
         name: Notify Slack of start of deploy

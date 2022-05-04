@@ -1,4 +1,4 @@
-import { ActionFilter, EntityFilter, EntityTypes, FunnelStepRangeEntityFilter } from '~/types'
+import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 import { Typography } from 'antd'
 import React from 'react'
 import { TextProps } from 'antd/lib/typography/Text'
@@ -6,9 +6,10 @@ import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
-    filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
+    filter: EntityFilter | ActionFilter
     allowWrap?: boolean
     showSingleName?: boolean
+    style?: React.CSSProperties
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -23,6 +24,7 @@ export function EntityFilterInfo({
     filter,
     allowWrap = false,
     showSingleName = false,
+    style,
 }: EntityFilterInfoProps): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter, false)
 
@@ -36,7 +38,7 @@ export function EntityFilterInfo({
     // No custom name
     if (!filter?.custom_name) {
         return (
-            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>
                 <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
                     {titleToDisplay}
                 </TextWrapper>
@@ -48,7 +50,7 @@ export function EntityFilterInfo({
     const customTitle = getDisplayNameFromEntityFilter(filter, true)
 
     return (
-        <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+        <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>
             <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
                 {customTitle}
             </TextWrapper>

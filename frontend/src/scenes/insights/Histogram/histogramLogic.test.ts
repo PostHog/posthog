@@ -1,16 +1,15 @@
 import { histogramLogic } from './histogramLogic'
-import { BuiltLogic } from 'kea'
-import { histogramLogicType } from 'scenes/insights/Histogram/histogramLogicType'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { getConfig } from 'scenes/insights/Histogram/histogramUtils'
 import { FunnelLayout } from 'lib/constants'
 
 describe('histogramLogic', () => {
-    let logic: BuiltLogic<histogramLogicType>
+    let logic: ReturnType<typeof histogramLogic.build>
 
-    initKeaTestLogic({
-        logic: histogramLogic,
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        logic = histogramLogic()
+        logic.mount()
     })
 
     describe('values', () => {

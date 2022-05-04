@@ -1,20 +1,21 @@
 from datetime import date, datetime
 from itertools import groupby
-from typing import List, Optional, Tuple, Type, Union, cast
+from typing import List, Optional, Tuple, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.util import (
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
+from posthog.models.cohort import Cohort
+from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
+from posthog.queries.util import (
     format_ch_timestamp,
     get_earliest_timestamp,
     get_interval_func_ch,
     get_trunc_func_ch,
+    start_of_week_fix,
 )
-from posthog.models.cohort import Cohort
-from posthog.models.filters.filter import Filter
-from posthog.models.team import Team
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -54,15 +55,14 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
-    def __init__(
-        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-    ) -> None:
+    def __init__(self, filter: Filter, team: Team) -> None:
 
         super().__init__(filter, team)
 
-        self.funnel_order = funnel_order_class(filter, team)
+        self.funnel_order = get_funnel_order_class(filter)(filter, team)
 
     def _exec_query(self):
+
         return self._summarize_data(super()._exec_query())
 
     def get_step_counts_without_aggregation_query(
@@ -76,12 +76,18 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         if specific_entrance_period_start:
             self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
 
+        event_select_clause = ""
+        if self._filter.include_recordings:
+            max_steps = len(self._filter.entities)
+            event_select_clause = self._get_matching_event_arrays(max_steps)
+
         breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(timestamp) AS entrance_period_start,
+                {trunc_func}(toDateTime(timestamp, %(timezone)s)) AS entrance_period_start,
                 max(steps) AS steps_completed
+                {event_select_clause}
                 {breakdown_clause}
             FROM (
                 {steps_per_person_query}
@@ -134,7 +140,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s) + {interval_func}(number)) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number), {start_of_week_fix(self._filter)} %(timezone)s) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}

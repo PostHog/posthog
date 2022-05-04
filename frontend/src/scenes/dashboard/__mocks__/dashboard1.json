@@ -1,0 +1,1296 @@
+{
+    "id": 1,
+    "name": "My App Dashboard",
+    "description": "",
+    "pinned": true,
+    "items": [
+        {
+            "id": 2,
+            "short_id": "W88Cowcy",
+            "name": "Cumulative DAUs",
+            "derived_name": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "type": "events"
+                    }
+                ],
+                "display": "ActionsLineGraphCumulative",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-7d",
+                "date_to": null
+            },
+            "filters_hash": "cache_047cf098889443aedbcf8dc0d8324f30",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": "black",
+            "last_refresh": "2022-03-14T21:19:49.471076Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": null,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "dau",
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    "label": "$pageview",
+                    "count": 26891,
+                    "data": [6783, 17005, 23595, 25772, 26838, 26838, 26838, 26891],
+                    "labels": [
+                        "7-Mar-2022",
+                        "8-Mar-2022",
+                        "9-Mar-2022",
+                        "10-Mar-2022",
+                        "11-Mar-2022",
+                        "12-Mar-2022",
+                        "13-Mar-2022",
+                        "14-Mar-2022"
+                    ],
+                    "days": [
+                        "2022-03-07",
+                        "2022-03-08",
+                        "2022-03-09",
+                        "2022-03-10",
+                        "2022-03-11",
+                        "2022-03-12",
+                        "2022-03-13",
+                        "2022-03-14"
+                    ],
+                    "persons_urls": [
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-07"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-07&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-08"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-08&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-09"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-09&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-10"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-10&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-11"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-11&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-12"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-12&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-13"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-13&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau",
+                                "date_from": "2022-03-07T00:00:00Z",
+                                "date_to": "2022-03-14"
+                            },
+                            "url": "api/projects/1/actions/people/?date_from=2022-03-07+00%3A00%3A00%2B00%3A00&date_to=2022-03-14&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        }
+                    ],
+                    "filter": {
+                        "date_from": "-7d",
+                        "date_to": "2022-03-14T21:19:48.944275+00:00",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "type": "events",
+                                "order": null,
+                                "name": "$pageview",
+                                "custom_name": null,
+                                "math": "dau",
+                                "math_property": null,
+                                "math_group_type_index": null,
+                                "properties": {}
+                            }
+                        ],
+                        "insight": "TRENDS",
+                        "interval": "day"
+                    }
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.423632Z",
+            "created_by": null,
+            "description": "Shows the total cumulative number of unique users that have been using your app.",
+            "updated_at": "2022-03-16T10:23:48.175127Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "last_modified_at": "2022-03-11T13:03:32.418832Z",
+            "last_modified_by": null,
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        },
+        {
+            "id": 5,
+            "short_id": "MxlmjYui",
+            "name": "Users by browser (last 2 weeks)",
+            "derived_name": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "type": "events"
+                    }
+                ],
+                "display": "ActionsPie",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$browser",
+                "date_from": "-7d",
+                "breakdown_type": "person",
+                "date_to": null
+            },
+            "filters_hash": "cache_d2bb26ae515b0bc13b530da044ce7e0f",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": null,
+            "last_refresh": "2022-03-14T21:19:49.832796Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": null,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "dau",
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    "label": "$pageview - none",
+                    "count": 0,
+                    "data": [],
+                    "labels": [],
+                    "days": [
+                        "2022-03-07",
+                        "2022-03-08",
+                        "2022-03-09",
+                        "2022-03-10",
+                        "2022-03-11",
+                        "2022-03-12",
+                        "2022-03-13",
+                        "2022-03-14"
+                    ],
+                    "aggregated_value": 26890,
+                    "filter": {
+                        "breakdown": "$browser",
+                        "breakdown_type": "person",
+                        "date_from": "-7d",
+                        "date_to": "2022-03-14T21:19:48.955740+00:00",
+                        "display": "ActionsPie",
+                        "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": null, \"name\": \"$pageview\", \"custom_name\": null, \"math\": \"dau\", \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                        "insight": "TRENDS",
+                        "interval": "day"
+                    },
+                    "persons": {
+                        "filter": {
+                            "entity_id": "$pageview",
+                            "entity_type": "events",
+                            "breakdown_value": "",
+                            "breakdown_type": "person"
+                        },
+                        "url": "api/projects/1/actions/people/?breakdown=%24browser&breakdown_type=person&date_from=-7d&date_to=2022-03-14T21%3A19%3A48.955740%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value="
+                    },
+                    "breakdown_value": ""
+                },
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": null,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "dau",
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    "label": "$pageview - Chrome",
+                    "count": 0,
+                    "data": [],
+                    "labels": [],
+                    "days": [
+                        "2022-03-07",
+                        "2022-03-08",
+                        "2022-03-09",
+                        "2022-03-10",
+                        "2022-03-11",
+                        "2022-03-12",
+                        "2022-03-13",
+                        "2022-03-14"
+                    ],
+                    "aggregated_value": 1,
+                    "filter": {
+                        "breakdown": "$browser",
+                        "breakdown_type": "person",
+                        "date_from": "-7d",
+                        "date_to": "2022-03-14T21:19:48.955740+00:00",
+                        "display": "ActionsPie",
+                        "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": null, \"name\": \"$pageview\", \"custom_name\": null, \"math\": \"dau\", \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                        "insight": "TRENDS",
+                        "interval": "day"
+                    },
+                    "persons": {
+                        "filter": {
+                            "entity_id": "$pageview",
+                            "entity_type": "events",
+                            "breakdown_value": "Chrome",
+                            "breakdown_type": "person"
+                        },
+                        "url": "api/projects/1/actions/people/?breakdown=%24browser&breakdown_type=person&date_from=-7d&date_to=2022-03-14T21%3A19%3A48.955740%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=Chrome"
+                    },
+                    "breakdown_value": "Chrome"
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.433477Z",
+            "created_by": null,
+            "description": "Shows a breakdown of browsers used to visit your app per unique users in the last 14 days.",
+            "updated_at": "2022-03-16T10:23:48.191399Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "last_modified_at": "2022-03-11T13:03:32.432337Z",
+            "last_modified_by": null,
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        },
+        {
+            "id": 3,
+            "short_id": "nsffgDba",
+            "name": "Repeat users over time",
+            "derived_name": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "type": "events"
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "shown_as": "Stickiness",
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "date_to": null,
+                "date_from": "-7d"
+            },
+            "filters_hash": "cache_950108d673eadd0f35bcbc6198bc073f",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": "black",
+            "last_refresh": "2022-03-14T21:19:49.442495Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": null,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "dau",
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    "label": "$pageview",
+                    "count": 26891,
+                    "data": [26776, 115, 0, 0, 0, 0, 0, 0],
+                    "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"],
+                    "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                    "filter": {
+                        "date_from": "-7d",
+                        "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": null, \"name\": \"$pageview\", \"custom_name\": null, \"math\": \"dau\", \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "insight": "TRENDS",
+                        "interval": "day",
+                        "shown_as": "Stickiness"
+                    },
+                    "persons_urls": [
+                        {
+                            "filter": {
+                                "stickiness_days": 1,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=1&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 2,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=2&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 3,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=3&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 4,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=4&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 5,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=5&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 6,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=6&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 7,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=7&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 8,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&entity_id=%24pageview&entity_type=events&insight=TRENDS&interval=day&shown_as=Stickiness&stickiness_days=8&entity_math=dau"
+                        }
+                    ]
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.426395Z",
+            "created_by": null,
+            "description": "Shows you how many users visited your app for a specific number of days (e.g. a user that visited your app twice in the time period will be shown under \"2 days\").",
+            "updated_at": "2022-03-16T10:23:48.202006Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "last_modified_at": "2022-03-11T13:03:32.425509Z",
+            "last_modified_by": null,
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        },
+        {
+            "id": 6,
+            "short_id": "6C9YAfSl",
+            "name": "Users by traffic source",
+            "derived_name": "Retention of users based on doing Pageview for the first time and returning with the same event",
+            "filters": {
+                "period": "Day",
+                "display": "ActionsTable",
+                "insight": "RETENTION",
+                "properties": [],
+                "target_entity": {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events"
+                },
+                "retention_type": "retention_first_time",
+                "returning_entity": {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events"
+                },
+                "date_to": null,
+                "date_from": "-7d"
+            },
+            "filters_hash": "cache_137486649ad59a8c60a1fb4d75e16fb6",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 25,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": null,
+            "last_refresh": "2022-03-14T21:19:50.310435Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "values": [
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 0",
+                    "date": "2022-03-04T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B0%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 1",
+                    "date": "2022-03-05T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B1%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 2",
+                    "date": "2022-03-06T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B2%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 6783,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B3%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 31,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B3%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=1&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 20,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B3%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=2&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 7,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B3%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=3&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 3",
+                    "date": "2022-03-07T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B3%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 10222,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B4%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 32,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B4%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=1&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 11,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B4%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=2&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 2,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B4%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=3&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 4",
+                    "date": "2022-03-08T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B4%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 6590,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B5%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 8,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B5%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=1&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 5",
+                    "date": "2022-03-09T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B5%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 2177,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B6%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 3,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B6%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=1&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 6",
+                    "date": "2022-03-10T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B6%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 1066,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B7%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 1,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B7%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=3&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        }
+                    ],
+                    "label": "Day 7",
+                    "date": "2022-03-11T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B7%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 8",
+                    "date": "2022-03-12T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B8%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 0,
+                            "people": []
+                        },
+                        {
+                            "count": 0,
+                            "people": []
+                        }
+                    ],
+                    "label": "Day 9",
+                    "date": "2022-03-13T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B9%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "values": [
+                        {
+                            "count": 53,
+                            "people": [],
+                            "people_url": "/api/person/retention/?breakdown_values=%5B10%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                        }
+                    ],
+                    "label": "Day 10",
+                    "date": "2022-03-14T00:00:00Z",
+                    "people_url": "/api/person/retention/?breakdown_values=%5B10%5D&date_from=-7d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.436101Z",
+            "created_by": null,
+            "description": "Shows a breakdown of where unique users came from when visiting your app.",
+            "updated_at": "2022-03-16T10:23:48.216576Z",
+            "tags": [],
+            "favorited": false,
+            "saved": true,
+            "last_modified_at": "2022-03-11T19:37:11.415831Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+                "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            },
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        },
+        {
+            "id": 1,
+            "short_id": "L2IOIfgD",
+            "name": "Daily Active Users (DAUs) 123",
+            "derived_name": "User stickiness based on $pageview",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "type": "events"
+                    }
+                ],
+                "date_to": null,
+                "display": "ActionsLineGraph",
+                "insight": "STICKINESS",
+                "interval": "day",
+                "shown_as": "Stickiness",
+                "date_from": "-7d",
+                "properties": {
+                    "type": "AND",
+                    "values": []
+                }
+            },
+            "filters_hash": "cache_1511038b6f6d660b29aefda6cca9f264",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": null,
+            "last_refresh": "2022-03-14T21:19:49.470379Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": null,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": "dau",
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    "label": "$pageview",
+                    "count": 20166,
+                    "data": [20109, 57, 0, 0, 0, 0, 0, 0],
+                    "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"],
+                    "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                    "filter": {
+                        "date_from": "-7d",
+                        "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": null, \"name\": \"$pageview\", \"custom_name\": null, \"math\": \"dau\", \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                        "insight": "STICKINESS",
+                        "interval": "day",
+                        "shown_as": "Stickiness"
+                    },
+                    "persons_urls": [
+                        {
+                            "filter": {
+                                "stickiness_days": 1,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=1&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 2,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=2&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 3,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=3&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 4,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=4&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 5,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=5&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 6,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=6&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 7,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=7&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        },
+                        {
+                            "filter": {
+                                "stickiness_days": 8,
+                                "entity_id": "$pageview",
+                                "entity_type": "events",
+                                "entity_math": "dau"
+                            },
+                            "url": "api/person/stickiness/?date_from=-7d&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=STICKINESS&interval=day&shown_as=Stickiness&stickiness_days=8&entity_id=%24pageview&entity_type=events&entity_math=dau"
+                        }
+                    ]
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.416312Z",
+            "created_by": null,
+            "description": "Shows the number of unique users that use your app every day.",
+            "updated_at": "2022-03-16T10:23:48.232463Z",
+            "tags": [],
+            "favorited": false,
+            "saved": true,
+            "last_modified_at": "2022-03-15T21:29:01.764122Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+                "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+                "first_name": "Marius",
+                "email": "marius@posthog.com"
+            },
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        },
+        {
+            "id": 4,
+            "short_id": "qWKBKCSI",
+            "name": "Sample - Purchase conversion funnel",
+            "derived_name": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0
+                    },
+                    {
+                        "id": "$autocapture",
+                        "name": "Clicked purchase button",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [
+                            {
+                                "key": "$event_type",
+                                "type": "event",
+                                "value": "click"
+                            },
+                            {
+                                "key": "text",
+                                "type": "element",
+                                "value": "Purchase"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "$autocapture",
+                        "name": "Submitted checkout form",
+                        "type": "events",
+                        "order": 2,
+                        "properties": [
+                            {
+                                "key": "$event_type",
+                                "type": "event",
+                                "value": "submit"
+                            },
+                            {
+                                "key": "$pathname",
+                                "type": "event",
+                                "value": "/purchase"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "Order Completed",
+                        "name": "Order Completed",
+                        "type": "events",
+                        "order": 3
+                    }
+                ],
+                "insight": "FUNNELS",
+                "date_to": null,
+                "date_from": "-7d"
+            },
+            "filters_hash": "cache_3fbba30540e42272dc5742216364a13d",
+            "order": null,
+            "deleted": false,
+            "dashboards": [1],
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "color": null,
+            "last_refresh": "2022-03-14T21:19:50.682187Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "custom_name": null,
+                    "order": 0,
+                    "people": [],
+                    "count": 26891,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "converted_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=1&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100",
+                    "dropped_people_url": null
+                },
+                {
+                    "action_id": "$autocapture",
+                    "name": "$autocapture",
+                    "custom_name": null,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "converted_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=2&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100",
+                    "dropped_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=-2&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100"
+                },
+                {
+                    "action_id": "$autocapture",
+                    "name": "$autocapture",
+                    "custom_name": null,
+                    "order": 2,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "converted_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=3&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100",
+                    "dropped_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=-3&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100"
+                },
+                {
+                    "action_id": "Order Completed",
+                    "name": "Order Completed",
+                    "custom_name": null,
+                    "order": 3,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "converted_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=4&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100",
+                    "dropped_people_url": "/api/person/funnel/?date_from=-7d&date_to=2022-03-14T21%3A19%3A49.903494%2B00%3A00&display=FunnelViz&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22Clicked+purchase+button%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22click%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22text%22%2C+%22value%22%3A+%22Purchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22element%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22%24autocapture%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+2%2C+%22name%22%3A+%22Submitted+checkout+form%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%22type%22%3A+%22AND%22%2C+%22values%22%3A+%5B%7B%22key%22%3A+%22%24event_type%22%2C+%22value%22%3A+%22submit%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%2C+%7B%22key%22%3A+%22%24pathname%22%2C+%22value%22%3A+%22%2Fpurchase%22%2C+%22operator%22%3A+null%2C+%22type%22%3A+%22event%22%7D%5D%7D%7D%2C+%7B%22id%22%3A+%22Order+Completed%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+3%2C+%22name%22%3A+%22Order+Completed%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&funnel_step=-4&funnel_window_interval=14&funnel_window_interval_unit=day&insight=FUNNELS&interval=day&limit=100"
+                }
+            ],
+            "created_at": "2022-03-11T13:03:32.430404Z",
+            "created_by": null,
+            "description": "This is a sample of how a user funnel could look like. It represents the number of users that performed a specific action at each step.",
+            "updated_at": "2022-03-16T10:23:48.278785Z",
+            "tags": [],
+            "favorited": false,
+            "saved": false,
+            "last_modified_at": "2022-03-11T13:03:32.427820Z",
+            "last_modified_by": null,
+            "is_sample": true,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37
+        }
+    ],
+    "created_at": "2022-03-11T13:03:32.412546Z",
+    "created_by": null,
+    "is_shared": false,
+    "share_token": null,
+    "deleted": false,
+    "creation_mode": "default",
+    "filters": {
+        "date_to": null,
+        "date_from": "-7d"
+    },
+    "tags": [],
+    "restriction_level": 21,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

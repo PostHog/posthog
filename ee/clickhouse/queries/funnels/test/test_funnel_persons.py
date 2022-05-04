@@ -1,17 +1,18 @@
-from datetime import datetime
-from typing import List, cast
-from uuid import uuid4
+from datetime import datetime, timedelta
+from uuid import UUID, uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.actor_base_query import SerializedPerson
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from django.utils import timezone
+from freezegun import freeze_time
+
+from ee.clickhouse.models.event import bulk_create_events
+from ee.clickhouse.models.person import bulk_create_persons
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -19,32 +20,52 @@ COUNT_COLUMN = 1
 PERSON_ID_COLUMN = 2
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
+    create_session_recording_event(
+        uuid=uuid4(),
+        team_id=team_id,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        session_id=session_id,
+        window_id=window_id,
+        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+    )
 
 
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
+        for i in range(35):
+            bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
+        events = []
         for i in range(5):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+            events.append(
+                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+            )
+            events.append(
+                {
+                    "event": "step three",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-05 00:00:00",
+                }
+            )
 
         for i in range(5, 15):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+            events.append(
+                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+            )
 
         for i in range(15, 35):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+        bulk_create_events(events)
 
     def _create_browser_breakdown_events(self):
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})
@@ -417,3 +438,116 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=filters)
         _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], person.uuid)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-02 00:00:00.000Z")
+    def test_funnel_person_recordings(self):
+        p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s1", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="21111111-1111-1111-1111-111111111111",
+        )
+        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 3, 0, 0, 0))
+
+        # First event, but no recording
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "include_recordings": "true",
+            }
+        )
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0]["matched_recordings"], [])
+
+        # Second event, with recording
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": 2,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "include_recordings": "true",
+            }
+        )
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        # Third event dropoff, with recording
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": -3,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "include_recordings": "true",
+            }
+        )
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ],
+        )

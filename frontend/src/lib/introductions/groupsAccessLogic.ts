@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { AvailableFeature } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsAccessLogicType } from './groupsAccessLogicType'
@@ -48,6 +48,5 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
                 }
             },
         ],
-        showGroupsAnnouncementBanner: [(s) => [s.groupsAccessStatus], (status) => status !== GroupsAccessStatus.Hidden],
     },
 })

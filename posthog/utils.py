@@ -13,7 +13,6 @@ import sys
 import time
 import uuid
 from enum import Enum
-from itertools import count
 from typing import (
     Any,
     Dict,
@@ -34,7 +33,6 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -42,7 +40,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 
-from posthog.constants import AnalyticsDBMS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -259,6 +257,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
 
@@ -276,15 +275,18 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     return HttpResponse(html)
 
 
-def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    try:
+    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
         team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.only("api_token").first()
+    else:
+        try:
+            team = Team.objects.only("api_token").first()
+        except Exception:
+            pass
 
     if team:
         return team.api_token
@@ -316,28 +318,6 @@ def friendly_time(seconds: float):
     ).strip()
 
 
-def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]:
-    append: Dict[str, Any] = {}
-    append["data"] = []
-    append["labels"] = []
-    append["days"] = []
-
-    days_format = "%Y-%m-%d"
-
-    if interval == "hour":
-        days_format += " %H:%M:%S"
-
-    for item in dates_filled:
-        date = item[0]
-        value = item[1]
-        append["days"].append(date.strftime(days_format))
-        append["labels"].append(format_label_date(date, interval))
-        append["data"].append(value)
-    if math == "sum":
-        append["count"] = sum(append["data"])
-    return append
-
-
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
@@ -353,7 +333,7 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"
@@ -427,6 +407,8 @@ def load_data_from_request(request):
         scope.set_context("data", data)
         scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
         scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -585,21 +567,10 @@ def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
 
 
-def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
-    raw, params = qs.query.sql_with_params()
-    arg_count = 0
-    counter = count(arg_count)
-    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
-    named_params = {}
-    for idx, param in enumerate(params):
-        named_params.update({f"{prepend}_arg_{idx}": param})
-    return new_string, named_params
-
-
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
-    
+
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
@@ -644,12 +615,16 @@ def get_can_create_org() -> bool:
     return False
 
 
-def get_available_social_auth_providers() -> Dict[str, bool]:
+def get_instance_available_sso_providers() -> Dict[str, bool]:
+    """
+    Returns a dictionary containing final determination to which SSO providers are available.
+    SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
+    Validates configuration settings and license validity (if applicable).
+    """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
-        "saml": False,
     }
 
     # Get license information
@@ -670,17 +645,11 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
         else:
             print_warning(["You have Google login set up, but not the required license!"])
 
-    if getattr(settings, "SAML_CONFIGURED", None):
-        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
-            output["saml"] = True
-        else:
-            print_warning(["You have SAML set up, but not the required license!"])
-
     return output
 
 
-def flatten(l: Union[List, Tuple]) -> Generator:
-    for el in l:
+def flatten(i: Union[List, Tuple]) -> Generator:
+    for el in i:
         if isinstance(el, list):
             yield from flatten(el)
         else:
@@ -804,10 +773,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 
 def should_refresh(request: Request) -> bool:
-    key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
-        key, False
-    ) == True
+    query_param = request.query_params.get("refresh")
+    data_value = request.data.get("refresh")
+    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
 def str_to_bool(value: Any) -> bool:

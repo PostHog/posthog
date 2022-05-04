@@ -1,7 +1,7 @@
 import random
 
-from ee.clickhouse.client import sync_execute
-from posthog.models import Action, Dashboard, Event, EventDefinition, Person, SessionRecordingEvent, Team
+from posthog.client import sync_execute
+from posthog.models import Action, Dashboard, EventDefinition, Team
 from posthog.test.base import APIBaseTest
 
 

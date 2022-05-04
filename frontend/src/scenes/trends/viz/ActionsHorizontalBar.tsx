@@ -4,42 +4,28 @@ import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ActionFilter, FilterType, GraphType, InsightShortId } from '~/types'
+import { ActionFilter, ChartParams, GraphType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
-interface Props {
-    dashboardItemId?: InsightShortId | null
-    filters: Partial<FilterType>
-    color?: string
-    inSharedMode?: boolean | null
-    cachedResults?: any
-    showPersonsModal?: boolean
-}
-
 type DataSet = any
 
-export function ActionsHorizontalBar({
-    dashboardItemId = null,
-    filters: filtersParam,
-    color = 'white',
-    showPersonsModal = true,
-}: Props): JSX.Element | null {
+export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results } = useValues(logic)
+    const { results, labelGroupType } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         // If there are more series than colors, we reuse colors sequentially so all series are colored
-        const rawColorList = getChartColors(color, results.length)
+        const rawColorList = getChartColors('white', results.length)
         const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
 
         setData([
@@ -65,13 +51,12 @@ export function ActionsHorizontalBar({
         if (results) {
             updateData()
         }
-    }, [results, color])
+    }, [results])
 
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
-            color={color}
             tooltip={{
                 altTitle: function _renderAltTitle(tooltipData) {
                     return (
@@ -94,14 +79,14 @@ export function ActionsHorizontalBar({
                     )
                 },
             }}
+            labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            insightId={insight.id}
-            totalValue={total}
+            insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
-            interval={filtersParam?.interval}
+            showPersonsModal={showPersonsModal}
             onClick={
-                dashboardItemId || filtersParam.formula || !showPersonsModal
+                !showPersonsModal || insight.filters?.formula
                     ? undefined
                     : (point) => {
                           const { value: pointValue, index, points, seriesId } = point
@@ -110,8 +95,8 @@ export function ActionsHorizontalBar({
 
                           const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
-                          const date_from = filtersParam?.date_from || ''
-                          const date_to = filtersParam?.date_to || ''
+                          const date_from = insight.filters?.date_from || ''
+                          const date_to = insight.filters?.date_to || ''
                           const breakdown_value = dataset.breakdownValues?.[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
@@ -120,7 +105,7 @@ export function ActionsHorizontalBar({
                               label: label ?? '',
                               date_from,
                               date_to,
-                              filters: filtersParam,
+                              filters: insight.filters ?? {},
                               breakdown_value: breakdown_value ?? '',
                               pointValue,
                               seriesId,
@@ -137,6 +122,6 @@ export function ActionsHorizontalBar({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState />
     )
 }

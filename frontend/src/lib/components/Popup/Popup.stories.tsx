@@ -5,9 +5,8 @@ import { Popup } from './Popup'
 import { Button } from 'antd'
 
 export default {
-    title: 'PostHog/Components/Popup',
+    title: 'Lemon UI/Popup',
     component: Popup,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof Popup>
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />

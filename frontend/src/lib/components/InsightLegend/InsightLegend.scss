@@ -12,7 +12,6 @@
 }
 
 .insight-legend-menu {
-    padding: $default_spacing !important;
     box-shadow: none !important;
     border: 1px solid $border;
     background-color: $bg_light;
@@ -29,17 +28,12 @@
         .insight-legend-menu-item {
             width: 100%;
 
-            &:not(:last-child) {
-                margin-bottom: $default_spacing / 2;
-            }
-
             .insight-legend-menu-item-inner {
                 cursor: pointer;
                 display: flex;
                 align-items: center;
 
                 .insights-label {
-                    margin-left: $default_spacing / 2;
                     width: 100%;
                     font-size: 0.75rem;
                 }

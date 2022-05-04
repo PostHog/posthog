@@ -5,8 +5,7 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, Insight, Organization, User, organization
-from posthog.models.team import Team
+from posthog.models import Annotation, Dashboard, DashboardTile, Insight, Organization, User
 from posthog.test.base import APIBaseTest
 
 
@@ -39,8 +38,9 @@ class TestAnnotation(APIBaseTest):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
 
         dashboard_item = Insight.objects.create(
-            team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=timezone.now(),
+            team=self.team, name="Pageviews this week", last_refresh=timezone.now(),
         )
+        DashboardTile.objects.create(dashboard=dashboard, insight=dashboard_item)
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello", dashboard_item=dashboard_item,
         )

@@ -1,7 +1,7 @@
 from functools import cached_property
 
-from ee.clickhouse.client import sync_execute
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_DATABASE
 
@@ -34,27 +34,29 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0002_events_sample_by"
 
+    posthog_min_version = "1.33.0"
     # After releasing this version we can remove code related to `person_distinct_id` table
-    posthog_max_version = "1.34.0"
+    posthog_max_version = "1.33.9"
 
     def is_required(self):
         rows = sync_execute(
             """
             SELECT comment
             FROM system.columns
-            WHERE database = %(database)s AND table = 'person_distinct_id' AND name = 'distinct_id'
+            WHERE database = %(database)s
         """,
             {"database": CLICKHOUSE_DATABASE},
         )
 
-        return len(rows) > 0 and rows[0][0] != "skip_0003_fill_person_distinct_id2"
+        comments = [row[0] for row in rows]
+        return "skip_0003_fill_person_distinct_id2" not in comments
 
     @cached_property
     def operations(self):
         return [self.migrate_team_operation(team_id) for team_id in self._team_ids]
 
     def migrate_team_operation(self, team_id: int):
-        return AsyncMigrationOperation.simple_op(
+        return AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 INSERT INTO person_distinct_id2(team_id, distinct_id, person_id, is_deleted, version)
@@ -82,7 +84,7 @@ class Migration(AsyncMigrationDefinition):
                 )
                 GROUP BY team_id, distinct_id
             """,
-            resumable=True,
+            rollback=None,
         )
 
     @cached_property

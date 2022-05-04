@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -13,7 +13,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
 
 
-class PathEventQuery(ClickhouseEventQuery):
+class PathEventQuery(EnterpriseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 
@@ -75,8 +75,8 @@ class PathEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+
         self.params.update(prop_params)
 
         event_query, event_params = self._get_event_query()
@@ -148,7 +148,7 @@ class PathEventQuery(ClickhouseEventQuery):
 
     def _get_current_url_parsing(self):
         path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        return f"if(length({path_type}) > 1, trim( TRAILING '/' FROM {path_type}), {path_type})"
+        return f"if(length({path_type}) > 1, replaceRegexpAll({path_type}, '/$', ''), {path_type})"
 
     def _get_screen_name_parsing(self):
         path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")

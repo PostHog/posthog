@@ -1,35 +1,33 @@
 from datetime import datetime
-from unittest.mock import patch
 
 import pytest
 from django.db import connection
 
-from posthog.async_migrations.examples.test import Migration
+from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import (
     attempt_migration_rollback,
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import update_async_migration
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
-class TestRunner(BaseTest):
+class TestRunner(AsyncMigrationBaseTest):
     def setUp(self):
         self.migration = Migration()
         self.TEST_MIGRATION_DESCRIPTION = self.migration.description
-        create_async_migration(name="test", description=self.TEST_MIGRATION_DESCRIPTION)
+        create_async_migration(name="test_migration", description=self.TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
     # Run the full migration through
     @pytest.mark.ee
     def test_run_migration_in_full(self):
         self.migration.sec.reset_count()
-        migration_successful = start_async_migration("test")
-        sm = AsyncMigration.objects.get(name="test")
+        migration_successful = start_async_migration("test_migration")
+        sm = AsyncMigration.objects.get(name="test_migration")
 
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM test_async_migration")
@@ -38,11 +36,12 @@ class TestRunner(BaseTest):
         self.assertEqual(res, ("a", "c"))
 
         self.assertTrue(migration_successful)
-        self.assertEqual(sm.name, "test")
+        self.assertEqual(sm.name, "test_migration")
         self.assertEqual(sm.description, self.TEST_MIGRATION_DESCRIPTION)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.last_error, "")
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(errors.count(), 0)
         self.assertTrue(UUIDT.is_valid_uuid(sm.current_query_id))
         self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.posthog_min_version, "1.0.0")
@@ -56,11 +55,11 @@ class TestRunner(BaseTest):
 
         self.migration.sec.reset_count()
 
-        migration_successful = start_async_migration("test")
+        migration_successful = start_async_migration("test_migration")
 
         self.assertEqual(migration_successful, True)
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
 
         attempt_migration_rollback(sm)
         sm.refresh_from_db()
@@ -80,24 +79,40 @@ class TestRunner(BaseTest):
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 3)
 
     @pytest.mark.ee
+    def test_rollback_migration_failure(self):
+        migration_name = "test_with_rollback_exception"
+        create_async_migration(name=migration_name)
+        self.migration.sec.reset_count()
+        migration_successful = start_async_migration(migration_name)
+        self.assertEqual(migration_successful, True)
+
+        sm = AsyncMigration.objects.get(name=migration_name)
+
+        attempt_migration_rollback(sm)
+        sm.refresh_from_db()
+
+        self.assertEqual(sm.status, MigrationStatus.Errored)
+        self.assertEqual(sm.current_operation_index, 1)
+
+    @pytest.mark.ee
     def test_run_async_migration_next_op(self):
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
 
         update_async_migration(sm, status=MigrationStatus.Running)
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 1)
         self.assertEqual(sm.progress, int(100 * 1 / 7))
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 2)
         self.assertEqual(sm.progress, int(100 * 2 / 7))
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM test_async_migration")
@@ -106,7 +121,7 @@ class TestRunner(BaseTest):
         self.assertEqual(res, ("a", "b"))
 
         for i in range(5):
-            run_async_migration_next_op("test", sm)
+            run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 7)
@@ -121,14 +136,14 @@ class TestRunner(BaseTest):
 
     @pytest.mark.ee
     def test_rollback_an_incomplete_migration(self):
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 4)

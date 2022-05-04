@@ -25,6 +25,14 @@ export enum PluginSection {
     Disabled = 'disabled',
 }
 
+export interface PluginSelectionType {
+    name: string
+    url?: string
+    tab: PluginTab
+}
+
+const PAGINATION_DEFAULT_MAX_PAGES = 10
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -34,7 +42,24 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
+async function loadPaginatedResults(
+    url: string | null,
+    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
+): Promise<any[]> {
+    let results: any[] = []
+    for (let i = 0; i <= maxIterations; ++i) {
+        if (!url) {
+            break
+        }
+
+        const { results: partialResults, next } = await api.get(url)
+        results = results.concat(partialResults)
+        url = next
+    }
+    return results
+}
+
+export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
@@ -83,9 +108,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/organizations/@current/plugins')
+                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
-                    for (const plugin of results as PluginType[]) {
+                    for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
                     return plugins
@@ -147,9 +172,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const { results } = await api.get('api/plugin_config')
+                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
 
-                    for (const pluginConfig of results as PluginConfigType[]) {
+                    for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
                     }
 
@@ -620,6 +645,24 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 return pluginNameToMaintainerMap
             },
         ],
+        allPossiblePlugins: [
+            (s) => [s.repository, s.plugins],
+            (repository, plugins) => {
+                const allPossiblePlugins: PluginSelectionType[] = []
+                for (const plugin of Object.values(plugins) as PluginType[]) {
+                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Installed })
+                }
+
+                const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
+
+                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                    if (!installedUrls.has(plugin.url)) {
+                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Repository })
+                    }
+                }
+                return allPossiblePlugins
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -688,6 +731,16 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             }
         },
     }),
+
+    urlToAction: ({ actions }) => ({
+        '/project/plugins': (_, { tab, name }) => {
+            if (tab && name) {
+                actions.setSearchTerm(name)
+                actions.setPluginTab(tab as PluginTab)
+            }
+        },
+    }),
+
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPlugins()

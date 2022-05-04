@@ -5,13 +5,9 @@ import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
-import dayjs, { Dayjs } from 'dayjs'
-import generatePicker from 'antd/lib/date-picker/generatePicker'
-import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
-
-export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
+import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 
 type PropValue = {
     id?: number
@@ -25,7 +21,7 @@ type Option = {
     values?: PropValue[]
 }
 
-interface PropertyValueProps {
+export interface PropertyValueProps {
     propertyKey: string
     type: string
     endpoint?: string // Endpoint to fetch options from
@@ -34,7 +30,7 @@ interface PropertyValueProps {
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
-    operator?: PropertyOperator
+    operator: PropertyOperator
     outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
@@ -51,7 +47,7 @@ function getValidationError(operator: PropertyOperator, value: any): string | nu
     if (isOperatorRegex(operator)) {
         try {
             new RegExp(value)
-        } catch (e) {
+        } catch (e: any) {
             return e.message
         }
     }
@@ -73,6 +69,8 @@ export function PropertyValue({
     allowCustom = true,
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
+    const isDateTimeProperty = operator && isOperatorDate(operator)
+
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
@@ -186,11 +184,6 @@ export function PropertyValue({
         },
     }
 
-    const dayJSMightParse = (
-        candidateDateTimeValue: string | number | (string | number)[] | null | undefined
-    ): candidateDateTimeValue is string | number | undefined =>
-        ['string', 'number'].includes(typeof candidateDateTimeValue)
-
     return (
         <>
             {isMultiSelect ? (
@@ -232,26 +225,14 @@ export function PropertyValue({
                         )
                     })}
                 </SelectGradientOverflow>
-            ) : operator && isOperatorDate(operator) ? (
-                <>
-                    <DatePicker
-                        {...commonInputProps}
-                        inputReadOnly={true}
-                        className={'filter-date-picker'}
-                        dropdownClassName={'filter-date-picker-dropdown'}
-                        format="YYYY-MM-DD HH:mm:ss"
-                        showTime={true}
-                        showNow={false}
-                        value={dayJSMightParse(value) ? dayjs(value) : null}
-                        onOk={(selectedDate) => {
-                            setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
-                        }}
-                        getPopupContainer={(trigger: Element | null) => {
-                            const container = trigger?.parentElement?.parentElement?.parentElement
-                            return container ?? document.body
-                        }}
-                    />
-                </>
+            ) : isDateTimeProperty ? (
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value}
+                    setValue={setValue}
+                    style={commonInputProps.style}
+                />
             ) : (
                 <AutoComplete
                     {...commonInputProps}

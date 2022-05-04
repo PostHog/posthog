@@ -3,21 +3,15 @@ import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ChartParams, GraphType, InsightType } from '~/types'
+import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 
-export function ActionsLineGraph({
-    dashboardItemId,
-    color = 'white',
-    inSharedMode = false,
-    showPersonsModal = true,
-}: ChartParams): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys } = useValues(logic)
+    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -26,19 +20,17 @@ export function ActionsLineGraph({
         <LineGraph
             data-attr="trend-line-graph"
             type={
-                filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
+                filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.ActionsBar
                     ? GraphType.Bar
                     : GraphType.Line
             }
             hiddenLegendKeys={hiddenLegendKeys}
-            color={color}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightId={insight.id}
+            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
-            interval={filters.interval}
+            labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
-            tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
                     ? {
@@ -56,7 +48,7 @@ export function ActionsLineGraph({
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
+                !showPersonsModal || isMultiSeriesFormula(filters.formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset, seriesId } = payload
@@ -95,6 +87,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={isViewedOnDashboard} />
+        <InsightEmptyState />
     )
 }

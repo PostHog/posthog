@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from sentry_sdk.api import capture_exception
 
+from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
 
@@ -406,7 +407,10 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
         )
 
         for index, item in enumerate(definition["items"]):
-            Insight.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
+            layouts = item.pop("layouts", {})
+            color = item.pop("color", None)
+            insight = Insight.objects.create(team_id=team_id, order=index, **item)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight, layouts=layouts, color=color)
 
     return dashboard
 

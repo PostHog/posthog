@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-/* global module */
 
+/* global module */
 module.exports = {
     ignorePatterns: ['node_modules', 'plugin-server'],
     env: {
@@ -13,7 +13,12 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier'],
+    extends: [
+        'plugin:@typescript-eslint/recommended',
+        'plugin:react/recommended',
+        'prettier',
+        'plugin:storybook/recommended',
+    ],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
@@ -38,7 +43,12 @@ module.exports = {
                 html: true,
             },
         ],
-        'no-unused-vars': ['error', { ignoreRestSiblings: true }],
+        'no-unused-vars': [
+            'error',
+            {
+                ignoreRestSiblings: true,
+            },
+        ],
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
@@ -47,6 +57,17 @@ module.exports = {
         'no-shadow': 'error',
         '@typescript-eslint/no-non-null-assertion': 'error',
         curly: 'error',
+        'no-restricted-imports': [
+            'error',
+            {
+                paths: [
+                    {
+                        name: 'dayjs',
+                        message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {

@@ -1,7 +1,7 @@
 import React from 'react'
-import { Modal, Button } from 'antd'
+import { Modal } from 'antd'
 import { useValues, useActions } from 'kea'
-import { ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -9,7 +9,7 @@ import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
@@ -91,6 +91,7 @@ export function Invites(): JSX.Element {
         {
             title: '',
             key: 'actions',
+            width: 24,
             render: makeActionsComponent(deleteInvite),
         },
     ]
@@ -99,14 +100,9 @@ export function Invites(): JSX.Element {
         <div>
             <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Pending Invites
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={showInviteModal}
-                    data-attr="invite-teammate-button"
-                >
+                <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                     Invite team member
-                </Button>
+                </LemonButton>
             </h2>
             {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable

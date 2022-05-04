@@ -8,6 +8,7 @@ import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { BasePerson, Element, Person, RawPerson, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
+import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -192,6 +193,7 @@ const initialParams = new Set([
     '$browser_version',
     '$device_type',
     '$current_url',
+    '$pathname',
     '$os',
     '$referring_domain',
     '$referrer',
@@ -283,4 +285,33 @@ export function transformPostgresElementsToEventPayloadFormat(
     }
 
     return elements
+}
+
+export function shouldStoreLog(
+    pluginLogLevel: PluginLogLevel,
+    source: PluginLogEntrySource,
+    type: PluginLogEntryType
+): boolean {
+    if (source === PluginLogEntrySource.System || !pluginLogLevel) {
+        return true
+    }
+
+    if (pluginLogLevel === PluginLogLevel.Critical) {
+        return type === PluginLogEntryType.Error
+    } else if (pluginLogLevel === PluginLogLevel.Warn) {
+        return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Info
+    } else if (pluginLogLevel === PluginLogLevel.Debug) {
+        return type !== PluginLogEntryType.Log
+    }
+
+    return true
+}
+
+// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
+export function safeClickhouseString(str: string) {
+    // character is a surrogate
+    return str.replace(/[\ud800-\udfff]/gu, (match, _) => {
+        const res = JSON.stringify(match)
+        return res.slice(1, res.length - 1) + `\\`
+    })
 }

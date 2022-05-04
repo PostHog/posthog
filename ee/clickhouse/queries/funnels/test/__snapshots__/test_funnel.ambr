@@ -33,15 +33,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND distinct_id IN
-                             (SELECT distinct_id
-                              FROM
-                                (SELECT distinct_id, argMax(person_id, version) as person_id
-                                 FROM person_distinct_id2
-                                 WHERE team_id = 2
-                                 GROUP BY distinct_id
-                                 HAVING argMax(is_deleted, version) = 0)
-                              WHERE person_id IN
+                           AND (aggregation_target IN
                                   (select id
                                    from
                                      (SELECT *
@@ -54,8 +46,7 @@
                                       AND person._timestamp = person_max._timestamp
                                       WHERE team_id = 2
                                         AND person_max.is_deleted = 0
-                                        AND (trim(BOTH '"'
-                                                  FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) ), 1, 0) as step_0,
+                                        AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%') ))), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -81,8 +72,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -124,54 +115,78 @@
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '
   
-  SELECT DISTINCT p.id
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
   FROM
-    (SELECT *
-     FROM person
-     JOIN
-       (SELECT id,
-               max(_timestamp) as _timestamp,
-               max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id) as person_max ON person.id = person_max.id
-     AND person._timestamp = person_max._timestamp
-     WHERE team_id = 2
-       AND person_max.is_deleted = 0 ) AS p
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
-  WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (trim(BOTH '"'
-                           FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) )
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        if(event = 'user signed up'
+                           AND (aggregation_target IN
+                                  (SELECT person_id
+                                   FROM cohortpeople
+                                   WHERE team_id = 2
+                                     AND cohort_id = 2
+                                   GROUP BY person_id, cohort_id, team_id
+                                   HAVING sum(sign) > 0)), 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'paid', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1
+                 FROM
+                   (SELECT e.event as event,
+                           e.team_id as team_id,
+                           e.distinct_id as distinct_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    INNER JOIN
+                      (SELECT id
+                       FROM person
+                       WHERE team_id = 2
+                       GROUP BY id
+                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                    WHERE team_id = 2
+                      AND event IN ['paid', 'user signed up']
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                 WHERE (step_0 = 1
+                        OR step_1 = 1) ))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3
@@ -209,13 +224,13 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND aggregation_target IN
-                             (SELECT person_id
-                              FROM cohortpeople
-                              WHERE team_id = 2
-                                AND cohort_id = 2
-                              GROUP BY person_id, cohort_id, team_id
-                              HAVING sum(sign) > 0) , 1, 0) as step_0,
+                           AND (aggregation_target IN
+                                  (SELECT person_id
+                                   FROM cohortpeople
+                                   WHERE team_id = 2
+                                     AND cohort_id = 2
+                                   GROUP BY person_id, cohort_id, team_id
+                                   HAVING sum(sign) > 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -241,14 +256,460 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_property_groups
+  '
+  
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         countIf(steps = 3) step_3,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         avg(step_2_average_conversion_time_inner) step_2_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         median(step_2_median_conversion_time_inner) step_2_median_conversion_time
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 < latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     latest_1,
+                     step_2,
+                     min(latest_2) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        latest_1,
+                        step_2,
+                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           step_1,
+                           min(latest_1) over (PARTITION by aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                              step_2,
+                                              min(latest_2) over (PARTITION by aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT aggregation_target,
+                              timestamp,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM
+                         (SELECT e.event as event,
+                                 e.team_id as team_id,
+                                 e.distinct_id as distinct_id,
+                                 e.timestamp as timestamp,
+                                 pdi.person_id as aggregation_target,
+                                 e."properties" as "properties"
+                          FROM events e
+                          INNER JOIN
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 2
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                          INNER JOIN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 2
+                             GROUP BY id
+                             HAVING max(is_deleted) = 0
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                          WHERE team_id = 2
+                            AND event IN ['$pageview', 'user signed up']
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                       WHERE (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_property_groups.1
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 < latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     latest_1,
+                     step_2,
+                     min(latest_2) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        latest_1,
+                        step_2,
+                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           step_1,
+                           min(latest_1) over (PARTITION by aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                              step_2,
+                                              min(latest_2) over (PARTITION by aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT aggregation_target,
+                              timestamp,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM
+                         (SELECT e.event as event,
+                                 e.team_id as team_id,
+                                 e.distinct_id as distinct_id,
+                                 e.timestamp as timestamp,
+                                 pdi.person_id as aggregation_target,
+                                 e."properties" as "properties"
+                          FROM events e
+                          INNER JOIN
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 2
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                          INNER JOIN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 2
+                             GROUP BY id
+                             HAVING max(is_deleted) = 0
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                          WHERE team_id = 2
+                            AND event IN ['$pageview', 'user signed up']
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                       WHERE (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [1, 2, 3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_property_groups.2
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 < latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     latest_1,
+                     step_2,
+                     min(latest_2) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        latest_1,
+                        step_2,
+                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           step_1,
+                           min(latest_1) over (PARTITION by aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                              step_2,
+                                              min(latest_2) over (PARTITION by aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT aggregation_target,
+                              timestamp,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM
+                         (SELECT e.event as event,
+                                 e.team_id as team_id,
+                                 e.distinct_id as distinct_id,
+                                 e.timestamp as timestamp,
+                                 pdi.person_id as aggregation_target,
+                                 e."properties" as "properties"
+                          FROM events e
+                          INNER JOIN
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 2
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                          INNER JOIN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 2
+                             GROUP BY id
+                             HAVING max(is_deleted) = 0
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                          WHERE team_id = 2
+                            AND event IN ['$pageview', 'user signed up']
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                       WHERE (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [2, 3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_property_groups.3
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 < latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 < latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     latest_1,
+                     step_2,
+                     min(latest_2) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        latest_1,
+                        step_2,
+                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           step_1,
+                           min(latest_1) over (PARTITION by aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                              step_2,
+                                              min(latest_2) over (PARTITION by aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT aggregation_target,
+                              timestamp,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM
+                         (SELECT e.event as event,
+                                 e.team_id as team_id,
+                                 e.distinct_id as distinct_id,
+                                 e.timestamp as timestamp,
+                                 pdi.person_id as aggregation_target,
+                                 e."properties" as "properties"
+                          FROM events e
+                          INNER JOIN
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 2
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                          INNER JOIN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 2
+                             GROUP BY id
+                             HAVING max(is_deleted) = 0
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                          WHERE team_id = 2
+                            AND event IN ['$pageview', 'user signed up']
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                       WHERE (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_static_cohort_step_filter
@@ -286,11 +747,11 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND aggregation_target IN
-                             (SELECT person_id
-                              FROM person_static_cohort
-                              WHERE cohort_id = 2
-                                AND team_id = 2), 1, 0) as step_0,
+                           AND (aggregation_target IN
+                                  (SELECT person_id
+                                   FROM person_static_cohort
+                                   WHERE cohort_id = 2
+                                     AND team_id = 2)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -316,8 +777,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59' ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -331,8 +792,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -341,15 +801,15 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
-       AND NOT has([''], $group_0)
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND (NOT has([''], "$group_0"))
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -370,7 +830,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -378,7 +838,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -437,36 +897,28 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
-                                 e.$group_0 as aggregation_target,
-                                 e.$group_0 as $group_0,
+                                 e."$group_0" as aggregation_target,
+                                 e."$group_0" as "$group_0",
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           INNER JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59'
-                            AND NOT has([''], $group_0) ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+                            AND (NOT has([''], "$group_0")) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -483,8 +935,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -493,14 +944,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -521,7 +972,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -529,7 +980,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -588,8 +1039,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -611,11 +1061,11 @@
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -632,8 +1082,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -642,14 +1091,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -663,7 +1112,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -671,7 +1120,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -730,8 +1179,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -753,11 +1201,11 @@
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -778,8 +1226,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -788,14 +1235,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -809,7 +1256,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -817,7 +1264,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -876,8 +1323,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -899,11 +1345,11 @@
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -924,8 +1370,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -934,14 +1379,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -955,7 +1400,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -963,7 +1408,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -1022,8 +1467,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1045,11 +1489,11 @@
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -1070,8 +1514,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1080,14 +1523,14 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-08 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC
-     LIMIT 10
+     LIMIT 25
      OFFSET 0)
   '
 ---
@@ -1101,7 +1544,7 @@
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
             avg(step_2_conversion_time) step_2_average_conversion_time_inner,
             median(step_1_conversion_time) step_1_median_conversion_time_inner,
-            median(step_2_conversion_time) step_2_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
@@ -1109,7 +1552,7 @@
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
                                step_1_conversion_time,
-                               step_2_conversion_time,
+                               step_2_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -1168,8 +1611,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1191,11 +1633,11 @@
                              FROM groups
                              WHERE team_id = 2
                                AND group_type_index = 0
-                             GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                             GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                           WHERE team_id = 2
                             AND event IN ['buy', 'play movie', 'sign up']
-                            AND timestamp >= '2020-01-01 00:00:00'
-                            AND timestamp <= '2020-01-08 23:59:59' ) events
+                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))

@@ -23,7 +23,7 @@ class ClickhouseStickinessActors(ActorBaseQuery):
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         events_query, event_params = StickinessEventsQuery(
-            entity=self.entity, filter=self._filter, team_id=self._team.pk
+            entity=self.entity, filter=self._filter, team=self._team
         ).get_query()
 
         return (
@@ -31,6 +31,8 @@ class ClickhouseStickinessActors(ActorBaseQuery):
         SELECT DISTINCT aggregation_target AS actor_id FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
         {"LIMIT %(limit)s" if limit_actors else ""}
         {"OFFSET %(offset)s" if limit_actors else ""}
+
+        SETTINGS optimize_move_to_prewhere = 0
         """,
             {
                 **event_params,

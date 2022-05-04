@@ -7,8 +7,6 @@ import { SessionRecording } from './SessionRecording'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ReloadOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
@@ -33,6 +31,8 @@ import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
+import { IconRefresh } from 'lib/components/icons'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -139,8 +139,8 @@ export function ProjectSettings(): JSX.Element {
                 <CodeSnippet
                     actions={[
                         {
-                            Icon: ReloadOutlined,
-                            title: 'Reset Project API Key',
+                            icon: <IconRefresh />,
+                            title: 'Reset project API key',
                             popconfirmProps: {
                                 title: (
                                     <>
@@ -148,9 +148,8 @@ export function ProjectSettings(): JSX.Element {
                                         <b>This will invalidate the current API key and cannot be undone.</b>
                                     </>
                                 ),
-                                okText: 'Reset Key',
+                                okText: 'Reset key',
                                 okType: 'danger',
-                                icon: <ReloadOutlined style={{ color: red.primary }} />,
                                 placement: 'left',
                             },
                             callback: resetToken,
@@ -226,17 +225,21 @@ export function ProjectSettings(): JSX.Element {
                     </>
                 )}
                 <Divider />
-                <div id="permitted-domains" />
+                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
+                <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
-                    Permitted domains/URLs
+                    Authorized URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
+                    These are the URLs where the{' '}
+                    <b>
+                        <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    </b>{' '}
+                    (if you're logged in) and where we'll <b>record sessions</b> (if <a href="#recordings">enabled</a>).
                 </p>
                 <p>
-                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
-                    top-level domains as this could present a security risk.
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
@@ -244,6 +247,11 @@ export function ProjectSettings(): JSX.Element {
                     Data attributes
                 </h2>
                 <DataAttributes />
+                <Divider />
+                <h2 className="subtitle" id="person-display-name">
+                    Person Display Name
+                </h2>
+                <PersonDisplayNameProperties />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration
@@ -258,7 +266,6 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
                 </h2>
@@ -276,7 +283,7 @@ export function ProjectSettings(): JSX.Element {
                         posthog-js
                     </a>{' '}
                     <b>directly</b> installed, and the domains you wish to record must be set in{' '}
-                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
+                    <a href="#authorized-urls">Authorized URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

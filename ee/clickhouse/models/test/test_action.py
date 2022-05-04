@@ -1,53 +1,34 @@
-import json
-from typing import Dict, List, Optional
-from uuid import uuid4
+import dataclasses
+from typing import List
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import filter_event, format_action_filter
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.client import sync_execute
 from posthog.models.action import Action
+from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
-from posthog.models.event import Event
-from posthog.models.person import Person
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event, _create_person
 from posthog.test.test_event_model import filter_by_actions_factory
 
 
-def _create_event(**kwargs) -> Event:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return Event(pk=str(pk))
+@dataclasses.dataclass
+class MockEvent:
+    uuid: str
+    distinct_id: str
 
 
-def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(action, "")
-
-    query = ACTION_QUERY.format(action_filter=formatted_query)
-
-    if query:
-        return sync_execute(query, {"team_id": action.team_id, **params})
-
-    return None
-
-
-def _get_events_for_action(action: Action) -> List[Event]:
-    events = query_action(action)
-    ret = []
-    if not events:
-        return []
-    for event in events:
-        ev = Event(pk=str(event[0]))
-        ev.distinct_id = event[5]
-        ret.append(ev)
-    return ret
-
-
-def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+def _get_events_for_action(action: Action) -> List[MockEvent]:
+    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
+    query = f"""
+        SELECT
+            events.uuid,
+            events.distinct_id
+        FROM events
+        WHERE {formatted_query}
+        AND events.team_id = %(team_id)s
+        ORDER BY events.timestamp DESC
+    """
+    events = sync_execute(query, {"team_id": action.team_id, **params})
+    return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
 EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
@@ -61,8 +42,7 @@ class TestActions(
 
 class TestActionFormat(ClickhouseTestMixin, BaseTest):
     def test_filter_event_exact_url(self):
-
-        event_target = _create_event(
+        event_target_uuid = _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="whatever",
@@ -91,7 +71,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(str(result[0][0]), event_target.pk)
+        self.assertEqual(str(result[0][0]), event_target_uuid)
 
     def test_filter_event_contains_url(self):
 
@@ -175,5 +155,5 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
         )
 
-        events = query_action(action1)
-        self.assertEqual(len(events), 1)  # type: ignore
+        events = _get_events_for_action(action1)
+        self.assertEqual(len(events), 1)

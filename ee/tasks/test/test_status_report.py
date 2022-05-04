@@ -1,32 +1,9 @@
-from datetime import datetime
-from uuid import uuid4
-
-from freezegun.api import freeze_time
-
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
-from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.client import sync_execute
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.tasks.test.test_status_report import factory_status_report
-
-
-def _create_event(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team):
-    create_event(
-        event_uuid=uuid4(),
-        event=event,
-        distinct_id=distinct_id,
-        timestamp=created_at,
-        team=team,
-        properties={"$lib": lib},
-    )
-
-
-def _create_person(distinct_id: str, team: Team) -> Person:
-    person = Person.objects.create(team=team, distinct_ids=[distinct_id])
-    return Person(id=person.uuid)
+from posthog.test.base import _create_event, _create_person
 
 
 class TestStatusReport(factory_status_report(_create_event, _create_person)):  # type: ignore

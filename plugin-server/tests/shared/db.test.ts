@@ -4,7 +4,8 @@ import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '..
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
+import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
 
@@ -271,6 +272,190 @@ describe('DB', () => {
                 properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
+            })
+        })
+    })
+
+    describe('addOrUpdatePublicJob', () => {
+        it('updates the column if the job name is new', async () => {
+            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
+
+            const jobName = 'newJob'
+            const jobPayload = { foo: 'string' }
+            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
+            const publicJobs = (
+                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+            ).rows[0].public_jobs
+
+            expect(publicJobs[jobName]).toEqual(jobPayload)
+        })
+
+        it('updates the column if the job payload is new', async () => {
+            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
+
+            const jobName = 'newJob'
+            const jobPayload = { foo: 'string' }
+            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
+            const publicJobs = (
+                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+            ).rows[0].public_jobs
+
+            expect(publicJobs[jobName]).toEqual(jobPayload)
+        })
+    })
+
+    describe('person and group properties on events', () => {
+        beforeEach(async () => {
+            const redis = await hub.redisPool.acquire()
+            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_props*'))
+            const promises = []
+            for (const key of keys) {
+                promises.push(redis.del(key))
+            }
+            await Promise.all(promises)
+            await hub.redisPool.release(redis)
+            db.personAndGroupsCachingEnabledTeams.add(2)
+            db.PERSONS_AND_GROUPS_CACHE_TTL = 60 * 60 // 1h i.e. keys won't expire during the test
+        })
+
+        it('getPersonData works', async () => {
+            const uuid = new UUIDT().toString()
+            const distinctId = 'distinct_id1'
+            await db.createPerson(
+                TIMESTAMP,
+                { a: 12345, b: false, c: 'bbb' },
+                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
+                2,
+                null,
+                false,
+                uuid,
+                [distinctId]
+            )
+            const res = await db.getPersonData(2, distinctId)
+            expect(res?.uuid).toEqual(uuid)
+            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
+        })
+
+        it('getPersonData works not cached', async () => {
+            const uuid = new UUIDT().toString()
+            const distinctId = 'distinct_id1'
+            db.personAndGroupsCachingEnabledTeams.delete(2) // enabled later, i.e. previous not cached
+            await db.createPerson(
+                TIMESTAMP,
+                { a: 123, b: false, c: 'bbb' },
+                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
+                2,
+                null,
+                false,
+                uuid,
+                [distinctId]
+            )
+            db.personAndGroupsCachingEnabledTeams.add(2) // enabled later, i.e. previous not cached
+            const res = await db.getPersonData(2, distinctId)
+            expect(res?.uuid).toEqual(uuid)
+            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
+        })
+
+        it('Person props are cached and used from cache', async () => {
+            // manually update from the DB and check that we still get the right props, i.e. previous ones
+            const uuid = new UUIDT().toString()
+            const distinctId = 'distinct_id1'
+            await db.createPerson(
+                // cached
+                TIMESTAMP,
+                { a: 333, b: false, c: 'bbb' },
+                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
+                2,
+                null,
+                false,
+                uuid,
+                [distinctId]
+            )
+            await db.postgresQuery(
+                // not cached
+                `
+            UPDATE posthog_person SET properties = $3
+            WHERE team_id = $1 AND uuid = $2
+            `,
+                [2, uuid, JSON.stringify({ prop: 'val-that-isnt-cached' })],
+                'testGroupPropertiesOnEvents'
+            )
+            const res = await db.getPersonData(2, distinctId)
+            expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
+        })
+
+        it('Gets the right group properties', async () => {
+            await db.insertGroup(
+                // would get cached
+                2,
+                0,
+                'group_key',
+                { prop: 'val', num: 1234 },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+            await db.postgresQuery(
+                // not cached
+                `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+                [
+                    2,
+                    'g2',
+                    2,
+                    JSON.stringify({ p2: 'p2val' }),
+                    TIMESTAMP,
+                    JSON.stringify({ p2: TIMESTAMP.toISO() }),
+                    JSON.stringify({ p2: PropertyUpdateOperation.Set }),
+                    1,
+                ],
+                'testGroupPropertiesOnEvents'
+            )
+            const res = await db.getGroupProperties(2, [
+                { index: 0, key: 'group_key' },
+                { index: 2, key: 'g2' },
+                { index: 3, key: 'no-such-group' },
+            ])
+            expect(res).toEqual({
+                group0_properties: '{"prop":"val","num":1234}',
+                group2_properties: '{"p2":"p2val"}',
+                group3_properties: '{}',
+            })
+        })
+
+        it('Group props are cached and used from cache', async () => {
+            // manually update from the DB and check that we still get the right props, i.e. previous ones
+            await db.insertGroup(
+                // would get cached
+                2,
+                0,
+                'group_key',
+                { prop: 'val', num: 1234567 },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+            await db.postgresQuery(
+                // not cached
+                `
+            UPDATE posthog_group SET group_properties = $4
+            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
+            `,
+                [2, 0, 'group_key', JSON.stringify({ prop: 'val-that-isnt-cached' })],
+                'testGroupPropertiesOnEvents'
+            )
+            const res = await db.getGroupProperties(2, [{ index: 0, key: 'group_key' }])
+            expect(res).toEqual({
+                group0_properties: '{"prop":"val","num":1234567}',
             })
         })
     })

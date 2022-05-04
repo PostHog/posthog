@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-python manage.py migrate --check
+./bin/migrate-check
 
 gunicorn posthog.wsgi \
     --config gunicorn.config.py \
@@ -12,4 +12,5 @@ gunicorn posthog.wsgi \
     --worker-tmp-dir /dev/shm \
     --workers=2 \
     --threads=4 \
-    --worker-class=gthread
+    --worker-class=gthread \
+    --limit-request-line=8190

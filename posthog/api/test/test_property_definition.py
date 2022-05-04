@@ -1,5 +1,5 @@
-import logging
 import random
+import urllib.parse
 from typing import Dict
 
 from rest_framework import status
@@ -34,18 +34,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
+        EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="first_visit")
 
     def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
-            team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
+            team=self.team, name="timestamp_property", property_type="DateTime",
         )
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert response.json()["property_type"] == "DateTime"
-        assert response.json()["property_type_format"] == "unix_timestamp"
 
     def test_list_property_definitions(self):
-
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
@@ -56,6 +55,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
+
+    def test_list_numerical_property_definitions(self):
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+
+        self.assertEqual(len(response.json()["results"]), 3)
+        properties = sorted([_i["name"] for _i in response.json()["results"]])
+
+        self.assertEqual(properties, ["app_rating", "purchase", "purchase_value"])
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
@@ -142,3 +151,118 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["purchase", "purchase_value"])
+
+    def test_is_event_property_filter(self):
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=false"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+    def test_order_ids_first_filter(self):
+
+        # is_first_movie, first_visit
+        ids = (
+            PropertyDefinition.objects.filter(name__in=["first_visit", "is_first_movie"])
+            .values_list("id", flat=True)
+            .order_by("-name")
+        )
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        order_ids_first_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))  # Test that included id is first item
+        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+    def test_excluded_ids_filter(self):
+
+        # is_first_movie, first_visit
+        ids = (
+            PropertyDefinition.objects.filter(name__in=["first_visit", "is_first_movie"])
+            .values_list("id", flat=True)
+            .order_by("-name")
+        )
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        excluded_ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
+
+        # is_first_movie, first_visit
+        ids = (
+            PropertyDefinition.objects.filter(name__in=["first_visit", "is_first_movie"])
+            .values_list("id", flat=True)
+            .order_by("-name")
+        )
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))
+        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")

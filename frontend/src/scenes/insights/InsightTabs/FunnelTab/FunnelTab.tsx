@@ -9,11 +9,8 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
+import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +23,14 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
+import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+
+const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
@@ -37,14 +42,14 @@ export function FunnelTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
-    const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
     useMountedLogic(funnelCommandLogic)
+
+    const isSmallScreen = !screens.xl
 
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
-            <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
-                <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
+            <Col xs={24} md={16} xl={24}>
+                <div>
                     <form
                         onSubmit={(e): void => {
                             e.preventDefault()
@@ -76,12 +81,13 @@ export function FunnelTab(): JSX.Element {
                                 filters={filters}
                                 setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
-                                hideMathSelector={true}
+                                mathAvailability={MathAvailability.None}
                                 hideDeleteBtn={filterSteps.length === 1}
                                 buttonCopy="Add step"
                                 buttonType="link"
                                 showSeriesIndicator={!isStepsEmpty}
                                 seriesIndicatorType="numeric"
+                                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}
@@ -117,34 +123,56 @@ export function FunnelTab(): JSX.Element {
                     <FunnelConversionWindowFilter horizontal />
                 </div>
             </Col>
-            <Col xs={24} md={8} xl={isHorizontalUIEnabled ? undefined : 24}>
+            <Col xs={24} md={8} xl={24}>
                 <hr />
                 <div className="mt" />
-                <div className="flex-center">
-                    <div style={{ flexGrow: 1 }}>
-                        <GlobalFiltersTitle unit="steps" />
-                    </div>
-                    <div style={{ marginBottom: '0.5rem' }}>
-                        <TestAccountFilter filters={filters} onChange={setFilters} />
-                    </div>
-                </div>
-                <PropertyFilters
-                    pageKey={`EditFunnel-property`}
-                    propertyFilters={filters.properties || []}
-                    onChange={(anyProperties) => {
-                        setFilters({
-                            properties: anyProperties.filter(isValidPropertyFilter),
-                        })
-                    }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                    eventNames={allEventNames}
-                />
+                {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
+                    <PropertyGroupFilters
+                        propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                        onChange={(properties: PropertyGroupFilter) => {
+                            setFilters({ properties })
+                        }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        pageKey="EditFunnel-property"
+                        eventNames={allEventNames}
+                        filters={filters}
+                        setTestFilters={(testFilters) => setFilters(testFilters)}
+                    />
+                ) : (
+                    <>
+                        <div className="flex-center">
+                            <div style={{ flexGrow: 1 }}>
+                                <GlobalFiltersTitle unit="steps" />
+                            </div>
+                        </div>
+                        <PropertyFilters
+                            pageKey={`EditFunnel-property`}
+                            propertyFilters={convertPropertyGroupToProperties(filters.properties) || []}
+                            onChange={(anyProperties) => {
+                                setFilters({
+                                    properties: anyProperties.filter(isValidPropertyFilter),
+                                })
+                            }}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                            eventNames={allEventNames}
+                        />
+                        <div style={{ marginBottom: '0.5rem' }}>
+                            <TestAccountFilter filters={filters} onChange={setFilters} />
+                        </div>
+                    </>
+                )}
 
                 {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
@@ -222,8 +250,7 @@ export function FunnelTab(): JSX.Element {
                                                 Exclude {aggregationTargetLabel.plural}{' '}
                                                 {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
                                                 completed the specified event between two specific steps. Note that
-                                                these
-                                                {aggregationTargetLabel.plural} will be{' '}
+                                                these {aggregationTargetLabel.plural} will be{' '}
                                                 <b>completely excluded from the entire funnel</b>.
                                             </>
                                         }

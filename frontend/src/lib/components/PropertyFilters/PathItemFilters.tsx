@@ -14,7 +14,7 @@ import { objectsEqual } from 'lib/utils'
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     style?: CSSProperties
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -22,19 +22,19 @@ interface PropertyFiltersProps {
 }
 
 export function PathItemFilters({
-    propertyFilters = null,
-    onChange = null,
+    propertyFilters,
+    onChange,
     pageKey,
     style = {},
     taxonomicGroupTypes,
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
-    const { filters } = useValues(propertyFilterLogic(logicProps))
+    const logicProps = { propertyFilters, onChange, pageKey }
+    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
     useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+        if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
             setFilters([...propertyFilters, {}])
         }
     }, [propertyFilters])
@@ -42,8 +42,8 @@ export function PathItemFilters({
     return (
         <div className="mb" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filters?.length &&
-                    filters.map((filter, index) => {
+                {filtersWithNew?.length &&
+                    filtersWithNew.map((filter: AnyPropertyFilter, index: number) => {
                         return (
                             <div key={index} style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
                                 <PathItemSelector
@@ -65,8 +65,8 @@ export function PathItemFilters({
                                         </Button>
                                     ) : (
                                         <Row align="middle">
-                                            <FilterButton>{filter.value as string}</FilterButton>
-                                            {!!Object.keys(filters[index]).length && (
+                                            <FilterButton item={filter}>{filter.value as string}</FilterButton>
+                                            {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
                                                         remove(index)

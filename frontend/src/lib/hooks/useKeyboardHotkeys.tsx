@@ -1,32 +1,13 @@
-import { useValues } from 'kea'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
-import { GlobalHotKeys, HotKeys } from '~/types'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { HotKeys } from '~/types'
 
 export interface HotkeyInterface {
     action: () => void
     disabled?: boolean
 }
 
-type LocalHotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
-export const useKeyboardHotkeys = (
-    hotkeys: LocalHotkeysInterface,
-    deps?: DependencyList,
-    enableOnGlobal?: boolean
-): void => _useKeyboardHotkeys(hotkeys, deps, enableOnGlobal)
-
-/*
- Global keyboard hotkeys reserve special keys for shortcuts that are available everywhere 
- in the app, we separate them to avoid mixup with local commands
- */
-type GlobalHotkeysInterface = Partial<Record<GlobalHotKeys, HotkeyInterface>>
-export const useGlobalKeyboardHotkeys = (hotkeys: GlobalHotkeysInterface, deps?: DependencyList): void =>
-    _useKeyboardHotkeys(hotkeys, deps, true)
-
-type AllHotKeys = GlobalHotKeys | HotKeys
-type AllHotkeysInterface = Partial<Record<AllHotKeys, HotkeyInterface>>
-
+type HotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
 /**
  * input boxes in the hovering toolbar do not have event target of input.
  * they are detected as for e.g.div#__POSTHOG_TOOLBAR__.ph-no-capture
@@ -45,15 +26,15 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
     return ignorableElements.includes(tagName.toLowerCase())
 }
 
+const exceptions = ['.hotkey-block', '.hotkey-block *']
+
 /**
  *
  * @param hotkeys Hotkeys to listen to and actions to execute
  * @param deps List of dependencies for the hook
- * @param enableOnGlobal Whether these hotkeys should run when a globally-scoped hotkey is enabled
  */
-function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList, enableOnGlobal?: boolean): void {
+export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyList): void {
     const IGNORE_INPUTS = ['input', 'textarea'] // Inputs in which hotkey events will be ignored
-    const { hotkeyNavigationEngaged } = useValues(navigationLogic)
 
     useEventListener(
         'keydown',
@@ -65,20 +46,19 @@ function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList
                 return
             }
 
+            // Ignore explicit hotkey exceptions
+            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+                return
+            }
+
             // Ignore typing on inputs (default behavior); except Esc key
             const isDOMInput = IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())
             if (key !== 'Escape' && (isDOMInput || isToolbarInput(event, IGNORE_INPUTS))) {
                 return
             }
 
-            // Ignore if global hotkeys are engaged and this is not intended as a global action,
-            // currently this only encompasses global navigation keys
-            if (!enableOnGlobal && hotkeyNavigationEngaged) {
-                return
-            }
-
             for (const relevantKey of Object.keys(hotkeys)) {
-                const hotkey = hotkeys[relevantKey as AllHotKeys]
+                const hotkey = hotkeys[relevantKey as HotKeys]
 
                 if (!hotkey || hotkey.disabled) {
                     continue

@@ -2,7 +2,15 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
+import {
+    CeleryTriggeredJobOperation,
+    Hub,
+    PluginConfig,
+    PreIngestionEvent,
+    Queue,
+    Team,
+    WorkerMethods,
+} from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
@@ -56,6 +64,11 @@ export async function startQueues(
             server.lastActivityType = 'ingestEvent'
             return piscina.run({ task: 'ingestEvent', args: { event } })
         },
+        ingestBufferEvent: (event: PreIngestionEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'ingestBufferEvent'
+            return piscina.run({ task: 'ingestBufferEvent', args: { event } })
+        },
         ...workerMethods,
     }
 
@@ -66,7 +79,7 @@ export async function startQueues(
             auxiliary: redisQueue,
         }
         if (server.KAFKA_ENABLED) {
-            queues.ingestion = await startQueueKafka(server, piscina, mergedWorkerMethods)
+            queues.ingestion = await startQueueKafka(server, mergedWorkerMethods)
         }
         return queues
     } catch (error) {
@@ -144,8 +157,8 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
     return celeryQueue
 }
 
-async function startQueueKafka(server: Hub, piscina: Piscina, workerMethods: WorkerMethods): Promise<Queue> {
-    const kafkaQueue: Queue = new KafkaQueue(server, piscina, workerMethods)
+async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<Queue> {
+    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
     await kafkaQueue.start()
 
     return kafkaQueue

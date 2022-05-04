@@ -1,14 +1,35 @@
 from datetime import datetime
 from typing import Optional
 
+import posthoganalytics
+import structlog
 from constance import config
+from django.conf import settings
 from django.db import transaction
+from django.utils.timezone import now
 
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
-from posthog.constants import AnalyticsDBMS
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.email import is_email_available
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.user import User
+from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.utils import get_machine_id
+
+logger = structlog.get_logger(__name__)
+
+
+def send_analytics_to_posthog(event, data):
+    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+    user = User.objects.filter(is_active=True).first()
+    groups = {"instance": settings.SITE_URL}
+    if user and user.current_organization:
+        data["organization_name"] = user.current_organization.name
+        groups["organization"] = str(user.current_organization.id)
+    posthoganalytics.capture(
+        get_machine_id(), event, data, groups=groups,
+    )
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -18,41 +39,79 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
-def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
-    from ee.clickhouse.client import sync_execute
+def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
+    from posthog.client import sync_execute
 
-    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    settings = settings if settings else {"max_execution_time": timeout_seconds}
+
+    try:
+        sync_execute(f"/* {query_id} */ " + sql, settings=settings)
+    except Exception as e:
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
-    with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */ " + sql)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"/* {query_id} */ " + sql)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
-def process_error(migration_instance: AsyncMigration, error: Optional[str], rollback: bool = True):
+def process_error(
+    migration_instance: AsyncMigration,
+    error: str,
+    rollback: bool = True,
+    alert: bool = False,
+    status: int = MigrationStatus.Errored,
+    current_operation_index: Optional[int] = None,
+):
+    logger.error(f"Async migration {migration_instance.name} error: {error}")
+
     update_async_migration(
         migration_instance=migration_instance,
-        status=MigrationStatus.Errored,
-        last_error=error or "",
-        finished_at=datetime.now(),
+        current_operation_index=current_operation_index,
+        status=status,
+        error=error,
+        finished_at=now(),
+    )
+    send_analytics_to_posthog(
+        "Async migration error",
+        {
+            "name": migration_instance.name,
+            "error": error,
+            "current_operation_index": migration_instance.current_operation_index
+            if current_operation_index is None
+            else current_operation_index,
+        },
     )
 
-    if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
+    if alert:
+        if async_migrations_emails_enabled():
+            from posthog.tasks.email import send_async_migration_errored_email
+
+            send_async_migration_errored_email.delay(
+                migration_key=migration_instance.name, time=now().isoformat(), error=error
+            )
+
+        send_alert_to_plugins(
+            key="async_migration_errored",
+            description=f"Migration {migration_instance.name} failed with error {error}",
+            level=AlertLevel.P2,
+        )
+
+    if (
+        not rollback
+        or status == MigrationStatus.FailedAtStartup
+        or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
+    ):
         return
 
     from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
-
-
-def can_resume_migration(migration_instance: AsyncMigration):
-    from posthog.async_migrations.runner import is_current_operation_resumable
-
-    if not is_current_operation_resumable(migration_instance):
-        return False, "Can't resume a migration because the current operation isn't resumable"
-    return True, ""
 
 
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
@@ -83,44 +142,58 @@ def force_stop_migration(
     process_error(migration_instance, error, rollback=rollback)
 
 
-def rollback_migration(migration_instance: AsyncMigration, force: bool = False):
+def rollback_migration(migration_instance: AsyncMigration):
     from posthog.async_migrations.runner import attempt_migration_rollback
 
-    attempt_migration_rollback(migration_instance, force=force)
+    attempt_migration_rollback(migration_instance)
 
 
-def complete_migration(migration_instance: AsyncMigration):
-    update_async_migration(
-        migration_instance=migration_instance,
-        status=MigrationStatus.CompletedSuccessfully,
-        finished_at=datetime.now(),
-        progress=100,
-    )
+def complete_migration(migration_instance: AsyncMigration, email: bool = True):
+    finished_at = now()
 
-    from posthog.async_migrations.runner import run_next_migration
+    migration_instance.refresh_from_db()
 
-    next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
+    needs_update = migration_instance.status != MigrationStatus.CompletedSuccessfully
 
-    if next_migration:
-        run_next_migration(next_migration)
+    if needs_update:
+        update_async_migration(
+            migration_instance=migration_instance,
+            status=MigrationStatus.CompletedSuccessfully,
+            finished_at=finished_at,
+            progress=100,
+        )
+        send_analytics_to_posthog("Async migration completed", {"name": migration_instance.name})
+
+        if email and async_migrations_emails_enabled():
+            from posthog.tasks.email import send_async_migration_complete_email
+
+            send_async_migration_complete_email.delay(
+                migration_key=migration_instance.name, time=finished_at.isoformat()
+            )
+
+    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
+        next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
+        if next_migration:
+            from posthog.async_migrations.runner import run_next_migration
+
+            run_next_migration(next_migration)
 
 
 def mark_async_migration_as_running(migration_instance: AsyncMigration):
     update_async_migration(
         migration_instance=migration_instance,
-        last_error="",
         current_query_id="",
         progress=0,
         current_operation_index=0,
         status=MigrationStatus.Running,
-        started_at=datetime.now(),
+        started_at=now(),
         finished_at=None,
     )
 
 
 def update_async_migration(
     migration_instance: AsyncMigration,
-    last_error: Optional[str] = None,
+    error: Optional[str] = None,
     current_query_id: Optional[str] = None,
     celery_task_id: Optional[str] = None,
     progress: Optional[int] = None,
@@ -136,8 +209,8 @@ def update_async_migration(
             instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
         else:
             instance.refresh_from_db()
-        if last_error is not None:
-            instance.last_error = last_error
+        if error is not None:
+            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
         if current_query_id is not None:
             instance.current_query_id = current_query_id
         if celery_task_id is not None:
@@ -159,3 +232,7 @@ def update_async_migration(
             execute_update()
     else:
         execute_update()
+
+
+def async_migrations_emails_enabled():
+    return is_email_available() and not getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")

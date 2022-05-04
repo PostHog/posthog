@@ -6,8 +6,10 @@ from uuid import uuid4
 
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
+from posthog.client import sync_execute
 from posthog.models import Person, PersonDistinctId, Team
+from posthog.test.base import flush_persons_and_events
 
 
 def journeys_for(
@@ -35,6 +37,7 @@ def journeys_for(
     And clarifies the preconditions of the test
     """
 
+    flush_persons_and_events()
     people = {}
     events_to_create = []
     for distinct_id, events in events_by_person.items():
@@ -72,7 +75,7 @@ def _create_all_events(all_events: List[Dict]):
 
     sync_execute(
         f"""
-    INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )

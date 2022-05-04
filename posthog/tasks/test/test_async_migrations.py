@@ -1,13 +1,13 @@
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from celery import states
 from celery.result import AsyncResult
+from constance.test import override_config
 
-from posthog.async_migrations.examples.test import Migration
+from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
-from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.tasks.async_migrations import check_async_migration_health
@@ -39,10 +39,11 @@ def run_async_migration_mock(migration_name: str, _: Any) -> TaskMock:
 
 class TestAsyncMigrations(BaseTest):
     def setUp(self) -> None:
-        create_async_migration(name="test", description=TEST_MIGRATION_DESCRIPTION)
+        create_async_migration(name="test_migration", description=TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
     @pytest.mark.ee
+    @override_config(ASYNC_MIGRATIONS_AUTO_CONTINUE=True)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
@@ -54,16 +55,15 @@ class TestAsyncMigrations(BaseTest):
         from where we left off
         """
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
-        self.assertTrue(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 
@@ -74,6 +74,8 @@ class TestAsyncMigrations(BaseTest):
         self.assertEqual(sm.progress, 100)
 
     @pytest.mark.ee
+    @override_config(ASYNC_MIGRATIONS_AUTO_CONTINUE=False)
+    @override_config(ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK=False)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
@@ -84,14 +86,13 @@ class TestAsyncMigrations(BaseTest):
         and instead roll it back.
         """
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
-        self.assertFalse(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 

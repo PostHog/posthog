@@ -9,17 +9,16 @@ import {
     PluginLogEntryType,
     PluginTaskType,
 } from '../../../../types'
-import { addPublicJobIfNotExists } from '../../utils'
 import {
     ExportEventsJobPayload,
     ExportHistoricalEventsUpgrade,
     fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
-} from './utils'
+} from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
-const EVENTS_PER_RUN = 100
+const EVENTS_PER_RUN = 500
 
 const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor'
 const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
@@ -31,15 +30,19 @@ const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
-export async function addHistoricalEventsExportCapability(
+export function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
     response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
-): Promise<void> {
+): void {
     const { methods, tasks, meta } = response
 
+    const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
     // we can void this as the job appearing on the interface is not time-sensitive
-    await addPublicJobIfNotExists(hub.db, pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+
+    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
+        void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    }
 
     const oldSetupPlugin = methods.setupPlugin
 
@@ -193,20 +196,6 @@ export async function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
-        if (payload.retriesPerformedSoFar === 0) {
-            const incrementTimestampCursor = events.length === 0
-
-            await meta.jobs
-                .exportHistoricalEvents({
-                    timestampCursor,
-                    incrementTimestampCursor,
-                    retriesPerformedSoFar: 0,
-                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-                    batchId: payload.batchId,
-                })
-                .runNow()
-        }
-
         let exportEventsError: Error | unknown | null = null
 
         if (!fetchEventsError) {
@@ -237,6 +226,18 @@ export async function addHistoricalEventsExportCapability(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 })
                 .runIn(nextRetrySeconds, 'seconds')
+        } else if (!exportEventsError) {
+            const incrementTimestampCursor = events.length === 0
+
+            await meta.jobs
+                .exportHistoricalEvents({
+                    timestampCursor,
+                    incrementTimestampCursor,
+                    retriesPerformedSoFar: 0,
+                    intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+                    batchId: payload.batchId,
+                })
+                .runIn(1, 'seconds')
         }
 
         createLog(

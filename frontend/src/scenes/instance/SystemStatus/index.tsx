@@ -2,14 +2,21 @@ import './index.scss'
 
 import React from 'react'
 import { Alert, Tabs } from 'antd'
-import { systemStatusLogic, TabName } from './systemStatusLogic'
+import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
+import { InstanceConfigTab } from './InstanceConfigTab'
+import { userLogic } from 'scenes/userLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { StaffUsersTab } from './StaffUsersTab'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { KafkaInspectorTab } from './KafkaInspectorTab'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -17,15 +24,30 @@ export const scene: SceneExport = {
 }
 
 export function SystemStatus(): JSX.Element {
-    const { tab, error, systemStatus } = useValues(systemStatusLogic)
+    const { tab, error } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="system-status-scene">
             <PageHeader
-                title="System Status"
-                caption="Here you can find all the critical runtime details about your PostHog installation."
+                title="Instance status & settings"
+                caption={
+                    <>
+                        Here you can find all the critical runtime details and settings of your PostHog instance. You
+                        have access to this because you're a <b>staff user</b>.{' '}
+                        <a
+                            target="_blank"
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                            href="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
+                        >
+                            Learn more <IconOpenInNew style={{ marginLeft: 4 }} />
+                        </a>
+                        .
+                    </>
+                }
             />
             {error && (
                 <Alert
@@ -66,18 +88,50 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            {systemStatus?.internal_metrics.clickhouse ? (
-                <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverviewTab />
+            <Tabs
+                tabPosition="top"
+                animated={false}
+                activeKey={tab}
+                onTabClick={(key) => setTab(key as InstanceStatusTabName)}
+            >
+                <Tabs.TabPane tab="System overview" key="overview">
+                    <OverviewTab />
+                </Tabs.TabPane>
+                {user?.is_staff && (
+                    <>
+                        <Tabs.TabPane tab="Internal metrics" key="metrics">
+                            <InternalMetricsTab />
+                        </Tabs.TabPane>
+                        <Tabs.TabPane
+                            tab={
+                                <>
+                                    Settings <LemonTag type="warning">Beta</LemonTag>
+                                </>
+                            }
+                            key="settings"
+                        >
+                            <InstanceConfigTab />
+                        </Tabs.TabPane>
+                    </>
+                )}
+                {user?.is_staff && (
+                    <Tabs.TabPane tab={<>Staff Users</>} key="staff_users">
+                        <StaffUsersTab />
                     </Tabs.TabPane>
-                    <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
-                        <InternalMetricsTab />
+                )}
+                {user?.is_staff && featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR] && (
+                    <Tabs.TabPane
+                        tab={
+                            <>
+                                Kafka Inspector <LemonTag type="warning">Beta</LemonTag>
+                            </>
+                        }
+                        key="kafka_inspector"
+                    >
+                        <KafkaInspectorTab />
                     </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverviewTab />
-            )}
+                )}
+            </Tabs>
         </div>
     )
 }

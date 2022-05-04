@@ -1,4 +1,4 @@
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Team, User
 from posthog.test.base import BaseTest
 
 

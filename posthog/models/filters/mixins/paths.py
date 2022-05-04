@@ -24,11 +24,17 @@ from posthog.constants import (
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 PathType = Literal["$pageview", "$screen", "custom_event"]
 
 FunnelPathsType = Literal["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"]
+
+
+def remove_trailing_slash(input: Optional[str]) -> Optional[str]:
+    if input and len(input) > 1 and input.endswith("/"):
+        return input[:-1]
+    return input
 
 
 class PathTypeMixin(BaseParamMixin):
@@ -44,7 +50,7 @@ class PathTypeMixin(BaseParamMixin):
 class StartPointMixin(BaseParamMixin):
     @cached_property
     def start_point(self) -> Optional[str]:
-        return self._data.get(START_POINT, None)
+        return remove_trailing_slash(self._data.get(START_POINT, None))
 
     @include_dict
     def start_point_to_dict(self):
@@ -54,7 +60,7 @@ class StartPointMixin(BaseParamMixin):
 class EndPointMixin(BaseParamMixin):
     @cached_property
     def end_point(self) -> Optional[str]:
-        return self._data.get(END_POINT, None)
+        return remove_trailing_slash(self._data.get(END_POINT, None))
 
     @include_dict
     def end_point_to_dict(self):
@@ -186,7 +192,7 @@ class PathReplacementMixin(BaseParamMixin):
         path_replacements = self._data.get(PATH_REPLACEMENTS)
         if not path_replacements:
             return False
-        if path_replacements == True:
+        if path_replacements is True:
             return True
 
         if isinstance(path_replacements, str) and path_replacements.lower() == "true":

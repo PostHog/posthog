@@ -1,0 +1,13 @@
+.PaginationControl {
+    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 1rem;
+    margin-top: 1rem;
+    > span {
+        margin-right: 0.5rem;
+    }
+}

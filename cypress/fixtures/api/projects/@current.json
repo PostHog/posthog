@@ -14,7 +14,6 @@
         "$identify",
         "$pageview",
         "$autocapture",
-        "personalization skipped",
         "insight viewed",
         "$pageleave",
         "$capture_metrics"

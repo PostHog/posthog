@@ -11,6 +11,7 @@ import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
 
 import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
+import { Hub } from './../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -484,44 +485,6 @@ export function sanitizeEvent(event: PluginEvent): PluginEvent {
     return event
 }
 
-export enum NodeEnv {
-    Development = 'dev',
-    Production = 'prod',
-    Test = 'test',
-}
-
-export function stringToBoolean(value: unknown, strict?: false): boolean
-export function stringToBoolean(value: unknown, strict: true): boolean | null
-export function stringToBoolean(value: unknown, strict = false): boolean | null {
-    const stringValue = String(value).toLowerCase()
-    const isStrictlyTrue = ['y', 'yes', 't', 'true', 'on', '1'].includes(stringValue)
-    if (isStrictlyTrue) {
-        return true
-    }
-    if (strict) {
-        const isStrictlyFalse = ['n', 'no', 'f', 'false', 'off', '0'].includes(stringValue)
-        return isStrictlyFalse ? false : null
-    }
-    return false
-}
-
-export function determineNodeEnv(): NodeEnv {
-    let nodeEnvRaw = process.env.NODE_ENV
-    if (nodeEnvRaw) {
-        nodeEnvRaw = nodeEnvRaw.toLowerCase()
-        if (nodeEnvRaw.startsWith(NodeEnv.Test)) {
-            return NodeEnv.Test
-        }
-        if (nodeEnvRaw.startsWith(NodeEnv.Development)) {
-            return NodeEnv.Development
-        }
-    }
-    if (stringToBoolean(process.env.DEBUG)) {
-        return NodeEnv.Development
-    }
-    return NodeEnv.Production
-}
-
 export function getPiscinaStats(piscina: Piscina): Record<string, number> {
     return {
         utilization: (piscina.utilization || 0) * 100,
@@ -697,4 +660,29 @@ export function intToBase(num: number, base: number): string {
 // concerning race conditions across threads
 export class RaceConditionError extends Error {
     name = 'RaceConditionError'
+}
+
+export interface StalenessCheckResult {
+    isServerStale: boolean
+    timeSinceLastActivity: number | null
+    lastActivity?: string | null
+    lastActivityType?: string
+    instanceId?: string
+}
+
+export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): StalenessCheckResult {
+    let isServerStale = false
+
+    const timeSinceLastActivity = hub?.lastActivity ? new Date().valueOf() - hub.lastActivity : null
+    if (timeSinceLastActivity && timeSinceLastActivity > stalenessSeconds * 1000) {
+        isServerStale = true
+    }
+
+    return {
+        isServerStale,
+        timeSinceLastActivity,
+        instanceId: hub?.instanceId.toString(),
+        lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
+        lastActivityType: hub?.lastActivityType,
+    }
 }

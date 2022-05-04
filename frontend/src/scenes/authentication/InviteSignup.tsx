@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React, { lazy, Suspense, useRef, useState } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
@@ -11,7 +11,7 @@ import { router } from 'kea-router'
 import { PrevalidatedInvite, UserType } from '~/types'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
@@ -377,7 +377,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <SceneLoading />
+        return <Loading />
     }
 
     return (

@@ -2,11 +2,9 @@ from datetime import timedelta
 from typing import List, Tuple
 
 from celery.app import shared_task
-from django.db.models import Count
 from django.utils.timezone import now
 
 from posthog.models import Team
-from posthog.models.event import Event
 from posthog.models.event_definition import EventDefinition
 from posthog.models.insight import Insight
 from posthog.models.property_definition import PropertyDefinition
@@ -46,8 +44,8 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
-    from ee.clickhouse.client import sync_execute
     from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
+    from posthog.client import sync_execute
 
     return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
 

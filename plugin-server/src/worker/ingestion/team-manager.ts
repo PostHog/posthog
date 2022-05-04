@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, Team, TeamId } from '../../types'
+import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -162,17 +162,17 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
-                const isNumerical = typeof value === 'number'
-                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
+                const propertyType = detectPropertyDefinitionTypes(value, key)
+                const isNumerical = propertyType == PropertyType.Numeric
 
                 await this.db.postgresQuery(
                     `
 INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
-                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
+DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS NULL`,
+                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType],
                     'insertPropertyDefinition'
                 )
                 this.propertyDefinitionsCache.set(team.id, key, propertyType)

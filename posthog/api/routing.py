@@ -1,11 +1,14 @@
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -33,7 +36,13 @@ class StructuredViewSetMixin(_GenericViewSet):
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 
-    _parents_query_dict: Optional[Dict[str, Any]]
+    include_in_docs = True
+
+    authentication_classes = [
+        PersonalAPIKeyAuthentication,
+        authentication.SessionAuthentication,
+        authentication.BasicAuthentication,
+    ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -50,7 +59,7 @@ class StructuredViewSetMixin(_GenericViewSet):
             team = user.team
             assert team is not None
             return team.id
-        return self.get_parents_query_dict()["team_id"]
+        return self.parents_query_dict["team_id"]
 
     @property
     def team(self) -> Team:
@@ -71,7 +80,7 @@ class StructuredViewSetMixin(_GenericViewSet):
     @property
     def organization_id(self) -> str:
         try:
-            return self.get_parents_query_dict()["organization_id"]
+            return self.parents_query_dict["organization_id"]
         except KeyError:
             return str(self.team.organization_id)
 
@@ -83,7 +92,7 @@ class StructuredViewSetMixin(_GenericViewSet):
             raise NotFound(detail="Organization not found.")
 
     def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
+        parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
@@ -96,10 +105,8 @@ class StructuredViewSetMixin(_GenericViewSet):
         else:
             return queryset
 
-    def get_parents_query_dict(self) -> Dict[str, Any]:
-        if getattr(self, "_parents_query_dict", None) is not None:
-            return cast(Dict[str, Any], self._parents_query_dict)
-
+    @cached_property
+    def parents_query_dict(self) -> Dict[str, Any]:
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
@@ -138,11 +145,10 @@ class StructuredViewSetMixin(_GenericViewSet):
                     except ValueError:
                         raise NotFound()
                 result[query_lookup] = query_value
-        self._parents_query_dict = result
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        return {**super().get_serializer_context(), **self.get_parents_query_dict()}
+        return {**super().get_serializer_context(), **self.parents_query_dict}
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None

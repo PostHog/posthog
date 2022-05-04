@@ -38,29 +38,33 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
-    [Scene.InsightRouter]: {
-        projectBased: true,
-        name: 'Insights',
-    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
     },
+    [Scene.Cohort]: {
+        projectBased: true,
+        name: 'Cohort',
+    },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Live Events',
+    },
+    [Scene.DataManagement]: {
+        projectBased: true,
+        name: 'Data Management',
     },
     [Scene.Actions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
-    [Scene.EventStats]: {
+    [Scene.EventDefinitions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
-    [Scene.EventPropertyStats]: {
+    [Scene.EventPropertyDefinitions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
     [Scene.WebPerformance]: {
         projectBased: true,
@@ -117,22 +121,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.ProjectHomepage]: {
+        projectBased: true,
+        name: 'Homepage',
+    },
     [Scene.ProjectSettings]: {
         projectBased: true,
         hideDemoWarnings: true,
         name: 'Project settings',
     },
-    [Scene.Personalization]: {
-        projectBased: true,
-        plain: true,
-    },
     [Scene.Ingestion]: {
         projectBased: true,
         plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        projectBased: true,
-        hideDemoWarnings: true,
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -172,11 +172,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
+        name: 'Instance status & settings',
     },
     [Scene.Licenses]: {
         instanceLevel: true,
     },
     [Scene.AsyncMigrations]: {
+        instanceLevel: true,
+    },
+    [Scene.DeadLetterQueue]: {
         instanceLevel: true,
     },
     // Personal routes
@@ -195,12 +199,20 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.savedInsights(),
+    '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
-    '/actions': '/events/actions',
+    '/actions': urls.actions(),
     '/organization/members': urls.organizationSettings(),
+    '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
+    '/action/:id': ({ id }) => urls.action(id),
+    '/action': urls.createAction(),
+    '/events/actions': urls.actions(),
+    '/events/stats': urls.eventDefinitions(),
+    '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/events/properties': urls.eventPropertyDefinitions(),
+    '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
 }
 
 export const routes: Record<string, Scene> = {
@@ -212,24 +224,27 @@ export const routes: Record<string, Scene> = {
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
-    [urls.eventStats()]: Scene.EventStats,
-    [urls.eventPropertyStats()]: Scene.EventPropertyStats,
+    [urls.eventDefinitions()]: Scene.EventDefinitions,
+    [urls.eventDefinition(':id')]: Scene.EventDefinitions,
+    [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
+    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
+    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
-    [urls.cohort(':id')]: Scene.Cohorts,
+    [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
@@ -238,9 +253,13 @@ export const routes: Record<string, Scene> = {
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.instanceLicenses()]: Scene.Licenses,
-    [urls.systemStatus()]: Scene.SystemStatus,
-    [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.instanceStatus()]: Scene.SystemStatus,
+    [urls.instanceSettings()]: Scene.SystemStatus,
+    [urls.instanceStaffUsers()]: Scene.SystemStatus,
+    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
+    [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
@@ -250,8 +269,6 @@ export const routes: Record<string, Scene> = {
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
-    [urls.onboardingSetup()]: Scene.OnboardingSetup,
 }

@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -19,7 +18,8 @@ if TEST or DEBUG:
     PG_USER = os.getenv("PGUSER", "posthog")
     PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
     PG_PORT = os.getenv("PGPORT", "5432")
-    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog")
+    PG_DATABASE = os.getenv("PGDATABASE", "posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -82,7 +82,7 @@ CLICKHOUSE_CLUSTER = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
-CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast=str_to_bool)
+CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", True, type_cast=str_to_bool)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
 CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=str_to_bool)
 
@@ -90,6 +90,9 @@ CLICKHOUSE_CONN_POOL_MIN = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cas
 CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
 CLICKHOUSE_STABLE_HOST = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
+
+# This disables using external schemas like protobuf for clickhouse kafka engine
+CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = get_from_env("CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS", False, type_cast=str_to_bool)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -100,12 +103,22 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
 # Kafka configs
+
+_parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
+
+# URL Used by kafka clients/producers
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
-KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
-KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
+
+# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
+KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
+
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-PRIMARY_DB = AnalyticsDBMS.CLICKHOUSE
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
+KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
+KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
+KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

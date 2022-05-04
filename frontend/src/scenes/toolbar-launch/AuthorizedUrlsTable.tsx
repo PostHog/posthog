@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { PlusOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
+import { CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
@@ -93,14 +93,14 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                 return (
                     <div className="actions-col">
                         {record.type === 'suggestion' ? (
-                            <LemonButton type="default" onClick={() => addUrl(record.url)}>
-                                <PlusOutlined /> Add as authorized
+                            <LemonButton type="secondary" onClick={() => addUrl(record.url)}>
+                                Apply suggestion
                             </LemonButton>
                         ) : (
                             <>
-                                <a href={launchUrl(record.url)} style={{ marginRight: 4 }}>
-                                    <LemonButton type="highlighted">Launch toolbar</LemonButton>
-                                </a>
+                                <LemonButton type="highlighted" href={launchUrl(record.url)} className="mr">
+                                    Open with Toolbar
+                                </LemonButton>
                                 <More
                                     overlay={
                                         <>
@@ -109,7 +109,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                 type="stealth"
                                                 onClick={() => setEditUrlIndex(record.originalIndex)}
                                             >
-                                                <EditOutlined style={{ marginRight: 4 }} />
                                                 Edit authorized URL
                                             </LemonButton>
                                             <LemonButton
@@ -118,7 +117,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                 type="stealth"
                                                 onClick={() => removeUrl(index)}
                                             >
-                                                <DeleteOutlined style={{ marginRight: 4 }} />
                                                 Remove authorized URL
                                             </LemonButton>
                                         </>
@@ -148,9 +146,9 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                         autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
-                <Button type="primary" icon={<PlusOutlined />} onClick={newUrl}>
+                <LemonButton type="primary" onClick={newUrl}>
                     Add{pageKey === 'toolbar-launch' && ' authorized domain'}
-                </Button>
+                </LemonButton>
             </div>
             <LemonTable
                 className="authorized-urls-table"

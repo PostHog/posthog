@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { Modal, Button, Card, Row, Col } from 'antd'
-import { SearchOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { SearchOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { IconEdit } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -11,9 +13,9 @@ export function NewActionButton(): JSX.Element {
 
     return (
         <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setVisible(true)} data-attr="create-action">
+            <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
                 New Action
-            </Button>
+            </LemonButton>
             <Modal
                 visible={visible}
                 style={{ cursor: 'pointer' }}
@@ -61,7 +63,7 @@ export function NewActionButton(): JSX.Element {
                                 size="small"
                             >
                                 <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
-                                    <EditOutlined />
+                                    <IconEdit />
                                 </div>
                             </Card>
                         </Col>

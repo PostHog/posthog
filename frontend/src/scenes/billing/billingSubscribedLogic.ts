@@ -1,7 +1,5 @@
 import { kea } from 'kea'
-import { setPageTitle } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { billingLogic } from './billingLogic'
 import { billingSubscribedLogicType } from './billingSubscribedLogicType'
 
@@ -34,19 +32,6 @@ export const billingSubscribedLogic = kea<billingSubscribedLogicType<Subscriptio
             },
         ],
     },
-    listeners: ({ values }) => ({
-        setScene: async ({ scene }, breakpoint) => {
-            if (scene !== Scene.BillingSubscribed) {
-                return
-            }
-            await breakpoint(100)
-            if (values.status === SubscriptionStatus.Success) {
-                setPageTitle('Subscribed!')
-            } else {
-                setPageTitle('Subscription failed')
-            }
-        },
-    }),
     urlToAction: ({ actions }) => ({
         '/organization/billing/subscribed': (_, { s, session_id }) => {
             if (s === 'success') {

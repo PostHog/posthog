@@ -1,8 +1,7 @@
 import dataclasses
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Dict, List, Optional, Tuple, cast
 
-from django.db.models import QuerySet
 from rest_framework.request import Request
 
 from posthog.helpers.session_recording import (
@@ -35,10 +34,8 @@ class SessionRecording:
         self._session_recording_id = session_recording_id
         self._team = team
 
-    def _query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
-        return SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
-            "timestamp"
-        )
+    def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+        raise NotImplementedError()
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [
@@ -75,8 +72,8 @@ class SessionRecording:
 
     def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
         """
-        This function processes the recording events into metadata. 
-        
+        This function processes the recording events into metadata.
+
         A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
         `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
         of a different tab). However, we still want to playback the recording to the end user as the user interacted
@@ -84,18 +81,18 @@ class SessionRecording:
 
         This function creates a "playlist" of recording segments that designates the order in which the front end
         should flip between players of different windows/tabs. To create this playlist, this function does the following:
-        
-        (1) For each recording event, we determine if it is "active" or not. An active event designates user 
+
+        (1) For each recording event, we determine if it is "active" or not. An active event designates user
         activity (e.g. mouse movement).
-        
-        (2) We then generate "active segments" based on these lists of events. Active segments are segments 
+
+        (2) We then generate "active segments" based on these lists of events. Active segments are segments
         of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
-        
+
         (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
         list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
         and forth between tabs)
 
-        (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In 
+        (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In
         determining which window should be used for the inactive segment, we try to minimize the switching of windows.
         """
 

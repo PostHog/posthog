@@ -59,7 +59,6 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 </label>
                                 <EventName
                                     value={step.event}
-                                    isActionStep={true}
                                     onChange={(value) =>
                                         sendStep({
                                             ...step,
@@ -67,6 +66,19 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                         })
                                     }
                                 />
+
+                                <br />
+
+                                <small>
+                                    <a
+                                        href="https://posthog.com/docs/libraries"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        See documentation
+                                    </a>{' '}
+                                    on how to send custom events in lots of languages.
+                                </small>
                             </div>
                         )}
                         {step.event === '$pageview' && (
@@ -87,7 +99,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         )}
 
                         {step.event && (
-                            <div className="property-filters">
+                            <div className="action-property-filters">
                                 <h3 className="l3">Filters</h3>
                                 {(!step.properties || step.properties.length === 0) && (
                                     <div className="text-muted">This match group has no additional filters.</div>
@@ -270,7 +282,7 @@ function TypeSwitcher({
     }
 
     return (
-        <div className={`type-switcher${step.event === undefined ? ' unselected' : ''}`}>
+        <div className="type-switcher">
             <Radio.Group
                 buttonStyle="solid"
                 onChange={handleChange}

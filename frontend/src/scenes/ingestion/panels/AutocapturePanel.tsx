@@ -12,7 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function AutocapturePanel(): JSX.Element {
-    const { index, totalSteps, framework } = useValues(ingestionLogic)
+    const { index, framework } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportIngestionBookmarkletCollapsible } = useActions(eventUsageLogic)
@@ -34,8 +34,7 @@ export function AutocapturePanel(): JSX.Element {
     return (
         <CardContainer
             index={index}
-            totalSteps={totalSteps}
-            nextButton={true}
+            showFooter={true}
             onSubmit={() => setVerify(true)}
             onBack={() => setPlatform(null)}
         >
@@ -43,10 +42,11 @@ export function AutocapturePanel(): JSX.Element {
                 <Collapse onChange={handlePanelChange}>
                     <Collapse.Panel
                         header={
-                            <>
-                                <BulbOutlined style={{ color: 'var(--warning)' }} /> <b>Just exploring?</b> Immediately
-                                run PostHog on your website for some initial exploring.
-                            </>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <BulbOutlined style={{ color: 'var(--warning)' }} />{' '}
+                                <b className="mr-05 ml-025">Just exploring?</b> Immediately run PostHog on your website
+                                for some initial exploring.
+                            </div>
                         }
                         key="bookmarklet"
                     >

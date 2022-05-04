@@ -36,7 +36,9 @@ export function getUserDetails(
     if (!person) {
         return ['undefined', 'undefined']
     }
-    const userName = stringify(person.properties?.['email'] || event.distinct_id)
+    const userName = stringify(
+        person.properties?.email || person.properties?.name || person.properties?.username || event.distinct_id
+    )
     let userMarkdown: string
     if (webhookType === WebhookType.Slack) {
         userMarkdown = `<${siteUrl}/person/${event.distinct_id}|${userName}>`
@@ -81,11 +83,22 @@ export function getValueOfToken(
     let markdown = ''
 
     if (tokenParts[0] === 'user') {
+        // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
+        // [person] OR [event.properties.bar] should be used instead
         if (tokenParts[1] === 'name') {
             ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
+            text = stringify(property)
+            markdown = text
+        }
+    } else if (tokenParts[0] === 'person') {
+        if (tokenParts.length === 1) {
+            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
+            const propertyName = tokenParts[2]
+            const property = person?.properties?.[propertyName]
             text = stringify(property)
             markdown = text
         }
@@ -96,6 +109,8 @@ export function getValueOfToken(
     } else if (tokenParts[0] === 'event') {
         if (tokenParts[1] === 'name') {
             text = stringify(event.event)
+        } else if (tokenParts[1] === 'distinct_id') {
+            text = stringify(event.distinct_id)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.properties?.[propertyName]
@@ -115,7 +130,7 @@ export function getFormattedMessage(
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    const messageFormat = action.slack_message_format || '[action.name] was triggered by [user.name]'
+    const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
     let messageText: string
     let messageMarkdown: string
 
@@ -125,7 +140,7 @@ export function getFormattedMessage(
         const markdownValues: string[] = []
 
         for (const token of tokens) {
-            const tokenParts = token.match(/\w+/g) || []
+            const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
 
             const [value, markdownValue] = getValueOfToken(action, event, person, siteUrl, webhookType, tokenParts)
             values.push(value)

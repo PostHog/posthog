@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { Hub, IngestEventResponse } from '../../types'
+import { Element, Hub, IngestEventResponse, Person, PreIngestionEvent } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
@@ -29,15 +29,20 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 
         if (result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
-            actionMatches = await hub.actionMatcher.match(event, person, result.elements)
-            await hub.hookCannon.findAndFireHooks(event, person, site_url, actionMatches)
 
-            // eventId is undefined for CH deployments
-            // CH deployments calculate actions on the fly
-            if (actionMatches.length && result.eventId !== undefined) {
-                await hub.db.registerActionMatch(result.eventId, actionMatches)
+            // even if the buffer is disabled we want to get metrics on how many events would have gone to it
+            const sendEventToBuffer =
+                shouldSendEventToBuffer(hub, result, person) &&
+                (hub.CONVERSION_BUFFER_ENABLED || hub.conversionBufferEnabledTeams.has(team_id))
+
+            if (sendEventToBuffer) {
+                await hub.eventsProcessor.produceEventToBuffer(result)
+            } else {
+                const [, eventId, elements] = await hub.eventsProcessor.createEvent(result)
+                actionMatches = await handleActionMatches(hub, event, site_url, eventId, elements, person)
             }
         }
+
         // We don't want to return the inserted DB entry that `processEvent` returns.
         // This response is passed to piscina and would be discarded anyway.
         return { actionMatches, success: true }
@@ -59,4 +64,49 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
     } finally {
         clearTimeout(timeout)
     }
+}
+
+export async function ingestBufferEvent(hub: Hub, event: PreIngestionEvent): Promise<IngestEventResponse> {
+    const person = await hub.db.fetchPerson(event.teamId, event.distinctId)
+    const [, eventId, elements] = await hub.eventsProcessor.createEvent(event)
+    const actionMatches = await handleActionMatches(hub, event as any, '', eventId, elements, person)
+    return { actionMatches, success: true }
+}
+
+async function handleActionMatches(
+    hub: Hub,
+    event: PluginEvent,
+    siteUrl: string,
+    eventId?: number,
+    elements?: Element[],
+    person?: Person
+): Promise<Action[]> {
+    let actionMatches: Action[] = []
+
+    actionMatches = await hub.actionMatcher.match(event, person, elements)
+    await hub.hookCannon.findAndFireHooks(event, person, siteUrl, actionMatches)
+
+    if (actionMatches.length && eventId !== undefined) {
+        await hub.db.registerActionMatch(eventId, actionMatches)
+    }
+
+    return actionMatches
+}
+
+// context: https://github.com/PostHog/posthog/issues/9182
+// TL;DR: events from a recently created non-anonymous person are sent to a buffer
+// because their person_id might change. We merge based on the person_id of the anonymous user
+// so ingestion is delayed for those events to increase our chances of getting person_id correctly
+function shouldSendEventToBuffer(hub: Hub, event: PreIngestionEvent, person?: Person) {
+    const isAnonymousEvent =
+        event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
+    const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds < hub.BUFFER_CONVERSION_SECONDS
+    const ingestEventDirectly = isAnonymousEvent || event.event === '$identify' || !isRecentPerson
+    const sendToBuffer = !ingestEventDirectly
+
+    if (sendToBuffer) {
+        hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.teamId.toString() })
+    }
+
+    return sendToBuffer
 }

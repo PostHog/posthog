@@ -1,12 +1,12 @@
-import { createBuffer } from '@posthog/plugin-contrib'
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
-import { determineNodeEnv, stringClamp } from '../../../utils/utils'
-import { NodeEnv } from './../../../utils/utils'
+import { stringClamp } from '../../../utils/utils'
+import { ExportEventsBuffer } from './utils/export-events-buffer'
 
-const MAXIMUM_RETRIES = 15
+export const MAXIMUM_RETRIES = 3
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
 const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
@@ -16,7 +16,7 @@ const EXPORT_BUFFER_SECONDS_DEFAULT = determineNodeEnv() === NodeEnv.Test ? EXPO
 
 type ExportEventsUpgrade = Plugin<{
     global: {
-        exportEventsBuffer: ReturnType<typeof createBuffer>
+        exportEventsBuffer: ExportEventsBuffer
         exportEventsToIgnore: Set<string>
         exportEventsWithRetry: (payload: ExportEventsJobPayload, meta: PluginMeta<ExportEventsUpgrade>) => Promise<void>
     }
@@ -76,7 +76,7 @@ export function upgradeExportEvents(
             : null
     )
 
-    meta.global.exportEventsBuffer = createBuffer({
+    meta.global.exportEventsBuffer = new ExportEventsBuffer(hub, {
         limit: uploadBytes,
         timeoutSeconds: uploadSeconds,
         onFlush: async (batch) => {
@@ -154,7 +154,7 @@ export function upgradeExportEvents(
     const oldOnEvent = methods.onEvent
     methods.onEvent = async (event: PluginEvent) => {
         if (!meta.global.exportEventsToIgnore.has(event.event)) {
-            meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
+            await meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
         }
         await oldOnEvent?.(event)
     }

@@ -1,13 +1,13 @@
 import './TaxonomicFilter.scss'
 import React, { useEffect, useMemo, useRef } from 'react'
-import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { DefinitionPanel } from 'lib/components/DefinitionPanel/DefinitionPanel'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -20,6 +20,10 @@ export function TaxonomicFilter({
     taxonomicGroupTypes,
     optionsFromProp,
     eventNames,
+    height,
+    width,
+    popoverEnabled = true,
+    selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -27,7 +31,7 @@ export function TaxonomicFilter({
         [taxonomicFilterLogicKeyInput]
     )
 
-    const searchInputRef = useRef<Input | null>(null)
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
@@ -38,7 +42,10 @@ export function TaxonomicFilter({
         taxonomicGroupTypes,
         optionsFromProp,
         eventNames,
+        popoverEnabled,
+        selectFirstItem,
     }
+
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
@@ -47,63 +54,29 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
-    return (
-        <>
-            <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-                <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
-                    <div style={{ position: 'relative' }}>
-                        <Input
-                            style={{ flexGrow: 1 }}
-                            data-attr="taxonomic-filter-searchfield"
-                            placeholder={`Search ${searchPlaceholder}`}
-                            prefix={
-                                <IconMagnifier
-                                    className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`}
-                                />
-                            }
-                            value={searchQuery}
-                            ref={(ref) => (searchInputRef.current = ref)}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'ArrowUp') {
-                                    e.preventDefault()
-                                    moveUp()
-                                }
-                                if (e.key === 'ArrowDown') {
-                                    e.preventDefault()
-                                    moveDown()
-                                }
-                                if (e.key === 'ArrowLeft') {
-                                    e.preventDefault()
-                                    tabLeft()
-                                }
-                                if (e.key === 'ArrowRight') {
-                                    e.preventDefault()
-                                    tabRight()
-                                }
-                                if (e.key === 'Tab') {
-                                    e.preventDefault()
-                                    if (e.shiftKey) {
-                                        tabLeft()
-                                    } else {
-                                        tabRight()
-                                    }
-                                }
+    const style = {
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+    }
 
-                                if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    selectSelected()
-                                }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    onClose?.()
-                                }
-                            }}
-                        />
-                        <span
-                            className="text-muted-alt cursor-pointer"
-                            style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
-                        >
+    return (
+        <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+            <div
+                className={clsx(
+                    'taxonomic-filter',
+                    taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
+                    !width && 'force-minimum-width'
+                )}
+                style={style}
+            >
+                <div style={{ position: 'relative' }}>
+                    <LemonInput
+                        data-attr="taxonomic-filter-searchfield"
+                        placeholder={`Search ${searchPlaceholder}`}
+                        value={searchQuery}
+                        className={searchQuery && 'LemonInput--with-input'}
+                        icon={<IconMagnifier />}
+                        sideIcon={
                             <Tooltip
                                 title={
                                     <>
@@ -117,17 +90,50 @@ export function TaxonomicFilter({
                                     </>
                                 }
                             >
-                                <IconKeyboard />
+                                <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
                             </Tooltip>
-                        </span>
-                    </div>
-                    <InfiniteSelectResults
-                        focusInput={focusInput}
-                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        }
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp') {
+                                e.preventDefault()
+                                moveUp()
+                            }
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault()
+                                moveDown()
+                            }
+                            if (e.key === 'ArrowLeft') {
+                                e.preventDefault()
+                                tabLeft()
+                            }
+                            if (e.key === 'ArrowRight') {
+                                e.preventDefault()
+                                tabRight()
+                            }
+                            if (e.key === 'Tab') {
+                                e.preventDefault()
+                                if (e.shiftKey) {
+                                    tabLeft()
+                                } else {
+                                    tabRight()
+                                }
+                            }
+
+                            if (e.key === 'Enter') {
+                                e.preventDefault()
+                                selectSelected()
+                            }
+                            if (e.key === 'Escape') {
+                                e.preventDefault()
+                                onClose?.()
+                            }
+                        }}
+                        ref={searchInputRef}
+                        onChange={(newValue) => setSearchQuery(newValue)}
                     />
                 </div>
-            </BindLogic>
-            <DefinitionPanel />
-        </>
+                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
+            </div>
+        </BindLogic>
     )
 }

@@ -1,18 +1,36 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
-
-// import the main component of the scene
 import { BillingSubscribed } from './BillingSubscribed'
+import React, { useEffect } from 'react'
+import { mswDecorator } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
-// import the `getReduxState()` output for all the variations you wish to show
-import successState from './billing-subscribed-success.json'
-import failedState from './billing-subscribed-failed.json'
-
-// some metadata and optional parameters
 export default {
-    title: 'PostHog/Scenes/Billing',
+    title: 'Scenes-Other/Billing',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                },
+            },
+        }),
+    ],
 } as Meta
 
-// export more stories with different state
-export const Subscribed = keaStory(BillingSubscribed, successState)
-export const FailedSubscription = keaStory(BillingSubscribed, failedState)
+export const Subscribed = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.billingSubscribed(), { s: 'success' })
+    })
+    return <BillingSubscribed />
+}
+export const FailedSubscription = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push(urls.billingSubscribed(), { session_id: 'cs_test_12345678' })
+    })
+    return <BillingSubscribed />
+}

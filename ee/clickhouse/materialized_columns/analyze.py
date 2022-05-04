@@ -1,10 +1,10 @@
-import logging
 import re
 from collections import defaultdict
 from datetime import timedelta
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
-from ee.clickhouse.client import sync_execute
+import structlog
+
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
     get_materialized_columns,
@@ -18,6 +18,7 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
@@ -25,7 +26,7 @@ from posthog.models.team import Team
 
 Suggestion = Tuple[TableWithProperties, PropertyName, int]
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TeamManager:

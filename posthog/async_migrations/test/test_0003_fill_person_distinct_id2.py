@@ -5,32 +5,34 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
-from posthog.test.base import BaseTest
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 
 MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
 @pytest.mark.ee
-class Test0003FillPersonDistinctId2(BaseTest):
+class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
     def setUp(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         self.migration = get_async_migration_definition(MIGRATION_NAME)
         self.timestamp = 0
         sync_execute("TRUNCATE TABLE person_distinct_id")
         sync_execute("TRUNCATE TABLE person_distinct_id2")
-        sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id ''")
+        sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
+    @pytest.mark.async_migrations
     def test_is_required(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         self.assertTrue(self.migration.is_required())
 
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'")
         self.assertFalse(self.migration.is_required())
 
+    @pytest.mark.async_migrations
     def test_migration(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         p1, p2, p3, p4, p5, p6 = [UUID(int=i) for i in range(6)]
 
@@ -49,8 +51,8 @@ class Test0003FillPersonDistinctId2(BaseTest):
 
         self.create_distinct_id(team_id=3, distinct_id="d", person_id=str(p6), sign=1)
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         rows = sync_execute(
@@ -60,7 +62,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         self.assertEqual(rows, [(1, "a", p1, 0), (2, "a", p2, 0), (2, "b", p4, 0), (3, "d", p6, 0)])
 
     def create_distinct_id(self, **kwargs):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         sync_execute(
             "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, %(timestamp)s, 0 VALUES",

@@ -1,20 +1,16 @@
-from typing import Type
-
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from posthog.constants import FUNNEL_TO_STEP
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
-    def __init__(
-        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-    ) -> None:
+    def __init__(self, filter: Filter, team: Team) -> None:
         super().__init__(filter, team)
-        self.funnel_order = funnel_order_class(filter, team)
+        self.funnel_order = get_funnel_order_class(filter)(filter, team)
 
     def _format_results(self, results: list) -> dict:
         return {
@@ -47,7 +43,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             bin_count_identifier = "bin_count"
             bin_count_expression = f"""
                 count() AS sample_count,
-                least(60, greatest(3, ceil(cbrt(sample_count)))) AS {bin_count_identifier},
+                ifNull(least(60, greatest(3, ceil(cbrt(sample_count)))), 0) AS {bin_count_identifier},
             """
 
         if not (0 < to_step < len(self._filter.entities)):
@@ -112,7 +108,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             RIGHT OUTER JOIN (
                 /* Making sure bin_count bins are returned */
                 /* Those not present in the results query due to lack of data simply get person_count 0 */
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT ifNull({bin_count_identifier}, 0) + 1
             ) fill
             USING (bin_from_seconds)
             ORDER BY bin_from_seconds

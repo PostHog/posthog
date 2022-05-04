@@ -1,17 +1,9 @@
 import json
-from enum import Enum, auto
 from typing import Optional, Union
 
 import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
-
-
-class PersonPropertiesMode(Enum):
-    USING_SUBQUERY = auto()
-    USING_PERSON_PROPERTIES_COLUMN = auto()
-    # Used when person join handles these filters
-    EXCLUDE = auto()
 
 
 def is_json(val):

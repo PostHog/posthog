@@ -13,11 +13,12 @@ import {
 } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
-import { eventUsageLogic, RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 export type PersonUUID = string
 interface Params {
@@ -40,24 +41,27 @@ export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
 
 export const DEFAULT_PROPERTY_FILTERS = []
 
+const event = getDefaultEventName()
+
 export const DEFAULT_ENTITY_FILTERS = {
     events: [],
     actions: [],
     new_entity: [
         {
-            id: null,
+            id: event,
             type: EntityTypes.EVENTS,
             order: 0,
-            name: null,
+            name: event,
         },
     ],
 }
 
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
-    key: (props) => props.personUUID || 'global',
+    key: (props) => props.key || props.personUUID || 'global',
     props: {} as {
         personUUID?: PersonUUID
+        key?: string
     },
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -194,19 +198,15 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
     listeners: ({ actions }) => ({
         setEntityFilters: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
             actions.getSessionRecordings()
         },
         setPropertyFilters: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
             actions.getSessionRecordings()
         },
         setDateRange: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
             actions.getSessionRecordings()
         },
         setDurationFilter: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
             actions.getSessionRecordings()
         },
         loadNext: () => {

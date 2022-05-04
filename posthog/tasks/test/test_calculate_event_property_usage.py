@@ -3,10 +3,10 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.demo import create_demo_team
-from posthog.models import Event, Insight, Organization, Team
+from posthog.models import Insight, Organization
 from posthog.models.event_definition import EventDefinition
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import BaseTest
 
@@ -15,82 +15,64 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
     class Test(BaseTest):
         def test_updating_team_events_or_related_updates_event_definitions(self) -> None:
             random.seed(900)  # ensure random data is consistent
-            org = Organization.objects.create(name="Demo Org")
-            team = create_demo_team(org, None, None)
 
+            create_event(event="watched_movie", team=self.team, distinct_id="user1")
+            create_event(event="$pageview", team=self.team, distinct_id="user1")
+            create_event(event="$pageview", team=self.team, distinct_id="user1")
             expected_events = [
                 "watched_movie",
-                "installed_app",
-                "rated_app",
-                "purchase",
-                "entered_free_trial",
                 "$pageview",
             ]
+            EventDefinition.objects.create(name="watched_movie", team=self.team)
+            EventDefinition.objects.create(name="$pageview", team=self.team)
 
-            self.assertEqual(EventDefinition.objects.filter(team=team).count(), len(expected_events))
-
-            for obj in EventDefinition.objects.filter(team=team):
+            for obj in EventDefinition.objects.filter(team=self.team):
                 self.assertIn(obj.name, expected_events)
                 self.assertEqual(obj.volume_30_day, None)
                 self.assertEqual(obj.query_usage_30_day, None)
 
-            Insight.objects.create(team=team, filters={"events": [{"id": "$pageview"}]})
+            Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
             # Test events with usage
             expected_event_definitions = [
-                {"name": "installed_app", "volume_30_day": 100, "query_usage_30_day": 0},
-                {"name": "rated_app", "volume_30_day": 73, "query_usage_30_day": 0},
-                {"name": "purchase", "volume_30_day": 16, "query_usage_30_day": 0},
-                {"name": "entered_free_trial", "volume_30_day": 0, "query_usage_30_day": 0},
-                {"name": "watched_movie", "volume_30_day": 87, "query_usage_30_day": 0},
-                {"name": "$pageview", "volume_30_day": 327, "query_usage_30_day": 2},
+                {"name": "$pageview", "volume_30_day": 2, "query_usage_30_day": 1},
+                {"name": "watched_movie", "volume_30_day": 1, "query_usage_30_day": 0},
             ]
-            calculate_event_property_usage_for_team(team.pk)
+            calculate_event_property_usage_for_team(self.team.pk)
 
-            self.assertEqual(EventDefinition.objects.filter(team=team).count(), len(expected_event_definitions))
+            self.assertEqual(EventDefinition.objects.filter(team=self.team).count(), len(expected_event_definitions))
             for item in expected_event_definitions:
-                instance = EventDefinition.objects.get(name=item["name"], team=team)
+                instance = EventDefinition.objects.get(name=item["name"], team=self.team)
                 self.assertEqual(instance.volume_30_day, item["volume_30_day"], item)
                 self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"], item)
 
         def test_updating_event_properties_or_related_updates_property_definitions(self) -> None:
             random.seed(900)
             org = Organization.objects.create(name="Demo Org")
-            team = create_demo_team(org, None, None)
+            team = Team.objects.create(organization=org)
 
-            expected_properties = [
-                "purchase",
-                "$current_url",
-                "$browser",
-                "is_first_movie",
-                "app_rating",
-                "plan",
-                "first_visit",
-                "purchase_value",
-            ]
-            numerical_properties = ["purchase", "app_rating", "purchase_value"]
-
-            self.assertCountEqual(
-                PropertyDefinition.objects.filter(team=team).values_list("name", flat=True),
-                expected_properties,
-                PropertyDefinition.objects.filter(team=team).values("name"),
+            create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="user1",
+                properties={"$current_url": "http://test.com", "$browser": "Safari"},
             )
+            create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="user1",
+                properties={"$current_url": "http://test.com", "$browser": "Safari"},
+            )
+            create_event(event="watched_movie", team=self.team, distinct_id="user1", properties={"app_rating": 5})
 
-            for obj in PropertyDefinition.objects.filter(team=team):
-                self.assertIn(obj.name, expected_properties)
-                self.assertEqual(obj.volume_30_day, None)
-                self.assertEqual(obj.query_usage_30_day, None)
-                self.assertEqual(obj.is_numerical, obj.name in numerical_properties)
+            PropertyDefinition.objects.create(name="$current_url", team=team)
+            PropertyDefinition.objects.create(name="$browser", team=team)
+            PropertyDefinition.objects.create(name="app_rating", team=team, is_numerical=True)
 
             Insight.objects.create(team=team, filters={"properties": [{"key": "$browser", "value": "Safari"}]})
             # Test events with usage
             expected_property_definitions = [
                 {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
-                {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
                 {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
-                {"name": "plan", "query_usage_30_day": 0, "is_numerical": False},
-                {"name": "purchase", "query_usage_30_day": 0, "is_numerical": True},
-                {"name": "purchase_value", "query_usage_30_day": 0, "is_numerical": True},
-                {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
                 {"name": "$browser", "query_usage_30_day": 1, "is_numerical": False},
             ]
             calculate_event_property_usage_for_team(team.pk)

@@ -22,7 +22,7 @@ from posthog.version import VERSION
 from .utils import UUIDModel, sane_repr
 
 try:
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 except ImportError:
     pass
 
@@ -152,7 +152,8 @@ class Plugin(models.Model):
     from_web: models.BooleanField = models.BooleanField(default=False)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     objects: PluginManager = PluginManager()
 
@@ -243,7 +244,7 @@ class PluginLogEntry(UUIDModel):
     __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
 
 
-@dataclass
+@dataclass(frozen=True)
 class PluginLogEntryRaw:
     id: UUID
     team_id: int

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import dayjs, { Dayjs, OpUnitType } from 'dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
@@ -9,13 +9,13 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface AnnotationsLogicProps {
-    insightId?: number
+    insightNumericId?: number
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
-    key: (props) => String(props.insightId || 'default'),
+    key: (props) => String(props.insightNumericId || 'default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
@@ -24,23 +24,24 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
             content,
             date_marker,
-            created_at: dayjs() as Dayjs,
+            created_at: now(),
             scope,
         }),
         deleteAnnotation: (id: string) => ({ id }),
         updateDiffType: (dates: string[]) => ({ dates }),
-        setDiffType: (type: OpUnitType) => ({ type }),
+        setDiffType: (type: dayjs.OpUnitType) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
-                if (!props.insightId) {
-                    throw new Error('Can only load annotations for insight whose id is known.')
+                if (!props.insightNumericId) {
+                    // insight.id (numeric ID) not known yet
+                    return []
                 }
 
                 const params = {
-                    ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
+                    ...(props.insightNumericId ? { dashboardItemId: props.insightNumericId } : {}),
                     scope: AnnotationScope.Insight,
                     deleted: false,
                 }
@@ -89,14 +90,14 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             (annotationsList, diffType) =>
                 groupBy(annotationsList, (annotation) =>
                     dayjs(annotation['date_marker'])
-                        .startOf(diffType as OpUnitType)
+                        .startOf(diffType as dayjs.OpUnitType)
                         .format('YYYY-MM-DD')
                 ),
         ],
     }),
     listeners: ({ actions, props }) => ({
         createAnnotation: async ({ content, date_marker, created_at, scope }) => {
-            if (!props.insightId) {
+            if (!props.insightNumericId) {
                 throw new Error('Can only create annotations for insights whose id is known.')
             }
 
@@ -104,7 +105,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                 content,
                 date_marker: dayjs(date_marker).toISOString(),
                 created_at: created_at.toISOString(),
-                dashboard_item: props.insightId,
+                dashboard_item: props.insightNumericId,
                 scope,
             } as Partial<AnnotationType>)
             actions.loadAnnotations()

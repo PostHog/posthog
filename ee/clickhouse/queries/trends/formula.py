@@ -2,21 +2,22 @@ import math
 from itertools import accumulate
 from typing import Any, Dict, List
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.trends.util import parse_response
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
-from posthog.models.cohort import Cohort
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.client import sync_execute
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 
 
 class ClickhouseTrendsFormula:
-    def _run_formula_query(self, filter: Filter, team_id: int):
+    def _run_formula_query(self, filter: Filter, team: Team):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
-            sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
+            sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team)  # type: ignore
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
@@ -25,9 +26,9 @@ class ClickhouseTrendsFormula:
         breakdown_value = (
             ", sub_A.breakdown_value"
             if filter.breakdown_type == "cohort"
-            else ", trim(BOTH '\"' FROM sub_A.breakdown_value)"
+            else f", {trim_quotes_expr('sub_A.breakdown_value')}"
         )
-        is_aggregate = filter.display in TRENDS_DISPLAY_BY_VALUE
+        is_aggregate = filter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
         sql = """SELECT
             {date_select}
@@ -69,7 +70,7 @@ class ClickhouseTrendsFormula:
         response = []
         for item in result:
             additional_values: Dict[str, Any] = {
-                "label": self._label(filter, item, team_id),
+                "label": self._label(filter, item),
             }
             if is_aggregate:
                 additional_values["data"] = []
@@ -81,10 +82,10 @@ class ClickhouseTrendsFormula:
                 if filter.display == TRENDS_CUMULATIVE:
                     additional_values["data"] = list(accumulate(additional_values["data"]))
             additional_values["count"] = float(sum(additional_values["data"]))
-            response.append(parse_response(item, filter, additional_values))
+            response.append(parse_response(item, filter, additional_values=additional_values))
         return response
 
-    def _label(self, filter: Filter, item: List, team_id: int) -> str:
+    def _label(self, filter: Filter, item: List) -> str:
         if filter.breakdown:
             if filter.breakdown_type == "cohort":
                 return get_breakdown_cohort_name(item[2])

@@ -1,6 +1,5 @@
-import dataclasses
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, Optional
 
 from rest_framework.exceptions import ValidationError
 
@@ -70,7 +69,7 @@ class ClickhouseSecondaryExperimentResult:
             total = result[0]["count"]
             success = result[-1]["count"]
             breakdown_value = result[0]["breakdown_value"][0]
-            variants[breakdown_value] = int(success) / int(total)
+            variants[breakdown_value] = round(int(success) / int(total), 3)
 
         return variants
 

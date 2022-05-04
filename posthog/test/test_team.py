@@ -1,6 +1,6 @@
 from unittest import mock
 
-from posthog.models import Organization, PluginConfig, Team, User
+from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig, Team, User
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 
 from .base import BaseTest
@@ -41,6 +41,15 @@ class TestTeam(BaseTest):
                 },
             ],
         )
+
+    def test_create_team_sets_primary_dashboard(self):
+        team = Team.objects.create_with_data(organization=self.organization)
+        self.assertIsInstance(
+            team.primary_dashboard, Dashboard,
+        )
+
+        # Ensure insights are created and linked
+        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_preinstalled_are_autoenabled(self, mock_get):

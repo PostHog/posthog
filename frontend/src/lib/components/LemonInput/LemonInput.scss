@@ -1,0 +1,47 @@
+.LemonInput {
+    color: var(--text-default);
+    cursor: text;
+
+    &:not(.LemonInput--focused):not(.LemonRow--disabled):hover {
+        border: 1px solid var(--primary-hover);
+    }
+
+    .LemonInput__input {
+        border: none;
+        outline: none;
+        background-color: inherit;
+        width: 100%;
+        text-overflow: ellipsis;
+
+        &:disabled {
+            opacity: var(--opacity-disabled);
+            cursor: not-allowed;
+        }
+    }
+}
+
+.LemonRow__icon:first-child {
+    .LemonInput & {
+        color: var(--text-muted);
+    }
+    .LemonInput.LemonInput--with-input & {
+        color: var(--primary);
+    }
+}
+
+.LemonInput--embedded {
+    color: var(--text-default);
+    font-weight: 400;
+    border: none !important;
+
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonInput--focused {
+    &:not(.LemonRow--disabled) {
+        transition: 100ms border;
+        border: 1px solid var(--primary);
+    }
+}

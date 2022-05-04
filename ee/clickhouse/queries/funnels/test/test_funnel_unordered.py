@@ -1,10 +1,5 @@
-from typing import List, cast
-from uuid import uuid4
-
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -17,20 +12,9 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
 
 
 def _create_action(**kwargs):
@@ -293,8 +277,6 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel = ClickhouseFunnelUnordered(filter, self.team)
-
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
 
@@ -341,6 +323,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview6")
         _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview6")
 
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
         result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")

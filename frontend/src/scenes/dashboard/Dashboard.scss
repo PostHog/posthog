@@ -62,8 +62,6 @@
             margin-top: $default_spacing;
             align-items: flex-end;
             .bar-el {
-                background-color: rgba(190, 190, 190, 0.2);
-                border-radius: $radius;
                 width: 12.5%;
                 margin-left: 4px;
                 height: 100px;
@@ -84,7 +82,7 @@
             position: relative;
 
             &::after {
-                @extend .mixin-gradient-overlay;
+                @extend %mixin-gradient-overlay;
                 width: calc(100% - 16px); // .ant-row gutter
                 left: 8px;
                 height: 150px;
@@ -183,4 +181,21 @@
 #auto-refresh-check {
     padding: 5px 12px;
     cursor: pointer;
+}
+
+.CollaboratorRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+    margin-top: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+.CollaboratorRow__details {
+    display: flex;
+    align-items: center;
+    > span {
+        margin-right: 0.5rem;
+    }
 }

@@ -1,19 +1,21 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
+import { Server } from 'http'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
 import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createHub } from '../utils/db/hub'
+import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { statusReport } from '../utils/status-report'
-import { delay, getPiscinaStats } from '../utils/utils'
+import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
+import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
 
@@ -33,6 +35,8 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina
 ): Promise<ServerInstance> {
+    const timer = new Date()
+
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -55,6 +59,7 @@ export async function startPluginsServer(
     let scheduleControl: ScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
+    let httpServer: Server | undefined
 
     let shutdownStatus = 0
 
@@ -77,7 +82,6 @@ export async function startPluginsServer(
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
         pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
-        statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
@@ -98,6 +102,8 @@ export async function startPluginsServer(
             await stopPiscina(piscina)
         }
         await closeHub?.()
+        httpServer?.close()
+
         status.info('👋', 'Over and out!')
         // wait an extra second for any misc async task to finish
         await delay(1000)
@@ -111,6 +117,12 @@ export async function startPluginsServer(
         // This makes async exit possible with the process waiting until jobs are closed
         await closeJobs()
         process.exit(0)
+    })
+
+    process.on('unhandledRejection', (error: Error) => {
+        Sentry.captureException(error)
+        status.error('🤮', 'Unhandled Promise Rejection!')
+        status.error('🤮', error)
     })
 
     try {
@@ -154,6 +166,11 @@ export async function startPluginsServer(
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                // wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                if (determineNodeEnv() === NodeEnv.Production) {
+                    await delay(30 * 1000)
+                }
+
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await scheduleControl?.reloadSchedule()
@@ -206,19 +223,20 @@ export async function startPluginsServer(
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
+
             let lastFoundActivity: number
             lastActivityCheck = setInterval(() => {
+                const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
+
                 if (
                     hub?.lastActivity &&
-                    new Date().valueOf() - hub?.lastActivity > serverConfig.STALENESS_RESTART_SECONDS * 1000 &&
+                    stalenessCheckResult.isServerStale &&
                     lastFoundActivity !== hub?.lastActivity
                 ) {
                     lastFoundActivity = hub?.lastActivity
                     const extra = {
-                        instanceId: hub.instanceId.toString(),
-                        lastActivity: hub.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
-                        lastActivityType: hub.lastActivityType,
                         piscina: piscina ? JSON.stringify(getPiscinaStats(piscina)) : null,
+                        ...stalenessCheckResult,
                     }
                     Sentry.captureMessage(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
@@ -230,7 +248,7 @@ export async function startPluginsServer(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
                         extra
                     )
-                    hub.statsd?.increment(`alerts.stale_plugin_server_restarted`)
+                    hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
 
                     killProcess()
                 }
@@ -241,6 +259,10 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
+        // start http server used for the healthcheck
+        httpServer = createHttpServer(hub, serverConfig)
+
+        hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
 
         hub.lastActivity = new Date().valueOf()

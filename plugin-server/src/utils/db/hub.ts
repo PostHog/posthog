@@ -4,16 +4,15 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel } from 'kafkajs'
+import { Kafka, logLevel, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
-import { LazyPluginVM } from 'worker/vm/lazy'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, PluginId, PluginsServerConfig } from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -26,6 +25,7 @@ import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
+import { PromiseManager } from './../../worker/vm/promise-manager'
 import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
@@ -47,6 +47,12 @@ export async function createHub(
 
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
+    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
+
+    const conversionBufferEnabledTeams = new Set(
+        serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
+
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -64,8 +70,20 @@ export async function createHub(
         eventLoopLagInterval = setInterval(() => {
             const time = new Date()
             setImmediate(() => {
-                statsd?.timing('event_loop_lag', time)
+                statsd?.timing('event_loop_lag', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
             })
+        }, 2000)
+        eventLoopLagSetTimeoutInterval = setInterval(() => {
+            const time = new Date()
+            setTimeout(() => {
+                statsd?.timing('event_loop_lag_set_timeout', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
+            }, 0)
         }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
@@ -77,7 +95,7 @@ export async function createHub(
         status.info('👍', `StatsD`)
     }
 
-    let kafkaSsl: ConnectionOptions | undefined
+    let kafkaSsl: ConnectionOptions | boolean | undefined
     if (
         serverConfig.KAFKA_CLIENT_CERT_B64 &&
         serverConfig.KAFKA_CLIENT_CERT_KEY_B64 &&
@@ -93,6 +111,20 @@ export async function createHub(
             #for this connection even though the certificate doesn't include host information. We rely
             on the ca trust_cert for this purpose. */
             rejectUnauthorized: false,
+        }
+    } else if (
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
+        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
+    ) {
+        kafkaSsl = true
+    }
+
+    let kafkaSasl: SASLOptions | undefined
+    if (serverConfig.KAFKA_SASL_MECHANISM && serverConfig.KAFKA_SASL_USER && serverConfig.KAFKA_SASL_PASSWORD) {
+        kafkaSasl = {
+            mechanism: serverConfig.KAFKA_SASL_MECHANISM,
+            username: serverConfig.KAFKA_SASL_USER,
+            password: serverConfig.KAFKA_SASL_PASSWORD,
         }
     }
 
@@ -130,6 +162,7 @@ export async function createHub(
             brokers: serverConfig.KAFKA_HOSTS.split(','),
             logLevel: logLevel.WARN,
             ssl: kafkaSsl,
+            sasl: kafkaSasl,
             connectionTimeout: 3000, // default: 1000
             authenticationTimeout: 3000, // default: 1000
         })
@@ -173,11 +206,20 @@ export async function createHub(
     )
     status.info('👍', `Redis`)
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
+    const db = new DB(
+        postgres,
+        redisPool,
+        kafkaProducer,
+        clickhouse,
+        statsd,
+        serverConfig.PERSON_INFO_CACHE_TTL,
+        new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
+    )
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const promiseManager = new PromiseManager(serverConfig, statsd)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -205,9 +247,11 @@ export async function createHub(
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
+        promiseManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
+        conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
@@ -234,6 +278,11 @@ export async function createHub(
         if (eventLoopLagInterval) {
             clearInterval(eventLoopLagInterval)
         }
+
+        if (eventLoopLagSetTimeoutInterval) {
+            clearInterval(eventLoopLagSetTimeoutInterval)
+        }
+
         hub.mmdbUpdateJob?.cancel()
         await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()

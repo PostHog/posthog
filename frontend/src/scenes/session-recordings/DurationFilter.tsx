@@ -33,7 +33,7 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
                         />
                         <Input
                             type="number"
-                            value={timeValue}
+                            value={timeValue ?? undefined}
                             placeholder="0"
                             min={0}
                             autoFocus
@@ -52,7 +52,7 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
                             }
                             step={1}
                             onChange={(event) => {
-                                const newValue = parseFloat(event.target.value)
+                                const newValue = event.target.value ? parseFloat(event.target.value) : null
                                 setTimeValue(newValue)
                             }}
                         />

@@ -6,18 +6,17 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import (
     box_value,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
-    parse_prop_clauses,
+    parse_prop_grouped_clauses,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
     FUNNEL_WINDOW_INTERVAL_UNIT,
@@ -26,6 +25,9 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
+from posthog.models.action.util import format_action_filter
+from posthog.models.property import PropertyName
+from posthog.models.utils import PersonPropertiesMode
 from posthog.utils import relative_date_parse
 
 
@@ -34,6 +36,8 @@ class ClickhouseFunnelBase(ABC):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
+    _extra_event_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
 
     def __init__(
         self,
@@ -48,6 +52,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
+            "timezone": self._team.timezone_for_charts,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
@@ -70,6 +75,12 @@ class ClickhouseFunnelBase(ABC):
             self.params.update({LIMIT: self._filter.limit})
 
         self.params.update({OFFSET: self._filter.offset})
+
+        self._extra_event_fields: List[ColumnName] = []
+        self._extra_event_properties: List[PropertyName] = []
+        if self._filter.include_recordings:
+            self._extra_event_fields = ["uuid"]
+            self._extra_event_properties = ["$session_id", "$window_id"]
 
         self._update_filters()
 
@@ -94,6 +105,10 @@ class ClickhouseFunnelBase(ABC):
             "count": count,
             "type": step.type,
         }
+
+    @property
+    def extra_event_fields_and_properties(self):
+        return self._extra_event_fields + self._extra_event_properties
 
     def _update_filters(self):
         # format default dates
@@ -166,9 +181,7 @@ class ClickhouseFunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
@@ -278,6 +291,8 @@ class ClickhouseFunnelBase(ABC):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
+                for field in self.extra_event_fields_and_properties:
+                    cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
@@ -291,6 +306,12 @@ class ClickhouseFunnelBase(ABC):
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
+
+                for field in self.extra_event_fields_and_properties:
+                    cols.append(
+                        f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
+                    )
+
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
@@ -334,13 +355,17 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False, extra_fields=[]
     ) -> str:
+        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
         entities_to_use = entities or self._filter.entities
 
-        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
-            entities_to_use, entity_name, skip_entity_filter=skip_entity_filter
-        )
+        event_query, params = FunnelEventQuery(
+            filter=self._filter,
+            team=self._team,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
 
@@ -382,6 +407,7 @@ class ClickhouseFunnelBase(ABC):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
+            extra_fields=parsed_extra_fields,
         )
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -403,6 +429,9 @@ class ClickhouseFunnelBase(ABC):
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
 
+        for field in self.extra_event_fields_and_properties:
+            step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+
         return step_cols
 
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
@@ -412,7 +441,9 @@ class ClickhouseFunnelBase(ABC):
             for action_step in action.steps.all():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
-            action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
+            action_query, action_params = format_action_filter(
+                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+            )
             if action_query == "":
                 return ""
 
@@ -427,16 +458,15 @@ class ClickhouseFunnelBase(ABC):
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties,
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=self._team.pk,
+            property_group=entity.property_groups,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
-        if entity.properties:
-            return prop_filters
-        return ""
+        return prop_filters
 
     def _get_funnel_person_step_condition(self):
         step_num = self._filter.funnel_step
@@ -468,6 +498,23 @@ class ClickhouseFunnelBase(ABC):
 
         return " AND ".join(conditions)
 
+    def _get_funnel_person_step_events(self):
+        if self._filter.include_recordings:
+            step_num = self._filter.funnel_step
+            if self._filter.include_final_matching_events:
+                # Always returns the user's final step of the funnel
+                return ", final_matching_events as matching_events"
+            elif step_num is None:
+                raise ValueError("Missing funnel_step filter property")
+            if step_num >= 0:
+                # None drop off case
+                self.params.update({"matching_events_step_num": step_num - 1})
+            else:
+                # Drop off case if negative number
+                self.params.update({"matching_events_step_num": abs(step_num) - 2})
+            return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+        return ""
+
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
 
@@ -483,6 +530,33 @@ class ClickhouseFunnelBase(ABC):
 
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
+
+    def _get_final_matching_event(self, max_steps: int):
+        statement = None
+        for i in range(max_steps - 1, -1, -1):
+            if i == max_steps - 1:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+            elif i == 0:
+                statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
+            else:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+        return f",{statement} as final_matching_event" if statement else ""
+
+    def _get_matching_events(self, max_steps: int):
+        if self._filter.include_recordings:
+            events = []
+            for i in range(0, max_steps):
+                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
+                event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+                events.append(event_clause)
+            matching_event_select_statements = "," + ", ".join(events)
+
+            final_matching_event_statement = self._get_final_matching_event(max_steps)
+
+            return matching_event_select_statements + final_matching_event_statement
+
+        return ""
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
@@ -507,6 +581,14 @@ class ClickhouseFunnelBase(ABC):
 
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
+
+    def _get_matching_event_arrays(self, max_steps: int):
+        select_clause = ""
+        if self._filter.include_recordings:
+            for i in range(0, max_steps):
+                select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
+            select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
+        return select_clause
 
     def get_query(self) -> str:
         raise NotImplementedError()
@@ -542,7 +624,7 @@ class ClickhouseFunnelBase(ABC):
         return ""
 
     def _get_cohort_breakdown_join(self) -> str:
-        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
         self.params.update({"breakdown_values": ids})
         self.params.update(cohort_params)
         return f"""
@@ -563,11 +645,10 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team, extra_params={"offset": 0}
             )
 
         return None
