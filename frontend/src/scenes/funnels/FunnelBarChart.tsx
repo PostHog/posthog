@@ -202,7 +202,14 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
 
         return (
-            <table style={{ '--bar-width': `${barWidthPx}px`, '--bar-row-height': barRowHeight } as FunnelBarChartCSSProperties}>
+            <table
+                style={
+                    {
+                        '--bar-width': `${barWidthPx}px`,
+                        '--bar-row-height': barRowHeight,
+                    } as FunnelBarChartCSSProperties
+                }
+            >
                 <colgroup>
                     {visibleStepsWithConversionMetrics.map((_, i) => (
                         <col key={i} width={0} />
