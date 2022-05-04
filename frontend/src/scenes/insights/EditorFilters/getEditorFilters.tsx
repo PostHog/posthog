@@ -1,4 +1,4 @@
-import { FilterType, InsightEditorFilter, InsightEditorFilterGroups, InsightType } from '~/types'
+import { AvailableFeature, FilterType, InsightEditorFilter, InsightEditorFilterGroups, InsightType } from '~/types'
 import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
@@ -11,16 +11,25 @@ import { EFLifecycleToggles } from 'scenes/insights/EditorFilters/EFLifecycleTog
 import { EFLifecycleGlobalFilters } from 'scenes/insights/EditorFilters/EFLifecycleGlobalFilters'
 import React from 'react'
 import { EFRetentionSummary } from './EFRetentionSummary'
+import { EFPathsGeneral } from './EFPathsGeneral'
+import { EFPathsEventTypes } from './EFPathsEventTypes'
+import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
+import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
 
 export function getEditorFilters(
     filters: Partial<FilterType>,
-    featureFlags: FeatureFlagsSet
+    featureFlags: FeatureFlagsSet,
+    availableFeatures: AvailableFeature[]
 ): InsightEditorFilterGroups {
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const isLifecycle = filters.insight === InsightType.LIFECYCLE
     const isStickiness = filters.insight === InsightType.STICKINESS
     const isRetention = filters.insight === InsightType.RETENTION
+    const isPaths = filters.insight === InsightType.PATHS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
+
+    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths
+    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED) || true
 
     return {
         General: filterFalsy([
@@ -34,6 +43,43 @@ export function getEditorFilters(
                 label: 'Retention Summary',
                 component: EFRetentionSummary,
             },
+            ...(isPaths
+                ? filterFalsy([
+                      {
+                          key: 'event-types',
+                          label: 'Event Types',
+                          component: EFPathsEventTypes,
+                      },
+                      hasPathsAdvanced && {
+                          key: 'wildcard-groups',
+                          label: 'Wildcard Groups (optional)',
+                          component: EFPathsWildcardGroups,
+                          tooltip: (
+                              <>
+                                  Use wildcard matching to group events by unique values in path item names. Use an
+                                  asterisk (*) in place of unique values. For example, instead of
+                                  /merchant/1234/payment, replace the unique value with an asterisk /merchant/*/payment.{' '}
+                                  <b>Use a comma to separate multiple wildcards.</b>
+                              </>
+                          ),
+                      },
+                      {
+                          key: 'start-target',
+                          label: 'Starts at',
+                          component: EFPathsTargetStart,
+                      },
+                      hasPathsAdvanced && {
+                          key: 'ends-target',
+                          label: 'Ends at',
+                          component: EFPathsTargetEnd,
+                      },
+                      {
+                          key: 'paths-general',
+                          label: 'Paths (TO BE REMOVED)',
+                          component: EFPathsGeneral,
+                      },
+                  ])
+                : []),
         ]),
         Steps: filterFalsy([
             isTrendsLike && {
@@ -61,7 +107,7 @@ export function getEditorFilters(
                       component: EFLifecycleToggles,
                   }
                 : null,
-            (isTrends || isStickiness || isRetention) && filters.properties
+            hasPropertyFilters && filters.properties
                 ? {
                       key: 'properties',
                       component: featureFlags[FEATURE_FLAGS.AND_OR_FILTERING]

@@ -27,7 +27,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,6 +39,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const { user } = useValues(userLogic)
+    const availableFeatures = user?.organization?.available_features || []
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -104,7 +106,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         <>
             {insight &&
                 filters &&
-                Object.entries(getEditorFilters(filters, featureFlags))
+                Object.entries(getEditorFilters(filters, featureFlags, availableFeatures))
                     .filter(([, v]) => v.length > 0)
                     .map(([title, editorFilters]) => {
                         return (
