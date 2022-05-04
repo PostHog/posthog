@@ -371,6 +371,23 @@ email@example.org,
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(3, len(response.json()["results"]))
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_creating_update_and_calculating_ignore_bad_filters(self, patch_calculate_cohort, patch_capture):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        Person.objects.create(team=self.team, properties={"team_id": 5})
+        Person.objects.create(team=self.team, properties={"team_id": 6})
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "filters": "[Slkasd=lkxcn]", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        c = Cohort.objects.get(pk=response.json()["id"])
+        self.assertEqual(c.filters, None)
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
