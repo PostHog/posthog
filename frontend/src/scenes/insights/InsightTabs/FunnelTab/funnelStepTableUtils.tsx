@@ -177,5 +177,5 @@ export function getSignificanceFromBreakdownStep(
     breakdown: FlattenedFunnelStepByBreakdown,
     stepOrder: number
 ): FunnelStepWithConversionMetrics['significant'] {
-    return breakdown.steps?.[stepOrder].significant
+    return breakdown.steps?.[stepOrder]?.significant
 }

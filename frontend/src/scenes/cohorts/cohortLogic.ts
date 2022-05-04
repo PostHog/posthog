@@ -15,7 +15,10 @@ import { actionToUrl } from 'kea-router/lib/builders'
 
 function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
-        ...cohort,
+        ...(cohort.name ? { name: cohort.name } : {}),
+        ...(cohort.description ? { description: cohort.description } : {}),
+        ...(cohort.csv ? { csv: cohort.csv } : {}),
+        ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         groups: JSON.stringify(
             cohort.is_static
                 ? []
@@ -78,7 +81,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
     path(['scenes', 'cohorts', 'cohortLogic']),
 
     actions({
-        saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
+        saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
@@ -165,20 +168,17 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                         return values.cohort
                     }
                 },
-                saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
-                    let cohort = { ...values.cohort, ...cohortParams }
+                saveCohort: async ({ cohortParams }, breakpoint) => {
+                    let cohort = { ...cohortParams }
+
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {
                         if (cohort.id !== 'new') {
-                            cohort = await api.cohorts.update(
-                                cohort.id,
-                                cohortFormData as Partial<CohortType>,
-                                filterParams
-                            )
+                            cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.updateCohort(cohort)
                         } else {
-                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
+                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {

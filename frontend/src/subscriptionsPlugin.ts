@@ -40,7 +40,7 @@ export const subscriptionsPlugin: KeaPlugin = {
                                 sub.subscription(newValue, lastValue)
                             }
                         } catch (e) {
-                            console.error('nope')
+                            // ignore noise if the new or old value is not in redux
                         }
                     }
                 }

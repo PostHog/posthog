@@ -35,10 +35,10 @@ export const sceneLogic = kea<sceneLogicType>({
     props: {} as {
         scenes?: Record<Scene, () => any>
     },
-    connect: {
+    connect: () => ({
         logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
-    },
+    }),
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something

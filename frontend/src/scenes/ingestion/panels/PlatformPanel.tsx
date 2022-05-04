@@ -18,8 +18,8 @@ export function PlatformPanel(): JSX.Element {
             {onboarding1 ? (
                 <div style={{ maxWidth: 400 }}>
                     <div className="welcome-panel">
-                        <h1>Welcome to PostHog</h1>
-                        <p className="fw-500">First things first, where do you want to send events from?</p>
+                        <h1 className="ingestion-title">Welcome to PostHog</h1>
+                        <p>First things first, where do you want to send events from?</p>
                         <Col style={{ marginBottom: 16 }}>
                             {platforms.map((platform) => (
                                 <LemonButton
@@ -27,7 +27,7 @@ export function PlatformPanel(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="ingestion-btn"
+                                    className="mb-05"
                                     onClick={() => setPlatform(platform)}
                                 >
                                     {platform}
@@ -37,24 +37,16 @@ export function PlatformPanel(): JSX.Element {
                                 onClick={() => setPlatform(THIRD_PARTY)}
                                 fullWidth
                                 center
+                                className="mb-05"
                                 type="primary"
-                                className="ingestion-btn"
                             >
                                 {THIRD_PARTY}
                             </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                className="ingestion-btn inverted"
-                                fullWidth
-                                center
-                                onClick={() => setPlatform(BOOKMARKLET)}
-                            >
+                            <LemonButton type="secondary" fullWidth center onClick={() => setPlatform(BOOKMARKLET)}>
                                 {BOOKMARKLET}
                             </LemonButton>
                         </Col>
-                        <Col className="panel-footer">
-                            <PanelSupport />
-                        </Col>
+                        <PanelSupport />
                     </div>
                 </div>
             ) : (
