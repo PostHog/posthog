@@ -1,6 +1,6 @@
 @import '~/vars';
 
-.preflight-check-container {
+.Preflight {
     min-height: 100vh;
     align-items: center;
     justify-content: center;
@@ -8,50 +8,42 @@
     flex-direction: row;
     padding: 40px 16px;
 
-    .preflight-box {
-        box-shadow: var(--shadow-elevation);
-        max-width: 480px;
-        background-color: var(--bg-light);
-        border-radius: $radius;
-        padding: 40px;
-
+    .Preflight__header {
         p {
             margin-bottom: $default_spacing/2;
 
-            &.title-text {
+            &.Preflight__header--title-text {
                 font-size: 28px;
                 font-weight: 800;
                 line-height: 34px;
                 letter-spacing: -0.02em;
             }
 
-            &.secondary-text {
+            &.Preflight__header--secondary-text {
                 font-size: 16px;
                 line-height: 24px;
             }
         }
+    }
 
-        .preflight-checks-container {
+    .Preflight__container-box {
+        box-shadow: var(--shadow-elevation);
+        max-width: 480px;
+        background-color: var(--bg-light);
+        border-radius: $radius;
+        padding: 40px;
+
+        .Preflight__checks-container {
             border-radius: $radius;
             border: 1px solid var(--border);
 
-            .validate-requirements-button-container {
-                display: flex;
-                justify-content: center;
-            }
-
-            .preflight-checks-list {
-                transition: all 1s ease-out;
-                overflow: hidden;
-            }
-
-            .preflight-check-summary {
+            .Preflight__check-summary {
                 display: flex;
                 padding: 12px;
                 border-bottom: 1px solid var(--border);
                 align-items: center;
 
-                .preflight-summary-icon-container {
+                .Preflight__summary-icon-container {
                     width: 40px;
                     height: 40px;
                     border-radius: 20px;
@@ -60,7 +52,7 @@
                     justify-content: center;
                 }
 
-                .preflight-summary-text-container {
+                .Preflight__summary-text-container {
                     flex: 1;
                     margin: 0 14px;
 
@@ -68,50 +60,20 @@
                         margin-bottom: 0;
                     }
 
-                    .check-summary-header {
+                    .Preflight__summary-header {
                         font-weight: 600;
                         font-size: 14px;
                     }
 
-                    .check-summary-description {
+                    .Preflight__summary-description {
                         font-size: 13px;
                     }
                 }
             }
         }
-
-        .preflight-item {
-            display: flex;
-            padding: 12px;
-            align-items: center;
-            justify-content: center;
-            border-bottom: 1px solid var(--border);
-
-            p {
-                margin-bottom: 0;
-                font-size: 14px;
-            }
-
-            .icon-container {
-                display: flex;
-            }
-
-            .central-text-container {
-                flex: 1;
-                margin: 0 14px;
-
-                .check-name {
-                    font-weight: 600;
-                }
-            }
-
-            svg {
-                font-size: 20px;
-            }
-        }
     }
 
-    .cannot-continue {
+    .Preflight__cannot-continue {
         background-color: var(--bg-side);
         border: 2px solid $light-grey;
         display: flex;
@@ -124,48 +86,78 @@
         }
     }
 
-    .loading {
+    .Preflight--loading {
         background-color: #f6f8ff;
 
         svg,
-        .status-text {
+        .Preflight__status-text {
             color: var(--primary);
         }
     }
 
-    .running {
+    .Preflight--running {
         background-color: #f8fcf8;
 
         svg,
-        .status-text {
+        .Preflight__status-text {
             color: var(--success);
         }
     }
 
-    .warning {
+    .Preflight--warning {
         background-color: #f7a5011a;
 
         svg,
-        .status-text {
+        .Preflight__status-text {
             color: var(--warning);
         }
     }
 
-    .optional {
+    .Preflight--optional {
         background-color: #fafaf9;
 
         svg,
-        .status-text {
+        .Preflight__status-text {
             color: var(--border-dark);
         }
     }
 
-    .down {
+    .Preflight--down {
         background-color: #feefea;
 
         svg,
-        .status-text {
+        .Preflight__status-text {
             color: var(--danger);
         }
+    }
+}
+
+.PreflightItem {
+    display: flex;
+    padding: 12px;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid var(--border);
+
+    p {
+        margin-bottom: 0;
+        font-size: 14px;
+    }
+
+    .PreflightItem__icon-container {
+        display: flex;
+    }
+
+    .PreflightItem__text-container {
+        flex: 1;
+        margin: 0 14px;
+    }
+
+    .PreflightItem__item-name {
+        font-weight: 600;
+    }
+
+    svg {
+        font-size: 20px;
     }
 }

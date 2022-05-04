@@ -44,12 +44,12 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
 function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
     return (
-        <div className={clsx('preflight-item', preflightLoading ? 'loading' : status)}>
-            <div className="icon-container">
+        <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
+            <div className="PreflightItem__icon-container">
                 <PreflightCheckIcon status={status} loading={preflightLoading} />
             </div>
-            <div className="central-text-container">
-                <p className="check-name">{name}</p>
+            <div className="PreflightItem__text-container">
+                <p className="PreflightItem__item-name">{name}</p>
                 {caption && (
                     <p data-attr="caption" className="text-muted">
                         {caption}
@@ -57,8 +57,8 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
                 )}
             </div>
 
-            <div className="right-status">
-                <p className="status-text" data-attr="status-text">
+            <div>
+                <p className="Preflight__status-text" data-attr="status-text">
                     {capitalizeFirstLetter(preflightLoading ? 'checking' : status)}
                 </p>
             </div>
@@ -72,16 +72,19 @@ export function PreflightCheck(): JSX.Element {
     const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded } = useActions(preflightLogic)
 
     return (
-        <div className="bridge-page preflight-check-container">
+        <div className="bridge-page Preflight">
             <div>
                 <WelcomeLogo view="preflight-check" />
                 {!preflightMode ? (
                     <>
-                        <div className="preflight-box">
-                            <p className="title-text">Select a launch mode</p>
-                            <p className="secondary-text">
-                                What's your plan for this installation? We'll make infrastructure checks accordingly.
-                            </p>
+                        <div className="Preflight__container-box">
+                            <div className="Preflight__header">
+                                <p className="Preflight__header--title-text">Select a launch mode</p>
+                                <p className="Preflight__header--secondary-text">
+                                    What's your plan for this installation? We'll make infrastructure checks
+                                    accordingly.
+                                </p>
+                            </div>
                             <LemonButton
                                 fullWidth
                                 center
@@ -120,30 +123,34 @@ export function PreflightCheck(): JSX.Element {
                     </>
                 ) : (
                     <>
-                        <div className="preflight-box">
-                            <p className="title-text">Validate implementation</p>
-                            <p className="secondary-text">
-                                Need help? Take a look at our{' '}
-                                <a
-                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
-                                    documentation
-                                </a>{' '}
-                                or{' '}
-                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                                    visit support
-                                </a>
-                                .
-                            </p>
+                        <div className="Preflight__container-box">
+                            <div className="Preflight__header">
+                                <p className="Preflight__header--title-text">Validate implementation</p>
+                                <p className="Preflight__header--secondary-text">
+                                    Need help? Take a look at our{' '}
+                                    <a
+                                        href="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        documentation
+                                    </a>{' '}
+                                    or{' '}
+                                    <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                        visit support
+                                    </a>
+                                    .
+                                </p>
+                            </div>
 
-                            <div className="preflight-checks-container">
-                                <div className="preflight-check-summary">
+                            <div className="Preflight__checks-container">
+                                <div className="Preflight__check-summary">
                                     <div
                                         className={clsx(
-                                            'preflight-summary-icon-container',
-                                            preflightLoading ? 'loading' : checksSummary.summaryStatus
+                                            'Preflight__summary-icon-container',
+                                            preflightLoading
+                                                ? 'Preflight--loading'
+                                                : `Preflight--${checksSummary.summaryStatus}`
                                         )}
                                     >
                                         <PreflightCheckIcon
@@ -151,9 +158,9 @@ export function PreflightCheck(): JSX.Element {
                                             loading={preflightLoading}
                                         />
                                     </div>
-                                    <div className="preflight-summary-text-container">
-                                        <p className="check-summary-header">Validation checks</p>
-                                        <p data-attr="caption" className="text-muted check-summary-description">
+                                    <div className="Preflight__summary-text-container">
+                                        <p className="Preflight__summary-header">Validation checks</p>
+                                        <p data-attr="caption" className="text-muted Preflight__summary-description">
                                             {checksSummary.summaryString}
                                         </p>
                                     </div>
@@ -204,7 +211,7 @@ export function PreflightCheck(): JSX.Element {
                                     Continue
                                 </LemonButton>
                             ) : (
-                                <LemonRow fullWidth center className="mt-05 cannot-continue" size="large">
+                                <LemonRow fullWidth center className="mt-05 Preflight__cannot-continue" size="large">
                                     <p className="text-center text-muted">
                                         All required checks must pass before you can continue
                                     </p>
