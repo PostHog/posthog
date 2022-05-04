@@ -67,7 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -1183,17 +1183,23 @@ export class DB {
 
     // SessionRecordingEvent
 
-    public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+    /**
+     * Either gets all session recording events since ClickHouse was last reset
+     * or, if a sessionId is provided, gets all session recording events for that sessionId
+     * @param sessionId
+     */
+    public async fetchSessionRecordingEvents(
+        sessionId?: string | undefined
+    ): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
         if (this.kafkaProducer) {
-            const events = (
-                (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-            ).map((event) => {
+            const predicate = !!sessionId ? ` where session_id = '${sessionId}'` : ''
+            const query = `SELECT * FROM session_recording_events${predicate}`
+            return ((await this.clickhouseQuery(query)).data as SessionRecordingEvent[]).map((event) => {
                 return {
                     ...event,
                     snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
                 }
             })
-            return events
         } else {
             const result = await this.postgresQuery(
                 'SELECT * FROM posthog_sessionrecordingevent',

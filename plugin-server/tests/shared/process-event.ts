@@ -1240,12 +1240,12 @@ export const createProcessEventTests = (
             now,
             new UUIDT().toString()
         )
-        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents($sessionId))
 
         const events = await hub.db.fetchEvents()
         expect(events.length).toEqual(0)
 
-        const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
+        const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents($sessionId)
         expect(sessionRecordingEvents.length).toBe(1)
 
         const [event] = sessionRecordingEvents
