@@ -190,7 +190,7 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
 
-                    dashboardsModel.actions.updateDashboardItem(updatedInsight, null)
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     for (const id of updatedInsight.dashboards ?? []) {
                         dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
@@ -230,7 +230,7 @@ export const insightLogic = kea<insightLogicType>({
                         updatedInsight[key] = response[key]
                     }
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardItem(updatedInsight, null)
+                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -739,7 +739,7 @@ export const insightLogic = kea<insightLogicType>({
                 },
             })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
-            dashboardsModel.actions.updateDashboardItem(savedInsight, null)
+            dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
