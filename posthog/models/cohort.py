@@ -1,4 +1,3 @@
-import json
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, cast
@@ -140,7 +139,7 @@ class Cohort(models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         if self.filters:
-            properties = Filter(data=json.loads(self.filters), team=self.team).property_groups
+            properties = Filter(data=self.filters, team=self.team).property_groups
             if not properties.values:
                 raise ValueError("Cohort has no properties")
             return properties
