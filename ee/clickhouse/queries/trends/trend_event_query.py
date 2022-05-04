@@ -8,6 +8,7 @@ from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorTyp
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
@@ -44,19 +45,17 @@ class TrendsEventQuery(EnterpriseEventQuery):
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
                 )
             )
-            + (
-                " ".join(
-                    f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                    for column_name in self._extra_person_fields
-                )
-            )
+            + (self._get_extra_person_columns())
         )
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups)
+            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
         self.params.update(prop_params)
@@ -82,6 +81,18 @@ class TrendsEventQuery(EnterpriseEventQuery):
         """
 
         return query, self.params
+
+    def _get_extra_person_columns(self) -> str:
+        if self._team.actor_on_events_querying_enabled:
+            return " ".join(
+                f", {get_property_string_expr(self.EVENT_TABLE_ALIAS, column_name, var='person_properties', allow_denormalized_props=False)} as {column_name}"
+                for column_name in self._extra_person_fields
+            )
+        else:
+            return " ".join(
+                f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                for column_name in self._extra_person_fields
+            )
 
     def _determine_should_join_distinct_ids(self) -> None:
         if self._entity.math == "dau" and not self._aggregate_users_by_distinct_id:

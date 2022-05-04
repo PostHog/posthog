@@ -164,6 +164,17 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var="{}person_properties".format(table_name),
+                allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
             # :TODO: Clean this up by using PersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
@@ -224,6 +235,17 @@ def parse_prop_clauses(
                 property_operator=property_operator,
             )
             final.append(f" {filter_query}")
+            params.update(filter_params)
+        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var=f"group{prop.group_type_index}_properties",
+                allow_denormalized_props=False,
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
             params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:

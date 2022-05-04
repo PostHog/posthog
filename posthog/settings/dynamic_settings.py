@@ -33,8 +33,8 @@ CONSTANCE_CONFIG = {
         "Whether cohort calculations should use the new query or the old query.",
         str,
     ),
-    "ENABLE_PROPERTIES_ON_EVENTS_TEAMS": (
-        get_from_env("ENABLE_PROPERTIES_ON_EVENTS_TEAMS", ""),
+    "ENABLE_ACTOR_ON_EVENTS_TEAMS": (
+        get_from_env("ENABLE_ACTOR_ON_EVENTS_TEAMS", ""),
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
         str,
     ),

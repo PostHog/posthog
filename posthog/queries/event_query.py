@@ -161,7 +161,11 @@ class EventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_prop_groups(self, prop_group: Optional[PropertyGroup]) -> Tuple[str, Dict]:
+    def _get_prop_groups(
+        self,
+        prop_group: Optional[PropertyGroup],
+        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+    ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
 
@@ -173,6 +177,6 @@ class EventQuery(metaclass=ABCMeta):
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )

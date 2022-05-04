@@ -205,6 +205,10 @@ class Team(UUIDClassicModel):
     def behavioral_cohort_querying_enabled(self) -> bool:
         return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
 
+    @property
+    def actor_on_events_querying_enabled(self) -> bool:
+        return str(self.pk) in get_list(config.ENABLE_ACTOR_ON_EVENTS_TEAMS)
+
     def __str__(self):
         if self.name:
             return self.name
