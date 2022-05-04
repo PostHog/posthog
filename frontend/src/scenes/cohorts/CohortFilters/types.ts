@@ -64,7 +64,7 @@ export interface Row {
     type: BehavioralFilterKey
     value?: BehavioralFilterType // Optional since some payloads override the value field
     fields: Field[]
-    negation?: boolean
+    negation: boolean
 }
 
 // CohortField

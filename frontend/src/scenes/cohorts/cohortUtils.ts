@@ -11,13 +11,13 @@ import {
     FilterLogicalOperator,
     TimeUnitType,
 } from '~/types'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { BehavioralFilterKey, BehavioralFilterType, FieldWithFieldKey } from 'scenes/cohorts/CohortFilters/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { convertPropertyGroupToProperties } from 'lib/utils'
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE} from 'lib/constants'
+import {BehavioralFilterKey, BehavioralFilterType, FieldWithFieldKey} from 'scenes/cohorts/CohortFilters/types'
+import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
+import {convertPropertyGroupToProperties} from 'lib/utils'
+import {DeepPartialMap, ValidationErrorType} from 'kea-forms'
 import equal from 'fast-deep-equal'
-import { CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import {CRITERIA_VALIDATIONS, ROWS} from 'scenes/cohorts/CohortFilters/constants'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -27,9 +27,11 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             BehavioralEventType.PerformMultipleEvents,
             BehavioralEventType.PerformSequenceEvents,
             BehavioralEventType.NotPerformSequenceEvents,
-            BehavioralEventType.HaveProperty,
-            BehavioralEventType.NotHaveProperty,
-        ].includes(criteria.value as BehavioralEventType)
+            BehavioralLifecycleType.PerformEventFirstTime,
+            BehavioralLifecycleType.PerformEventRegularly,
+            BehavioralLifecycleType.StopPerformEvent,
+            BehavioralLifecycleType.StartPerformEventAgain,
+        ].includes(criteria.value as BehavioralEventType | BehavioralLifecycleType)
     ) {
         type = BehavioralFilterKey.Behavioral
     }
@@ -38,17 +40,15 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             criteria.value as BehavioralCohortType
         )
     ) {
-        type = BehavioralFilterKey.Behavioral
+        type = BehavioralFilterKey.Cohort
     }
     if (
         [
-            BehavioralLifecycleType.PerformEventFirstTime,
-            BehavioralLifecycleType.PerformEventRegularly,
-            BehavioralLifecycleType.StopPerformEvent,
-            BehavioralLifecycleType.StartPerformEventAgain,
-        ].includes(criteria.value as BehavioralLifecycleType)
+            BehavioralEventType.HaveProperty,
+            BehavioralEventType.NotHaveProperty,
+        ].includes(criteria.value as BehavioralEventType)
     ) {
-        type = BehavioralFilterKey.Behavioral
+        type = BehavioralFilterKey.Person
     }
     return {
         ...criteria,
@@ -149,7 +149,7 @@ export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,
     event_type: TaxonomicFilterGroupType.Events,
-    time_value: 30,
+    time_value: "30",
     time_interval: TimeUnitType.Day,
 }
 
@@ -205,16 +205,18 @@ export function validateGroup(
     const negatedFailingCriteriaIndices = new Set()
     negatedCriteria.forEach((negatedC) => {
         const baseCriteria = { ...negatedC }
-        delete baseCriteria.negation
         criteria.forEach((c) => {
             if (
-                equal(Object.assign({}, baseCriteria, { index: undefined }), Object.assign({}, c, { index: undefined }))
+                baseCriteria.index !== c.index &&
+                equal(Object.assign({}, baseCriteria, { index: undefined }), Object.assign({}, c, { index: undefined, negation: !c.negation }))
             ) {
                 negatedFailingCriteriaIndices.add(c.index)
                 negatedFailingCriteriaIndices.add(baseCriteria.index)
             }
         })
     })
+
+    console.log("CHECK", group, negatedCriteria, negatedFailingCriteriaIndices)
 
     if (
         group.type === FilterLogicalOperator.And &&
@@ -284,12 +286,6 @@ export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType):
             return BehavioralCohortType.NotInCohort
         }
     }
-    if (criteria.type === BehavioralFilterKey.Person) {
-        return BehavioralEventType.HaveProperty
-    }
-    if (criteria.type === BehavioralFilterKey.Cohort) {
-        return BehavioralCohortType.InCohort
-    }
     return criteria.value ?? BehavioralEventType.PerformEvent
 }
 
@@ -298,30 +294,32 @@ export function determineFilterType(
     value: BehavioralFilterType,
     negation: boolean = false
 ): AnyCohortCriteriaType {
-    if (value === BehavioralEventType.NotPerformSequenceEvents) {
+    if (value === BehavioralEventType.NotPerformSequenceEvents || (value === BehavioralEventType.PerformSequenceEvents && negation)) {
         return {
             type: BehavioralFilterKey.Behavioral,
             value: BehavioralEventType.PerformSequenceEvents,
             negation: true,
         }
     }
-    if (value === BehavioralEventType.NotPerformedEvent) {
+    if (value === BehavioralEventType.NotPerformedEvent || (value === BehavioralEventType.PerformEvent && negation)) {
         return {
             type: BehavioralFilterKey.Behavioral,
             value: BehavioralEventType.PerformEvent,
             negation: true,
         }
     }
-    if (type === BehavioralFilterKey.Person) {
-        return {
-            type: BehavioralFilterKey.Person,
-            negation,
-        }
-    }
-    if (type === BehavioralFilterKey.Cohort) {
+    if (value === BehavioralCohortType.NotInCohort || (value === BehavioralCohortType.InCohort && negation)) {
         return {
             type: BehavioralFilterKey.Cohort,
-            negation,
+            value: BehavioralCohortType.InCohort,
+            negation: true,
+        }
+    }
+    if (value === BehavioralEventType.NotHaveProperty || (value === BehavioralEventType.HaveProperty && negation)) {
+        return {
+            type: BehavioralFilterKey.Person,
+            value: BehavioralEventType.HaveProperty,
+            negation: true,
         }
     }
 
@@ -330,4 +328,12 @@ export function determineFilterType(
         value,
         negation: false,
     }
+}
+
+export function resolveCohortFieldValue(criteria: AnyCohortCriteriaType, fieldKey: string): string | number | boolean | null | undefined {
+    // Resolve correct behavioral filter type
+    if (fieldKey === 'value') {
+        return criteriaToBehavioralFilterType(criteria)
+    }
+    return criteria?.[fieldKey] ?? null
 }

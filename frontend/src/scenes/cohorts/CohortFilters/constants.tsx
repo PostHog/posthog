@@ -278,6 +278,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralEventType.PerformEvent]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralEventType.PerformEvent,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -296,7 +297,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -327,7 +328,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -339,6 +340,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralEventType.PerformMultipleEvents]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralEventType.PerformMultipleEvents,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -367,7 +369,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -379,6 +381,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralEventType.PerformSequenceEvents]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralEventType.PerformSequenceEvents,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -397,7 +400,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -419,7 +422,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -454,7 +457,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -476,7 +479,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -491,6 +494,8 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
     [BehavioralEventType.HaveProperty]: {
         type: BehavioralFilterKey.Person,
+        value: BehavioralEventType.HaveProperty,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -502,13 +507,14 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 defaultValue: PropertyOperator.Exact,
             },
             {
-                fieldKey: 'value',
+                fieldKey: 'value_property',
                 type: FilterType.EventPropertyValues,
             },
         ],
     },
     [BehavioralEventType.NotHaveProperty]: {
         type: BehavioralFilterKey.Person,
+        value: BehavioralEventType.HaveProperty,
         negation: true,
         fields: [
             {
@@ -521,28 +527,31 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 defaultValue: PropertyOperator.Exact,
             },
             {
-                fieldKey: 'value',
+                fieldKey: 'value_property',
                 type: FilterType.EventPropertyValues,
             },
         ],
     },
     [BehavioralCohortType.InCohort]: {
         type: BehavioralFilterKey.Cohort,
+        value: BehavioralCohortType.InCohort,
+        negation: false,
         fields: [
             { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {
-                fieldKey: 'value',
+                fieldKey: 'value_property',
                 type: FilterType.CohortValues,
             },
         ],
     },
     [BehavioralCohortType.NotInCohort]: {
         type: BehavioralFilterKey.Cohort,
+        value: BehavioralCohortType.InCohort,
         negation: true,
         fields: [
             { fieldKey: 'key', type: FilterType.CohortId, defaultValue: 'id', hide: true },
             {
-                fieldKey: 'value',
+                fieldKey: 'value_property',
                 type: FilterType.CohortValues,
             },
         ],
@@ -550,6 +559,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralLifecycleType.PerformEventFirstTime]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralLifecycleType.PerformEventFirstTime,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -568,7 +578,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -580,6 +590,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralLifecycleType.PerformEventRegularly]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralLifecycleType.PerformEventRegularly,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -638,6 +649,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralLifecycleType.StopPerformEvent]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralLifecycleType.StopPerformEvent,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -656,7 +668,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -670,7 +682,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',
@@ -686,6 +698,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     [BehavioralLifecycleType.StartPerformEventAgain]: {
         type: BehavioralFilterKey.Behavioral,
         value: BehavioralLifecycleType.StartPerformEventAgain,
+        negation: false,
         fields: [
             {
                 fieldKey: 'key',
@@ -704,7 +717,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -718,7 +731,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: 30,
+                defaultValue: "30",
             },
             {
                 fieldKey: 'time_interval',

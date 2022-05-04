@@ -8,6 +8,10 @@
     &.cohort-detail__matching-group--error {
         border: 1px solid var(--danger);
     }
+
+    .cohort-detail__matching-group__error-row {
+        padding: 0 1rem 1rem 1rem;
+    }
 }
 
 .cohort-detail__matching-group__logical-divider {

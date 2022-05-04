@@ -1,6 +1,6 @@
 import './CohortField.scss'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import React, { useMemo } from 'react'
+import React, {useEffect, useMemo} from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -17,6 +17,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import { Row } from 'antd'
 import { Field as KeaField } from 'kea-forms'
+import {resolveCohortFieldValue} from "scenes/cohorts/cohortUtils";
 
 let uniqueMemoizedIndex = 0
 
@@ -26,6 +27,13 @@ const useCohortLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof
         [props.cohortFilterLogicKey]
     )
     const logic = cohortFieldLogic({ ...props, cohortFilterLogicKey })
+    const {onChange} = useActions(logic)
+
+    useEffect(() => {
+        if (props.fieldKey) {
+            onChange(props.criteria)
+        }
+    }, [resolveCohortFieldValue(props.criteria, props.fieldKey)])
 
     return {
         logic,
@@ -41,7 +49,7 @@ export function CohortSelectorField({
     onChange: _onChange,
 }: CohortSelectorFieldProps): JSX.Element {
     const { logic } = useCohortLogic({
-        fieldKey: fieldKey,
+        fieldKey,
         cohortFilterLogicKey,
         criteria,
         fieldOptionGroupTypes,
@@ -50,8 +58,6 @@ export function CohortSelectorField({
 
     const { fieldOptionGroups, currentOption, value } = useValues(logic)
     const { onChange } = useActions(logic)
-
-    console.log('FIELD OPTIOS', fieldOptionGroups)
 
     return (
         <LemonButtonWithPopup
@@ -99,14 +105,14 @@ export function CohortTaxonomicField({
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
     const { logic } = useCohortLogic({
-        fieldKey: fieldKey,
+        fieldKey,
         criteria,
         cohortFilterLogicKey,
         onChange: _onChange,
     })
 
     const { value } = useValues(logic)
-    const { onChange } = useActions(logic)
+        const {onChange} = useActions(logic)
 
     return (
         <LemonTaxonomicPopup
@@ -133,6 +139,7 @@ export function CohortNumberField({
     criteria,
     onChange: _onChange,
 }: CohortNumberFieldProps): JSX.Element {
+    console.log("NUMBER FIELD", criteria)
     const { logic } = useCohortLogic({
         fieldKey: fieldKey,
         cohortFilterLogicKey,
@@ -147,7 +154,7 @@ export function CohortNumberField({
             type="number"
             value={(value as string | number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange({ [fieldKey]: Number(nextNumber) })
+                onChange({ [fieldKey]: nextNumber })
             }}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
@@ -170,7 +177,6 @@ export function CohortKeaField({
             template={({ error, kids }) => {
                 return (
                     <div className={clsx(className, error && `${className}--error`)}>
-                        {kids}
                         <Row>
                             {error && (
                                 <div
@@ -183,6 +189,7 @@ export function CohortKeaField({
                                 </div>
                             )}
                         </Row>
+                        {kids}
                     </div>
                 )
             }}

@@ -4,8 +4,18 @@
     .CohortCriteriaRow__CohortField {
         margin: 0.25rem 0;
 
+        &.CohortCriteriaRow__CohortField--error {
+            .CohortField {
+                border: 1px solid var(--danger);
+            }
+        }
+
         &:not(:last-child) {
             margin-right: 0.5rem;
+        }
+
+        .CohortCriteriaRow__CohortField__error-row {
+
         }
     }
 

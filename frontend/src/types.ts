@@ -587,7 +587,7 @@ export interface CohortCriteriaType {
     group_type_index?: number | null
     event_type?: TaxonomicFilterGroupType | null
     operator_value?: number | null
-    time_value?: number | null
+    time_value?: number | string | null
     time_interval?: TimeUnitType | null
     total_periods?: number | null
     min_periods?: number | null
@@ -596,6 +596,7 @@ export interface CohortCriteriaType {
     seq_time_value?: number | null
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
+    value_property?: string | null // Transformed into 'value' for api calls
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>

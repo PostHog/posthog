@@ -13,7 +13,6 @@ const Template: ComponentStory<typeof CohortNumberField> = (props: CohortNumberF
     const [value, setValue] = useState<number>(30)
     return renderField[FilterType.Number]({
         ...props,
-        value,
         onChange: (key) => setValue(Number(key)),
     })
 }

@@ -1,12 +1,15 @@
 import './CohortCriteriaRowBuilder.scss'
 import React from 'react'
-import { BehavioralFilterType, CohortFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+import {BehavioralFilterType, CohortFieldProps, Field, FilterType} from 'scenes/cohorts/CohortFilters/types'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { Row, Col, Divider } from 'antd'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconCopy, IconDelete } from 'lib/components/icons'
 import { AnyCohortCriteriaType, FilterLogicalOperator } from '~/types'
-import { determineFilterType } from 'scenes/cohorts/cohortUtils'
+import {criteriaToBehavioralFilterType, determineFilterType} from 'scenes/cohorts/cohortUtils'
+import clsx from "clsx";
+import { Field as KeaField } from 'kea-forms'
+import {AlertMessage} from "lib/components/AlertMessage";
 
 export interface CohortCriteriaRowBuilderProps {
     criteria: AnyCohortCriteriaType
@@ -37,19 +40,27 @@ export function CohortCriteriaRowBuilder({
         // Populate empty values with default values on changing type
         const populatedCriteria = {}
 
-        const { fields, ...apiProps } = newCriteria?.value ? ROWS[newCriteria.value] : rowShape
+        const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(newCriteria)] ?? rowShape
         Object.entries(apiProps).forEach(([key, defaultValue]) => {
             const nextValue = newCriteria[key] ?? defaultValue
-            if (nextValue) {
+            if (nextValue !== undefined && nextValue !== null) {
                 populatedCriteria[key] = nextValue
             }
         })
         fields.forEach(({ fieldKey, defaultValue }) => {
             const nextValue = fieldKey ? newCriteria[fieldKey] ?? defaultValue : null
-            if (fieldKey && nextValue) {
+            if (fieldKey && nextValue !== undefined && nextValue !== null) {
                 populatedCriteria[fieldKey] = nextValue
             }
         })
+        console.log("ONCHANGETYPE", {
+                ...populatedCriteria,
+                ...determineFilterType(
+                    populatedCriteria['type'],
+                    populatedCriteria['value'],
+                    populatedCriteria['negation']
+                ),
+            })
         onChange?.(
             {
                 ...populatedCriteria,
@@ -61,6 +72,19 @@ export function CohortCriteriaRowBuilder({
             },
             groupIndex,
             index
+        )
+    }
+
+    const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
+        return (
+            <Col key={i}>
+                {renderField[_field.type]({
+                    fieldKey: _field.fieldKey,
+                    criteria,
+                    ...(_field.type === FilterType.Text ? {value: _field.defaultValue} : {}),
+                    onChange: (newCriteria) => onChange?.(newCriteria, groupIndex, index),
+                } as CohortFieldProps)}
+            </Col>
         )
     }
 
@@ -93,15 +117,39 @@ export function CohortCriteriaRowBuilder({
                     <Row align="middle">
                         {rowShape.fields.map((field, i) => {
                             return (
-                                !field.hide && (
-                                    <Col key={i} className="CohortCriteriaRow__CohortField">
-                                        {renderField[field.type]({
-                                            fieldKey: field.fieldKey,
-                                            criteria,
-                                            ...(field.type === FilterType.Text ? { value: field.defaultValue } : {}),
-                                            onChange: (newCriteria) => onChange?.(newCriteria, groupIndex, index),
-                                        } as CohortFieldProps)}
-                                    </Col>
+                                !field.hide && (field.fieldKey ? (
+                                        <KeaField
+                                            name={field.fieldKey}
+                                            template={({error, kids}) => {
+                                                return (
+                                                    <>
+                                                        {error && (
+                                                            <Row
+                                                                className='CohortCriteriaRow__CohortField__error-row'>
+                                                                <AlertMessage type='error' style={{width: "100%"}}>
+                                                                    <>
+                                                                        {error}
+                                                                    </>
+                                                                </AlertMessage>
+                                                            </Row>
+                                                        )}
+                                                        <div
+                                                            className={clsx('CohortCriteriaRow__CohortField', error && `CohortCriteriaRow__CohortField--error`)}>
+                                                            {kids}
+                                                        </div>
+                                                    </>
+                                                )
+                                            }}
+                                        >
+                                            <>
+                                                {renderFieldComponent(field, i)}
+                                            </>
+                                        </KeaField>
+                                    ) : (
+                                        <div className="CohortCriteriaRow__CohortField">
+                                            {renderFieldComponent(field, i)}
+                                        </div>
+                                    )
                                 )
                             )
                         })}
