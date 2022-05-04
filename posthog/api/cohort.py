@@ -116,12 +116,12 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
-        new_filters = request.data.get("filters", None)
+        new_filters = self._validate_filters(request)
 
         if new_filters is not None and not team.behavioral_cohort_querying_enabled:
             raise ValidationError("New cohort filters have not been enabled on this team")
 
-        validated_data["filters"] = json.loads(new_filters) if isinstance(new_filters, str) else new_filters
+        validated_data["filters"] = new_filters
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -143,15 +143,28 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
+    def _validate_filters(self, request: Request):
+        request_filters = request.data.get("filters", None)
+
+        try:
+            new_filters = json.loads(request_filters)
+        except:
+            if isinstance(request_filters, dict):
+                new_filters = request_filters
+            else:
+                new_filters = None
+
+        return new_filters
+
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
-        request = self.context["request"]
-        new_filters = request.data.get("filters", None)
+        request: Request = self.context["request"]
+        new_filters = self._validate_filters(request)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = json.loads(new_filters) if isinstance(new_filters, str) else new_filters
+        cohort.filters = new_filters
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
