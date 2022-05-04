@@ -1,17 +1,7 @@
 import datetime as dt
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, field
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    List,
-    Literal,
-    Optional,
-    Sequence,
-    Tuple,
-)
+from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
@@ -57,25 +47,3 @@ class SimPerson(ABC):
             if properties.get("$set"):
                 self.properties.update(properties["$set"])
         self.events.append(SimEvent(event=event, properties=properties or {}, timestamp=timestamp))
-
-    @abstractmethod
-    def sessions(
-        self, initial_point_in_time: dt.datetime
-    ) -> Generator[Tuple[dt.datetime, Optional["Effect"]], dt.datetime, None]:
-        raise NotImplementedError
-
-
-@dataclass
-class Effect:
-    """A session effect that runs a callback on the origin person's neighbor(s).
-    This callback can for instance change the neighbor's properties, making them behave differently.
-    If a target is specified, only that person is affected, otherwise all neighbors are.
-    """
-
-    origin: Tuple[int, int]
-    target_offset: Optional[Tuple[int, int]]
-    personal_callback: Callable[[SimPerson], None]
-
-    def run(self, target_persons: Sequence[SimPerson]):
-        for target_person in target_persons:
-            self.personal_callback(target_person)
