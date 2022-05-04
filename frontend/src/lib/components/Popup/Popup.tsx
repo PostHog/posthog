@@ -56,34 +56,35 @@ export function Popup({
     useOutsideClickHandler(localRefs, (event) => visible && onClickOutside?.(event), [visible])
 
     const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
-        () => [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 4],
+        () =>
+            [
+                {
+                    name: 'offset',
+                    options: {
+                        offset: [0, 4],
+                    },
                 },
-            },
-            fallbackPlacements
-                ? {
-                      name: 'flip',
-                      options: {
-                          fallbackPlacements: fallbackPlacements,
-                      },
-                  }
-                : {},
-            sameWidth
-                ? {
-                      name: 'sameWidth',
-                      enabled: true,
-                      fn: ({ state }) => {
-                          state.styles.popper.width = `${state.rects.reference.width}px`
-                      },
-                      phase: 'beforeWrite',
-                      requires: ['computeStyles'],
-                  }
-                : {},
-            modifier,
-        ],
+                fallbackPlacements
+                    ? {
+                          name: 'flip',
+                          options: {
+                              fallbackPlacements: fallbackPlacements,
+                          },
+                      }
+                    : {},
+                sameWidth
+                    ? {
+                          name: 'sameWidth',
+                          enabled: true,
+                          fn: ({ state }: any) => {
+                              state.styles.popper.width = `${state.rects.reference.width}px`
+                          },
+                          phase: 'beforeWrite',
+                          requires: ['computeStyles'],
+                      }
+                    : {},
+                modifier,
+            ].filter((a) => !!a.name),
         []
     )
 
@@ -111,6 +112,7 @@ export function Popup({
         <>
             {clonedChildren}
             {ReactDOM.createPortal(
+                // @ts-ignore
                 <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
                     <div
                         className={clsx('Popup', actionable && 'Popup--actionable', className)}
