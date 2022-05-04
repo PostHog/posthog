@@ -157,14 +157,17 @@ export function PreflightCheck(): JSX.Element {
                                         </p>
                                     </div>
                                     <LemonButton
-                                        size="small"
-                                        style={{ fontSize: 20 }}
+                                        icon={
+                                            areChecksExpanded ? (
+                                                <IconUnfoldLess style={{ color: 'var(--muted-alt)' }} />
+                                            ) : (
+                                                <IconUnfoldMore style={{ color: 'var(--muted-alt)' }} />
+                                            )
+                                        }
                                         onClick={() => {
                                             setChecksManuallyExpanded(!areChecksExpanded)
                                         }}
-                                    >
-                                        {areChecksExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                    </LemonButton>
+                                    />
                                 </div>
                                 <AnimatedCollapsible collapsed={!areChecksExpanded}>
                                     <>
