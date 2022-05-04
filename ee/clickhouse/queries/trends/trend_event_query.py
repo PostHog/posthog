@@ -82,6 +82,12 @@ class TrendsEventQuery(EnterpriseEventQuery):
 
         return query, self.params
 
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._team.actor_on_events_querying_enabled:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
+
     def _get_extra_person_columns(self) -> str:
         if self._team.actor_on_events_querying_enabled:
             return " ".join(

@@ -169,11 +169,14 @@ class EventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
-        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+        if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            props_to_filter = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+        else:
+            props_to_filter = prop_group
 
         return parse_prop_grouped_clauses(
             team_id=self._team_id,
-            property_group=outer_properties,
+            property_group=props_to_filter,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
