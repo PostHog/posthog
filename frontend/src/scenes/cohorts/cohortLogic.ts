@@ -37,7 +37,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
 
     actions: () => ({
-        saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
+        saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
@@ -305,20 +305,16 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         return values.cohort
                     }
                 },
-                saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
-                    let cohort = { ...values.cohort, ...cohortParams }
+                saveCohort: async ({ cohortParams }, breakpoint) => {
+                    let cohort = { ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort, values.newCohortFiltersEnabled)
 
                     try {
                         if (cohort.id !== 'new') {
-                            cohort = await api.cohorts.update(
-                                cohort.id,
-                                cohortFormData as Partial<CohortType>,
-                                filterParams
-                            )
+                            cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.updateCohort(cohort)
                         } else {
-                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
+                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {
