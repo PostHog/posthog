@@ -32,7 +32,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
-    if (status === 'validated') {
+    if (status === 'running') {
         return <IconCheckCircleOutline {...size} />
     } else if (status === 'warning' || status === 'optional') {
         return <IconWarningAmber {...size} />
@@ -58,7 +58,7 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
 
             <div className="right-status">
                 <p className="status-text" data-attr="status-text">
-                    {capitalizeFirstLetter(preflightLoading ? 'validating' : status)}
+                    {capitalizeFirstLetter(preflightLoading ? 'checking' : status)}
                 </p>
             </div>
         </div>
@@ -122,8 +122,19 @@ export function PreflightCheck(): JSX.Element {
                         <div className="preflight-box">
                             <p className="title-text">Validate implementation</p>
                             <p className="secondary-text">
-                                Validation happens immediately. You can rerun validation checks by clicking{' '}
-                                <b>“validate requirements”</b>.
+                                Need help? Take a look at our{' '}
+                                <a
+                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    documentation
+                                </a>{' '}
+                                or{' '}
+                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                    visit support
+                                </a>
+                                .
                             </p>
 
                             <div className="preflight-checks-container">
@@ -176,7 +187,7 @@ export function PreflightCheck(): JSX.Element {
                                 </LemonButton>
                             </div>
                             <div className="divider" />
-                            {checksSummary.summaryStatus !== 'error' ? (
+                            {checksSummary.summaryStatus !== 'down' ? (
                                 <LemonButton
                                     fullWidth
                                     center
@@ -197,19 +208,8 @@ export function PreflightCheck(): JSX.Element {
                             )}
 
                             <p className="text-center mt">
-                                Need help? Take a look at our{' '}
-                                <a
-                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
-                                    documentation
-                                </a>{' '}
-                                or{' '}
-                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                                    visit support
-                                </a>
-                                .
+                                Validation happens immediately. You can rerun validation checks by clicking{' '}
+                                <b>“validate requirements”</b>.
                             </p>
                         </div>
                     </>

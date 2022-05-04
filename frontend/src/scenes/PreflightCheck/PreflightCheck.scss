@@ -128,49 +128,49 @@
             margin-bottom: 0;
         }
     }
-}
 
-.loading {
-    background-color: #f6f8ff;
+    .loading {
+        background-color: #f6f8ff;
 
-    svg,
-    .status-text {
-        color: var(--primary);
+        svg,
+        .status-text {
+            color: var(--primary);
+        }
     }
-}
 
-.validated {
-    background-color: #f8fcf8;
+    .running {
+        background-color: #f8fcf8;
 
-    svg,
-    .status-text {
-        color: var(--success);
+        svg,
+        .status-text {
+            color: var(--success);
+        }
     }
-}
 
-.warning {
-    background-color: #f7a5011a;
+    .warning {
+        background-color: #f7a5011a;
 
-    svg,
-    .status-text {
-        color: var(--warning);
+        svg,
+        .status-text {
+            color: var(--warning);
+        }
     }
-}
 
-.optional {
-    background-color: #fafaf9;
+    .optional {
+        background-color: #fafaf9;
 
-    svg,
-    .status-text {
-        color: var(--border-dark);
+        svg,
+        .status-text {
+            color: var(--border-dark);
+        }
     }
-}
 
-.error {
-    background-color: #feefea;
+    .down {
+        background-color: #feefea;
 
-    svg,
-    .status-text {
-        color: var(--danger);
+        svg,
+        .status-text {
+            color: var(--danger);
+        }
     }
 }

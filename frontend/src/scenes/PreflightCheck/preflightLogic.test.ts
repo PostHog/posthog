@@ -43,42 +43,42 @@ describe('preflightLogic', () => {
                         {
                             id: 'database',
                             name: 'Application database · Postgres',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'clickhouse',
                             name: 'Analytics database · ClickHouse',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'kafka',
                             name: 'Queue · Kafka',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'backend',
                             name: 'Backend server · Django',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'redis',
                             name: 'Cache · Redis',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'celery',
                             name: 'Background jobs · Celery',
-                            status: 'error',
+                            status: 'down',
                         },
                         {
                             id: 'plugins',
                             name: 'Plugin server · Node',
-                            status: 'error',
+                            status: 'down',
                         },
                         {
                             id: 'frontend',
                             name: 'Frontend build · Webpack',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'tls',
@@ -100,32 +100,32 @@ describe('preflightLogic', () => {
                         {
                             id: 'database',
                             name: 'Application database · Postgres',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'clickhouse',
                             name: 'Analytics database · ClickHouse',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'kafka',
                             name: 'Queue · Kafka',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'backend',
                             name: 'Backend server · Django',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'redis',
                             name: 'Cache · Redis',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'celery',
                             name: 'Background jobs · Celery',
-                            status: 'error',
+                            status: 'down',
                         },
                         {
                             id: 'plugins',
@@ -136,7 +136,7 @@ describe('preflightLogic', () => {
                         {
                             id: 'frontend',
                             name: 'Frontend build · Webpack',
-                            status: 'validated',
+                            status: 'running',
                         },
                         {
                             id: 'tls',
@@ -157,7 +157,7 @@ describe('preflightLogic', () => {
                 .toMatchValues({
                     checksSummary: {
                         summaryString: '6 successful, 1 warning, 2 errors',
-                        summaryStatus: 'error',
+                        summaryStatus: 'down',
                     },
                 })
         })
@@ -170,7 +170,7 @@ describe('preflightLogic', () => {
                 .toMatchValues({
                     checksSummary: {
                         summaryString: '6 successful, 1 warning, 1 error, 1 optional',
-                        summaryStatus: 'error',
+                        summaryStatus: 'down',
                     },
                 })
         })
