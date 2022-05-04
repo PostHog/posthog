@@ -21,7 +21,7 @@ import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
-import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -109,6 +109,7 @@ export const createProcessEventTests = (
     let redis: IORedis.Redis
     let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
+    const $sessionId = `abcf-efg-${now.toISO()}`
     const returned: ReturnWithHub = {}
 
     async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
@@ -1206,7 +1207,7 @@ export const createProcessEventTests = (
             '',
             {
                 event: '$snapshot',
-                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+                properties: { $session_id: $sessionId, $snapshot_data: { timestamp: 123 } },
             } as any as PluginEvent,
             team.id,
             now,
@@ -1229,7 +1230,7 @@ export const createProcessEventTests = (
             {
                 event: '$snapshot',
                 properties: {
-                    $session_id: 'abcf-efg',
+                    $session_id: $sessionId,
                     $snapshot_data: { timestamp: 123, chunk_id: 'chunk_id', chunk_index: 'chunk_index' },
                 },
             } as any as PluginEvent,
@@ -1247,7 +1248,7 @@ export const createProcessEventTests = (
         expect(sessionRecordingEvents.length).toBe(1)
 
         const [event] = sessionRecordingEvents
-        expect(event.session_id).toEqual('abcf-efg')
+        expect(event.session_id).toEqual($sessionId)
         expect(event.distinct_id).toEqual('some-id')
 
         const expectedFolderDate = now.toFormat('yyyy-mm-dd')
@@ -1265,7 +1266,7 @@ export const createProcessEventTests = (
             '',
             {
                 event: '$snapshot',
-                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+                properties: { $session_id: $sessionId, $snapshot_data: { timestamp: 123 } },
             } as any as PluginEvent,
             team.id,
             now,
