@@ -110,6 +110,55 @@ $funnel_canvas_background: #fff;
         }
     }
 
+    .insights-wrapper {
+        @media screen and (min-width: $md) {
+            display: flex;
+            overflow: hidden;
+            flex-direction: row-reverse;
+        }
+
+        .insights-container {
+            flex: 1;
+            overflow-x: scroll;
+        }
+        .insight-editor-area {
+            flex-shrink: 0;
+            @media screen and (min-width: $md) {
+                width: min(28rem, 50%);
+                margin-left: 1em;
+            }
+
+            > * {
+                margin-bottom: 1em;
+            }
+        }
+    }
+
+    .insights-filter-group {
+        border-radius: var(--radius);
+        overflow: hidden;
+        background-color: #fff;
+        border: 1px solid var(--bg-mid);
+
+        .insights-filter-group-title {
+            padding: 1em;
+            background: var(--bg-mid);
+            font-weight: 600;
+        }
+
+        .insights-filter-group-content {
+            padding: 1em;
+
+            > * {
+                margin-bottom: 1em;
+                &:last-child {
+                    margin-bottom: 0;
+
+                }
+            }
+        }
+    }
+
     .insights-graph-container {
         background: #fff;
         margin-bottom: 1rem;
@@ -153,6 +202,7 @@ $funnel_canvas_background: #fff;
 
         .ant-card-body {
             padding: 0;
+            overflow-x: auto;
         }
 
         .insights-graph-container-row {

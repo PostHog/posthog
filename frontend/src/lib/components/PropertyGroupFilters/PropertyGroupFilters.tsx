@@ -50,27 +50,28 @@ export function PropertyGroupFilters({
         setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
     }, [propertyFilters])
 
+    const showHeader = !noTitle || (filtersWithNew.type && filtersWithNew.values.length > 1)
+
     return (
         <>
             {filtersWithNew.values && (
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                        <Row
-                            align="middle"
-                            justify="space-between"
-                            className="pb pr mb"
-                            style={{ borderBottom: !noTitle ? '1px solid var(--border)' : '' }}
-                        >
-                            {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
-                            {filtersWithNew.type && filtersWithNew.values.length > 1 && (
-                                <AndOrFilterSelect
-                                    value={filtersWithNew.type}
-                                    onChange={(value) => setOuterPropertyGroupsType(value)}
-                                    topLevelFilter={true}
-                                />
-                            )}
-                        </Row>
-                        <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
+                        {showHeader ? (
+                            <div
+                                className="pr pb mb space-between-items"
+                                style={{ borderBottom: !noTitle ? '1px solid var(--border)' : '' }}
+                            >
+                                {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
+                                {filtersWithNew.type && filtersWithNew.values.length > 1 && (
+                                    <AndOrFilterSelect
+                                        value={filtersWithNew.type}
+                                        onChange={(value) => setOuterPropertyGroupsType(value)}
+                                        topLevelFilter={true}
+                                    />
+                                )}
+                            </div>
+                        ) : null}
                         {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
                                 <>
@@ -116,13 +117,15 @@ export function PropertyGroupFilters({
                                         />
                                     </div>
                                     {propertyGroupIndex !== filtersWithNew.values.length - 1 && (
-                                        <div className="text-small primary-alt" style={{ margin: '-0.5rem 0' }}>
-                                            <b>{filtersWithNew.type}</b>
+                                        <div className="property-group-and-or-separator">
+                                            <span>{filtersWithNew.type}</span>
                                         </div>
                                     )}
                                 </>
                             )
                         })}
+                        <div className="mb" />
+                        <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                     </BindLogic>
                 </div>
             )}

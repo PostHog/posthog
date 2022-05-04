@@ -63,18 +63,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const screens = useBreakpoint()
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    const isSmallScreen = !screens.xl
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-
-    // Whether to display the control tab on the side instead of on top
-    // const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
-    const verticalLayout = usingEditorPanels || (!isSmallScreen && activeView === InsightType.FUNNELS)
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
@@ -98,48 +92,58 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         [`${InsightType.PATHS}`]: <PathTab />,
     }[activeView]
 
+    // NOTE: Temp var whilst migrating to Editor Panels
+    const isEditorPanels = ![
+        InsightType.TRENDS,
+        InsightType.LIFECYCLE,
+        InsightType.STICKINESS,
+        InsightType.RETENTION,
+    ].includes(filters.insight as InsightType)
+
     const insightTab = usingEditorPanels ? (
         <>
             {insight &&
                 filters &&
                 Object.entries(getEditorFilters(filters, featureFlags))
                     .filter(([, v]) => v.length > 0)
-                    .map(([title, editorFilters]) => (
-                        <div key={title} style={{ margin: '1em' }}>
-                            <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>{title}</div>
-                            <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
-                                {editorFilters.map(({ label, tooltip, key, valueSelector, component: Component }) => (
-                                    <div key={key} style={{ marginBottom: '1em' }}>
-                                        {label ? (
-                                            <div style={{ padding: '8px 0' }}>
-                                                {label}
-                                                {tooltip && (
-                                                    <Tooltip title={tooltip}>
-                                                        <InfoCircleOutlined className="info-indicator" />
-                                                    </Tooltip>
-                                                )}
+                    .map(([title, editorFilters]) => {
+                        return (
+                            <div key={title} className="insights-filter-group">
+                                <div className="insights-filter-group-title">{title}</div>
+                                <div className="insights-filter-group-content">
+                                    {editorFilters.map(
+                                        ({ label, tooltip, key, valueSelector, component: Component }) => (
+                                            <div key={key}>
+                                                {label ? (
+                                                    <div className="mb-05 fw-500">
+                                                        {label}
+                                                        {tooltip && (
+                                                            <Tooltip title={tooltip}>
+                                                                <InfoCircleOutlined className="info-indicator" />
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                ) : null}
+                                                {Component ? (
+                                                    <Component
+                                                        insight={insight}
+                                                        insightProps={insightProps}
+                                                        filters={insight.filters ?? cleanFilters({})}
+                                                        value={
+                                                            (valueSelector
+                                                                ? valueSelector(insight)
+                                                                : insight?.filters?.[key]) ?? null
+                                                        }
+                                                    />
+                                                ) : null}
                                             </div>
-                                        ) : null}
-                                        {Component ? (
-                                            <Component
-                                                insight={insight}
-                                                insightProps={insightProps}
-                                                filters={insight.filters ?? cleanFilters({})}
-                                                value={
-                                                    (valueSelector
-                                                        ? valueSelector(insight)
-                                                        : insight?.filters?.[key]) ?? null
-                                                }
-                                            />
-                                        ) : null}
-                                    </div>
-                                ))}
+                                        )
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-            {filters.insight !== InsightType.TRENDS &&
-            filters.insight !== InsightType.LIFECYCLE &&
-            filters.insight !== InsightType.STICKINESS ? (
+                        )
+                    })}
+            {isEditorPanels ? (
                 <div style={{ margin: '1em' }}>
                     <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
                     <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
@@ -244,51 +248,39 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </>
                 }
             />
-            {insightMode === ItemMode.View ? (
-                <InsightContainer />
+
+            {usingEditorPanels ? (
+                <div className="insights-wrapper">
+                    {insightMode !== ItemMode.View ? (
+                        <div className="insight-editor-area">
+                            {/* These are insight specific filters. They each have insight specific logics */}
+                            {insightTab}
+                        </div>
+                    ) : null}
+                    <div className="insights-container">
+                        <InsightContainer />
+                    </div>
+                </div>
             ) : (
                 <>
-                    {!usingEditorPanels ? <InsightsNav /> : null}
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexDirection: verticalLayout ? 'row' : 'column',
-                            marginBottom: verticalLayout ? 64 : 0,
-                        }}
-                    >
-                        <div
-                            style={{
-                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
-                                marginRight: verticalLayout && !usingEditorPanels ? '1rem' : 0,
-                                marginLeft: verticalLayout && usingEditorPanels ? '1rem' : 0,
-                                order: usingEditorPanels ? 2 : 1,
-                            }}
-                        >
-                            {verticalLayout ? (
-                                insightTab
-                            ) : (
-                                <Card className="insight-controls">
-                                    <div className="tabs-inner">
-                                        {/* These are insight specific filters. They each have insight specific logics */}
-                                        {insightTab}
-                                    </div>
-                                </Card>
-                            )}
-                        </div>
-                        <div
-                            style={{
-                                flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
-                                order: usingEditorPanels ? 1 : 2,
-                            }}
-                        >
-                            <InsightContainer />
-                        </div>
-                    </div>
+                    {insightMode !== ItemMode.View ? (
+                        <>
+                            <InsightsNav />
+                            <Card className="insight-controls">
+                                <div className="tabs-inner">{insightTab}</div>
+                            </Card>
+                        </>
+                    ) : null}
+                    <InsightContainer />
+                </>
+            )}
+
+            {insightMode !== ItemMode.View ? (
+                <>
                     <NPSPrompt />
                     <FeedbackCallCTA />
                 </>
-            )}
+            ) : null}
 
             <SaveCohortModal
                 visible={cohortModalVisible}

@@ -10,6 +10,7 @@ import { EFTrendsBreakdown } from 'scenes/insights/EditorFilters/EFTrendsBreakdo
 import { EFLifecycleToggles } from 'scenes/insights/EditorFilters/EFLifecycleToggles'
 import { EFLifecycleGlobalFilters } from 'scenes/insights/EditorFilters/EFLifecycleGlobalFilters'
 import React from 'react'
+import { EFRetentionSummary } from './EFRetentionSummary'
 
 export function getEditorFilters(
     filters: Partial<FilterType>,
@@ -18,16 +19,22 @@ export function getEditorFilters(
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const isLifecycle = filters.insight === InsightType.LIFECYCLE
     const isStickiness = filters.insight === InsightType.STICKINESS
+    const isRetention = filters.insight === InsightType.RETENTION
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     return {
-        General: [
+        General: filterFalsy([
             {
                 key: 'insight',
                 label: 'Type',
                 component: EFInsightType,
             },
-        ],
+            isRetention && {
+                key: 'retention-summary',
+                label: 'Retention Summary',
+                component: EFRetentionSummary,
+            },
+        ]),
         Steps: filterFalsy([
             isTrendsLike && {
                 key: 'steps',
@@ -54,7 +61,7 @@ export function getEditorFilters(
                       component: EFLifecycleToggles,
                   }
                 : null,
-            (isTrends || isStickiness) && filters.properties
+            (isTrends || isStickiness || isRetention) && filters.properties
                 ? {
                       key: 'properties',
                       component: featureFlags[FEATURE_FLAGS.AND_OR_FILTERING]
