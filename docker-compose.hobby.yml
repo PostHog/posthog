@@ -36,7 +36,7 @@ services:
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
         restart: on-failure
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
