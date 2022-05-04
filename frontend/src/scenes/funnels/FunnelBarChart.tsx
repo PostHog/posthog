@@ -170,38 +170,39 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
-    const vizRef = useFunnelTooltip(showPersonsModal)
+    const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
+    const barWidthPx =
+        seriesCount >= 60
+            ? 4
+            : seriesCount >= 20
+            ? 8
+            : seriesCount >= 12
+            ? 16
+            : seriesCount >= 10
+            ? 20
+            : seriesCount >= 8
+            ? 24
+            : seriesCount >= 6
+            ? 32
+            : seriesCount >= 5
+            ? 40
+            : seriesCount >= 4
+            ? 48
+            : seriesCount >= 3
+            ? 64
+            : seriesCount >= 2
+            ? 96
+            : 192
+
+    const vizRef = useFunnelTooltip(showPersonsModal, barWidthPx)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
         const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
-        const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
-        const barWidth =
-            seriesCount >= 60
-                ? '0.25rem'
-                : seriesCount >= 20
-                ? '0.5rem'
-                : seriesCount >= 12
-                ? '1rem'
-                : seriesCount >= 10
-                ? '1.25rem'
-                : seriesCount >= 8
-                ? '1.5rem'
-                : seriesCount >= 6
-                ? '2rem'
-                : seriesCount >= 5
-                ? '2.5rem'
-                : seriesCount >= 4
-                ? '3rem'
-                : seriesCount >= 3
-                ? '4rem'
-                : seriesCount >= 2
-                ? '6rem'
-                : '12rem'
 
         return (
-            <table style={{ '--bar-width': barWidth, '--bar-row-height': barRowHeight } as FunnelBarChartCSSProperties}>
+            <table style={{ '--bar-width': `${barWidthPx}px`, '--bar-row-height': barRowHeight } as FunnelBarChartCSSProperties}>
                 <colgroup>
                     {visibleStepsWithConversionMetrics.map((_, i) => (
                         <col key={i} width={0} />

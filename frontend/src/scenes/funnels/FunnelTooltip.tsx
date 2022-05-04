@@ -76,7 +76,7 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
     )
 }
 
-export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
+export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number): React.RefObject<HTMLDivElement> {
     const { filters, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(funnelLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -108,7 +108,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                 tooltipRect &&
                 tooltipCoordinates[0] + tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
             ) {
-                xOffset = -(tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX)
+                xOffset = -(tooltipRect.width + barWidthPx + FUNNEL_TOOLTIP_OFFSET_PX)
             } else {
                 xOffset = FUNNEL_TOOLTIP_OFFSET_PX
             }
