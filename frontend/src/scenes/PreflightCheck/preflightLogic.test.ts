@@ -3,7 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { preflightLogic } from './preflightLogic'
-import _preflight_mock from './__mocks__/preflight.initial.json'
 
 describe('preflightLogic', () => {
     let logic: ReturnType<typeof preflightLogic.build>
