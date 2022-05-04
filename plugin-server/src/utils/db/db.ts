@@ -1184,15 +1184,15 @@ export class DB {
     // SessionRecordingEvent
 
     /**
-     * Either gets all session recording events since ClickHouse was last reset
+     * Either gets all session recording events since the database was last reset
      * or, if a sessionId is provided, gets all session recording events for that sessionId
      * @param sessionId
      */
     public async fetchSessionRecordingEvents(
         sessionId?: string | undefined
     ): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+        const predicate = !!sessionId ? ` where session_id = '${sessionId}'` : ''
         if (this.kafkaProducer) {
-            const predicate = !!sessionId ? ` where session_id = '${sessionId}'` : ''
             const query = `SELECT * FROM session_recording_events${predicate}`
             return ((await this.clickhouseQuery(query)).data as SessionRecordingEvent[]).map((event) => {
                 return {
@@ -1202,7 +1202,7 @@ export class DB {
             })
         } else {
             const result = await this.postgresQuery(
-                'SELECT * FROM posthog_sessionrecordingevent',
+                `SELECT * FROM posthog_sessionrecordingevent${predicate}`,
                 undefined,
                 'fetchAllSessionRecordingEvents'
             )

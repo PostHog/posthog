@@ -1,12 +1,13 @@
 import Piscina from '@posthog/piscina'
 import * as IORedis from 'ioredis'
+import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../src/config/constants'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { AlertLevel, LogLevel, Service } from '../../src/types'
 import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
-import { createRedis, delay, UUIDT } from '../../src/utils/utils'
+import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
@@ -86,6 +87,7 @@ describe('e2e', () => {
                 CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
                 LOG_LEVEL: LogLevel.Log,
                 KAFKA_ENABLED: false,
+                OBJECT_STORAGE_ENABLED: true,
             },
             makePiscina
         )
@@ -131,19 +133,23 @@ describe('e2e', () => {
         })
 
         test('snapshot captured, processed, ingested', async () => {
-            expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
+            const sessionId = new UUIDT().toString()
 
-            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
+            expect((await hub.db.fetchSessionRecordingEvents(sessionId)).length).toBe(0)
 
-            await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+            await posthog.capture('$snapshot', { $session_id: sessionId, $snapshot_data: { data: 'yes way' } })
 
-            const events = await hub.db.fetchSessionRecordingEvents()
-            await delay(1000)
+            await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
+
+            const events = await hub.db.fetchSessionRecordingEvents(sessionId)
 
             expect(events.length).toBe(1)
 
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
+            // processEvent stored data to disk and added path to the snapshot data
+            const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
+            expect((events[0].snapshot_data as unknown as Record<string, any>)['object_storage_path']).toEqual(
+                `session_recordings/${expectedDate}/${sessionId}/undefined/undefined`
+            )
 
             // onSnapshot ran
             expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])
