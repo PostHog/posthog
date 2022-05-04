@@ -127,7 +127,7 @@ describe('e2e', () => {
 
             await posthog.capture('$snapshot', {
                 $session_id: sessionId,
-                $snapshot_data: { data: 'yes way' },
+                $snapshot_data: 'yes way',
             })
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
@@ -139,10 +139,7 @@ describe('e2e', () => {
             expect(events.length).toBe(1)
 
             // processEvent stored data to disk and added path to the snapshot data
-            let snapshotData: Record<string, any> | string = events[0].snapshot_data
-            if (typeof snapshotData === 'string') {
-                snapshotData = JSON.parse(snapshotData) as Record<string, any>
-            }
+            const snapshotData = JSON.parse(events[0].snapshot_data) as Record<string, any>
 
             const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
 
