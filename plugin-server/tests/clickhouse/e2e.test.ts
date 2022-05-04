@@ -4,8 +4,7 @@ import { DateTime } from 'luxon'
 import { ONE_HOUR } from '../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel, PluginsServerConfig } from '../../src/types'
-import { Hub } from '../../src/types'
+import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
@@ -127,23 +126,19 @@ describe('e2e', () => {
 
             await posthog.capture('$snapshot', {
                 $session_id: sessionId,
-                $snapshot_data: 'yes way',
+                $snapshot_data: { data: 'yes way' },
             })
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
             await hub.kafkaProducer?.flush()
             const events = await hub.db.fetchSessionRecordingEvents(sessionId)
-            await delay(1000)
-
             expect(events.length).toBe(1)
 
             // processEvent stored data to disk and added path to the snapshot data
-            const snapshotData = JSON.parse(events[0].snapshot_data) as Record<string, any>
-
             const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
 
-            expect(snapshotData['object_storage_path']).toEqual(
+            expect((events[0].snapshot_data as unknown as Record<string, any>)['object_storage_path']).toEqual(
                 `session_recordings/${expectedDate}/${sessionId}/undefined/undefined`
             )
 
