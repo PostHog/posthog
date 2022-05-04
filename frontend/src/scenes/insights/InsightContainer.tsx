@@ -109,6 +109,7 @@ export function InsightContainer(
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
+            isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable &&
             (featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] || filters?.layout === FunnelLayout.horizontal)
