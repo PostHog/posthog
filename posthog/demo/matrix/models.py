@@ -24,16 +24,6 @@ class SimEvent:
 
 
 @dataclass
-class SimSnapshot:
-    """A simulated session recording event."""
-
-    snapshot_data: Dict[str, Any]
-    session_id: str
-    window_id: str
-    timestamp: dt.datetime
-
-
-@dataclass
 class SimGroup:
     """A simulated group for group analytics."""
 
@@ -49,14 +39,12 @@ class SimPerson(ABC):
     internal_state: Dict[str, Any]
     properties: Dict[str, Any]
     events: List[SimEvent]
-    snapshots: List[SimSnapshot]
 
     def __init__(self) -> None:
         self.first_seen_at = None
         self.internal_state = {}
         self.properties = {}
         self.events = []
-        self.snapshots = []
 
     def capture_event(self, event: str, timestamp: dt.datetime, properties: Optional[Dict[str, Any]] = None):
         if self.first_seen_at is None or self.first_seen_at > timestamp:
@@ -69,11 +57,6 @@ class SimPerson(ABC):
             if properties.get("$set"):
                 self.properties.update(properties["$set"])
         self.events.append(SimEvent(event=event, properties=properties or {}, timestamp=timestamp))
-
-    def capture_snapshot(self, snapshot_data: Any, session_id: str, window_id: str, timestamp: dt.datetime):
-        self.snapshots.append(
-            SimSnapshot(snapshot_data=snapshot_data, session_id=session_id, window_id=window_id, timestamp=timestamp)
-        )
 
     @abstractmethod
     def sessions(
