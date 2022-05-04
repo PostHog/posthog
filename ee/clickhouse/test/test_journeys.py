@@ -55,6 +55,12 @@ def journeys_for(
                     event=event["event"],
                     timestamp=event["timestamp"],
                     properties=event.get("properties", {}),
+                    person_id=people[distinct_id].uuid,
+                    group0_properties=event.get("group0_properties", {}),
+                    group1_properties=event.get("group1_properties", {}),
+                    group2_properties=event.get("group2_properties", {}),
+                    group3_properties=event.get("group3_properties", {}),
+                    group4_properties=event.get("group4_properties", {}),
                 )
             )
 
@@ -70,12 +76,12 @@ def _create_all_events(all_events: List[Dict]):
         data.update(event)
         in_memory_event = InMemoryEvent(**data)
         parsed += f"""
-        ('{str(uuid4())}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        ('{str(uuid4())}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{in_memory_event.group0_properties}', '{in_memory_event.group1_properties}', '{in_memory_event.group2_properties}', '{in_memory_event.group3_properties}', '{in_memory_event.group4_properties}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
     sync_execute(
         f"""
-    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, _timestamp, _offset) VALUES
     {parsed}
     """
     )
@@ -89,6 +95,12 @@ class InMemoryEvent:
     team: Team
     timestamp: str
     properties: Dict
+    person_id: str
+    group0_properties: Dict
+    group1_properties: Dict
+    group2_properties: Dict
+    group3_properties: Dict
+    group4_properties: Dict
 
 
 def _create_event(**event):
