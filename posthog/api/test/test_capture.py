@@ -860,8 +860,7 @@ class TestCapture(BaseTest):
         response = self.client.generic(
             "OPTIONS",
             "/decide/",
-            headers={
-                'access-control-request-headers': 'traceparent,request-id,someotherrandomheader'
-            }, HTTP_ORIGIN="https://localhost"
+            headers={"access-control-request-headers": "traceparent,request-id,someotherrandomheader"},
+            HTTP_ORIGIN="https://localhost",
         )
-        self.assertEqual(response.headers['Access-Control-Allow-Headers'], 'X-Requested-With,traceparent,request-id')
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
