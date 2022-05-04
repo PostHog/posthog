@@ -33,13 +33,12 @@ describe('preflightLogic', () => {
         })
     })
 
-
-
     describe('checks', () => {
         it('parses checks correctly for live mode', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setPreflightMode('live')
-            }).toDispatchActions(['loadPreflightSuccess'])
+            })
+                .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checks: [
                         {
@@ -95,7 +94,8 @@ describe('preflightLogic', () => {
         it('parses checks correctly for experimentation mode', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setPreflightMode('experimentation')
-            }).toDispatchActions(['loadPreflightSuccess'])
+            })
+                .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checks: [
                         {
@@ -132,7 +132,7 @@ describe('preflightLogic', () => {
                             id: 'plugins',
                             name: 'Plugin server · Node',
                             status: 'warning',
-                            caption: 'Required in production environments'
+                            caption: 'Required in production environments',
                         },
                         {
                             id: 'frontend',
@@ -153,23 +153,27 @@ describe('preflightLogic', () => {
         it('creates check summaries correctly for live mode', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setPreflightMode('live')
-            }).toDispatchActions(['loadPreflightSuccess']).toMatchValues({
-                checksSummary: {
-                    summaryString: '6 successful, 1 warning, 2 errors',
-                    summaryStatus: 'error'
-                }
             })
+                .toDispatchActions(['loadPreflightSuccess'])
+                .toMatchValues({
+                    checksSummary: {
+                        summaryString: '6 successful, 1 warning, 2 errors',
+                        summaryStatus: 'error',
+                    },
+                })
         })
 
         it('creates check summaries correctly for experimentation mode', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setPreflightMode('experimentation')
-            }).toDispatchActions(['loadPreflightSuccess']).toMatchValues({
-                checksSummary: {
-                    summaryString: '6 successful, 1 warning, 1 error, 1 optional',
-                    summaryStatus: 'error'
-                }
             })
+                .toDispatchActions(['loadPreflightSuccess'])
+                .toMatchValues({
+                    checksSummary: {
+                        summaryString: '6 successful, 1 warning, 1 error, 1 optional',
+                        summaryStatus: 'error',
+                    },
+                })
         })
     })
 })

@@ -113,8 +113,8 @@ export const preflightLogic = kea<
                         status: preflight?.plugins
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                                ? 'warning'
-                                : 'error',
+                            ? 'warning'
+                            : 'error',
                         caption:
                             !preflight?.plugins && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -132,8 +132,8 @@ export const preflightLogic = kea<
                             window.location.protocol === 'https:'
                                 ? 'validated'
                                 : preflightMode === 'experimentation'
-                                    ? 'optional'
-                                    : 'warning',
+                                ? 'optional'
+                                : 'warning',
                         caption:
                             !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
                                 ? 'Not required for experimentation mode'

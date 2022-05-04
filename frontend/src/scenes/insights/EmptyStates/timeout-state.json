@@ -83,22 +83,16 @@
                     },
                     {
                         "key": "$host",
-                        "value": [
-                            "localhost:8000"
-                        ],
+                        "value": ["localhost:8000"],
                         "operator": "is_not"
                     }
                 ],
                 "path_cleaning_filters": [],
                 "is_demo": true,
                 "timezone": "UTC",
-                "data_attributes": [
-                    "data-attr"
-                ],
+                "data_attributes": ["data-attr"],
                 "correlation_config": {
-                    "excluded_event_names": [
-                        "$autocapture"
-                    ],
+                    "excluded_event_names": ["$autocapture"],
                     "excluded_person_property_names": []
                 },
                 "session_recording_opt_in": false,
@@ -293,9 +287,7 @@
                     "analyzeQueryResultLoading": false,
                     "tab": "overview",
                     "error": null,
-                    "openSections": [
-                        "0"
-                    ],
+                    "openSections": ["0"],
                     "analyzeModalOpen": false,
                     "analyzeQuery": ""
                 }
@@ -423,16 +415,7 @@
                                 },
                                 "label": "$pageview",
                                 "count": 145,
-                                "data": [
-                                    30,
-                                    115,
-                                    0,
-                                    0,
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
+                                "data": [30, 115, 0, 0, 0, 0, 0, 0],
                                 "labels": [
                                     "12-Nov-2021",
                                     "13-Nov-2021",
@@ -657,12 +640,7 @@
             },
             "trendsLogic": {
                 "scene": {
-                    "toggledLifecycles": [
-                        "new",
-                        "resurrecting",
-                        "returning",
-                        "dormant"
-                    ],
+                    "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
                     "breakdownValuesLoading": false
                 }
             }
@@ -685,14 +663,8 @@
                     "stepReference": "total",
                     "isGroupingOutliers": true,
                     "error": null,
-                    "correlationTypes": [
-                        "success",
-                        "failure"
-                    ],
-                    "propertyCorrelationTypes": [
-                        "success",
-                        "failure"
-                    ],
+                    "correlationTypes": ["success", "failure"],
+                    "propertyCorrelationTypes": ["success", "failure"],
                     "skewWarningHidden": false,
                     "correlationFeedbackHidden": false,
                     "correlationDetailedFeedbackVisible": false,
@@ -730,10 +702,7 @@
                         "go-to": {
                             "key": "go-to",
                             "scope": "global",
-                            "prefixes": [
-                                "open",
-                                "visit"
-                            ],
+                            "prefixes": ["open", "visit"],
                             "resolver": [
                                 {
                                     "icon": {},
@@ -770,9 +739,7 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Persons",
-                                    "synonyms": [
-                                        "people"
-                                    ]
+                                    "synonyms": ["people"]
                                 },
                                 {
                                     "icon": {},
@@ -781,10 +748,7 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Feature Flags",
-                                    "synonyms": [
-                                        "feature flags",
-                                        "a/b tests"
-                                    ]
+                                    "synonyms": ["feature flags", "a/b tests"]
                                 },
                                 {
                                     "icon": {},
@@ -793,12 +757,7 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Team members",
-                                    "synonyms": [
-                                        "organization",
-                                        "members",
-                                        "invites",
-                                        "teammates"
-                                    ]
+                                    "synonyms": ["organization", "members", "invites", "teammates"]
                                 },
                                 {
                                     "icon": {},
@@ -807,16 +766,12 @@
                                 {
                                     "icon": {},
                                     "display": "Go to My settings",
-                                    "synonyms": [
-                                        "account"
-                                    ]
+                                    "synonyms": ["account"]
                                 },
                                 {
                                     "icon": {},
                                     "display": "Go to Plugins",
-                                    "synonyms": [
-                                        "integrations"
-                                    ]
+                                    "synonyms": ["integrations"]
                                 },
                                 {
                                     "icon": {},
@@ -844,10 +799,7 @@
                         "open-urls": {
                             "key": "open-urls",
                             "scope": "global",
-                            "prefixes": [
-                                "open",
-                                "visit"
-                            ]
+                            "prefixes": ["open", "visit"]
                         },
                         "debug-clickhouse-queries": {
                             "key": "debug-clickhouse-queries",
@@ -883,12 +835,7 @@
                             "resolver": {
                                 "icon": {},
                                 "display": "Share Feedback",
-                                "synonyms": [
-                                    "send opinion",
-                                    "ask question",
-                                    "message posthog",
-                                    "github issue"
-                                ]
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
                             }
                         },
                         "insight-graph": {
@@ -980,9 +927,7 @@
             "PropertyFilters": {
                 "propertyFilterLogic": {
                     "trends-filters": {
-                        "filters": [
-                            {}
-                        ]
+                        "filters": [{}]
                     }
                 }
             },
@@ -1315,9 +1260,7 @@
                                 {
                                     "key": "is_demo",
                                     "type": "person",
-                                    "value": [
-                                        "true"
-                                    ],
+                                    "value": ["true"],
                                     "operator": "exact"
                                 }
                             ],
