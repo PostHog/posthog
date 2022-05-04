@@ -149,7 +149,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
+            team=self.team, rollout_percentage=75, name="Beta feature", key="beta-feature", created_by=self.user,
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -176,14 +176,14 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(9):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(7):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])

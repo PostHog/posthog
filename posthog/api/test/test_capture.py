@@ -16,7 +16,7 @@ from rest_framework import status
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import Person, PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 
 def mocked_get_ingest_context_from_token(_: Any) -> None:
@@ -764,6 +764,8 @@ class TestCapture(BaseTest):
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
         self.assertListEqual(self.team.event_properties_numerical, [])
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
+        _create_person(team_id=self.team.id, distinct_ids=["xxx"])
+        flush_persons_and_events()
         self.client.post(
             "/track/",
             data={
