@@ -1,4 +1,5 @@
 import Piscina from '@posthog/piscina'
+import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
@@ -28,6 +29,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
     CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
+    OBJECT_STORAGE_ENABLED: true,
 }
 
 const indexJs = `
@@ -119,24 +121,33 @@ describe('e2e', () => {
         })
 
         test('snapshot captured, processed, ingested', async () => {
-            expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
+            const sessionId = new UUIDT().toString()
 
-            const uuid = new UUIDT().toString()
+            expect((await hub.db.fetchSessionRecordingEvents(sessionId)).length).toBe(0)
 
-            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: { data: 'yes way' } })
+            await posthog.capture('$snapshot', {
+                $session_id: sessionId,
+                $snapshot_data: { data: 'yes way' },
+            })
 
-            await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+            await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
             await hub.kafkaProducer?.flush()
-            const events = await hub.db.fetchSessionRecordingEvents()
+            const events = await hub.db.fetchSessionRecordingEvents(sessionId)
             await delay(1000)
 
             expect(events.length).toBe(1)
 
             // processEvent stored data to disk and added path to the snapshot data
-            const snapshotData = JSON.parse(events[0].snapshot_data)
+            let snapshotData: Record<string, any> | string = events[0].snapshot_data
+            if (typeof snapshotData === 'string') {
+                snapshotData = JSON.parse(snapshotData) as Record<string, any>
+            }
+
+            const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
+
             expect(snapshotData['object_storage_path']).toEqual(
-                'session_recordings/2022-03-31/1234abc/undefined/undefined'
+                `session_recordings/${expectedDate}/${sessionId}/undefined/undefined`
             )
 
             // onSnapshot ran
