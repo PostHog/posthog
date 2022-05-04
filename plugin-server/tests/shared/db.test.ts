@@ -304,7 +304,7 @@ describe('DB', () => {
             expect(publicJobs[jobName]).toEqual(jobPayload)
         })
     })
-  
+
     describe('person and group properties on events', () => {
         beforeEach(async () => {
             const redis = await hub.redisPool.acquire()
