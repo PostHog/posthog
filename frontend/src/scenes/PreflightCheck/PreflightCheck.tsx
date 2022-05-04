@@ -107,8 +107,8 @@ export function PreflightCheck(): JSX.Element {
                             >
                                 Just experimenting
                             </LemonButton>
-                            <LemonDivider thick dashed large />
-                            <p className="text-muted text-center">
+                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <p className="text-muted text-center mb-0">
                                 We will not enforce some security requirements in experimentation mode.
                             </p>
                         </div>
@@ -197,7 +197,7 @@ export function PreflightCheck(): JSX.Element {
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
-                            <LemonDivider thick dashed large />
+                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
                             {checksSummary.summaryStatus !== 'down' ? (
                                 <LemonButton
                                     fullWidth
@@ -218,7 +218,7 @@ export function PreflightCheck(): JSX.Element {
                                 </LemonRow>
                             )}
 
-                            <p className="text-center mt">
+                            <p className="text-center mt mb-0">
                                 Validation happens immediately. You can rerun validation checks by clicking{' '}
                                 <b>“validate requirements”</b>.
                             </p>
