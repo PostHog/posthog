@@ -112,7 +112,7 @@ export function LemonButtonWithSideAction({
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton {...buttonProps} sideIcon={<div />}>
                 {children}
-                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 0 0 0.75rem' }} />}
+                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 -0.5rem 0 0.75rem' }} />}
             </LemonButton>
             <SideComponent
                 className="LemonButtonWithSideAction--side-button"
