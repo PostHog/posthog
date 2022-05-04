@@ -382,10 +382,15 @@ email@example.org,
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
             data={"name": "whatever", "filters": "[Slkasd=lkxcn]", "groups": [{"properties": {"team_id": 5}}]},
         )
 
-        c = Cohort.objects.get(pk=response.json()["id"])
+        c = Cohort.objects.get(pk=update_response.json()["id"])
         self.assertEqual(c.filters, None)
 
 

@@ -59,8 +59,6 @@ from posthog.utils import format_query_params_absolute_url
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
-    # Note: This nullifies validated_data payload on create/update
-    filters = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -104,24 +102,14 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def get_filters(self, cohort: Cohort) -> Dict:
-        if cohort.filters:
-            return cohort.filters
-
-        return {
-            "properties": cohort.properties.to_dict(),
-        }
-
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
-        new_filters = self._validate_filters(request)
+        new_filters = self._validate_filters(validated_data)
 
         if new_filters is not None and not team.behavioral_cohort_querying_enabled:
             raise ValidationError("New cohort filters have not been enabled on this team")
-
-        validated_data["filters"] = new_filters
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -143,8 +131,8 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def _validate_filters(self, request: Request):
-        request_filters = request.data.get("filters", None)
+    def _validate_filters(self, validated_data: Dict):
+        request_filters = validated_data.get("filters", None)
 
         try:
             new_filters = json.loads(request_filters)
@@ -158,13 +146,13 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        new_filters = self._validate_filters(request)
+        new_filters = self._validate_filters(validated_data)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = new_filters
+        cohort.filters = new_filters or cohort.filters
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
@@ -197,6 +185,13 @@ class CohortSerializer(serializers.ModelSerializer):
         )
 
         return cohort
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = (
+            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+        )
+        return representation
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
