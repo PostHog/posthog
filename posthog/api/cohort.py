@@ -1,5 +1,4 @@
 import csv
-import json
 from datetime import datetime
 from typing import Any, Dict
 
@@ -76,7 +75,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -106,7 +104,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
-        new_filters = self._validate_filters(validated_data)
+        new_filters = validated_data.get("filters")
 
         if new_filters is not None and not team.behavioral_cohort_querying_enabled:
             raise ValidationError("New cohort filters have not been enabled on this team")
@@ -131,28 +129,21 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def _validate_filters(self, validated_data: Dict):
-        request_filters = validated_data.get("filters", None)
+    def validate_filters(self, request_filters: Dict):
 
-        try:
-            new_filters = json.loads(request_filters)
-        except:
-            if isinstance(request_filters, dict):
-                new_filters = request_filters
-            else:
-                new_filters = None
-
-        return new_filters
+        if isinstance(request_filters, dict) and "properties" in request_filters:
+            return request_filters
+        else:
+            raise ValidationError("Filters must be a dictionary with a 'properties' key.")
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        new_filters = self._validate_filters(validated_data)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = new_filters or cohort.filters
+        cohort.filters = validated_data.get("filters", cohort.filters)
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state

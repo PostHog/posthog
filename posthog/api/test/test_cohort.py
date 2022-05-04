@@ -390,8 +390,11 @@ email@example.org,
             data={"name": "whatever", "filters": "[Slkasd=lkxcn]", "groups": [{"properties": {"team_id": 5}}]},
         )
 
-        c = Cohort.objects.get(pk=update_response.json()["id"])
-        self.assertEqual(c.filters, None)
+        self.assertEqual(update_response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Filters must be a dictionary with a 'properties' key.", "type": "validation_error"},
+            update_response.json(),
+        )
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
