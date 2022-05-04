@@ -1,5 +1,5 @@
-import { defaultConfig } from '../../config/config'
 import { PluginsServerConfig } from '../../types'
+import { status } from '../../utils/status'
 
 const aws = require('aws-sdk')
 
@@ -35,11 +35,23 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
         isEnabled: !!OBJECT_STORAGE_ENABLED,
         putObject: OBJECT_STORAGE_ENABLED ? (params, callback) => S3.putObject(params, callback) : () => ({}),
         healthCheck: async () => {
+            if (!OBJECT_STORAGE_BUCKET) {
+                status.error('😢', 'No object storage bucket configured')
+                return false
+            }
+
             try {
-                await S3.headBucket({
-                    Bucket: OBJECT_STORAGE_BUCKET,
-                }).promise()
-                return true
+                const listBucketsResponse = await S3.listBuckets().promise()
+                const buckets: string[] = (listBucketsResponse?.Buckets || []).map(
+                    (bucketResponse: { Name: string }) => bucketResponse.Name
+                )
+                status.info(
+                    '🪣',
+                    `read ${buckets.length} ${
+                        buckets.length === 1 ? 'bucket' : 'buckets'
+                    } from storage: ${buckets.join()}`
+                )
+                return buckets.includes(OBJECT_STORAGE_BUCKET)
             } catch (error) {
                 if (error.statusCode === 404) {
                     return false
