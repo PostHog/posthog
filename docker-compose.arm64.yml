@@ -40,7 +40,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: zookeeper
+        image: zookeeper:3.7.0
         restart: always
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
@@ -56,7 +56,8 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
-    worker: &worker
+    worker:
+        &worker
         build:
             context: .
             dockerfile: dev.Dockerfile
@@ -81,11 +82,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -111,8 +107,3 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka

@@ -36,7 +36,7 @@ services:
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
         restart: on-failure
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
@@ -53,7 +53,8 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
-    worker: &worker
+    worker:
+        &worker
         image: posthog/posthog:$POSTHOG_APP_TAG
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
@@ -79,11 +80,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: /compose/start
@@ -117,11 +113,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     asyncmigrationscheck:
         <<: *worker
         command: python manage.py run_async_migrations --check
