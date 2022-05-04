@@ -45,6 +45,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -103,6 +104,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -188,6 +190,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -269,6 +272,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -393,6 +397,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -490,6 +495,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -557,6 +565,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -594,6 +603,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -631,6 +641,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -668,6 +679,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -705,6 +717,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -728,6 +741,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -773,6 +789,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -911,6 +928,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -954,7 +972,10 @@
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -969,7 +990,10 @@
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -984,7 +1008,10 @@
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -999,7 +1026,10 @@
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1014,37 +1044,10 @@
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
-  '
----
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.38
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
-  '
----
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1074,6 +1077,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1089,51 +1093,6 @@
   LIMIT 21
   '
 ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.40
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
-  '
----
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.41
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
-  '
----
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
-  '
----
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
   '
   SELECT "posthog_dashboardtile"."id",
@@ -1142,6 +1101,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1233,6 +1195,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1296,6 +1259,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1388,6 +1354,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1485,6 +1452,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1582,6 +1550,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1635,6 +1606,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1680,6 +1654,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1795,6 +1770,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1876,6 +1852,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1940,6 +1917,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -1963,6 +1941,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -2064,6 +2045,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2114,6 +2096,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2159,6 +2144,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2293,6 +2279,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2398,6 +2385,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2509,6 +2497,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2532,6 +2521,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -2633,6 +2625,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2656,6 +2649,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2701,6 +2697,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2816,6 +2813,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -2897,6 +2895,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3002,6 +3001,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3138,6 +3138,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3229,6 +3230,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3252,6 +3254,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3353,6 +3358,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3376,6 +3382,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3421,6 +3430,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3555,6 +3565,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3592,6 +3603,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3656,6 +3668,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3679,6 +3692,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3780,6 +3796,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3803,6 +3820,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3848,6 +3868,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -3943,6 +3964,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -4035,6 +4059,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -4140,6 +4165,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -4285,6 +4311,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
@@ -4308,6 +4335,9 @@
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -4353,6 +4383,7 @@
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",

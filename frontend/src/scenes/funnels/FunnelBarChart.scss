@@ -86,7 +86,7 @@
     }
 }
 
-.StepBars__bar {
+.StepBar {
     --series-color: #000; // This should be overriden from React
     --conversion-rate: 100%; // This should be overriden from React
     position: relative;
@@ -102,8 +102,8 @@
     }
 }
 
-.StepBars__backdrop,
-.StepBars__fill {
+.StepBar__backdrop,
+.StepBar__fill {
     position: absolute;
     bottom: 0;
     left: 0;
@@ -112,7 +112,7 @@
     cursor: pointer;
 }
 
-.StepBars__backdrop {
+.StepBar__backdrop {
     transition: opacity 200ms ease;
     height: 100%;
     background: repeating-linear-gradient(
@@ -132,7 +132,7 @@
     }
 }
 
-.StepBars__fill {
+.StepBar__fill {
     transition: filter 200ms ease;
     background: var(--series-color);
     height: var(--conversion-rate);
@@ -159,5 +159,27 @@
     .funnel-inspect-button {
         height: 1.5rem;
         font-weight: inherit;
+    }
+}
+
+.FunnelTooltip {
+    width: 20rem;
+    margin: 0.25rem 0.5rem 0.25rem;
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        border-spacing: 0;
+    }
+    tr {
+        height: 1.75rem;
+    }
+    td:first-child {
+        padding: 0 0.5rem;
+        font-weight: 500;
+    }
+    td:last-child {
+        padding-right: 0.5rem;
+        font-weight: 600;
+        text-align: right;
     }
 }
