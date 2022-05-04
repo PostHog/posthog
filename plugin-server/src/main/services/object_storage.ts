@@ -51,7 +51,15 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
                         buckets.length === 1 ? 'bucket' : 'buckets'
                     } from storage: ${buckets.join()}`
                 )
-                return buckets.includes(OBJECT_STORAGE_BUCKET)
+                if (!buckets.includes(OBJECT_STORAGE_BUCKET)) {
+                    status.error('❌', `bucket ${OBJECT_STORAGE_BUCKET} must exist`)
+                    return false
+                }
+
+                await S3.headBucket({
+                    Bucket: OBJECT_STORAGE_BUCKET,
+                }).promise()
+                return true
             } catch (error) {
                 if (error.statusCode === 404) {
                     return false
