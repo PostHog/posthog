@@ -154,14 +154,14 @@ lxml==4.7.1
     #   xmlsec
 lzstring==1.0.4
     # via -r requirements.in
-mimesis==5.2.1
-    # via -r requirements.in
 marshmallow-enum==1.5.1
     # via dataclasses-json
 marshmallow==3.15.0
     # via
     #   dataclasses-json
     #   marshmallow-enum
+mimesis==5.2.1
+    # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
 mypy-extensions==0.4.3
