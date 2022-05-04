@@ -18,14 +18,11 @@ function createCohortFormData(cohort: CohortType): FormData {
                 ? []
                 : cohort.groups.map((group: CohortGroupType) => ({ ...group, id: undefined, matchType: undefined }))
         ),
-        filters: cohort.filters ? JSON.stringify(cohort.filters) : null,
     }
     // Must use FormData to encode file binary in request
     const cohortFormData = new FormData()
     for (const [itemKey, value] of Object.entries(rawCohort)) {
-        if (value !== null) {
-            cohortFormData.append(itemKey, value as string | Blob)
-        }
+        cohortFormData.append(itemKey, value as string | Blob)
     }
     return cohortFormData
 }
