@@ -126,7 +126,7 @@ export const logos = {
 }
 
 export const thirdPartySources = [
-    { name: 'Segment', type: 'integration', icon: <Segment /> },
+    { name: 'Segment', type: 'integration', icon: <Segment />, docsLink: "https://segment.com/docs/connections/destinations/catalog/posthog/" },
     {
         name: 'Rudderstack',
         type: 'integration',
@@ -136,10 +136,12 @@ export const thirdPartySources = [
                 src={'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png'}
             />
         ),
+        docsLink: "https://www.rudderstack.com/docs/destinations/analytics/posthog/"
     },
     {
         name: 'Redshift',
         type: 'plugin',
+        pluginName: "redshift-import-plugin-(beta)",
         icon: (
             <img
                 style={{ height: 48, width: 48 }}

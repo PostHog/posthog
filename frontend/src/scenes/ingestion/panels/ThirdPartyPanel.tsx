@@ -43,7 +43,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                 </Col>
                             </Row>
                             <Row>
-                                <LemonButton className="mr-05" type="secondary">
+                                <LemonButton className="mr-05" type="secondary" onClick={() => window.open(`https://posthog.com${source.type === "integration" ? `/docs/integrate/third-party/${source.name}` : `/integrations/${source.pluginName}`}`)}>
                                     About
                                 </LemonButton>
                                 <LemonButton
@@ -71,11 +71,12 @@ export function IntegrationInstructionsModal(): JSX.Element {
     const { setInstructionsModal } = useActions(ingestionLogic)
 
     return (
-        <LemonModal visible={instructionsModalOpen} onCancel={() => setInstructionsModal(false)}>
+        <LemonModal visible={instructionsModalOpen} onCancel={() => setInstructionsModal(false)} bodyStyle={{ padding: 40 }}>
             {thirdPartySource?.name && (
                 <div>
-                    <h1>Integrate with {thirdPartySource.name} </h1>
-                    <p>{thirdPartySource.name} is a </p>
+                    <p className="text-muted fw-500">Configure integration</p>
+                    {thirdPartySource.icon}
+                    <h1 className="ingestion-title">Integrate with {thirdPartySource.name} </h1>
                     <div style={{ borderTop: '2px dashed var(--border)' }}>
                         <div
                             style={{
@@ -89,7 +90,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                             The{' '}
                             <a
                                 target="_blank"
-                                href={`https://posthog.com/docs/integrate/third-party/${thirdPartySource.name}`}
+                                href={thirdPartySource.docsLink}
                             >
                                 official {thirdPartySource.name} docs page for the PostHog integration
                             </a>{' '}
@@ -100,16 +101,17 @@ export function IntegrationInstructionsModal(): JSX.Element {
                         type="secondary"
                         fullWidth
                         center
+                        onClick={() => window.open(`https://${thirdPartySource.name}.com`)}
                         sideIcon={<IconOpenInNew style={{ color: 'var(--primary)' }} />}
                     >
                         Take me to {thirdPartySource.name}
                     </LemonButton>
-                    <div style={{ borderBottom: '2px dashed var(--border)' }}>
-                        <h3>Steps:</h3>
+                    <div style={{ borderBottom: '2px dashed var(--border)', marginBottom: 24, marginTop: 16 }}>
+                        <h4>Steps:</h4>
                         <ol className="pl">
                             <li>Complete the steps in the {thirdPartySource.name} integration.</li>
                             <li>
-                                Close this step, and click <strong>continue</strong> to begin listening for events.
+                                Close this step and click <strong>continue</strong> to begin listening for events.
                             </li>
                         </ol>
                     </div>
