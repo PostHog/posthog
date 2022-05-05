@@ -208,15 +208,6 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {Object.keys(plugin.metrics || {}).length > 0 ? (
-                                        <Space>
-                                            <Tooltip title="Metrics">
-                                                <Button onClick={() => showPluginMetrics(pluginId)}>
-                                                    <LineChartOutlined />
-                                                </Button>
-                                            </Tooltip>
-                                        </Space>
-                                    ) : null}
                                     <Tooltip
                                         title={
                                             pluginConfig?.id
