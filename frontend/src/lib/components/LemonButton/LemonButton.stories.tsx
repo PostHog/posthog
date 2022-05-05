@@ -15,19 +15,19 @@ const Template: ComponentStory<typeof LemonButton> = (props: LemonButtonProps) =
 export const Default = Template.bind({})
 Default.args = {
     children: 'Click me',
-    icon: <IconSync/>
+    icon: <IconSync />,
 }
 
 export const Small = Template.bind({})
 Small.args = {
     children: 'Click me',
-    size: "small",
-    icon: <IconSync/>
+    size: 'small',
+    icon: <IconSync />,
 }
 
 export const Large = Template.bind({})
 Large.args = {
     children: 'Click me',
-    size: "large",
-    icon: <IconSync/>
+    size: 'large',
+    icon: <IconSync />,
 }
