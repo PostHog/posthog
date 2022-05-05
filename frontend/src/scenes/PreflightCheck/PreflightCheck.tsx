@@ -33,7 +33,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
-    if (status === 'running') {
+    if (status === 'validated') {
         return <IconCheckCircleOutline {...size} />
     } else if (status === 'warning' || status === 'optional') {
         return <IconWarningAmber {...size} />
@@ -195,7 +195,7 @@ export function PreflightCheck(): JSX.Element {
                                 </LemonButton>
                             </div>
                             <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
-                            {checksSummary.summaryStatus !== 'down' ? (
+                            {checksSummary.summaryStatus !== 'error' ? (
                                 <LemonButton
                                     fullWidth
                                     center

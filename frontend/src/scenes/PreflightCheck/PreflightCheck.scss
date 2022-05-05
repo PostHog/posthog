@@ -95,7 +95,7 @@
         }
     }
 
-    .Preflight--running {
+    .Preflight--validated {
         background-color: #f8fcf8;
 
         svg,
@@ -122,7 +122,7 @@
         }
     }
 
-    .Preflight--down {
+    .Preflight--error {
         background-color: #feefea;
 
         svg,

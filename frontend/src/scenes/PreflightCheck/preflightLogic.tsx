@@ -14,7 +14,7 @@ import { router } from 'kea-router'
 
 type PreflightMode = 'experimentation' | 'live'
 
-export type PreflightCheckStatus = 'running' | 'down' | 'warning' | 'optional'
+export type PreflightCheckStatus = 'validated' | 'error' | 'warning' | 'optional'
 
 export interface PreflightItemInterface {
     name: string
@@ -80,41 +80,41 @@ export const preflightLogic = kea<
                     {
                         id: 'database',
                         name: 'Application database · Postgres',
-                        status: preflight?.db ? 'running' : 'down',
+                        status: preflight?.db ? 'validated' : 'error',
                     },
                     {
                         id: 'clickhouse',
                         name: 'Analytics database · ClickHouse',
-                        status: preflight?.clickhouse ? 'running' : 'down',
+                        status: preflight?.clickhouse ? 'validated' : 'error',
                     },
                     {
                         id: 'kafka',
                         name: 'Queue · Kafka',
-                        status: preflight?.kafka ? 'running' : 'down',
+                        status: preflight?.kafka ? 'validated' : 'error',
                     },
                     {
                         id: 'backend',
                         name: 'Backend server · Django',
-                        status: preflight?.django ? 'running' : 'down',
+                        status: preflight?.django ? 'validated' : 'error',
                     },
                     {
                         id: 'redis',
                         name: 'Cache · Redis',
-                        status: preflight?.redis ? 'running' : 'down',
+                        status: preflight?.redis ? 'validated' : 'error',
                     },
                     {
                         id: 'celery',
                         name: 'Background jobs · Celery',
-                        status: preflight?.celery ? 'running' : 'down',
+                        status: preflight?.celery ? 'validated' : 'error',
                     },
                     {
                         id: 'plugins',
                         name: 'Plugin server · Node',
                         status: preflight?.plugins
-                            ? 'running'
+                            ? 'validated'
                             : preflightMode === 'experimentation'
                             ? 'warning'
-                            : 'down',
+                            : 'error',
                         caption:
                             !preflight?.plugins && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -123,14 +123,14 @@ export const preflightLogic = kea<
                     {
                         id: 'frontend',
                         name: 'Frontend build · Webpack',
-                        status: 'running', // Always running if we're showing the preflight check
+                        status: 'validated', // Always validated if we're showing the preflight check
                     },
                     {
                         id: 'tls',
                         name: 'SSL/TLS certificate',
                         status:
                             window.location.protocol === 'https:'
-                                ? 'running'
+                                ? 'validated'
                                 : preflightMode === 'experimentation'
                                 ? 'optional'
                                 : 'warning',
@@ -153,18 +153,18 @@ export const preflightLogic = kea<
                 }
 
                 let summaryString = ''
-                let summaryStatus: PreflightCheckStatus = 'running'
+                let summaryStatus: PreflightCheckStatus = 'validated'
 
-                if (statusCounts.running) {
-                    summaryString += `${statusCounts.running} successful, `
+                if (statusCounts.validated) {
+                    summaryString += `${statusCounts.validated} successful, `
                 }
                 if (statusCounts.warning) {
                     summaryString += `${statusCounts.warning} warning${statusCounts.warning > 1 ? 's' : ''}, `
                     summaryStatus = 'warning'
                 }
-                if (statusCounts.down) {
-                    summaryString += `${statusCounts.down} error${statusCounts.down > 1 ? 's' : ''}, `
-                    summaryStatus = 'down'
+                if (statusCounts.error) {
+                    summaryString += `${statusCounts.error} error${statusCounts.error > 1 ? 's' : ''}, `
+                    summaryStatus = 'error'
                 }
                 if (statusCounts.optional) {
                     summaryString += `${statusCounts.optional} optional, `
@@ -176,7 +176,7 @@ export const preflightLogic = kea<
         areChecksExpanded: [
             (s) => [s.checksSummary, s.areChecksManuallyExpanded],
             (checksSummary, areChecksManuallyExpanded) => {
-                return areChecksManuallyExpanded ?? checksSummary?.summaryStatus !== 'running'
+                return areChecksManuallyExpanded ?? checksSummary?.summaryStatus !== 'validated'
             },
         ],
         socialAuthAvailable: [
