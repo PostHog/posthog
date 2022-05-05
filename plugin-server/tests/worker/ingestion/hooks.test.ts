@@ -1,7 +1,9 @@
-import { Hook } from './../../../src/types'
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
+import * as fetch from 'node-fetch'
 
 import { Action, Person } from '../../../src/types'
+import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
     getActionDetails,
@@ -12,9 +14,7 @@ import {
     HookCommander,
     WebhookType,
 } from '../../../src/worker/ingestion/hooks'
-import * as fetch from 'node-fetch'
-import { UUIDT } from '../../../src/utils/utils'
-import { DateTime } from 'luxon'
+import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
     describe('determineWebhookType', () => {
@@ -284,8 +284,8 @@ describe('hooks', () => {
             }
         })
 
-        test('person = undefined', () => {
-            hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
+        test('person = undefined', async () => {
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
 
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
                 body: JSON.stringify(
@@ -308,7 +308,7 @@ describe('hooks', () => {
             })
         })
 
-        test('person instanceof CachedPersonData', () => {
+        test('person instanceof CachedPersonData', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
             const person = {
@@ -318,7 +318,7 @@ describe('hooks', () => {
                 id: 1,
                 created_at_iso: now,
             }
-            hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
                 body: JSON.stringify(
                     {
@@ -346,7 +346,7 @@ describe('hooks', () => {
             })
         })
 
-        test('person instanceof Person', () => {
+        test('person instanceof Person', async () => {
             const now = DateTime.now()
             const uuid = new UUIDT().toString()
             const person = {
@@ -361,7 +361,7 @@ describe('hooks', () => {
                 properties_last_operation: {},
                 version: 15,
             }
-            hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
                 body: JSON.stringify(
                     {
