@@ -1,12 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
-import { CachedPersonData, DB } from '../../src/utils/db/db'
+import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
-import { createPerson } from './process-event'
 
 jest.mock('../../src/utils/status')
 
