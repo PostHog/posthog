@@ -80,7 +80,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 icon={<IconDelete />}
                                 type="primary-alt"
                                 onClick={() => onRemove(index)}
-                                compact
+                                size="small"
                             />
                         ) : (
                             <CloseButton
