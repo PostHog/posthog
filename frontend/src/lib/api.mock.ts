@@ -154,6 +154,7 @@ export const MOCK_DEFAULT_COHORT: CohortType = {
     groups: [],
     filters: {
         properties: {
+            id: "2",
             type: FilterLogicalOperator.Or,
             values: [],
         },

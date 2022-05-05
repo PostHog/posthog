@@ -109,7 +109,7 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
                   groups: JSON.stringify([]),
               }
             : {
-                  filters: undefined,
+                  filters: JSON.stringify({properties:{}}),
                   groups: JSON.stringify(
                       cohort.is_static
                           ? []

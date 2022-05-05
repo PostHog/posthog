@@ -56,9 +56,11 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
         removeFilter,
         addFilter,
     } = useActions(logic)
-    const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
+    const { cohort, cohortLoading, newCohortFiltersEnabled, cohortErrors } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+
+    console.log("COHORT", cohort, cohortErrors)
 
     return (
         <div className="cohort">
