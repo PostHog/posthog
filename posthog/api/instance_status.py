@@ -115,9 +115,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         "value": f"{redis_info.get('total_system_memory_human', '?')}B",
                     }
                 )
-                metrics.append({"metric": "Redis maxmemory", "value": f"{redis_info.get('maxmemory_human', '?')}B"})
+                metrics.append({"metric": "Redis 'maxmemory' setting", "value": f"{redis_info.get('maxmemory_human', '?')}B"})
                 metrics.append(
-                    {"metric": "Redis maxmemory policy", "value": f"{redis_info.get('maxmemory_policy', '?')}"}
+                    {"metric": "Redis 'maxmemory-policy' setting", "value": f"{redis_info.get('maxmemory_policy', '?')}"}
                 )
             except redis.exceptions.ConnectionError as e:
                 metrics.append(
