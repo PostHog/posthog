@@ -60,7 +60,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         }),
     }),
 
-    reducers: () => ({
+    reducers: ({values}) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -79,9 +79,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                             ...newGroup,
                         }
                     }
-                    return processCohortOnSet(cohort)
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
-                setOuterGroupsType: (state, { type }) => ({
+                setOuterGroupsType: (state, { type }) => processCohortOnSet({
                     ...state,
                     filters: {
                         properties: {
@@ -89,7 +89,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                             type,
                         },
                     },
-                }),
+                }, values.newCohortFiltersEnabled),
                 setInnerGroupType: (state, { type, groupIndex }) => applyAllCriteriaGroup(state,(groupList) =>
                     groupList.map((group, groupI) =>
                         groupI === groupIndex
@@ -99,12 +99,13 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 ),
                 duplicateFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
-                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
+                        return applyAllNestedCriteria(state, (criteriaList) =>
                             [
                                 ...criteriaList.slice(0, criteriaIndex),
                                 criteriaList[criteriaIndex],
                                 ...criteriaList.slice(criteriaIndex),
-                            ]
+                            ],
+                            groupIndex
                         )
                     }
                     return applyAllCriteriaGroup(state, (groupList) =>
@@ -117,8 +118,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
                 addFilter: (state, { groupIndex }) => {
                     if (groupIndex !== undefined) {
-                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
-                            [...criteriaList, NEW_CRITERIA]
+                        return applyAllNestedCriteria(state, (criteriaList) =>
+                            [...criteriaList, NEW_CRITERIA],
+                            groupIndex
                         )
                     }
                     return applyAllCriteriaGroup(state, (groupList) =>
@@ -127,8 +129,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
-                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
-                            [...criteriaList.slice(0, criteriaIndex), ...criteriaList.slice(criteriaIndex + 1)]
+                        return applyAllNestedCriteria(state, (criteriaList) =>
+                            [...criteriaList.slice(0, criteriaIndex), ...criteriaList.slice(criteriaIndex + 1)],
+                            groupIndex
                         )
                     }
                     return applyAllCriteriaGroup(state, (groupList) =>
@@ -139,13 +142,13 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     )
                 },
                 setCriteria: (state, {newCriteria, groupIndex, criteriaIndex}) => {
-                    return applyAllNestedCriteria(state, groupIndex, (criteriaList) => criteriaList.map((oldCriteria, criteriaI) =>
+                    return applyAllNestedCriteria(state, (criteriaList) => criteriaList.map((oldCriteria, criteriaI) =>
                         isCohortCriteriaGroup(oldCriteria)
                             ? oldCriteria
                             : criteriaI === criteriaIndex
                                 ? cleanCriteria({...oldCriteria, ...newCriteria})
                                 : oldCriteria
-                    ))
+                    ), groupIndex)
                 },
             },
         ],
@@ -198,7 +201,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
             NEW_COHORT as CohortType,
             {
                 setCohort: ({ cohort }) => {
-                    return processCohortOnSet(cohort)
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
                 fetchCohort: async ({ id }, breakpoint) => {
                     try {
@@ -206,7 +209,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
-                        return processCohortOnSet(cohort)
+                        return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
                         return values.cohort
@@ -237,7 +240,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
-                    return cohort
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
             },
         ],

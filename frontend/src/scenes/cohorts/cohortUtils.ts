@@ -94,7 +94,11 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
         ...(cohort.is_static ? {is_static: cohort.is_static} : {}),
         ...(isNewCohortFilterEnabled
             ? {
-                  filters: JSON.stringify(cohort.is_static ? {} : cohort.filters),
+                filters: JSON.stringify(cohort.is_static
+                    ? {}
+                    /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
+                    : applyAllNestedCriteria(cohort, (criteriaList) =>
+                        criteriaList.map(c => ({...c, ...("value_property" in c ? {value: c.value_property} : {}), value_property: undefined}) as AnyCohortCriteriaType)).filters),
                   groups: JSON.stringify([]),
               }
             : {
@@ -128,13 +132,43 @@ export function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGr
     }
 }
 
-export function processCohortOnSet(cohort: CohortType, isGroup: boolean = false): CohortType {
-    return {
+export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): CohortType {
+    console.log("PROCESSCOHORT", cohort, {
         ...cohort,
-        ...(isGroup
+        ...(isNewCohortFilterEnabled
             ? {
                   filters: {
-                      properties: cohort.filters.properties,
+                      /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+                      properties: applyAllNestedCriteria(cohort, (criteriaList => criteriaList.map(c => c.type && [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) ? {
+                          ...c,
+                          value_property: c.value,
+                          value: c.type === BehavioralFilterKey.Cohort ? BehavioralCohortType.InCohort : BehavioralEventType.HaveProperty
+                      } : c))).filters.properties,
+                  },
+                groups: undefined
+              }
+            : {
+            filters: undefined,
+                  groups:
+                      cohort.groups?.map((group) => ({
+                          ...addLocalCohortGroupId(group),
+                          ...(group.properties
+                              ? { properties: convertPropertyGroupToProperties(group.properties) }
+                              : {}),
+                      })) ?? [],
+              }),
+    })
+    return {
+        ...cohort,
+        ...(isNewCohortFilterEnabled
+            ? {
+                  filters: {
+                      /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+                      properties: applyAllNestedCriteria(cohort, (criteriaList => criteriaList.map(c => c.type && [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) && !("value_property" in c) ? {
+                          ...c,
+                          value_property: c.value,
+                          value: c.type === BehavioralFilterKey.Cohort ? BehavioralCohortType.InCohort : BehavioralEventType.HaveProperty
+                      } : c))).filters.properties,
                   },
               }
             : {
@@ -267,6 +301,7 @@ export function validateGroup(
     // Generic criteria values cannot be empty
     return {
         values: criteria.map((c) => {
+            console.log("VALUEC", c, criteriaToBehavioralFilterType(c))
             const requiredFields = ROWS[criteriaToBehavioralFilterType(c)].fields.filter(
                 (f) => !!f.fieldKey
             ) as FieldWithFieldKey[]
@@ -366,17 +401,17 @@ export function applyAllCriteriaGroup(oldCohort: CohortType, fn: (groupList: (An
     }
 }
 
-export function applyAllNestedCriteria(oldCohort: CohortType, groupIndex: number, fn: (criteriaList: (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]): CohortType {
+export function applyAllNestedCriteria(oldCohort: CohortType, fn: (criteriaList: AnyCohortCriteriaType[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[], groupIndex?: number): CohortType {
     return {
         ...oldCohort,
         filters: {
             properties: {
                 ...oldCohort.filters.properties,
                 values: oldCohort.filters.properties.values.map((group, groupI) =>
-                    groupI === groupIndex && isCohortCriteriaGroup(group)
+                    (groupIndex === undefined || groupI === groupIndex) && isCohortCriteriaGroup(group)
                         ? {
                             ...group,
-                            values: fn(group.values),
+                            values: fn(group.values as AnyCohortCriteriaType[]),
                         }
                         : group
                 ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],

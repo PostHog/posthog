@@ -1,25 +1,27 @@
 import './CohortField.scss'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import {LemonButton, LemonButtonWithPopup} from 'lib/components/LemonButton'
 import React, {useEffect, useMemo} from 'react'
-import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
-import { useActions, useValues } from 'kea'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import {cohortFieldLogic} from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import {useActions, useValues} from 'kea'
+import {LemonInput} from 'lib/components/LemonInput/LemonInput'
+import {TaxonomicFilterGroupType, TaxonomicFilterValue} from 'lib/components/TaxonomicFilter/types'
+import {LemonTaxonomicPopup} from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {
+    BehavioralFilterKey,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import {LemonDivider} from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import {resolveCohortFieldValue} from "scenes/cohorts/cohortUtils";
+import {cohortsModel} from "~/models/cohortsModel";
 
 let uniqueMemoizedIndex = 0
 
-const useCohortLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
+const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
     const cohortFilterLogicKey = useMemo(
         () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
         [props.cohortFilterLogicKey]
@@ -46,7 +48,7 @@ export function CohortSelectorField({
     placeholder,
     onChange: _onChange,
 }: CohortSelectorFieldProps): JSX.Element {
-    const { logic } = useCohortLogic({
+    const { logic } = useCohortFieldLogic({
         fieldKey,
         cohortFilterLogicKey,
         criteria,
@@ -102,7 +104,7 @@ export function CohortTaxonomicField({
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
-    const { logic } = useCohortLogic({
+    const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
         cohortFilterLogicKey,
@@ -110,14 +112,16 @@ export function CohortTaxonomicField({
     })
 
     const { value } = useValues(logic)
-        const {onChange} = useActions(logic)
+    const {onChange} = useActions(logic)
+    const {cohortsById} = useValues(cohortsModel)
+    const cohortOrOtherValue = criteria.type === BehavioralFilterKey.Cohort && fieldKey === "value_property" && typeof value === "number" ? cohortsById[value]?.name ?? `Cohort ${value}` : value
 
     return (
         <LemonTaxonomicPopup
             className="CohortField"
             type="secondary"
             groupType={taxonomicGroupType}
-            value={value as TaxonomicFilterValue}
+            value={cohortOrOtherValue as TaxonomicFilterValue}
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, event_type: g })
             }}
@@ -138,7 +142,7 @@ export function CohortNumberField({
     onChange: _onChange,
 }: CohortNumberFieldProps): JSX.Element {
     console.log("NUMBER FIELD", criteria)
-    const { logic } = useCohortLogic({
+    const { logic } = useCohortFieldLogic({
         fieldKey: fieldKey,
         cohortFilterLogicKey,
         criteria,
