@@ -262,7 +262,7 @@ export function PropertiesTable({
                             }
                             placement="left"
                         >
-                            <LemonButton icon={<IconDeleteForever />} status="danger" compact />
+                            <LemonButton icon={<IconDeleteForever />} status="danger" size="small" />
                         </Popconfirm>
                     )
                 )

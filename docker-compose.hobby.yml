@@ -15,6 +15,7 @@ services:
         restart: on-failure
         ports:
             - '6379:6379'
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -36,7 +37,7 @@ services:
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
         restart: on-failure
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
@@ -79,11 +80,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: /compose/start
@@ -117,11 +113,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     asyncmigrationscheck:
         <<: *worker
         command: python manage.py run_async_migrations --check

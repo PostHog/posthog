@@ -21,8 +21,8 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { push } = useActions(router)
 
-    const { action, isComplete } = useValues(actionLogic({ id }))
-    const { loadAction } = useActions(actionLogic({ id }))
+    const { action, isComplete } = useValues(actionLogic)
+    const { loadAction } = useActions(actionLogic)
 
     return (
         <>

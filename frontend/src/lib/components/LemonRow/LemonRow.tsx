@@ -31,8 +31,8 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
-    /** A compact row is slightly smaller than normal to better look inline with text. */
-    compact?: boolean
+    /** Variation on sizes - default is medium. Small looks better inline with text. Large is a chunkier row.  */
+    size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
     size?: 'small' | 'medium' | 'large'
 }
@@ -58,14 +58,13 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         sideIcon,
         size = 'medium',
         loading = false,
-        compact = false,
         fullWidth = false,
         center = false,
         outlined = false,
         disabled = false,
         ...props
     }: LemonRowProps<T>,
-    ref: React.Ref<JSX.IntrinsicElements[T]>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
     const symbolic = children == null || children === false
     if (loading) {
@@ -78,7 +77,6 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 'LemonRow',
                 className,
                 status && `LemonRow--status-${status}`,
-                compact && 'LemonRow--compact',
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 disabled && 'LemonRow--disabled',
