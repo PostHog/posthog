@@ -110,13 +110,13 @@
     border-radius: var(--radius);
     background: var(--text-muted); // Just a fallback value in case there's some unrecognized value
     &.blue {
-        background: var(--data-blue);
+        background: var(--blue);
     }
     &.purple {
-        background: var(--data-purple);
+        background: var(--purple);
     }
     &.green {
-        background: var(--data-green);
+        background: var(--green);
     }
     &.black {
         background: var(--text-default);

@@ -24,6 +24,9 @@ NOTE: $medium is a SCSS var; not a keyword
     --warning: #{$warning};
     --warning-hover: #{$warning_hover};
     --warning-active: #{$warning_active};
+    --brand-blue: #{$brand_blue};
+    --brand-yellow: #{$brand_yellow};
+    --brand-red: #{$brand_red};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
@@ -66,24 +69,20 @@ NOTE: $medium is a SCSS var; not a keyword
     --apricot: #ffd8b1;
     --brown: #9a6324;
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-lilac: #8270f6;
-    --data-blue: #0494fb;
-    --data-spruce: #285d28;
-    --data-magenta: #ce0e74;
-    --data-vermilion: #d2453f;
-    --data-brown: #7c440e;
-    --data-green: #5cb206;
+    --data-ultramarine: var(--brand-blue);
     --data-purple: #621da6;
-    --data-orchid: #dc58ea;
-    --data-orange: #f49822;
-    --data-teal: #509d99;
-    --data-mint: #a2e0dd;
-    --data-grape: #83366b;
-    --data-yellow: #f4d403;
-    --data-aquamarine: #6becad;
-    --data-tan: #c4a499;
-    --data-pink: #fd9cba;
-    --data-olivine: #a0b460;
+    --data-viridian: #42827e;
+    --data-magenta: #ce0e74;
+    --data-vermilion: #f14f58;
+    --data-brown: #7c440e;
+    --data-green: #529a0a;
+    --data-blue: #0476fb;
+    --data-pink: #fe729e;
+    --data-navy: var(--bg-navy);
+    --data-turquoise: #41cbc4;
+    --data-brick: #b64b02;
+    --data-yellow: #e4a604;
+    --data-lilac: #a56eff;
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};

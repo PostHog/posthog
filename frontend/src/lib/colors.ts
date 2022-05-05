@@ -1,23 +1,19 @@
 /* Insight series colors. */
 const dataColorVars = [
-    'data-lilac',
-    'data-orange',
-    'data-blue',
-    'data-green',
-    'data-vermilion',
-    'data-spruce',
-    'data-magenta',
-    'data-brown',
-    'data-orchid',
-    'data-purple',
-    'data-teal',
-    'data-grape',
-    'data-yellow',
-    'data-aquamarine',
-    'data-pink',
-    'data-mint',
-    'data-olivine',
-    'data-tan',
+    'ultramarine',
+    'purple',
+    'viridian',
+    'magenta',
+    'vermilion',
+    'brown',
+    'green',
+    'blue',
+    'pink',
+    'navy',
+    'turquoise',
+    'brick',
+    'yellow',
+    'lilac',
 ]
 
 export const tagColors = [
@@ -50,7 +46,7 @@ function getColorVar(variable: string): string {
 export function getChartColors(numSeries?: number, injectLightColors: boolean = false): string[] {
     const colors: string[] = []
     for (let i = 0; i < (numSeries ?? dataColorVars.length); i++) {
-        const hex = getColorVar(dataColorVars[i % dataColorVars.length])
+        const hex = getColorVar(`data-${dataColorVars[i % dataColorVars.length]}`)
         colors.push(hex)
         if (injectLightColors) {
             colors.push(`${hex}80`)
@@ -59,9 +55,14 @@ export function getChartColors(numSeries?: number, injectLightColors: boolean = 
     return colors
 }
 
-export function getSeriesColor(index?: number, fallbackColor?: string, numSeries?: number): string {
+export function getSeriesColor(
+    index?: number,
+    fallbackColor?: string,
+    numSeries?: number,
+    injectLightColors: boolean = false
+): string {
     if (typeof index === 'number' && index >= 0) {
-        return getChartColors(numSeries)[index]
+        return getChartColors(numSeries, injectLightColors)[index]
     }
     return fallbackColor ?? getChartColors()[0]
 }

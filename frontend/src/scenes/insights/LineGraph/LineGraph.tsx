@@ -21,7 +21,7 @@ import {
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
-import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
@@ -205,10 +205,9 @@ export function LineGraph_({
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors(_datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
+            : getSeriesColor(dataset.id, undefined, _datasets?.length ?? 1, isCompare)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
