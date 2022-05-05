@@ -11,6 +11,7 @@ import { Field as KeaField } from 'kea-forms'
 import {AlertMessage} from "lib/components/AlertMessage";
 import {useActions} from "kea";
 import {cohortLogic} from "scenes/cohorts/cohortLogic";
+import {cleanCriteria} from "scenes/cohorts/cohortUtils";
 
 export interface CohortCriteriaRowBuilderProps {
     criteria: AnyCohortCriteriaType
@@ -29,9 +30,10 @@ export function CohortCriteriaRowBuilder({
     criteria,
     hideDeleteIcon = false,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const {onChangeFilterType, duplicateFilter, removeFilter, setCriteria} = useActions(cohortLogic)
+    const {setCriteria, duplicateFilter, removeFilter} = useActions(cohortLogic)
     const rowShape = ROWS[type]
-    console.log("TYPE", type, rowShape)
+
+    console.log("CRITERIA", criteria)
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
@@ -96,7 +98,7 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
-                                        onChange: (newCriteria) => onChangeFilterType(newCriteria, groupIndex, index),
+                                        onChange: (newCriteria) => setCriteria(cleanCriteria(newCriteria), groupIndex, index),
                                     })}
                                 </Col>
                             </>

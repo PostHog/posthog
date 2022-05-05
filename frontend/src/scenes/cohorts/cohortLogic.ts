@@ -18,13 +18,15 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
+    applyAllCriteriaGroup,
+    applyAllNestedCriteria,
     cleanCriteria,
     createCohortFormData,
     isCohortCriteriaGroup,
     NEW_COHORT,
     NEW_CRITERIA,
     NEW_CRITERIA_GROUP,
-    processCohortOnSet, setDeeplyNestedCriteria,
+    processCohortOnSet,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
@@ -46,11 +48,6 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
-        onChangeFilterType: (newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number) => ({
-            newCriteria,
-            groupIndex,
-            criteriaIndex,
-        }),
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setInnerGroupType: (type: FilterLogicalOperator, groupIndex: number) => ({ type, groupIndex }),
         duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
@@ -93,138 +90,63 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         },
                     },
                 }),
-                setInnerGroupType: (state, { type, groupIndex }) => ({
-                    ...state,
-                    filters: {
-                        properties: {
-                            ...state.filters.properties,
-                            values: state.filters.properties.values.map((group, groupI) =>
-                                groupI === groupIndex
-                                    ? {
-                                          ...group,
-                                          type,
-                                      }
-                                    : group
-                            ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                        },
-                    },
-                }),
+                setInnerGroupType: (state, { type, groupIndex }) => applyAllCriteriaGroup(state,(groupList) =>
+                    groupList.map((group, groupI) =>
+                        groupI === groupIndex
+                            ? {...group, type}
+                            : group
+                    ) as CohortCriteriaGroupFilter[]
+                ),
                 duplicateFilter: (state, { groupIndex, criteriaIndex }) => {
-                    const newFilters = { ...state }
-
                     if (criteriaIndex !== undefined) {
-                        return {
-                            ...newFilters,
-                            filters: {
-                                properties: {
-                                    ...newFilters.filters.properties,
-                                    values: newFilters.filters.properties.values.map((group, groupI) =>
-                                        groupI === groupIndex && isCohortCriteriaGroup(group)
-                                            ? {
-                                                  ...group,
-                                                  values: [
-                                                      ...group.values.slice(0, criteriaIndex),
-                                                      group.values[criteriaIndex],
-                                                      ...group.values.slice(criteriaIndex),
-                                                  ],
-                                              }
-                                            : group
-                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                                },
-                            },
-                        }
+                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
+                            [
+                                ...criteriaList.slice(0, criteriaIndex),
+                                criteriaList[criteriaIndex],
+                                ...criteriaList.slice(criteriaIndex),
+                            ]
+                        )
                     }
-
-                    return {
-                        ...newFilters,
-                        filters: {
-                            properties: {
-                                ...newFilters.filters.properties,
-                                values: [
-                                    ...newFilters.filters.properties.values.slice(0, groupIndex),
-                                    newFilters.filters.properties.values[groupIndex],
-                                    ...newFilters.filters.properties.values.slice(groupIndex),
-                                ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                            },
-                        },
-                    }
+                    return applyAllCriteriaGroup(state, (groupList) =>
+                        [
+                            ...groupList.slice(0, groupIndex),
+                            groupList[groupIndex],
+                            ...groupList.slice(groupIndex),
+                        ]
+                    )
                 },
                 addFilter: (state, { groupIndex }) => {
-                    const newFilters = { ...state }
-
                     if (groupIndex !== undefined) {
-                        return {
-                            ...newFilters,
-                            filters: {
-                                properties: {
-                                    ...newFilters.filters.properties,
-                                    values: newFilters.filters.properties.values.map((group, groupI) =>
-                                        groupI === groupIndex && isCohortCriteriaGroup(group)
-                                            ? {
-                                                  ...group,
-                                                  values: [...group.values, NEW_CRITERIA],
-                                              }
-                                            : group
-                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                                },
-                            },
-                        }
+                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
+                            [...criteriaList, NEW_CRITERIA]
+                        )
                     }
-                    return {
-                        ...newFilters,
-                        filters: {
-                            properties: {
-                                ...newFilters.filters.properties,
-                                values: [...newFilters.filters.properties.values, NEW_CRITERIA_GROUP] as
-                                    | CohortCriteriaGroupFilter[]
-                                    | AnyCohortCriteriaType[],
-                            },
-                        },
-                    }
+                    return applyAllCriteriaGroup(state, (groupList) =>
+                        [...groupList, NEW_CRITERIA_GROUP]
+                    )
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
-                    const newFilters = { ...state }
-
                     if (criteriaIndex !== undefined) {
-                        return {
-                            ...newFilters,
-                            filters: {
-                                properties: {
-                                    ...newFilters.filters.properties,
-                                    values: newFilters.filters.properties.values.map((group, groupI) =>
-                                        groupI === groupIndex && isCohortCriteriaGroup(group)
-                                            ? {
-                                                  ...group,
-                                                  values: [
-                                                      ...group.values.slice(0, criteriaIndex),
-                                                      ...group.values.slice(criteriaIndex + 1),
-                                                  ],
-                                              }
-                                            : group
-                                    ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                                },
-                            },
-                        }
+                        return applyAllNestedCriteria(state, groupIndex, (criteriaList) =>
+                            [...criteriaList.slice(0, criteriaIndex), ...criteriaList.slice(criteriaIndex + 1)]
+                        )
                     }
-                    return {
-                        ...newFilters,
-                        filters: {
-                            properties: {
-                                ...newFilters.filters.properties,
-                                values: [
-                                    ...newFilters.filters.properties.values.slice(0, groupIndex),
-                                    ...newFilters.filters.properties.values.slice(groupIndex + 1),
-                                ] as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                            },
-                        },
-                    }
+                    return applyAllCriteriaGroup(state, (groupList) =>
+                        [
+                            ...groupList.slice(0, groupIndex),
+                            ...groupList.slice(groupIndex + 1),
+                        ]
+                    )
                 },
-                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
-                    return setDeeplyNestedCriteria(state, newCriteria, groupIndex, criteriaIndex)
+                setCriteria: (state, {newCriteria, groupIndex, criteriaIndex}) => {
+                    return applyAllNestedCriteria(state, groupIndex, (criteriaList) => criteriaList.map((oldCriteria, criteriaI) =>
+                        isCohortCriteriaGroup(oldCriteria)
+                            ? oldCriteria
+                            : criteriaI === criteriaIndex
+                                ? cleanCriteria({...oldCriteria, ...newCriteria})
+                                : oldCriteria
+                    ))
                 },
-                onChangeFilterType: (state, {newCriteria, groupIndex, criteriaIndex}) => {
-                    return setDeeplyNestedCriteria(state, cleanCriteria(newCriteria), groupIndex, criteriaIndex)
-                }
             },
         ],
         pollTimeout: [

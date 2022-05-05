@@ -15,8 +15,6 @@ import {
 } from 'scenes/cohorts/CohortFilters/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
-import { Row } from 'antd'
-import { Field as KeaField } from 'kea-forms'
 import {resolveCohortFieldValue} from "scenes/cohorts/cohortUtils";
 
 let uniqueMemoizedIndex = 0
@@ -158,43 +156,5 @@ export function CohortNumberField({
             }}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
-    )
-}
-
-// Kea field wrapper for cohort fields
-export function CohortKeaField({
-    children,
-    name,
-    className,
-}: {
-    children: React.ReactNode
-    name: string
-    className?: string
-}): JSX.Element {
-    return (
-        <KeaField
-            name={name}
-            template={({ error, kids }) => {
-                return (
-                    <div className={clsx(className, error && `${className}--error`)}>
-                        <Row>
-                            {error && (
-                                <div
-                                    style={{
-                                        color: 'var(--danger)',
-                                        marginTop: 16,
-                                    }}
-                                >
-                                    {error}
-                                </div>
-                            )}
-                        </Row>
-                        {kids}
-                    </div>
-                )
-            }}
-        >
-            <div>{children}</div>
-        </KeaField>
     )
 }

@@ -354,7 +354,19 @@ export function resolveCohortFieldValue(criteria: AnyCohortCriteriaType, fieldKe
     return criteria?.[fieldKey] ?? null
 }
 
-export function setDeeplyNestedCriteria(oldCohort: CohortType, newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number): CohortType {
+export function applyAllCriteriaGroup(oldCohort: CohortType, fn: (groupList: (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]): CohortType {
+    return {
+        ...oldCohort,
+        filters: {
+            properties: {
+                ...oldCohort.filters.properties,
+                values: fn(oldCohort.filters.properties.values) as AnyCohortCriteriaType[],
+            },
+        },
+    }
+}
+
+export function applyAllNestedCriteria(oldCohort: CohortType, groupIndex: number, fn: (criteriaList: (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]): CohortType {
     return {
         ...oldCohort,
         filters: {
@@ -364,14 +376,7 @@ export function setDeeplyNestedCriteria(oldCohort: CohortType, newCriteria: AnyC
                     groupI === groupIndex && isCohortCriteriaGroup(group)
                         ? {
                             ...group,
-                            values: group.values.map((criteria, criteriaI) =>
-                                criteriaI === criteriaIndex
-                                    ? {
-                                        ...criteria,
-                                        ...newCriteria,
-                                    }
-                                    : criteria
-                            ),
+                            values: fn(group.values),
                         }
                         : group
                 ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
