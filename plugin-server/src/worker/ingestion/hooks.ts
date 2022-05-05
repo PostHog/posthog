@@ -237,14 +237,37 @@ export class HookCommander {
         this.statsd?.increment('webhook_firings')
     }
 
-    private async postRestHook(
+    public async postRestHook(
         hook: Hook,
         event: PluginEvent,
         person: CachedPersonData | Person | undefined
     ): Promise<void> {
+        let sendablePerson: Record<string, any> = {}
+        if (person) {
+            const {      
+                uuid,
+                properties,
+                team_id,
+                id
+            } = person
+
+            // CachedPersonData has created_at_iso (string), whereas Person has created_at (DateTime)
+            // so we standardize into ISO before sending the payload
+            const createdAt = 'created_at' in person ? person.created_at.toISO() : person.created_at_iso
+
+            sendablePerson = {
+                uuid,
+                properties,
+                team_id,
+                id,
+                created_at: createdAt
+            }
+        }
+
+
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...event, person },
+            data: { ...event, person: sendablePerson },
         }
         const request = await fetch(hook.target, {
             method: 'POST',
