@@ -38,7 +38,7 @@ export function ThirdPartyPanel(): JSX.Element {
                             <Row align="middle">
                                 {source.icon}
                                 <Col className="ml-05">
-                                    <h3 className="mb-0">{source.name} Import</h3>
+                                    <h3 className="mb-0" style={{ fontWeight: 600, fontSize: 16 }}>{source.name} Import</h3>
                                     <p className="mb-0 text-muted">Send events from {source.name} into PostHog</p>
                                 </Col>
                             </Row>
@@ -115,7 +115,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                             </li>
                         </ol>
                     </div>
-                    <LemonButton fullWidth center type="primary">
+                    <LemonButton fullWidth center type="primary" onClick={() => setInstructionsModal(false)}>
                         Done
                     </LemonButton>
                 </div>

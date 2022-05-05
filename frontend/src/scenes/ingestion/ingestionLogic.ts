@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
-import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -77,7 +77,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 if (verify) {
                     return 3
                 }
-                if (platform === WEB || platform === BOOKMARKLET) {
+                if (platform === WEB || platform === BOOKMARKLET || platform === THIRD_PARTY) {
                     return 2
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
@@ -105,12 +105,14 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : null,
+                        ? WEB
+                        : platform === 'backend'
+                            ? BACKEND
+                            : platform === 'just-exploring'
+                                ? BOOKMARKLET
+                                : platform === 'third-party'
+                                    ? THIRD_PARTY
+                                    : null,
                 framework,
                 true
             )
@@ -127,12 +129,14 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : null,
+                        ? WEB
+                        : platform === 'backend'
+                            ? BACKEND
+                            : platform === 'just-exploring'
+                                ? BOOKMARKLET
+                                : platform === 'third-party'
+                                    ? THIRD_PARTY
+                                    : null,
                 framework as Framework,
                 false
             )
@@ -164,12 +168,14 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : platform === BOOKMARKLET
-                        ? 'just-exploring'
-                        : undefined,
+                            ? 'mobile'
+                            : platform === BACKEND
+                                ? 'backend'
+                                : platform === BOOKMARKLET
+                                    ? 'just-exploring'
+                                    : platform === THIRD_PARTY
+                                        ? 'third-party'
+                                        : undefined,
                 framework: framework?.toLowerCase() || undefined,
             },
         ]
@@ -184,10 +190,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : undefined,
+                            ? 'mobile'
+                            : platform === BACKEND
+                                ? 'backend'
+                                : undefined,
             },
         ]
     }
@@ -206,6 +212,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
 
     if (platform === BOOKMARKLET) {
         url += '/just-exploring'
+    }
+
+    if (platform === THIRD_PARTY) {
+        url += '/third-party'
     }
 
     if (framework) {
