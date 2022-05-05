@@ -353,7 +353,7 @@ class ClickhouseTrendsBreakdown:
             """,
                 params,
             )
-        elif self.entity.math == "dau":
+        elif self.entity.math == "dau" or self.column_optimizer.is_using_cohort_propertes:
             # Only join distinct_ids
             return event_join, {}
         else:
