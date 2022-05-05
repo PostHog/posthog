@@ -48,8 +48,7 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
-    worker:
-        &worker
+    worker: &worker
         build:
             context: .
             dockerfile: dev.Dockerfile
