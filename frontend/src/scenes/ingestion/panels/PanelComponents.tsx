@@ -15,19 +15,40 @@ export function PanelFooter(): JSX.Element {
         <Col className="panel-footer">
             {platform === BOOKMARKLET ? (
                 <div>
-                    <LemonButton type="primary" fullWidth center onClick={() => setVerify(true)}>
+                    <LemonButton type="primary" size="large" fullWidth center onClick={() => setVerify(true)}>
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
-                    <LemonButton className="mt-05" fullWidth center type="secondary" onClick={() => setPlatform(null)}>
+                    <LemonButton
+                        className="mt-05"
+                        size="large"
+                        fullWidth
+                        center
+                        type="secondary"
+                        onClick={() => setPlatform(null)}
+                    >
                         Back to setup
                     </LemonButton>
                 </div>
             ) : (
                 <div>
-                    <LemonButton type="primary" fullWidth center className="mb-05" onClick={() => setVerify(true)}>
+                    <LemonButton
+                        type="primary"
+                        size="large"
+                        fullWidth
+                        center
+                        className="mb-05"
+                        onClick={() => setVerify(true)}
+                    >
                         Continue
                     </LemonButton>
-                    <LemonButton className="mt-05" fullWidth center type="secondary" onClick={() => setVerify(true)}>
+                    <LemonButton
+                        className="mt-05"
+                        size="large"
+                        fullWidth
+                        center
+                        type="secondary"
+                        onClick={() => setVerify(true)}
+                    >
                         Skip for now
                     </LemonButton>
                 </div>

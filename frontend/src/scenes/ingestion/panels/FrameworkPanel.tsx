@@ -35,6 +35,7 @@ export function FrameworkPanel(): JSX.Element {
                                 key={item}
                                 data-attr={`select-framework-${item}`}
                                 fullWidth
+                                size="large"
                                 center
                                 className="mb-05"
                                 onClick={() => setFramework(item)}
