@@ -2,6 +2,7 @@ import { Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic } from '../ingestionLogic'
@@ -13,6 +14,7 @@ export function PanelFooter(): JSX.Element {
 
     return (
         <Col className="panel-footer">
+            <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
             {platform === BOOKMARKLET ? (
                 <div>
                     <LemonButton type="primary" size="large" fullWidth center onClick={() => setVerify(true)}>
@@ -59,8 +61,11 @@ export function PanelFooter(): JSX.Element {
 }
 
 export function PanelHeader({ index }: { index: number }): JSX.Element {
+    if (index === 1) {
+        return <></>
+    }
     return (
-        <Row align="middle" className="panel-header">
+        <Row align="middle" className="panel-header mb">
             <span style={index === 1 ? { color: 'black' } : {}}>Step 1</span>
             {index > 1 && (
                 <>
