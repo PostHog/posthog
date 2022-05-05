@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 
-export function FunnelStepDropdownSideAction({ stepIndex }: { stepIndex: number }): JSX.Element | null {
+export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { propertiesForUrl: filterProps, filters } = useValues(logic)
@@ -27,6 +27,7 @@ export function FunnelStepDropdownSideAction({ stepIndex }: { stepIndex: number 
     const stepNumber = stepIndex + 1
     return (
         <More
+            placement="bottom-start"
             overlay={
                 <>
                     {stepNumber > 1 && (

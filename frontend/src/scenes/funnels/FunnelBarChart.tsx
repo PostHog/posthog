@@ -15,7 +15,7 @@ import { getSeriesColor } from './funnelUtils'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from './FunnelTooltip'
-import { FunnelStepDropdownSideAction } from './FunnelStepDropdownSideAction'
+import { FunnelStepMore } from './FunnelStepMore'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -120,7 +120,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
         <div className="StepLegend">
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-                sideIcon={<FunnelStepDropdownSideAction stepIndex={stepIndex} />}
+                sideIcon={<FunnelStepMore stepIndex={stepIndex} />}
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>

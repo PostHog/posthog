@@ -146,12 +146,13 @@
 
 .StepLegend {
     border-left: 1px solid var(--border);
-    .LemonRow {
+    > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;
         font-weight: 500;
         margin-top: 0.25rem;
         &:first-child {
+            width: fit-content;
             font-weight: 600;
             margin-top: 0;
         }
