@@ -13,7 +13,6 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
-    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -88,7 +87,6 @@ export function PluginCard({
         resetPluginConfigError,
         rearrange,
         showPluginLogs,
-        showPluginMetrics,
     } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
