@@ -101,7 +101,7 @@ class PersonQuery:
             return True
         if len(self._filter.actions) > 0:
             for action in self._filter.actions:
-                for step in action.steps.all():
+                for step in action._action.steps.all():
                     if any(prop.get("type") == "cohort" for prop in step.properties):
                         return True
 

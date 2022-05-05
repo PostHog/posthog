@@ -649,14 +649,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         step.save()
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = ClickhouseTrends().run(
-                Filter(
-                    data={
-                        "actions": [{"id": sign_up_action.id}],
-                        "breakdown": "$some_property",
-                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                    }
-                ),
-                self.team,
+                Filter(data={"actions": [{"id": sign_up_action.id}], "breakdown": "$some_property",}), self.team,
             )
         self.assertEqual(action_response[0]["count"], 2)
 
