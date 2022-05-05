@@ -99,6 +99,11 @@ class PersonQuery:
             return True
         if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
             return True
+        if len(self._filter.actions) > 0:
+            for action in self._filter.actions:
+                for step in action.steps.all():
+                    if any(prop.get("type") == "cohort" for prop in step.properties):
+                        return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
 
