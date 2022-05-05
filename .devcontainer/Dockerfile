@@ -53,20 +53,3 @@ WORKDIR /workspace
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir
-
-# Compile and install Yarn dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile && \
-    yarn cache clean
-
-COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/
-RUN yarn install --frozen-lockfile && \
-    yarn cache clean
