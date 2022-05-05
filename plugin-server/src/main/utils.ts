@@ -69,19 +69,25 @@ export async function kafkaHealthcheck(
 
         await consumer.subscribe({ topic: 'healthcheck', fromBeginning: true })
 
-        let timer: Date | null = new Date()
+
         await consumer.run({
+            // no-op
             eachMessage: async () => {
-                if (timer) {
-                    statsd?.timing('kafka_healthcheck_consumer_latency', timer)
-                    timer = null
-                }
                 await Promise.resolve()
-                kafkaConsumerWorking = true
             },
         })
 
+        let timer: Date | null = new Date()
+        consumer.on(consumer.events.FETCH_START, () => {
+            if (timer) {
+                statsd?.timing('kafka_healthcheck_consumer_latency', timer)
+                timer = null
+            }
+            kafkaConsumerWorking = true
+        })
+
         await consumer.connect()
+
 
         await delay(timeoutMs)
 

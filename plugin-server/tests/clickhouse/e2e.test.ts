@@ -177,6 +177,16 @@ describe('e2e', () => {
             expect(statsd.timing).toHaveBeenCalledWith('kafka_healthcheck_consumer_latency', expect.any(Date))
         })
 
+        test('healthcheck passes when running in parallel', async () => {
+            const parallelConsumers = 5
+            const promises = []
+            for (let i = 0; i < parallelConsumers; ++i) {
+                promises.push(kafkaHealthcheck(hub!.kafka!, statsd, 5000))
+            }
+            const healthcheckResults = (await Promise.all(promises)).map(res => res[0])
+            expect(healthcheckResults).toEqual(Array.from({ length: parallelConsumers }).map(e => true))
+        })
+
         test('healthcheck fails if producer throws', async () => {
             hub!.kafka!.producer = jest.fn(() => {
                 throw new Error('producer error')
