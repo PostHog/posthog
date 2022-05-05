@@ -1,9 +1,9 @@
 import json
 from typing import Optional
 
-from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
+from ee.clickhouse.system_status import query_with_columns
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
@@ -24,14 +24,14 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
     )
     params = {"team_id": team.pk, **prop_filter_params}
 
-    events = sync_execute(
+    events = query_with_columns(
         GET_EVENTS_WITH_PROPERTIES.format(
             filters=prop_filters, order_by="ORDER BY {}".format(order_by) if order_by else ""
         ),
         params,
     )
-    parsed_events = ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
-    return parsed_events
+
+    return events
 
 
 def _filter_persons(filter: Filter, team: Team):
@@ -311,15 +311,15 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$a_number__gt": 5}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
         filter = Filter(data={"properties": {"$a_number": 5}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event1_uuid)
 
         filter = Filter(data={"properties": {"$a_number__lt": 6}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event1_uuid)
 
     def test_contains(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
@@ -328,7 +328,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$current_url__icontains": "whatever"}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
     def test_regex(self):
         event1_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
@@ -337,12 +337,12 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$current_url__regex": r"\.com$"}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
         filter = Filter(data={"properties": {"$current_url__not_regex": r"\.eee$"}})
         events = _filter_events(filter, self.team, order_by="timestamp")
-        self.assertEqual(events[0]["id"], event1_uuid)
-        self.assertEqual(events[1]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event1_uuid)
+        self.assertEqual(str(events[1]["uuid"]), event2_uuid)
 
     def test_invalid_regex(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
@@ -366,7 +366,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$current_url__is_not": "https://whatever.com"}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(sorted([events[0]["id"], events[1]["id"]]), sorted([event1_uuid, event2_uuid]))
+        self.assertEqual(sorted([str(events[0]["uuid"]), str(events[1]["uuid"])]), sorted([event1_uuid, event2_uuid]))
         self.assertEqual(len(events), 2)
 
     def test_does_not_contain(self):
@@ -382,7 +382,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
         events = _filter_events(filter, self.team)
-        self.assertCountEqual([event["id"] for event in events], [event1_uuid, event2_uuid, event3_uuid])
+        self.assertCountEqual([str(event["uuid"]) for event in events], [event1_uuid, event2_uuid, event3_uuid])
         self.assertEqual(len(events), 3)
 
     def test_multiple(self):
@@ -397,7 +397,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"$current_url__icontains": "something.com", "another_key": "value",}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
         self.assertEqual(len(events), 1)
 
     def test_user_properties(self):
@@ -431,13 +431,13 @@ class TestFiltering(
         filter = Filter(data={"properties": [{"key": "group", "value": "some group", "type": "person"}]})
         events = _filter_events(filter=filter, team=self.team, order_by=None)
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
         filter = Filter(
             data={"properties": [{"key": "group", "operator": "is_not", "value": "some group", "type": "person"}]}
         )
         events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event_p2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event_p2_uuid)
         self.assertEqual(len(events), 1)
 
     def test_user_properties_numerical(self):
@@ -464,7 +464,7 @@ class TestFiltering(
             }
         )
         events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
         self.assertEqual(len(events), 1)
 
     def test_boolean_filters(self):
@@ -474,7 +474,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": [{"key": "is_first_user", "value": "true"}]})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
         self.assertEqual(len(events), 1)
 
     def test_is_not_set_and_is_set(self):
@@ -486,12 +486,12 @@ class TestFiltering(
             data={"properties": [{"key": "is_first_user", "operator": "is_not_set", "value": "is_not_set",}]}
         )
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event1_uuid)
         self.assertEqual(len(events), 1)
 
         filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_set", "value": "is_set"}]})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
         self.assertEqual(len(events), 1)
 
     def test_true_false(self):
@@ -501,12 +501,12 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": {"is_first": "true"}})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
         filter = Filter(data={"properties": {"is_first": ["true"]}})
         events = _filter_events(filter, self.team)
 
-        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event2_uuid)
 
     def test_is_not_true_false(self):
         event_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
@@ -515,7 +515,7 @@ class TestFiltering(
         )
         filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
         events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event_uuid)
 
     def test_json_object(self):
         person1 = _create_person(
@@ -541,7 +541,7 @@ class TestFiltering(
             }
         )
         events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(str(events[0]["uuid"]), event1_uuid)
         self.assertEqual(len(events), 1)
 
     def test_element_selectors(self):
