@@ -5,21 +5,15 @@
     "name": "PostHog codespaces development environment",
 
     "build": {
-      "dockerfile": "Dockerfile",
-      "context": "../",
-      "cacheFrom": ""
+        "dockerfile": "Dockerfile",
+        "context": "../",
+        "cacheFrom": ""
     },
 
     "remoteUser": "vscode",
     "overrideCommand": false,
     "mounts": ["source=codespaces-linux-var-lib-docker,target=/var/lib/docker,type=volume"],
-    "runArgs": [
-      "--cap-add=SYS_PTRACE",
-      "--security-opt",
-      "seccomp=unconfined",
-      "--privileged",
-      "--init"
-    ],
+    "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined", "--privileged", "--init"],
 
     "workspaceFolder": "/workspace",
 
@@ -48,19 +42,19 @@
 
     // Add the IDs of extensions you want installed when the container is created.
     "extensions": [
-      "ms-python.python",
-      "ms-python.vscode-pylance",
-      "esbenp.prettier-vscode",
-      "ms-azuretools.vscode-docker",
-      "stkb.rewrap",
-      "GitHub.copilot",
-      "KnisterPeter.vscode-github",
-      "eamodio.gitlens",
-      "wix.vscode-import-cost",
-      "Orta.vscode-jest",
-      "ckolkman.vscode-postgres",
-      "mtxr.sqltools",
-      "ultram4rine.sqltools-clickhouse-driver"
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "stkb.rewrap",
+        "GitHub.copilot",
+        "KnisterPeter.vscode-github",
+        "eamodio.gitlens",
+        "wix.vscode-import-cost",
+        "Orta.vscode-jest",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "ultram4rine.sqltools-clickhouse-driver"
     ],
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
