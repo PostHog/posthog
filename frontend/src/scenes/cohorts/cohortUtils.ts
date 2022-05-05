@@ -122,7 +122,7 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
     }
 
     if (!isNewCohortFilterEnabled) {
-        delete rawCohort["filters"]
+        delete rawCohort['filters']
     }
 
     // Must use FormData to encode file binary in request
