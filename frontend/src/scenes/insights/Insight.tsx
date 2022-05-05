@@ -34,6 +34,7 @@ import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { EditorFilterItemTitle } from './EditorFilters/EditorFilterItemTitle'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -95,11 +96,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }[activeView]
 
     // NOTE: Temp var whilst migrating to Editor Panels
-    const isEditorPanels = ![
+    const isEditorPanelsDone = ![
         InsightType.TRENDS,
         InsightType.LIFECYCLE,
         InsightType.STICKINESS,
         InsightType.RETENTION,
+        InsightType.PATHS,
+        InsightType.FUNNELS,
     ].includes(filters.insight as InsightType)
 
     const insightTab = usingEditorPanels ? (
@@ -117,14 +120,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                         ({ label, tooltip, key, valueSelector, component: Component }) => (
                                             <div key={key}>
                                                 {label ? (
-                                                    <div className="mb-05 fw-500">
-                                                        {label}
-                                                        {tooltip && (
-                                                            <Tooltip title={tooltip}>
-                                                                <InfoCircleOutlined className="info-indicator" />
-                                                            </Tooltip>
-                                                        )}
-                                                    </div>
+                                                    <EditorFilterItemTitle label={label} tooltip={tooltip} />
                                                 ) : null}
                                                 {Component ? (
                                                     <Component
@@ -145,7 +141,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </div>
                         )
                     })}
-            {isEditorPanels ? (
+            {isEditorPanelsDone ? (
                 <div style={{ margin: '1em' }}>
                     <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
                     <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>

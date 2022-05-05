@@ -1,4 +1,11 @@
-import { AvailableFeature, FilterType, InsightEditorFilter, InsightEditorFilterGroups, InsightType } from '~/types'
+import {
+    AvailableFeature,
+    FilterType,
+    FunnelVizType,
+    InsightEditorFilter,
+    InsightEditorFilterGroups,
+    InsightType,
+} from '~/types'
 import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
@@ -15,6 +22,8 @@ import { EFPathsEventTypes } from './EFPathsEventTypes'
 import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
 import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
 import { EFPathsAdvanced, EFPathsAdvancedPaywall } from './EFPathsAdvanced'
+import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
+import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
 
 export function getEditorFilters(
     filters: Partial<FilterType>,
@@ -26,9 +35,11 @@ export function getEditorFilters(
     const isStickiness = filters.insight === InsightType.STICKINESS
     const isRetention = filters.insight === InsightType.RETENTION
     const isPaths = filters.insight === InsightType.PATHS
+    const isFunnels = filters.insight === InsightType.FUNNELS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths
+    const hasBreakdown = isTrends || (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
+    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED) || true
 
     return {
@@ -72,6 +83,15 @@ export function getEditorFilters(
                           key: 'ends-target',
                           label: 'Ends at',
                           component: EFPathsTargetEnd,
+                      },
+                  ])
+                : []),
+            ...(isFunnels
+                ? filterFalsy([
+                      {
+                          key: 'query-steps',
+                          //   label: 'Query Steps',
+                          component: EFFunnelsQuerySteps,
                       },
                   ])
                 : []),
@@ -126,7 +146,7 @@ export function getEditorFilters(
                       component: EFTrendsFormula,
                   }
                 : null,
-            isTrends
+            hasBreakdown
                 ? {
                       key: 'breakdown',
                       label: 'Breakdown by',
@@ -152,6 +172,11 @@ export function getEditorFilters(
                           label: 'Paywall',
                           component: EFPathsAdvancedPaywall,
                       }),
+            isFunnels && {
+                key: 'funnels-advanced',
+                //   label: 'Advanced Options',
+                component: EFFunnelsAdvanced,
+            },
         ]),
     }
 }
