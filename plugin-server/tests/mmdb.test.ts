@@ -59,7 +59,7 @@ describe('mmdb', () => {
 
         expect(serverInstance.hub.DISABLE_MMDB).toBeFalsy()
 
-        expect(fetch).toHaveBeenCalledWith('https://mmdb.posthog.net/', { compress: false })
+        expect(fetch).toHaveBeenCalledWith('https://mmdbcdn.posthog.net/', { compress: false })
         expect(serverInstance.mmdb).toBeInstanceOf(ReaderModel)
 
         const cityResultDirect = serverInstance.mmdb!.city('89.160.20.129')

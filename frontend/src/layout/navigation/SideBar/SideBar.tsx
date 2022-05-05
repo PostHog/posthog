@@ -22,7 +22,7 @@ import {
     LiveIcon,
 } from 'lib/components/icons'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
@@ -31,7 +31,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -131,7 +131,7 @@ function Pages(): JSX.Element {
             />
             {currentTeam && (
                 <>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <PageButton
                         icon={<IconGauge />}
                         identifier={Scene.Dashboards}
@@ -147,7 +147,7 @@ function Pages(): JSX.Element {
                                 overlay: (
                                     <div className="SideBar__pinned-dashboards">
                                         <h5>Pinned dashboards</h5>
-                                        <LemonSpacer />
+                                        <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
                                             pinnedDashboards.map((dashboard) => (
                                                 <PageButton
@@ -182,7 +182,7 @@ function Pages(): JSX.Element {
                         to={urls.savedInsights()}
                         sideAction={{
                             icon: <IconPlus />,
-                            to: urls.insightNew({ insight: InsightType.TRENDS }),
+                            to: urls.insightNew(),
                             tooltip: 'New insight',
                             identifier: Scene.Insight,
                             onClick: hideSideBarMobile,
@@ -205,7 +205,7 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    <LemonSpacer />
+                    <LemonDivider />
                     <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
@@ -220,7 +220,7 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    <LemonSpacer />
+                    <LemonDivider />
                     {canViewPlugins(currentOrganization) && (
                         <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
                     )}

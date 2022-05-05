@@ -12,6 +12,7 @@ celery==4.4.2
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.1
 clickhouse-pool==0.5.3
+dataclasses_json==0.5.7
 defusedxml==0.6.0
 dj-database-url==0.5.0
 Django==3.2.12
@@ -36,7 +37,7 @@ gunicorn==20.1.0
 grpcio==1.33.1
 idna==2.8
 importlib-metadata==1.6.0
-infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@68196ca74e6e3fc2ffc9444a0011e943f6724fbb
+infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@bbc5638f1d2ee19bef388a12b4d16fc138354220
 kafka-python==2.0.2
 kafka-helper==0.2
 kombu==4.6.8
@@ -45,7 +46,7 @@ numpy==1.21.4
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.4.4
+posthoganalytics==1.4.7
 protobuf==3.13.0
 psycopg2-binary==2.8.6
 python-dateutil==2.8.1

@@ -189,7 +189,7 @@ describe('pluralize()', () => {
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28321 members')
+        expect(pluralize(28321, 'member')).toEqual('28 321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
@@ -537,19 +537,15 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
 
     describe('choosing an operator for taxonomic filters', () => {
         const testCases = [
-            { propertyType: PropertyType.DateTime, allowDateTime: false, expected: genericOperatorMap },
-            { propertyType: PropertyType.DateTime, allowDateTime: true, expected: dateTimeOperatorMap },
-            { propertyType: PropertyType.String, allowDateTime: true, expected: stringOperatorMap },
-            { propertyType: PropertyType.String, allowDateTime: false, expected: stringOperatorMap },
-            { propertyType: PropertyType.Numeric, allowDateTime: true, expected: numericOperatorMap },
-            { propertyType: PropertyType.Numeric, allowDateTime: false, expected: numericOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: true, expected: booleanOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: false, expected: booleanOperatorMap },
-            { propertyType: undefined, allowDateTime: true, expected: genericOperatorMap },
+            { propertyType: PropertyType.DateTime, expected: dateTimeOperatorMap },
+            { propertyType: PropertyType.String, expected: stringOperatorMap },
+            { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
+            { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
-            it(`with datetime flag set to ${testcase.allowDateTime}, it correctly maps ${testcase.propertyType}`, () => {
-                expect(chooseOperatorMap(testcase.propertyType, testcase.allowDateTime)).toEqual(testcase.expected)
+            it(`correctly maps ${testcase.propertyType} to operator options`, () => {
+                expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
             })
         })
     })

@@ -10,6 +10,8 @@ import './Experiment.scss'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { CaretDownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
@@ -41,23 +43,29 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                 visible={modalVisible}
                 destroyOnClose={true}
                 onCancel={hideModal}
-                onOk={() => {
-                    createNewMetric()
-                    hideModal()
-                }}
-                okText="Save"
+                footer={null}
                 style={{ minWidth: 600 }}
             >
                 <Form
                     layout="vertical"
-                    initialValues={{ name: '', type: InsightType.TRENDS }}
+                    initialValues={{ type: InsightType.TRENDS }}
                     onValuesChange={(values) => {
                         if (values.name) {
                             setCurrentMetricName(values.name)
                         }
                     }}
+                    onFinish={() => {
+                        createNewMetric()
+                        hideModal()
+                    }}
+                    scrollToFirstError
+                    requiredMark={false}
                 >
-                    <Form.Item name="name" label="Name">
+                    <Form.Item
+                        name="name"
+                        label="Name"
+                        rules={[{ required: true, message: 'You have to enter a name.' }]}
+                    >
                         <Input />
                     </Form.Item>
                     <Form.Item name="type" label="Type">
@@ -105,7 +113,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         setFilters(newFilters)
                                     }}
                                     typeKey={'funnel-preview-metric'}
-                                    hideMathSelector={true}
+                                    mathAvailability={MathAvailability.None}
                                     hideDeleteBtn={filterSteps.length === 1}
                                     buttonCopy="Add funnel step"
                                     showSeriesIndicator={!isStepsEmpty}
@@ -139,7 +147,6 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     typeKey={'trend-preview-metric'}
                                     buttonCopy="Add graph series"
                                     showSeriesIndicator
-                                    hideMathSelector={false}
                                     propertiesTaxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,
@@ -155,6 +162,14 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             <InsightContainer disableHeader={true} disableTable={true} />
                         </BindLogic>
                     </Form.Item>
+                    <Row justify="end">
+                        <LemonButton type="secondary" className="mr-05" onClick={() => hideModal()}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" htmlType="submit">
+                            Save
+                        </LemonButton>
+                    </Row>
                 </Form>
             </Modal>
             <Row>
@@ -163,9 +178,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         <Row key={idx} className="mt">
                             <Row align="middle" className="full-width border-all" style={{ padding: 8 }}>
                                 <div style={{ fontWeight: 500 }}>Name</div>{' '}
-                                <div className="metric-name">
-                                    {metric.name ? metric.name : `${metric.filters.insight} metric`}
-                                </div>
+                                <div className="metric-name">{metric.name}</div>
                                 <DeleteOutlined
                                     className="text-danger"
                                     style={{ padding: 8 }}
@@ -186,7 +199,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             setFilters(newFilters)
                                         }}
                                         typeKey={`funnel-preview-${idx}`}
-                                        hideMathSelector={true}
+                                        mathAvailability={MathAvailability.None}
                                         hideDeleteBtn={filterSteps.length === 1}
                                         buttonCopy="Add funnel step"
                                         showSeriesIndicator={!isStepsEmpty}
@@ -221,7 +234,6 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         buttonCopy="Add graph series"
                                         showSeriesIndicator
                                         entitiesLimit={1}
-                                        hideMathSelector={false}
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,

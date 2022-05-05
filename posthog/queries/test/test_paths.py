@@ -382,13 +382,13 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                     properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
                 ),
                 event_factory(
-                    properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
+                    properties={"$current_url": "/about/"}, distinct_id="person_1", event="$pageview", team=self.team,
                 ),
                 event_factory(
                     properties={"$current_url": "/"}, distinct_id="person_2", event="$pageview", team=self.team,
                 ),
                 event_factory(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_2", event="$pageview", team=self.team,
+                    properties={"$current_url": "/pricing/"}, distinct_id="person_2", event="$pageview", team=self.team,
                 ),
                 event_factory(
                     properties={"$current_url": "/about"}, distinct_id="person_2", event="$pageview", team=self.team,
@@ -400,13 +400,13 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                     properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
                 ),
                 event_factory(
-                    properties={"$current_url": "/about"}, distinct_id="person_3", event="$pageview", team=self.team,
+                    properties={"$current_url": "/about/"}, distinct_id="person_3", event="$pageview", team=self.team,
                 ),
                 event_factory(
                     properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,
                 ),
                 event_factory(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
+                    properties={"$current_url": "/pricing/"}, distinct_id="person_4", event="$pageview", team=self.team,
                 ),
                 event_factory(
                     properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
@@ -415,7 +415,10 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                     properties={"$current_url": "/about"}, distinct_id="person_5b", event="$pageview", team=self.team,
                 ),
                 event_factory(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
+                    properties={"$current_url": "/pricing/"},
+                    distinct_id="person_5a",
+                    event="$pageview",
+                    team=self.team,
                 ),
                 event_factory(
                     properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
@@ -429,6 +432,18 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
             ).json()
 
             filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+
+            self.assertEqual(len(response), 5)
+
+            self.assertTrue(response[0].items() >= {"source": "1_/pricing", "target": "2_/about", "value": 2}.items())
+            self.assertTrue(response[1].items() >= {"source": "1_/pricing", "target": "2_/", "value": 1}.items())
+            self.assertTrue(response[2].items() >= {"source": "2_/", "target": "3_/about", "value": 1}.items())
+            self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
+            self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
+
+            # ensure trailing slashes make no difference
+            filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing/"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
 
             self.assertEqual(len(response), 5)

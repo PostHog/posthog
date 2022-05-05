@@ -5,10 +5,10 @@ from typing import Dict, List, Literal, Union
 from constance import config
 from django.utils.timezone import now
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
 from ee.clickhouse.materialized_columns.util import cache_for
+from ee.clickhouse.replication.utils import clickhouse_is_replicated
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.client import sync_execute
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST

@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
-import { LemonRow, LemonRowProps, LemonRowPropsBase, LemonSpacer } from '../LemonRow'
+import { LemonRow, LemonRowProps, LemonRowPropsBase } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import './LemonButton.scss'
@@ -37,6 +38,7 @@ function LemonButtonInternal(
         popup,
         to,
         href,
+        disabled,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
@@ -51,6 +53,7 @@ function LemonButtonInternal(
             className
         ),
         type: htmlType,
+        disabled: disabled || buttonProps.loading,
         ...buttonProps,
     }
     if (popup && (children || !buttonProps.icon) && !rowProps.sideIcon) {
@@ -109,7 +112,7 @@ export function LemonButtonWithSideAction({
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton {...buttonProps} sideIcon={<div />}>
                 {children}
-                {!buttonProps.fullWidth && <LemonSpacer vertical style={{ margin: '0 0 0 0.75rem' }} />}
+                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 -0.5rem 0 0.75rem' }} />}
             </LemonButton>
             <SideComponent
                 className="LemonButtonWithSideAction--side-button"

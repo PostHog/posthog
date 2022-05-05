@@ -4,13 +4,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.team import Team
+from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -25,7 +25,7 @@ MATH_FUNCTIONS = {
 
 
 def process_math(
-    entity: Entity, team: Team, event_table_alias: Optional[str] = None
+    entity: Entity, team: Team, event_table_alias: Optional[str] = None, person_id_alias: str = "person_id"
 ) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
@@ -36,7 +36,7 @@ def process_math(
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
             join_condition = EVENT_JOIN_PERSON_SQL
-            aggregate_operation = "count(DISTINCT person_id)"
+            aggregate_operation = f"count(DISTINCT {person_id_alias})"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
@@ -56,7 +56,6 @@ def process_math(
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [item.strftime("%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
     return {

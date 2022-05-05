@@ -3,10 +3,14 @@ import { kea } from 'kea'
 import { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardPlacement } from '~/types'
+import { DashboardPlacement, InsightModel, PersonType } from '~/types'
+import api from 'lib/api'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>({
     path: ['scenes', 'project-homepage', 'projectHomepageLogic'],
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
 
     selectors: {
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
@@ -20,6 +24,29 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
         ],
     },
 
+    loaders: ({ values }) => ({
+        recentInsights: [
+            [] as InsightModel[],
+            {
+                loadRecentInsights: async () => {
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at`
+                    )
+                    return response.results
+                },
+            },
+        ],
+        persons: [
+            [] as PersonType[],
+            {
+                loadPersons: async () => {
+                    const response = await api.get(`api/person/`)
+                    return response.results
+                },
+            },
+        ],
+    }),
+
     subscriptions: ({ cache }: projectHomepageLogicType) => ({
         dashboardLogic: (logic: ReturnType<typeof dashboardLogic.build>) => {
             cache.unmount?.()
@@ -27,9 +54,11 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
         },
     }),
 
-    events: ({ cache }) => ({
+    events: ({ cache, actions }) => ({
         afterMount: () => {
             cache.unmount?.()
+            actions.loadRecentInsights()
+            actions.loadPersons()
         },
     }),
 })

@@ -26,7 +26,7 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
@@ -37,7 +37,7 @@ import { IconSubtitles, IconSubtitlesOff } from '../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
@@ -49,6 +49,9 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../AlertMessage'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -98,6 +101,10 @@ const displayMap: Record<
         className: 'paths-viz',
         element: Paths,
     },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
+    },
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
@@ -124,6 +131,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Whether loading timed out. */
     timedOut?: boolean
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor?: (newColor: InsightModel['color']) => void
@@ -132,7 +140,8 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     refresh?: () => void
     rename: () => void
     duplicate: () => void
-    moveToDashboard?: (dashboardId: DashboardType['id']) => void
+    moveToDashboardOld?: (dashboardId: DashboardType['id']) => void
+    moveToDashboard?: (dashboard: DashboardType) => void
 }
 
 interface InsightMetaProps
@@ -145,6 +154,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
+        | 'moveToDashboardOld'
         | 'moveToDashboard'
     > {
     /**
@@ -164,19 +174,24 @@ function InsightMeta({
     refresh,
     rename,
     duplicate,
+    moveToDashboardOld,
     moveToDashboard,
     setPrimaryHeight,
     areDetailsShown,
     setAreDetailsShown,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, color, filters, dashboard } = insight
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
+        (d: DashboardType) => !dashboards?.includes(d.id)
+    )
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -300,30 +315,39 @@ function InsightMeta({
                                                         Set color
                                                     </LemonButtonWithPopup>
                                                 )}
-                                                {editable && moveToDashboard && otherDashboards.length > 0 && (
-                                                    <LemonButtonWithPopup
-                                                        type="stealth"
-                                                        popup={{
-                                                            overlay: otherDashboards.map((otherDashboard) => (
-                                                                <LemonButton
-                                                                    key={otherDashboard.id}
-                                                                    type="stealth"
-                                                                    onClick={() => moveToDashboard(otherDashboard.id)}
-                                                                    fullWidth
-                                                                >
-                                                                    {otherDashboard.name || <i>Untitled</i>}
-                                                                </LemonButton>
-                                                            )),
-                                                            placement: 'right-start',
-                                                            fallbackPlacements: ['left-start'],
-                                                            actionable: true,
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Move to
-                                                    </LemonButtonWithPopup>
-                                                )}
-                                                <LemonSpacer />
+                                                {editable &&
+                                                    moveToDashboardOld &&
+                                                    moveToDashboard &&
+                                                    otherDashboards.length > 0 && (
+                                                        <LemonButtonWithPopup
+                                                            type="stealth"
+                                                            popup={{
+                                                                overlay: otherDashboards.map((otherDashboard) => (
+                                                                    <LemonButton
+                                                                        key={otherDashboard.id}
+                                                                        type="stealth"
+                                                                        onClick={() => {
+                                                                            !!featureFlags[
+                                                                                FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS
+                                                                            ]
+                                                                                ? moveToDashboard(otherDashboard)
+                                                                                : moveToDashboardOld(otherDashboard.id)
+                                                                        }}
+                                                                        fullWidth
+                                                                    >
+                                                                        {otherDashboard.name || <i>Untitled</i>}
+                                                                    </LemonButton>
+                                                                )),
+                                                                placement: 'right-start',
+                                                                fallbackPlacements: ['left-start'],
+                                                                actionable: true,
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Move to
+                                                        </LemonButtonWithPopup>
+                                                    )}
+                                                <LemonDivider />
                                                 {editable && (
                                                     <LemonButton
                                                         type="stealth"
@@ -343,7 +367,7 @@ function InsightMeta({
                                                 </LemonButton>
                                                 {editable && (
                                                     <>
-                                                        <LemonSpacer />
+                                                        <LemonDivider />
                                                         {removeFromDashboard ? (
                                                             <LemonButton
                                                                 type="stealth"
@@ -389,13 +413,21 @@ function InsightMeta({
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
                         <InsightDetails insight={insight} ref={detailsRef} />
                     </Transition>
                 </div>
             )}
         </CSSTransition>
+    )
+}
+
+function VizComponentFallback(): JSX.Element {
+    return (
+        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
+            Unknown insight display type
+        </AlertMessage>
     )
 }
 
@@ -418,7 +450,7 @@ function InsightViz({
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
-    const VizComponent = displayMap[displayedType].element
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
     return (
         <div
@@ -458,12 +490,14 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
         updateColor,
         removeFromDashboard,
         deleteWithUndo,
         refresh,
         rename,
         duplicate,
+        moveToDashboardOld,
         moveToDashboard,
         className,
         children,
@@ -522,6 +556,7 @@ function InsightCardInternal(
                     refresh={refresh}
                     rename={rename}
                     duplicate={duplicate}
+                    moveToDashboardOld={moveToDashboardOld}
                     moveToDashboard={moveToDashboard}
                     setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}
@@ -545,9 +580,9 @@ function InsightCardInternal(
             </BindLogic>
             {showResizeHandles && (
                 <>
-                    <ResizeHandle1D orientation="vertical" />
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
                     <ResizeHandle1D orientation="horizontal" />
-                    <ResizeHandle2D />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
                 </>
             )}
             {children /* Extras, such as resize handles */}

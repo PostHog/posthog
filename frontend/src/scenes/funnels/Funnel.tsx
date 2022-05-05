@@ -22,5 +22,5 @@ export function Funnel(props: ChartParams): JSX.Element | null {
         return <FunnelHistogram />
     }
 
-    return <FunnelBarGraph />
+    return <FunnelBarGraph {...props} />
 }

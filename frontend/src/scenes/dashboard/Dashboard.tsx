@@ -23,25 +23,30 @@ interface Props {
 }
 
 export const scene: SceneExport = {
-    component: Dashboard,
+    component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
+    paramsToProps: ({ params: { id, shareToken, placement } }: { params: Props }): DashboardLogicProps => ({
+        id: id ? parseInt(id) : undefined,
+        shareToken,
+        placement,
+    }),
 }
 
 export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken }}>
-            <DashboardView placement={placement} />
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, placement }}>
+            <DashboardScene />
         </BindLogic>
     )
 }
 
-function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
+function DashboardScene(): JSX.Element {
     const {
+        placement,
         dashboard,
         canEditDashboard,
-        allItemsLoading,
         items,
+        itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
         receivedErrorsFromAPI,
@@ -81,7 +86,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (!dashboard && !allItemsLoading) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
@@ -94,7 +99,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
-                <EmptyDashboardComponent loading={allItemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
                     <div className="dashboard-items-actions">

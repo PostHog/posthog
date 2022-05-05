@@ -1,14 +1,22 @@
 import { dayjs } from 'lib/dayjs'
+import { PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag'
+    type: 'FeatureFlag' | 'Person'
     action: 'changed' | 'created' | 'deleted'
     field?: string
     before?: string | Record<string, any> | boolean
     after?: string | Record<string, any> | boolean
 }
 
+export interface PersonMerge {
+    type: 'Person'
+    source: PersonType[]
+    target: PersonType
+}
+
 export interface ActivityLogDetail {
+    merge: PersonMerge | null
     changes: ActivityChange[] | null
     name: string
 }
@@ -20,6 +28,7 @@ export interface ActivityUser {
 
 export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
 }
 
 export interface ActivityLogItem {
@@ -38,7 +47,7 @@ export interface HumanizedActivityLogItem {
     created_at: dayjs.Dayjs
 }
 
-export type Describer = (logItem: ActivityLogItem) => (string | JSX.Element | null)[]
+export type Describer = (logItem: ActivityLogItem) => string | JSX.Element | null
 
 export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
     if (!describer) {
@@ -49,15 +58,14 @@ export function humanize(results: ActivityLogItem[], describer?: Describer): Hum
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
-        for (const description of describer(logItem)) {
-            if (description !== null) {
-                logLines.push({
-                    email: logItem.user.email,
-                    name: logItem.user.first_name,
-                    description: description,
-                    created_at: dayjs(logItem.created_at),
-                })
-            }
+        const description = describer(logItem)
+        if (description !== null) {
+            logLines.push({
+                email: logItem.user.email,
+                name: logItem.user.first_name,
+                description,
+                created_at: dayjs(logItem.created_at),
+            })
         }
     }
     return logLines

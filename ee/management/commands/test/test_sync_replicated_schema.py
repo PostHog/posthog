@@ -1,10 +1,10 @@
 import pytest
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.management.commands.sync_replicated_schema import Command
+from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import BaseTest
 
@@ -13,6 +13,7 @@ from posthog.test.base import BaseTest
 class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self, create_tables=True):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")

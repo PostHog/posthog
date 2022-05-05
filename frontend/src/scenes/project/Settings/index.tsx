@@ -32,6 +32,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconRefresh } from 'lib/components/icons'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -234,8 +235,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>
                         <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
                     </b>{' '}
-                    (if you're logged in) and where we'll <b>record sessions</b> (if{' '}
-                    <a href="#session-recording">enabled</a>).
+                    (if you're logged in) and where we'll <b>record sessions</b> (if <a href="#recordings">enabled</a>).
                 </p>
                 <p>
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
@@ -247,6 +247,11 @@ export function ProjectSettings(): JSX.Element {
                     Data attributes
                 </h2>
                 <DataAttributes />
+                <Divider />
+                <h2 className="subtitle" id="person-display-name">
+                    Person Display Name
+                </h2>
+                <PersonDisplayNameProperties />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration
@@ -261,7 +266,6 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
                 </h2>

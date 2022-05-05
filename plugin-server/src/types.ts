@@ -44,6 +44,19 @@ export const logLevelToNumber: Record<LogLevel, number> = {
     [LogLevel.Error]: 50,
 }
 
+export enum KafkaSecurityProtocol {
+    Plaintext = 'PLAINTEXT',
+    SaslPlaintext = 'SASL_PLAINTEXT',
+    Ssl = 'SSL',
+    SaslSsl = 'SASL_SSL',
+}
+
+export enum KafkaSaslMechanism {
+    Plain = 'plain',
+    ScramSha256 = 'scram-sha-256',
+    ScramSha512 = 'scram-sha-512',
+}
+
 export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
@@ -66,6 +79,10 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
+    KAFKA_SASL_USER: string | null
+    KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -106,11 +123,19 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CONVERSION_BUFFER_ENABLED: boolean
+    CONVERSION_BUFFER_ENABLED_TEAMS: string
+    BUFFER_CONVERSION_SECONDS: number
+    PERSON_INFO_TO_REDIS_TEAMS: string
+    PERSON_INFO_CACHE_TTL: number
+    HISTORICAL_EXPORTS_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -151,6 +176,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
+    conversionBufferEnabledTeams: Set<number>
 }
 
 export interface Pausable {
@@ -344,6 +370,7 @@ export type WorkerMethods = {
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
 }
 
 export type VMMethods = {
@@ -869,4 +896,19 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export enum PluginServerMode {
+    Ingestion = 'INGESTION',
+    Runner = 'RUNNER',
+}
+
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
 }

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -13,7 +13,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
 
 
-class PathEventQuery(ClickhouseEventQuery):
+class PathEventQuery(EnterpriseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 

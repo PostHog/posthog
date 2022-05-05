@@ -26,6 +26,7 @@ from posthog.models.filters.mixins.common import (
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
+    SmoothingIntervalsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
     FunnelCorrelationActorsMixin,
@@ -49,6 +50,7 @@ from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 class Filter(
     PropertyMixin,
     IntervalMixin,
+    SmoothingIntervalsMixin,
     EntitiesMixin,
     EntityIdMixin,
     EntityTypeMixin,
@@ -95,6 +97,7 @@ class Filter(
     def __init__(
         self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
     ) -> None:
+
         if request:
             properties = {}
             if request.GET.get(PROPERTIES):

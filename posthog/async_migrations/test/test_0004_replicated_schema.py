@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
 from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, KAFKA_EVENTS_TABLE_SQL
@@ -15,9 +14,10 @@ from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_E
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
+from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
 
@@ -28,8 +28,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-@pytest.mark.ee
-class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
+class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.recreate_database()
         sync_execute(KAFKA_EVENTS_TABLE_SQL())
@@ -42,6 +41,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self):
         settings.CLICKHOUSE_REPLICATION = False
@@ -49,8 +49,9 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)
 
+    @pytest.mark.async_migrations
     def test_is_required(self):
-        from ee.clickhouse.client import sync_execute
+        from posthog.client import sync_execute
 
         migration = get_async_migration_definition(MIGRATION_NAME)
 
@@ -61,6 +62,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         self.assertFalse(migration.is_required())
 
+    @pytest.mark.async_migrations
     def test_migration(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 
@@ -69,8 +71,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         self.verify_table_engines_correct(
@@ -83,6 +85,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(self.get_event_table_row_count(), 2)
 
+    @pytest.mark.async_migrations
     def test_rollback(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
 
@@ -91,11 +94,11 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         settings.CLICKHOUSE_REPLICATION = True
 
-        setup_async_migrations()
+        setup_async_migrations(ignore_posthog_version=True)
         migration = get_async_migration_definition(MIGRATION_NAME)
 
-        self.assertEqual(len(migration.operations), 53)
-        migration.operations[30].sql = "THIS WILL FAIL!"  # type: ignore
+        self.assertEqual(len(migration.operations), 57)
+        migration.operations[31].sql = "THIS WILL FAIL!"  # type: ignore
 
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertFalse(migration_successful)

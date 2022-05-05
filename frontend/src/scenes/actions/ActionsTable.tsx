@@ -7,9 +7,6 @@ import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
-import imgGrouping from 'public/actions-tutorial-grouping.svg'
-import imgStandardized from 'public/actions-tutorial-standardized.svg'
-import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
 import { ActionType, AvailableFeature, ChartDisplayType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
@@ -21,12 +18,10 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
 import { LemonTable } from 'lib/components/LemonTable'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
 
@@ -50,7 +45,6 @@ export function ActionsTable(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user, hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -179,7 +173,7 @@ export function ActionsTable(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
@@ -212,43 +206,6 @@ export function ActionsTable(): JSX.Element {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.Actions} />
-            {!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && (
-                <div>
-                    <div className="tutorial-container">
-                        <div className="t-element">
-                            <div>
-                                <img src={imgGrouping} alt="" />
-                            </div>
-                            <div>
-                                <div className="title">Multiple grouping</div>
-                                <div className="description">Group multiple sets of events into a single action.</div>
-                            </div>
-                        </div>
-                        <div className="t-element">
-                            <div>
-                                <img src={imgStandardized} alt="" />
-                            </div>
-                            <div>
-                                <div className="title">Clean &amp; standardized data</div>
-                                <div className="description">
-                                    Keep your actions the same, even if your product or data changes.
-                                </div>
-                            </div>
-                        </div>
-                        <div className="t-element">
-                            <div>
-                                <img src={imgRetroactive} alt="" />
-                            </div>
-                            <div>
-                                <div className="title">Retroactive</div>
-                                <div className="description">
-                                    We'll retroactively update your actions to match any past events.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
             <Input.Search
                 placeholder="Search for actions"
                 allowClear

@@ -1,13 +1,11 @@
 import React from 'react'
 import { ArrowDownOutlined, ArrowUpOutlined, MenuOutlined } from '@ant-design/icons'
 
-/** 1 means ascending, -1 means descending. */
-export type SortOrder = 1 | -1
-
 /** Sorting state. */
 export interface Sorting {
     columnKey: string
-    order: SortOrder
+    /** 1 means ascending, -1 means descending. */
+    order: 1 | -1
 }
 
 export function getNextSorting(
@@ -28,7 +26,7 @@ export function getNextSorting(
     }
 }
 
-export function SortingIndicator({ order }: { order: SortOrder | null }): JSX.Element {
+export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
     return (
         <div
             style={{

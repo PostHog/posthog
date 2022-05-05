@@ -1,19 +1,8 @@
-from infi.clickhouse_orm import migrations
+# This migration has been replaced by 0026_fix_materialized_window_and_session_ids
+# The original migration led to potentially inconsistent names for materialized columns
+# If the columns were created with this migration, they would be `$session_id` and `$window_id`,
+# but if the columns were created with the normal column materialization job, they would be `mat_$session_id`
+# and `mat_$window_id`. This led to potential inconsistencies between the tables state and the
+# schema defined by `EVENTS_TABLE_SQL`
 
-from ee.clickhouse.materialized_columns.columns import materialize
-
-
-def create_materialized_columns(database):
-    try:
-        materialize("events", "$session_id", "mat_session_id")
-    except ValueError:
-        # session_id is already materialized, skip
-        pass
-    try:
-        materialize("events", "$window_id", "mat_window_id")
-    except ValueError:
-        # window_id is already materialized, skip
-        pass
-
-
-operations = [migrations.RunPython(create_materialized_columns)]
+operations = []  # type: ignore

@@ -10,7 +10,7 @@ services:
         ports:
             - '5432:5432'
     redis:
-        image: 'redis:alpine'
+        image: redis:6.2.7-alpine
         ports:
             - '6379:6379'
     clickhouse:
@@ -19,7 +19,6 @@ services:
         #       `posthog` and the `charts-clickhouse` repos
         #
         image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
-        # image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.6.5}
         depends_on:
             - kafka
             - zookeeper
@@ -34,7 +33,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         depends_on:
@@ -74,11 +73,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -104,8 +98,3 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka

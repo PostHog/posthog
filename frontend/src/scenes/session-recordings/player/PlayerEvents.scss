@@ -67,6 +67,7 @@
                 cursor: pointer;
                 flex: 1;
                 background-color: $primary;
+
                 &:hover {
                     background-color: lighten($primary, 10%);
                 }
@@ -75,6 +76,7 @@
                     margin: 0 $recording_spacing 0 $default_spacing;
                 }
             }
+
             .right {
                 cursor: pointer;
                 width: calc(35px + #{$recording_spacing} / 4);
@@ -154,6 +156,14 @@
                 flex: 1;
                 min-width: 0;
 
+                &.out-of-band-event {
+                    color: $text_muted;
+                }
+
+                .out-of-band-event-tooltip {
+                    color: $text_default;
+                }
+
                 .event-item-content-top-row {
                     justify-content: space-between;
                     flex-wrap: nowrap;
@@ -178,7 +188,7 @@
                             white-space: unset;
                             position: relative;
 
-                            @extend %mixin-elevated;
+                            box-shadow: var(--shadow-elevation);
                             background-color: white;
                             padding: 1px 2px;
                             top: -1px;
@@ -205,9 +215,11 @@
                     .event-item-content-title {
                         visibility: hidden;
                     }
+
                     .event-item-content-subtitle {
                         visibility: hidden;
                     }
+
                     .ant-skeleton {
                         display: table;
                     }

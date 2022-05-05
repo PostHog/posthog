@@ -45,7 +45,7 @@ import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
-import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -126,7 +126,7 @@ export const commandPaletteLogic = kea<
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,
@@ -689,7 +689,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        newDashboardForm.actions.addDashboard({ name: argument })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }

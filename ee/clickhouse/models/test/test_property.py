@@ -1,14 +1,12 @@
 from datetime import datetime
 from typing import List, Literal, Union, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
     PropertyGroup,
     get_property_string_expr,
@@ -16,29 +14,17 @@ from ee.clickhouse.models.property import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
-from posthog.test.base import BaseTest
-
-
-def _create_event(**kwargs) -> UUID:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return pk
-
-
-def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.property_optimizer import PropertyOptimizer
+from posthog.test.base import BaseTest, _create_event, _create_person
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
@@ -459,10 +445,10 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         joins = ""
         if join_person_tables:
-            person_query = ClickhousePersonQuery(filter, self.team.pk)
+            person_query = PersonQuery(filter, self.team.pk)
             person_subquery, person_join_params = person_query.get_query()
             joins = f"""
-                INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON events.distinct_id = pdi.distinct_id
+                INNER JOIN ({get_team_distinct_ids_query(self.team.pk)}) AS pdi ON events.distinct_id = pdi.distinct_id
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
             params.update(person_join_params)
@@ -632,6 +618,21 @@ def test_parse_prop_clauses_defaults(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
+        )
+        == snapshot
+    )
+
+
+# Regression test for: https://github.com/PostHog/posthog/pull/9283
+@pytest.mark.django_db
+def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
+    filter = Filter(
+        data={"properties": [{"key": "text", "type": "element", "value": "Insights1", "operator": "exact"},]}
+    )
+
+    assert (
+        parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, prepend="PREPEND"
         )
         == snapshot
     )
@@ -1003,7 +1004,7 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
     uuids = list(
         sorted(
             [
-                uuid
+                str(uuid)
                 for (uuid,) in sync_execute(
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )
@@ -1030,7 +1031,7 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     uuids = list(
         sorted(
             [
-                uuid
+                str(uuid)
                 for (uuid,) in sync_execute(
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )

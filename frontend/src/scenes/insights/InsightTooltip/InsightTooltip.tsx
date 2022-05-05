@@ -1,6 +1,6 @@
 import './InsightTooltip.scss'
 import React from 'react'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import {
     COL_CUTOFF,
     ROW_CUTOFF,
@@ -15,11 +15,11 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
 
-function ClickToInspectActors({
+export function ClickToInspectActors({
     isTruncated,
     groupTypeLabel,
 }: {
-    isTruncated: boolean
+    isTruncated?: boolean
     groupTypeLabel: string
 }): JSX.Element {
     return (
@@ -44,7 +44,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
+            <SeriesLetter className="mr-05" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
@@ -70,19 +70,19 @@ export function InsightTooltip({
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
             const dataSource = invertDataSource(seriesData)
-            const columns: LemonTableColumns<InvertedSeriesDatum> = []
+            const columns: LemonTableColumns<InvertedSeriesDatum> = [
+                {
+                    key: 'datum',
+                    className: 'datum-column',
+                    title,
+                    sticky: true,
+                    render: function renderDatum(_, datum) {
+                        return <div>{datum.datumTitle}</div>
+                    },
+                },
+            ]
             const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
             const isTruncated = numDataPoints > colCutoff || dataSource.length > rowCutoff
-
-            columns.push({
-                key: 'datum',
-                className: 'datum-column',
-                title,
-                sticky: true,
-                render: function renderDatum(_, datum) {
-                    return <div>{datum.datumTitle}</div>
-                },
-            })
 
             if (numDataPoints > 0) {
                 const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
@@ -130,6 +130,7 @@ export function InsightTooltip({
                         rowKey="id"
                         size="small"
                         uppercaseHeader={false}
+                        rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
                         showHeader={showHeader}
                     />
                     {!hideInspectActorsSection && (
@@ -141,20 +142,8 @@ export function InsightTooltip({
 
         // Itemize tooltip entities as rows
         const dataSource = [...seriesData]
-        const columns: LemonTableColumns<SeriesDatum> = []
+        const columns: LemonTableColumn<SeriesDatum, keyof SeriesDatum | undefined>[] = []
         const isTruncated = dataSource?.length > rowCutoff
-
-        if (!hideColorCol) {
-            columns.push({
-                key: 'color',
-                className: 'color-column',
-                sticky: true,
-                width: 6,
-                render: function renderColor(_, datum) {
-                    return <div className="color-cell" style={{ backgroundColor: datum.color }} />
-                },
-            })
-        }
 
         columns.push({
             key: 'datum',
@@ -198,6 +187,7 @@ export function InsightTooltip({
                     rowKey="id"
                     size="small"
                     uppercaseHeader={false}
+                    rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (

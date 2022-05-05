@@ -15,12 +15,12 @@
         background: #f2f2f2;
         display: flex;
         align-self: stretch;
-        overflow: scroll;
         justify-content: space-between;
         align-content: space-between;
         border-top-left-radius: $radius;
         border-top-right-radius: $radius;
         padding-bottom: 5px;
+        overflow: auto;
 
         .table-header {
             font-style: normal;

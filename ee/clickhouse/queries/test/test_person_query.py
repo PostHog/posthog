@@ -1,24 +1,19 @@
 import pytest
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from posthog.client import sync_execute
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.models.team import Team
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
+from posthog.queries.person_query import PersonQuery
+from posthog.test.base import _create_person
 
 
 def person_query(team: Team, filter: Filter, **kwargs):
-    return ClickhousePersonQuery(filter, team.pk, **kwargs).get_query()[0]
+    return PersonQuery(filter, team.pk, **kwargs).get_query()[0]
 
 
 def run_query(team: Team, filter: Filter, **kwargs):
-    query, params = ClickhousePersonQuery(filter, team.pk, **kwargs).get_query()
+    query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
     rows = sync_execute(query, {**params, "team_id": team.pk})
 
     if len(rows) > 0:

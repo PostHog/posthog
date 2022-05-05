@@ -17,6 +17,7 @@ import {
     PropertyFilter,
     CohortType,
 } from '~/types'
+import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
@@ -147,13 +148,19 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
-export function percentage(division: number): string {
+/** Return percentage from number, e.g. 0.234 is 23.4%. */
+export function percentage(
+    division: number,
+    maximumFractionDigits: number = 2,
+    fixedPrecision: boolean = false
+): string {
     return division
-        ? division.toLocaleString(undefined, {
-              style: 'percent',
-              maximumFractionDigits: 2,
-          })
-        : ''
+        .toLocaleString('en-US', {
+            style: 'percent',
+            maximumFractionDigits,
+            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+        })
+        .replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -177,14 +184,6 @@ export function TableRowLoading({
                 <Spinner />
             </td>
         </tr>
-    )
-}
-
-export function SceneLoading(): JSX.Element {
-    return (
-        <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-            <Spinner size="lg" />
-        </div>
     )
 }
 
@@ -348,16 +347,10 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
 }
 
-export function chooseOperatorMap(
-    propertyType: PropertyType | undefined,
-    allowQueryingEventsByDateTime: boolean
-): Record<string, string> {
+export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
-            choice = genericOperatorMap
-        }
     }
     return choice
 }
@@ -417,7 +410,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return JSON.stringify(obj1) === JSON.stringify(obj2)
+    return equal(obj1, obj2)
 }
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
@@ -479,9 +472,9 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-// Number to number with commas (e.g. 1234 -> 1,234)
+/** Format number with space as the thousands separator. */
 export function humanFriendlyNumber(d: number): string {
-    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    return d.toLocaleString('en-US').replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -1022,18 +1015,12 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(
-    count: number,
-    singular: string,
-    plural?: string,
-    includeNumber: boolean = true,
-    formatNumber: boolean = false
-): string {
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1212,10 +1199,6 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
-}
-
-export function setPageTitle(title: string): void {
-    document.title = title ? `${title} • PostHog` : 'PostHog'
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {

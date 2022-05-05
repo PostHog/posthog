@@ -13,7 +13,7 @@
 }
 
 .palette__box {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
     position: absolute;
     top: 30%;
     display: flex;

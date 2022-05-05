@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
+import posthoganalytics
 import structlog
 from constance import config
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -11,9 +13,23 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.user import User
 from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
+
+
+def send_analytics_to_posthog(event, data):
+    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+    user = User.objects.filter(is_active=True).first()
+    groups = {"instance": settings.SITE_URL}
+    if user and user.current_organization:
+        data["organization_name"] = user.current_organization.name
+        groups["organization"] = str(user.current_organization.id)
+    posthoganalytics.capture(
+        get_machine_id(), event, data, groups=groups,
+    )
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -24,7 +40,7 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 
@@ -60,6 +76,16 @@ def process_error(
         status=status,
         error=error,
         finished_at=now(),
+    )
+    send_analytics_to_posthog(
+        "Async migration error",
+        {
+            "name": migration_instance.name,
+            "error": error,
+            "current_operation_index": migration_instance.current_operation_index
+            if current_operation_index is None
+            else current_operation_index,
+        },
     )
 
     if alert:
@@ -136,6 +162,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             finished_at=finished_at,
             progress=100,
         )
+        send_analytics_to_posthog("Async migration completed", {"name": migration_instance.name})
 
         if email and async_migrations_emails_enabled():
             from posthog.tasks.email import send_async_migration_complete_email

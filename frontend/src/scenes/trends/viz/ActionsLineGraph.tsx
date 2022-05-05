@@ -3,8 +3,7 @@ import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ChartParams, GraphType, InsightType } from '~/types'
+import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
@@ -21,7 +20,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
         <LineGraph
             data-attr="trend-line-graph"
             type={
-                filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
+                filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.ActionsBar
                     ? GraphType.Bar
                     : GraphType.Line
             }

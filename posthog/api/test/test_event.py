@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
@@ -11,23 +10,17 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    event_uuid = uuid.uuid4()
-    kwargs.update({"event_uuid": event_uuid})
-    create_event(**kwargs)
-    return str(event_uuid)
-
-
-def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+from posthog.test.base import (
+    APIBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    test_with_materialized_columns,
+)
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -50,6 +43,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -75,6 +69,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
         )
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -94,6 +89,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         event2_uuid = _create_event(
             event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
         )
+        flush_persons_and_events()
 
         expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
 
@@ -148,7 +144,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_by_person(self):
         person = _create_person(
-            properties={"email": "tim@posthog.com"}, distinct_ids=["2", "some-random-uid"], team=self.team,
+            properties={"email": "tim@posthog.com"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+            immediate=True,
         )
 
         _create_event(event="random event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
@@ -156,6 +155,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="random event", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"}
         )
         _create_event(event="random event", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.pk}").json()
         self.assertEqual(len(response["results"]), 2)
@@ -312,7 +312,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from ee.clickhouse.client import sync_execute
+            from posthog.client import sync_execute
 
             self.assertEqual(
                 sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[0][
@@ -366,7 +366,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from ee.clickhouse.client import sync_execute
+            from posthog.client import sync_execute
 
             self.assertEqual(
                 sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[0][
@@ -486,11 +486,22 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_event_by_id(self):
+        _create_person(
+            properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True,
+        )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["event"], "event")
+        response_json = response.json()
+        self.assertEqual(response_json["event"], "event")
+        self.assertIsNone(response_json["person"])
+
+        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true",)
+        self.assertEqual(with_person_response.status_code, status.HTTP_200_OK)
+        with_person_response_json = with_person_response.json()
+        self.assertEqual(with_person_response_json["event"], "event")
+        self.assertIsNotNone(with_person_response_json["person"])
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/123456",)
         # EE will inform the user the ID passed is not a valid UUID

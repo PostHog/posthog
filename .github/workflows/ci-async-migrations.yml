@@ -1,0 +1,83 @@
+name: Async Migrations CI
+
+on:
+    pull_request:
+        paths:
+            - 'posthog/async_migrations/**'
+            - 'ee/clickhouse/sql/**'
+            - 'ee/clickhouse/migrations/**'
+            - 'ee/migrations/**'
+
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    TEST: 1
+    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+
+jobs:
+    async-migrations:
+        name: Async Migrations tests
+        runs-on: ubuntu-latest
+        steps:
+            - name: 'Checkout repo'
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 1
+
+            - name: Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+
+            - name: Set up Python
+              uses: actions/setup-python@v2
+              with:
+                  python-version: ${{ inputs.python-version }}
+
+            - name: Install SAML (python3-saml) dependencies
+              shell: bash
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-async-migrations-tests
+              with:
+                  custom_cache_key_element: v1-${{ inputs.cache-id }}
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              shell: bash
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Set up needed files
+              shell: bash
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/shared_dashboard.html
+
+            - name: Wait for Clickhouse & Kafka
+              shell: bash
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Run async migrations tests
+              shell: bash
+              run: |
+                  pytest -m "async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml

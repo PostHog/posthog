@@ -168,7 +168,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "alpha-feature"},
+                    "detail": {"changes": None, "merge": None, "name": "alpha-feature", "short_id": None},
                 }
             ],
         )
@@ -400,7 +400,9 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
+                        "merge": None,
                         "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
                     },
                 },
                 {
@@ -409,7 +411,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated"},
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -443,8 +450,6 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        flag_activity = self._get_feature_flag_activity()["results"]
-
         self.assert_feature_flag_activity(
             flag_id=None,
             expected=[
@@ -453,7 +458,7 @@ class TestFeatureFlag(APIBaseTest):
                     "activity": "deleted",
                     "scope": "FeatureFlag",
                     "item_id": str(instance.pk),
-                    "detail": {"changes": None, "name": "potato"},
+                    "detail": {"changes": None, "merge": None, "name": "potato", "short_id": None},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -509,7 +514,9 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
+                        "merge": None,
                         "name": "feature_with_activity",
+                        "short_id": None,
                     },
                 },
                 {
@@ -518,7 +525,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None,},
                 },
             ],
         )
@@ -571,7 +578,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "name": "flag-two"},
+                    "detail": {"changes": None, "merge": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -589,7 +596,9 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
+                        "merge": None,
                         "name": "feature_with_activity",
+                        "short_id": None,
                     },
                 },
                 {
@@ -598,7 +607,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
                 },
             ],
         )
@@ -709,6 +718,91 @@ class TestFeatureFlag(APIBaseTest):
         )
         self._get_feature_flag_activity(
             flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+        )
+
+    def test_paging_all_feature_flag_activity(self):
+        for x in range(15):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": f"feature flag {x}", "key": f"{x}"},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]], ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?page=1&limit=10",
+        )
+
+    def test_paging_specific_feature_flag_activity(self):
+        create_response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "ff", "key": "0"},)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        for x in range(1, 15):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}", {"key": str(x),}, format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # check the first page of data
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag_id}/activity"
+        first_page_response = self.client.get(url)
+        self.assertEqual(first_page_response.status_code, status.HTTP_200_OK)
+        first_page_json = first_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
+            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
+        )
+        self.assertEqual(
+            first_page_json["next"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10",
+        )
+        self.assertEqual(first_page_json["previous"], None)
+
+        # check the second page of data
+        second_page_response = self.client.get(first_page_json["next"])
+        self.assertEqual(second_page_response.status_code, status.HTTP_200_OK)
+        second_page_json = second_page_response.json()
+
+        self.assertEqual(
+            # feature flag activity writes the flag key to the detail name
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
+            ["4", "3", "2", "1", "0"],
+        )
+        self.assertEqual(
+            second_page_json["next"], None,
+        )
+        self.assertEqual(
+            second_page_json["previous"],
+            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10",
         )
 
     @patch("posthog.api.feature_flag.report_user_action")

@@ -237,7 +237,10 @@ export function createPluginConfigVM(
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
         statsdTiming('vm_setup_sync_section')
-        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+
+        if (hub.HISTORICAL_EXPORTS_ENABLED) {
+            addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        }
     } else {
         statsdTiming('vm_setup_sync_section')
     }

@@ -11,7 +11,7 @@ export function RetentionContainer({
 }): JSX.Element {
     return (
         <div className="retention-container">
-            <RetentionLineGraph inCardView={inCardView} inSharedMode={inSharedMode} />
+            {!inCardView && <RetentionLineGraph inSharedMode={inSharedMode} />}
             <RetentionTable inCardView={inCardView} />
         </div>
     )

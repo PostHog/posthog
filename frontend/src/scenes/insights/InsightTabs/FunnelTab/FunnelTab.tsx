@@ -28,6 +28,7 @@ import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/Proper
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -80,7 +81,7 @@ export function FunnelTab(): JSX.Element {
                                 filters={filters}
                                 setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
-                                hideMathSelector={true}
+                                mathAvailability={MathAvailability.None}
                                 hideDeleteBtn={filterSteps.length === 1}
                                 buttonCopy="Add step"
                                 buttonType="link"
@@ -249,8 +250,7 @@ export function FunnelTab(): JSX.Element {
                                                 Exclude {aggregationTargetLabel.plural}{' '}
                                                 {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
                                                 completed the specified event between two specific steps. Note that
-                                                these
-                                                {aggregationTargetLabel.plural} will be{' '}
+                                                these {aggregationTargetLabel.plural} will be{' '}
                                                 <b>completely excluded from the entire funnel</b>.
                                             </>
                                         }

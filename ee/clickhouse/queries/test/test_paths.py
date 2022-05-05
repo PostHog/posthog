@@ -8,13 +8,13 @@ from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -1328,14 +1328,14 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 timestamp="2021-05-01 00:02:00",
             ),
             _create_event(
-                properties={"$current_url": "/3"},
+                properties={"$current_url": "/3/"},
                 distinct_id="person_1",
                 event="$pageview",
                 team=self.team,
                 timestamp="2021-05-01 00:03:00",
             ),
             _create_event(
-                properties={"$current_url": "/4"},
+                properties={"$current_url": "/4/"},
                 distinct_id="person_1",
                 event="$pageview",
                 team=self.team,
@@ -1356,7 +1356,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 timestamp="2021-05-01 00:06:00",
             ),
             _create_event(
-                properties={"$current_url": "/after"},
+                properties={"$current_url": "/after/"},
                 distinct_id="person_1",
                 event="$pageview",
                 team=self.team,
@@ -1385,7 +1385,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
         p3 = [
             _create_event(
-                properties={"$current_url": "/3"},
+                properties={"$current_url": "/3/"},
                 distinct_id="person_3",
                 event="$pageview",
                 team=self.team,
@@ -1399,7 +1399,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 timestamp="2021-05-01 00:02:00",
             ),
             _create_event(
-                properties={"$current_url": "/about"},
+                properties={"$current_url": "/about/"},
                 distinct_id="person_3",
                 event="$pageview",
                 team=self.team,
@@ -1421,6 +1421,29 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             data={
                 "path_type": "$pageview",
                 "end_point": "/about",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+            }
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "1_/3", "target": "2_/4", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "1_/5", "target": "2_/about", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "2_/3", "target": "3_/4", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "2_/4", "target": "3_/about", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "3_/4", "target": "4_/5", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "4_/5", "target": "5_/about", "value": 1, "average_conversion_time": 60000.0},
+            ],
+        )
+
+        # ensure trailing slashes don't change results
+        filter = PathFilter(
+            data={
+                "path_type": "$pageview",
+                "end_point": "/about/",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
             }

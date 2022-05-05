@@ -6,19 +6,17 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import (
     box_value,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
     FUNNEL_WINDOW_INTERVAL_UNIT,
@@ -27,6 +25,9 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
+from posthog.models.action.util import format_action_filter
+from posthog.models.property import PropertyName
+from posthog.models.utils import PersonPropertiesMode
 from posthog.utils import relative_date_parse
 
 
@@ -50,6 +51,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
+            "timezone": self._team.timezone_for_charts,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
@@ -176,9 +178,7 @@ class ClickhouseFunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # Construct converted and dropped people urls. Previously this logic was
-            # part of
-            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            # Construct converted and dropped people URLs
             funnel_step = step.index + 1
             converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
@@ -352,12 +352,16 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False, extra_fields=[]
     ) -> str:
+        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
         entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(
-            filter=self._filter, team=self._team, extra_fields=self._extra_event_fields,
+            filter=self._filter,
+            team=self._team,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -400,6 +404,7 @@ class ClickhouseFunnelBase(ABC):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
+            extra_fields=parsed_extra_fields,
         )
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -616,7 +621,7 @@ class ClickhouseFunnelBase(ABC):
         return ""
 
     def _get_cohort_breakdown_join(self) -> str:
-        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
         self.params.update({"breakdown_values": ids})
         self.params.update(cohort_params)
         return f"""
@@ -637,11 +642,10 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                self._filter, first_entity, "count(*)", self._team, extra_params={"offset": 0}
             )
 
         return None

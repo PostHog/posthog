@@ -1,15 +1,15 @@
 from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
-from ee.clickhouse.models.util import PersonPropertiesMode
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
+from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class EventFiltersSQL(NamedTuple):
@@ -24,7 +24,7 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
-class ClickhouseSessionRecordingList(ClickhouseEventQuery):
+class ClickhouseSessionRecordingList(EnterpriseEventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
@@ -253,7 +253,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             condition_sql, filter_params = self.format_event_filter(
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
-            aggregate_select_clause += f", sum(if({condition_sql}, 1, 0)) as count_event_match_{index}"
+            aggregate_select_clause += f", countIf({condition_sql}) as count_event_match_{index}"
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}
 

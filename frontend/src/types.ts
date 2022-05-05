@@ -6,9 +6,7 @@ import {
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
-    COHORT_DYNAMIC,
-    COHORT_STATIC,
-    BinCountAuto,
+    BIN_COUNT_AUTO,
     TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -61,7 +59,6 @@ export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
-    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -144,6 +141,10 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProviders | ''
+    has_saml: boolean
+    saml_entity_id: string
+    saml_acs_url: string
+    saml_x509_cert: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -230,6 +231,7 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+    person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
 
@@ -396,7 +398,7 @@ export interface PlayerPosition {
 
 export interface RRWebRecordingConsoleLogPayload {
     level: LogLevel
-    payload: string[]
+    payload: (string | null)[]
     trace: string[]
 }
 
@@ -431,8 +433,8 @@ export interface SessionRecordingMeta {
 export interface SessionPlayerData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
-    session_recording: SessionRecordingMeta
-    bufferedTo: PlayerPosition
+    metadata: SessionRecordingMeta
+    bufferedTo: PlayerPosition | null
     next?: string
 }
 
@@ -563,10 +565,10 @@ export interface CohortGroupType {
     count_operator?: string
     properties?: AnyPropertyFilter[]
     matchType: MatchType
+    name?: string
 }
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
-export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
@@ -574,7 +576,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new' | 'personsModalNew'
+    id: number | 'new'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
@@ -596,7 +598,7 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-export type BinCountValue = number | typeof BinCountAuto
+export type BinCountValue = number | typeof BIN_COUNT_AUTO
 
 // https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
 export enum StepOrderValue {
@@ -611,6 +613,7 @@ export enum PersonsTabType {
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
+    HISTORY = 'history',
 }
 
 export enum LayoutView {
@@ -639,6 +642,7 @@ export interface RecordingEventType extends EventType {
     playerTime: number
     playerPosition: PlayerPosition
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {
@@ -664,7 +668,7 @@ export interface SessionRecordingType {
 
 export interface SessionRecordingEvents {
     next?: string
-    events: EventType[]
+    events: RecordingEventType[]
 }
 
 export interface BillingType {
@@ -677,6 +681,17 @@ export interface BillingType {
     subscription_url: string
     current_bill_amount: number | null
     should_display_current_bill: boolean
+    billing_limit: number | null
+    billing_limit_exceeded: boolean | null
+    tiers: BillingTierType[] | null
+}
+
+export interface BillingTierType {
+    name: string
+    price_per_event: number
+    number_of_events: number
+    subtotal: number
+    running_total: number
 }
 
 export interface PlanInterface {
@@ -721,7 +736,7 @@ export interface InsightModel {
     last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
-    dashboard: number | null
+    dashboards: number[] | null
     result: any | null
     updated_at: string
     tags?: string[]
@@ -872,10 +887,12 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
+    WorldMap = 'WorldMap',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type SmoothingType = number
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -917,6 +934,11 @@ export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
     interval?: IntervalType
+
+    // Specifies that we want to smooth the aggregation over the specified
+    // number of intervals, e.g. for a day interval, we may want to smooth over
+    // 7 days to remove weekly variation. Smoothing is performed as a moving average.
+    smoothing_intervals?: number
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
@@ -934,7 +956,7 @@ export interface FilterType {
 
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-
+    total_intervals?: number // retention total intervals
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -1192,11 +1214,9 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | null
+    dashboardItemId?: InsightShortId | 'new' | null
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
-    /** enable this to make unsaved queries */
-    doNotPersist?: boolean
     /** enable this to avoid API requests */
     doNotLoad?: boolean
 }
@@ -1314,9 +1334,6 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
-
-// Reserved hotkeys globally available
-export type GlobalHotKeys = 'g'
 
 // Hotkeys for local (component) actions
 export type HotKeys =
@@ -1673,4 +1690,91 @@ export interface InstanceSetting {
     description?: string
     editable: boolean
     is_secret: boolean
+}
+
+export enum BaseMathType {
+    Total = 'total',
+    DailyActive = 'dau',
+    WeeklyActive = 'weekly_active',
+    MonthlyActive = 'monthly_active',
+}
+
+export enum PropertyMathType {
+    Average = 'avg',
+    Sum = 'sum',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+    P90 = 'p90',
+    P95 = 'p95',
+    P99 = 'p99',
+}
+
+export enum ActorGroupType {
+    Person = 'person',
+    GroupPrefix = 'group',
+}
+
+export enum BehavioralEventType {
+    PerformEvent = 'performed_event',
+    PerformMultipleEvents = 'performed_event_multiple',
+    PerformSequenceEvents = 'performed_event_sequence',
+    NotPerformedEvent = 'not_performed_event',
+    NotPerformSequenceEvents = 'not_performed_event_sequence',
+    HaveProperty = 'have_property',
+    NotHaveProperty = 'not_have_property',
+}
+
+export enum BehavioralCohortType {
+    InCohort = 'in_cohort',
+    NotInCohort = 'not_in_cohort',
+}
+
+export enum BehavioralLifecycleType {
+    PerformEventFirstTime = 'performed_event_first_time',
+    PerformEventRegularly = 'performed_event_regularly',
+    StopPerformEvent = 'stopped_performing_event',
+    StartPerformEventAgain = 'restarted_performing_event',
+}
+
+export enum TimeUnitType {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+    Year = 'year',
+}
+
+export enum DateOperatorType {
+    BeforeTheLast = 'before_the_last',
+    Between = 'between',
+    NotBetween = 'not_between',
+    OnTheDate = 'on_the_date',
+    NotOnTheDate = 'not_on_the_date',
+    Since = 'since',
+    Before = 'before',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export enum OperatorType {
+    Equals = 'equals',
+    NotEquals = 'not_equals',
+    Contains = 'contains',
+    NotContains = 'not_contains',
+    MatchesRegex = 'matches_regex',
+    NotMatchesRegex = 'not_matches_regex',
+    GreaterThan = 'gt',
+    LessThan = 'lt',
+    Set = 'set',
+    NotSet = 'not_set',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
+}
+
+export enum ValueOptionType {
+    MostRecent = 'most_recent',
+    Previous = 'previous',
+    OnDate = 'on_date',
 }

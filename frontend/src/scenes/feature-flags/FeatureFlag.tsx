@@ -2,24 +2,17 @@ import React, { useState } from 'react'
 import { Group } from 'kea-forms'
 import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import {
-    DeleteOutlined,
-    SaveOutlined,
-    PlusOutlined,
-    ApiFilled,
-    MergeCellsOutlined,
-    LockOutlined,
-} from '@ant-design/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
+import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -34,7 +27,9 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -45,8 +40,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps: FeatureFlagLogicProps = { id: id && id !== 'new' ? parseInt(id) : 'new' }
     const {
+        props,
         featureFlag,
         multivariateEnabled,
         variants,
@@ -57,7 +52,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         aggregationTargetName,
         taxonomicGroupTypes,
         featureFlagLoading,
-    } = useValues(featureFlagLogic(logicProps))
+    } = useValues(featureFlagLogic)
     const {
         addConditionSet,
         updateConditionSet,
@@ -69,7 +64,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
-    } = useActions(featureFlagLogic(logicProps))
+    } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
@@ -84,11 +79,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm logic={featureFlagLogic} props={logicProps} formKey="featureFlag">
+                // TODO: kea-form should also use featureFlagLogic's bound props
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag">
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div style={{ display: 'flex' }}>
+                            <div className="flex-center">
                                 <Field name="active">
                                     {({ value, onValueChange }) => (
                                         <LemonSwitch
@@ -105,27 +101,26 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </Field>
                                 {featureFlag?.id && (
-                                    <Button
+                                    <LemonButton
                                         data-attr="delete-flag"
-                                        danger
-                                        icon={<DeleteOutlined />}
+                                        status="danger"
+                                        type="secondary"
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
                                         style={{ marginRight: 16 }}
                                     >
                                         Delete
-                                    </Button>
+                                    </LemonButton>
                                 )}
-                                <Button
-                                    icon={<SaveOutlined />}
+                                <LemonButton
                                     type="primary"
                                     data-attr="feature-flag-submit"
                                     loading={featureFlagLoading}
                                     htmlType="submit"
                                 >
                                     Save changes
-                                </Button>
+                                </LemonButton>
                             </div>
                         }
                     />
@@ -403,19 +398,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         ).
                                     </p>
                                 )}
-                                <Button
-                                    type="dashed"
-                                    block
-                                    icon={<PlusOutlined />}
+                                <LemonButton
+                                    type="secondary"
                                     onClick={() => {
                                         const newIndex = variants.length
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ marginBottom: 16 }}
+                                    style={{ margin: '1rem 0' }}
+                                    compact
+                                    fullWidth
+                                    center
                                 >
-                                    Add Variant
-                                </Button>
+                                    Add variant
+                                </LemonButton>
                             </div>
                         )}
                     </div>
@@ -509,7 +505,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </div>
 
-                                    <LemonSpacer large />
+                                    <LemonDivider large />
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${
@@ -520,7 +516,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         showConditionBadge
                                     />
-                                    <LemonSpacer large />
+                                    <LemonDivider large />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">
@@ -545,24 +541,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ))}
                     </Row>
                     <Card size="small" style={{ marginBottom: 16 }}>
-                        <Button type="link" onClick={addConditionSet} style={{ marginLeft: 5 }}>
-                            <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
-                        </Button>
+                        <LemonButton onClick={addConditionSet} fullWidth>
+                            Add condition set
+                        </LemonButton>
                     </Card>
                     <div className="text-right">
-                        <Button
-                            icon={<SaveOutlined />}
-                            htmlType="submit"
-                            type="primary"
-                            data-attr="feature-flag-submit-bottom"
-                        >
+                        <LemonButton htmlType="submit" type="primary" data-attr="feature-flag-submit-bottom">
                             Save changes
-                        </Button>
+                        </LemonButton>
                     </div>
                 </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
-                <SceneLoading />
+                <Loading />
             )}
         </div>
     )

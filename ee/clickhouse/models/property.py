@@ -22,8 +22,7 @@ from ee.clickhouse.models.cohort import (
     format_precalculated_cohort_query,
     format_static_cohort_query,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode, is_json
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
@@ -38,6 +37,8 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.utils import is_valid_regex
 
 # Property Groups Example:
@@ -164,7 +165,7 @@ def parse_prop_clauses(
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
-            # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
+            # :TODO: Clean this up by using PersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
             is_direct_query = person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
@@ -193,7 +194,7 @@ def parse_prop_clauses(
                 )
                 params.update(filter_params)
         elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
-            # this setting is used to generate the ClickhousePersonQuery SQL.
+            # this setting is used to generate the PersonQuery SQL.
             # When using direct mode, there should only be person properties in the entire
             # property group
             filter_query, filter_params = prop_filter_json_extract(
@@ -208,7 +209,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -279,7 +280,7 @@ def prop_filter_json_extract(
     prop_var: str = "properties",
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
-    property_operator: PropertyOperatorType = PropertyOperatorType.AND,
+    property_operator: str = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:

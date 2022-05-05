@@ -4,31 +4,20 @@ from uuid import UUID, uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.event import bulk_create_events
+from ee.clickhouse.models.person import bulk_create_persons
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
 COUNT_COLUMN = 1
 PERSON_ID_COLUMN = 2
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    if "event_uuid" not in kwargs:
-        kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
 
 
 def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
@@ -45,20 +34,38 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
 
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
+        for i in range(35):
+            bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
+        events = []
         for i in range(5):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+            events.append(
+                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+            )
+            events.append(
+                {
+                    "event": "step three",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-05 00:00:00",
+                }
+            )
 
         for i in range(5, 15):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+            events.append(
+                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+            )
 
         for i in range(15, 35):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            events.append(
+                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+            )
+        bulk_create_events(events)
 
     def _create_browser_breakdown_events(self):
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})

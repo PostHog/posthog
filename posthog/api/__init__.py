@@ -12,6 +12,7 @@ from . import (
     feature_flag,
     instance_settings,
     instance_status,
+    kafka_inspector,
     organization,
     organization_domain,
     organization_invite,
@@ -86,6 +87,7 @@ projects_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -94,6 +96,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
+router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 
 
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet

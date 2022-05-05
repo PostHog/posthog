@@ -39,7 +39,7 @@ export interface SavedInsightFilters {
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
-        order: values.order || '-updated_at',
+        order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
@@ -142,11 +142,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             (s) => [s.filters],
             (filters): Sorting | null => {
                 if (!filters.order) {
-                    return null
+                    // Sync with `cleanFilters` function
+                    return {
+                        columnKey: 'last_modified_at',
+                        order: -1,
+                    }
                 }
                 return filters.order.startsWith('-')
                     ? {
-                          columnKey: filters.order.substr(1),
+                          columnKey: filters.order.slice(1),
                           order: -1,
                       }
                     : {

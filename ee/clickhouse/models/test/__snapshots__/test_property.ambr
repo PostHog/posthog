@@ -130,3 +130,11 @@
     },
   )
 ---
+# name: test_parse_prop_clauses_funnel_step_element_prepend_regression
+  <class 'tuple'> (
+    'AND ( ((match(elements_chain, %(PREPEND__text_0_attributes_regex)s))))',
+    <class 'dict'> {
+      'PREPEND__text_0_attributes_regex': '(text="Insights1")',
+    },
+  )
+---

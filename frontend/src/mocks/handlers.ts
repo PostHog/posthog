@@ -9,7 +9,7 @@ import {
     MOCK_DEFAULT_COHORT,
     MOCK_PERSON_PROPERTIES,
 } from 'lib/api.mock'
-import { getFeatures } from '~/mocks/features'
+import { getAvailableFeatures } from '~/mocks/features'
 
 const API_NOOP = { count: 0, results: [] as any[], next: null, previous: null }
 const apiResults = (results: any[]): typeof API_NOOP => ({ count: results.length, results, next: null, previous: null })
@@ -28,7 +28,7 @@ export const handlers = mocksToHandlers({
         '/api/projects/:team_id/explicit_members/': [],
         '/api/organizations/@current/': () => [
             200,
-            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
+            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
         ],
         '/api/organizations/@current/members/': apiResults([MOCK_DEFAULT_ORGANIZATION_MEMBER]),
         '/api/organizations/@current/invites/': apiResults([MOCK_DEFAULT_ORGANIZATION_INVITE]),
@@ -39,7 +39,7 @@ export const handlers = mocksToHandlers({
             200,
             {
                 ...MOCK_DEFAULT_USER,
-                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
