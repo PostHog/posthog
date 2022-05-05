@@ -123,6 +123,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: false # tests fail because of clock skew in CI environment
               run: cd plugin-server && yarn typescript:check && yarn test:postgres:1
 
     tests-postgres-2:
