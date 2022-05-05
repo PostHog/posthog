@@ -7,8 +7,6 @@ import { humanizePathsEventTypes } from '../utils'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-// import { PathAdvanded } from './PathAdvanced'
-
 export function EFPathsEventTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))

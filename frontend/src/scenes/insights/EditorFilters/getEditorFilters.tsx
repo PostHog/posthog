@@ -11,10 +11,10 @@ import { EFLifecycleToggles } from 'scenes/insights/EditorFilters/EFLifecycleTog
 import { EFLifecycleGlobalFilters } from 'scenes/insights/EditorFilters/EFLifecycleGlobalFilters'
 import React from 'react'
 import { EFRetentionSummary } from './EFRetentionSummary'
-import { EFPathsGeneral } from './EFPathsGeneral'
 import { EFPathsEventTypes } from './EFPathsEventTypes'
 import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
 import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
+import { EFPathsAdvanced, EFPathsAdvancedPaywall } from './EFPathsAdvanced'
 
 export function getEditorFilters(
     filters: Partial<FilterType>,
@@ -72,11 +72,6 @@ export function getEditorFilters(
                           key: 'ends-target',
                           label: 'Ends at',
                           component: EFPathsTargetEnd,
-                      },
-                      {
-                          key: 'paths-general',
-                          label: 'Paths (TO BE REMOVED)',
-                          component: EFPathsGeneral,
                       },
                   ])
                 : []),
@@ -145,6 +140,18 @@ export function getEditorFilters(
                       component: EFTrendsBreakdown,
                   }
                 : null,
+            isPaths &&
+                (hasPathsAdvanced
+                    ? {
+                          key: 'paths-advanced',
+                          //   label: 'Advanced Options',
+                          component: EFPathsAdvanced,
+                      }
+                    : {
+                          key: 'paths-paywall',
+                          label: 'Paywall',
+                          component: EFPathsAdvancedPaywall,
+                      }),
         ]),
     }
 }
