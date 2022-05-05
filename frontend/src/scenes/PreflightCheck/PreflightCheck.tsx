@@ -127,19 +127,8 @@ export function PreflightCheck(): JSX.Element {
                             <div className="Preflight__header">
                                 <p className="Preflight__header--title-text">Validate implementation</p>
                                 <p className="Preflight__header--secondary-text">
-                                    Need help? Take a look at our{' '}
-                                    <a
-                                        href="https://posthog.com/docs/self-host/deploy/troubleshooting"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        documentation
-                                    </a>{' '}
-                                    or{' '}
-                                    <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                                        visit support
-                                    </a>
-                                    .
+                                    Validation happens immediately. You can rerun validation checks by clicking{' '}
+                                    <b>“validate requirements”</b>.
                                 </p>
                             </div>
 
@@ -219,8 +208,19 @@ export function PreflightCheck(): JSX.Element {
                             )}
 
                             <p className="text-center mt mb-0">
-                                Validation happens immediately. You can rerun validation checks by clicking{' '}
-                                <b>“validate requirements”</b>.
+                                Need help? Take a look at our{' '}
+                                <a
+                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    documentation
+                                </a>{' '}
+                                or{' '}
+                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                    visit support
+                                </a>
+                                .
                             </p>
                         </div>
                     </>
