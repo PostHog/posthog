@@ -300,7 +300,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record)
-                                            : record[rowKey]
+                                            : record[rowKey] ?? rowIndex
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName

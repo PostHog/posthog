@@ -38,33 +38,17 @@ function getColorVar(variable: string): string {
     return colorValue.trim()
 }
 
-/** @deprecated
- * Return an array of hexadecimal series color values. Use getSeriesColor() directly instead.
+/** Return a series color value. Hexadecimal format as Chart.js doesn't work with CSS vars.
  *
- * Hexadecimal format as Chart.js doesn't work with CSS vars.
+ * @param index The index of the series color.
+ * @param numSeries Number of series in the insight being visualized.
+ * @param comparePrevious If true, wrapped colors ()
  */
-export function getChartColors(numSeries?: number, injectLightColors: boolean = false): string[] {
-    const colors: string[] = []
-    for (let i = 0; i < (numSeries ?? dataColorVars.length); i++) {
-        const hex = getColorVar(`data-${dataColorVars[i % dataColorVars.length]}`)
-        colors.push(hex)
-        if (injectLightColors) {
-            colors.push(`${hex}80`)
-        }
-    }
-    return colors
-}
-
-export function getSeriesColor(
-    index?: number,
-    fallbackColor?: string,
-    numSeries?: number,
-    injectLightColors: boolean = false
-): string {
-    if (typeof index === 'number' && index >= 0) {
-        return getChartColors(numSeries, injectLightColors)[index]
-    }
-    return fallbackColor ?? getChartColors()[0]
+export function getSeriesColor(index: number, comparePrevious: boolean = false): string {
+    const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
+    const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
+    const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
+    return isPreviousPeriodSeries ? `${baseHex}80` : baseHex
 }
 
 /** Return hexadecimal color value for lifecycle status.

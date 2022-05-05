@@ -53,19 +53,14 @@ export function InsightLegend(): JSX.Element {
                             <Row key={item.id} className="insight-legend-menu-item" wrap={false}>
                                 <LemonCheckbox
                                     className="insight-legend-menu-item-inner"
-                                    color={getSeriesColor(item.id, undefined, undefined, !!filters.compare)}
+                                    color={getSeriesColor(item.id, !!filters.compare)}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
                                     rowProps={{ fullWidth: true }}
                                     label={
                                         <InsightLabel
                                             key={item.id}
-                                            seriesColor={getSeriesColor(
-                                                item.id,
-                                                undefined,
-                                                undefined,
-                                                !!filters.compare
-                                            )}
+                                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
                                             action={item.action}
                                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                                             hasMultipleSeries={indexedResults.length > 1}

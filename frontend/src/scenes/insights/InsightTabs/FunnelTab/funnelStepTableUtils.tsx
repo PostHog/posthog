@@ -14,12 +14,12 @@ import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
 import { BreakdownBarGroupWrapper } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBreakdown'
 import { getSeriesColor } from 'lib/colors'
 
-export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
-    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, fallbackColor)
+export function getColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
+    return getSeriesColor((isBreakdown ? step.breakdownIndex : step.order) ?? 0)
 }
 
 export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
-    return getColor(step, 'var(--text-default)', isBreakdown)
+    return getColor(step, isBreakdown)
 }
 
 /**

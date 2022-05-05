@@ -143,7 +143,7 @@ function Bar({
                 style={{
                     flex: `${percentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex),
+                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {

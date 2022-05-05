@@ -207,7 +207,7 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, undefined, _datasets?.length ?? 1, isCompare)
+            : getSeriesColor(dataset.id, isCompare)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
