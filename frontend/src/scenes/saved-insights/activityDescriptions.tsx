@@ -5,7 +5,7 @@ import { FilterType, InsightModel } from '~/types'
 import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
-import 'lib/components/InsightCard/InsightCard.scss'
+import '../../lib/components/InsightCard/InsightCard.scss'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
