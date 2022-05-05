@@ -115,7 +115,7 @@ export function PreflightCheck(): JSX.Element {
                         <div style={{ marginTop: 16, textAlign: 'center' }}>
                             <p className="text-muted">
                                 {`Have questions? `}
-                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                <a href="https://posthog.com/support" target="_blank">
                                     Visit support
                                 </a>
                             </p>
@@ -127,8 +127,16 @@ export function PreflightCheck(): JSX.Element {
                             <div className="Preflight__header">
                                 <p className="Preflight__header--title-text">Validate implementation</p>
                                 <p className="Preflight__header--secondary-text">
-                                    Validation happens immediately. You can rerun validation checks by clicking{' '}
-                                    <b>“validate requirements”</b>.
+                                    Validation happens immediately. You can rerun validation checks by clicking
+                                    “validate requirements”. If you get stuck, try our{' '}
+                                    <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                                        troubleshooting guide
+                                    </a>{' '}
+                                    or our{' '}
+                                    <a href="https://posthog.com/docs/self-host/runbook" target="_blank">
+                                        self host runbook
+                                    </a>
+                                    .
                                 </p>
                             </div>
 
@@ -209,15 +217,11 @@ export function PreflightCheck(): JSX.Element {
 
                             <p className="text-center mt mb-0">
                                 Need help? Take a look at our{' '}
-                                <a
-                                    href="https://posthog.com/docs/self-host/deploy/troubleshooting"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
+                                <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
                                     documentation
                                 </a>{' '}
                                 or{' '}
-                                <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
+                                <a href="https://posthog.com/support" target="_blank">
                                     visit support
                                 </a>
                                 .
