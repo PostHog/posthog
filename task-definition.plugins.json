@@ -98,7 +98,11 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "8"
+                    "value": "3"
+                },
+                {
+                    "name": "HISTORICAL_EXPORTS_ENABLED",
+                    "value": "False"
                 }
             ],
             "secrets": [
