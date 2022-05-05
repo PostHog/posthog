@@ -9,7 +9,6 @@ import {
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
-    TimeUnitType,
 } from '~/types'
 import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE} from 'lib/constants'
 import {
@@ -18,7 +17,6 @@ import {
     CohortClientErrors,
     FieldWithFieldKey
 } from 'scenes/cohorts/CohortFilters/types'
-import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
 import {areObjectValuesEmpty, convertPropertyGroupToProperties} from 'lib/utils'
 import {DeepPartialMap, ValidationErrorType} from 'kea-forms'
 import equal from 'fast-deep-equal'
@@ -133,31 +131,6 @@ export function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGr
 }
 
 export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): CohortType {
-    console.log("PROCESSCOHORT", cohort, {
-        ...cohort,
-        ...(isNewCohortFilterEnabled
-            ? {
-                  filters: {
-                      /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                      properties: applyAllNestedCriteria(cohort, (criteriaList => criteriaList.map(c => c.type && [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) ? {
-                          ...c,
-                          value_property: c.value,
-                          value: c.type === BehavioralFilterKey.Cohort ? BehavioralCohortType.InCohort : BehavioralEventType.HaveProperty
-                      } : c))).filters.properties,
-                  },
-                groups: undefined
-              }
-            : {
-            filters: undefined,
-                  groups:
-                      cohort.groups?.map((group) => ({
-                          ...addLocalCohortGroupId(group),
-                          ...(group.properties
-                              ? { properties: convertPropertyGroupToProperties(group.properties) }
-                              : {}),
-                      })) ?? [],
-              }),
-    })
     return {
         ...cohort,
         ...(isNewCohortFilterEnabled
@@ -181,38 +154,6 @@ export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled:
                       })) ?? [],
               }),
     }
-}
-
-export const NEW_CRITERIA = {
-    type: BehavioralFilterKey.Behavioral,
-    value: BehavioralEventType.PerformEvent,
-    event_type: TaxonomicFilterGroupType.Events,
-    time_value: "30",
-    time_interval: TimeUnitType.Day,
-}
-
-export const NEW_CRITERIA_GROUP: CohortCriteriaGroupFilter = {
-    id: Math.random().toString().substr(2, 5),
-    type: FilterLogicalOperator.Or,
-    values: [NEW_CRITERIA],
-}
-
-export const NEW_COHORT: CohortType = {
-    id: 'new',
-    groups: [
-        {
-            id: Math.random().toString().substr(2, 5),
-            matchType: PROPERTY_MATCH_TYPE,
-            properties: [],
-        },
-    ],
-    filters: {
-        properties: {
-            id: Math.random().toString().substr(2, 5),
-            type: FilterLogicalOperator.Or,
-            values: [NEW_CRITERIA_GROUP],
-        },
-    },
 }
 
 export function validateGroup(

@@ -1,13 +1,13 @@
 import './CohortCriteriaRowBuilder.scss'
 import React from 'react'
 import {BehavioralFilterType, CohortFieldProps, Field, FilterType} from 'scenes/cohorts/CohortFilters/types'
-import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { Row, Col, Divider } from 'antd'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconCopy, IconDelete } from 'lib/components/icons'
-import { AnyCohortCriteriaType, FilterLogicalOperator } from '~/types'
+import {renderField, ROWS} from 'scenes/cohorts/CohortFilters/constants'
+import {Col, Divider, Row} from 'antd'
+import {LemonButton} from 'lib/components/LemonButton'
+import {IconCopy, IconDelete} from 'lib/components/icons'
+import {AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator} from '~/types'
 import clsx from "clsx";
-import { Field as KeaField } from 'kea-forms'
+import {Field as KeaField} from 'kea-forms'
 import {AlertMessage} from "lib/components/AlertMessage";
 import {useActions} from "kea";
 import {cohortLogic} from "scenes/cohorts/cohortLogic";
@@ -20,6 +20,7 @@ export interface CohortCriteriaRowBuilderProps {
     index: number
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
+    onChangeType?: (nextType: BehavioralFilterType) => void
 }
 
 export function CohortCriteriaRowBuilder({
@@ -29,11 +30,10 @@ export function CohortCriteriaRowBuilder({
     logicalOperator,
     criteria,
     hideDeleteIcon = false,
+    onChangeType
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const {setCriteria, duplicateFilter, removeFilter} = useActions(cohortLogic)
     const rowShape = ROWS[type]
-
-    console.log("CRITERIA", criteria)
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
@@ -98,7 +98,10 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
-                                        onChange: (newCriteria) => setCriteria(cleanCriteria(newCriteria), groupIndex, index),
+                                        onChange: (newCriteria) => {
+                                            setCriteria(cleanCriteria(newCriteria), groupIndex, index)
+                                            onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
+                                        },
                                     })}
                                 </Col>
                             </>
@@ -121,6 +124,7 @@ export function CohortCriteriaRowBuilder({
                                     return (
                                         !field.hide && (field.fieldKey ? (
                                                 <KeaField
+                                                    key={i}
                                                     name={field.fieldKey}
                                                     template={({error, kids}) => {
                                                         return (
@@ -138,7 +142,7 @@ export function CohortCriteriaRowBuilder({
                                                     </>
                                                 </KeaField>
                                             ) : (
-                                                <div className="CohortCriteriaRow__Criteria__Field">
+                                                <div key={i} className="CohortCriteriaRow__Criteria__Field">
                                                     {renderFieldComponent(field, i)}
                                                 </div>
                                             )

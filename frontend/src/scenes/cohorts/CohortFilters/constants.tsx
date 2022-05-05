@@ -1,7 +1,8 @@
 import React from 'react'
 import {
     BehavioralFilterKey,
-    BehavioralFilterType, CohortClientErrors,
+    BehavioralFilterType,
+    CohortClientErrors,
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortTaxonomicFieldProps,
@@ -17,7 +18,10 @@ import {
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
+    CohortCriteriaGroupFilter,
+    CohortType,
     DateOperatorType,
+    FilterLogicalOperator,
     PropertyMathType,
     PropertyOperator,
     TimeUnitType,
@@ -29,9 +33,9 @@ import {
     CohortTaxonomicField,
     CohortTextField,
 } from 'scenes/cohorts/CohortFilters/CohortField'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { CohortTypeEnum } from 'lib/constants'
+import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
+import {LemonSelectOptions} from 'lib/components/LemonSelect'
+import {CohortTypeEnum, PROPERTY_MATCH_TYPE} from 'lib/constants'
 
 /*
  * Cohort filters are broken down into 3 layers of components.
@@ -855,5 +859,36 @@ export const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
     },
     [CohortTypeEnum.Dynamic]: {
         label: 'Dynamic · Updates automatically',
+    },
+}
+export const NEW_CRITERIA = {
+    type: BehavioralFilterKey.Behavioral,
+    value: BehavioralEventType.PerformEvent,
+    event_type: TaxonomicFilterGroupType.Events,
+    time_value: "30",
+    time_interval: TimeUnitType.Day,
+}
+
+export const NEW_CRITERIA_GROUP: CohortCriteriaGroupFilter = {
+    id: Math.random().toString().substr(2, 5),
+    type: FilterLogicalOperator.Or,
+    values: [NEW_CRITERIA],
+}
+
+export const NEW_COHORT: CohortType = {
+    id: 'new',
+    groups: [
+        {
+            id: Math.random().toString().substr(2, 5),
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [],
+        },
+    ],
+    filters: {
+        properties: {
+            id: Math.random().toString().substr(2, 5),
+            type: FilterLogicalOperator.Or,
+            values: [NEW_CRITERIA_GROUP],
+        },
     },
 }

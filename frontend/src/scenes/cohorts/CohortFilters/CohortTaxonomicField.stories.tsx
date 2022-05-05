@@ -1,12 +1,12 @@
-import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortTaxonomicField } from './CohortField'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { useMountedLogic } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
-import { renderField } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+import {useState} from 'react'
+import {ComponentMeta, ComponentStory} from '@storybook/react'
+import {CohortTaxonomicField} from './CohortField'
+import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
+import {taxonomicFilterMocksDecorator} from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import {useMountedLogic} from 'kea'
+import {actionsModel} from '~/models/actionsModel'
+import {renderField} from 'scenes/cohorts/CohortFilters/constants'
+import {CohortTaxonomicFieldProps, FilterType} from 'scenes/cohorts/CohortFilters/types'
 
 export default {
     title: 'Filters/Cohort Filters/Fields/Taxonomic',
@@ -16,10 +16,13 @@ export default {
 
 const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxonomicFieldProps) => {
     useMountedLogic(actionsModel)
-    const [value, setValue] = useState<string | null>(null)
-    return renderField[FilterType.EventsAndActions]({
+    const [value, setValue] = useState<string | undefined>('')
+    const type = props.taxonomicGroupTypes === [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions] ? FilterType.EventsAndActions : FilterType.EventProperties
+    return renderField[type]({
         ...props,
-        value,
+        criteria: {
+            key: value
+        },
         onChange: (key) => setValue(String(key)),
     })
 }

@@ -23,12 +23,10 @@ import {
     cleanCriteria,
     createCohortFormData,
     isCohortCriteriaGroup,
-    NEW_COHORT,
-    NEW_CRITERIA,
-    NEW_CRITERIA_GROUP,
     processCohortOnSet,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
+import {NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP} from "scenes/cohorts/CohortFilters/constants";
 
 export interface CohortLogicProps {
     id?: CohortType['id']
@@ -81,7 +79,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                     }
                     return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
-                setOuterGroupsType: (state, { type }) => processCohortOnSet({
+                setOuterGroupsType: (state, { type }) => ({
                     ...state,
                     filters: {
                         properties: {
@@ -89,7 +87,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                             type,
                         },
                     },
-                }, values.newCohortFiltersEnabled),
+                }),
                 setInnerGroupType: (state, { type, groupIndex }) => applyAllCriteriaGroup(state,(groupList) =>
                     groupList.map((group, groupI) =>
                         groupI === groupIndex

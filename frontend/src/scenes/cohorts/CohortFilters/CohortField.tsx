@@ -141,7 +141,6 @@ export function CohortNumberField({
     criteria,
     onChange: _onChange,
 }: CohortNumberFieldProps): JSX.Element {
-    console.log("NUMBER FIELD", criteria)
     const { logic } = useCohortFieldLogic({
         fieldKey: fieldKey,
         cohortFilterLogicKey,
