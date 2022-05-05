@@ -125,23 +125,33 @@ export const logos = {
     default: posthogLogo,
 }
 
+export enum ThirdPartySourceType {
+    Integration = 'INTEGRATION',
+    Plugin = 'PLUGIN',
+}
+
 export const thirdPartySources = [
-    { name: 'Segment', type: 'integration', icon: <Segment />, docsLink: "https://segment.com/docs/connections/destinations/catalog/posthog/" },
+    {
+        name: 'Segment',
+        type: ThirdPartySourceType.Integration,
+        icon: <Segment />,
+        docsLink: 'https://segment.com/docs/connections/destinations/catalog/posthog/',
+    },
     {
         name: 'Rudderstack',
-        type: 'integration',
+        type: ThirdPartySourceType.Integration,
         icon: (
             <img
                 style={{ height: 36, width: 36 }}
                 src={'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png'}
             />
         ),
-        docsLink: "https://www.rudderstack.com/docs/destinations/analytics/posthog/"
+        docsLink: 'https://www.rudderstack.com/docs/destinations/analytics/posthog/',
     },
     {
         name: 'Redshift',
-        type: 'plugin',
-        pluginName: "redshift-import-plugin-(beta)",
+        type: ThirdPartySourceType.Plugin,
+        pluginName: 'redshift-import-plugin-(beta)',
         icon: (
             <img
                 style={{ height: 48, width: 48 }}
