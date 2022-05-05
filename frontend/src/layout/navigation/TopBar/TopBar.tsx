@@ -53,7 +53,6 @@ export function TopBar(): JSX.Element {
                                 groupType={TaxonomicFilterGroupType.Events}
                                 groupTypes={[
                                     TaxonomicFilterGroupType.Events,
-                                    TaxonomicFilterGroupType.Persons,
                                     TaxonomicFilterGroupType.Actions,
                                     TaxonomicFilterGroupType.Cohorts,
                                     TaxonomicFilterGroupType.Insights,

@@ -9,6 +9,7 @@ from rest_framework import exceptions, status
 
 from posthog.celery import sync_all_organization_available_features
 from posthog.constants import AvailableFeature
+from posthog.models.utils import sane_repr
 
 
 class LicenseError(exceptions.APIException):
@@ -29,11 +30,11 @@ class LicenseError(exceptions.APIException):
 class LicenseManager(models.Manager):
     def first_valid(self) -> Optional["License"]:
         """Return the highest valid license."""
+        # KEEP IN SYNC WITH licenseLogic.selectors.relevantLicense FOR THE ACTIVE LICENSE
         valid_licenses = list(self.filter(valid_until__gte=timezone.now()))
         if not valid_licenses:
             return None
-        valid_licenses.sort(key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0), reverse=True)
-        return valid_licenses[0]
+        return max(valid_licenses, key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0))
 
 
 class License(models.Model):
@@ -68,11 +69,14 @@ class License(models.Model):
         AvailableFeature.SSO_ENFORCEMENT,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
-    PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}  # The higher the plan, the higher its sorting value
+    # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
+    PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}
 
     @property
     def available_features(self) -> List[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
+
+    __repr__ = sane_repr("key", "plan", "valid_until")
 
 
 def get_licensed_users_available() -> Optional[int]:

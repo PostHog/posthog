@@ -136,6 +136,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
+    HISTORICAL_EXPORTS_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

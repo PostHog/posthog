@@ -6,6 +6,7 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
+import { PanelSupport } from './PanelComponents'
 
 export function FrameworkPanel(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
@@ -21,7 +22,7 @@ export function FrameworkPanel(): JSX.Element {
         >
             {onboarding1 ? (
                 <div style={{ maxWidth: 400, marginLeft: 24, marginRight: 24 }}>
-                    <h1 style={{ fontSize: 28, fontWeight: 800 }}>
+                    <h1 className="ingestion-title">
                         {platform === BACKEND ? 'Choose the framework your app is built in' : 'Pick a mobile platform'}
                     </h1>
                     <p className="prompt-text">
@@ -35,20 +36,21 @@ export function FrameworkPanel(): JSX.Element {
                                 data-attr={`select-framework-${item}`}
                                 fullWidth
                                 center
-                                className="ingestion-btn"
+                                className="mb-05"
                                 onClick={() => setFramework(item)}
                             >
                                 {frameworks[item]}
                             </LemonButton>
                         ))}
-                        <Row justify="center" className="mt">
-                            <p className="text-center mb-0" style={{ fontSize: 16 }}>
+                        <Row justify="center" className="mt pb" style={{ borderBottom: '2px dashed var(--border)' }}>
+                            <p className="text-center mb-0 text-muted" style={{ fontSize: 16 }}>
                                 Don't see your framework here?{' '}
                                 <a onClick={() => setFramework(API)}>
                                     <b>Continue with our HTTP API</b>
                                 </a>
                             </p>
                         </Row>
+                        <PanelSupport />
                     </Col>
                 </div>
             ) : (

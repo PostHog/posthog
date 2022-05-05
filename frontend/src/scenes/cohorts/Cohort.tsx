@@ -28,7 +28,10 @@ import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Cohort,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
+    logic: cohortLogic,
+    paramsToProps: ({ params: { id } }): typeof cohortLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
@@ -305,7 +308,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 </div>
                             ) : (
                                 <div style={{ marginTop: 15 }}>
-                                    <Persons cohort={cohort} />
+                                    <Persons cohort={cohort.id} />
                                 </div>
                             )}
                         </div>

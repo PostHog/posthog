@@ -44,7 +44,7 @@ services:
 
     # Used for/by 1. celery broker 2. django.core.cache
     redis:
-        image: 'redis:alpine'
+        image: redis:6.2.7-alpine
         ports:
             - '6379:6379'
 
@@ -68,7 +68,7 @@ services:
 
     # Needed for 1. clickhouse distributed queries 2. kafka replication
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
 
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99

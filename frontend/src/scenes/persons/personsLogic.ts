@@ -94,7 +94,8 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
             setPerson: (_, { person }): PersonType | null => person,
         },
     },
-    selectors: ({ props }) => ({
+    selectors: () => ({
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
         showSessionRecordings: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => {
@@ -130,9 +131,9 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
             },
         ],
         exportUrl: [
-            (s) => [s.listFilters],
-            (listFilters): string =>
-                props.cohort ? `/api/cohort/${props.cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
+            (s) => [s.listFilters, (_, { cohort }) => cohort],
+            (listFilters, cohort): string =>
+                cohort ? `/api/cohort/${cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
         ],
     }),
     listeners: ({ actions, values }) => ({
