@@ -52,7 +52,7 @@ const DashboardRelationRow = ({
             <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
-                compact={true}
+                size="small"
                 onClick={(e) => {
                     e.preventDefault()
                     isAlreadyOnDashboard
@@ -131,12 +131,12 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 </div>
             </section>
             <section className="space-between-items">
-                <LemonButton type="secondary" compact onClick={addNewDashboard}>
+                <LemonButton type="secondary" size="small" onClick={addNewDashboard}>
                     Add to a new dashboard
                 </LemonButton>
                 <LemonButton
                     type="secondary"
-                    compact
+                    size="small"
                     onClick={closeModal}
                     style={{ marginTop: 0 }} /* lemon section styling was adding a margin top */
                 >

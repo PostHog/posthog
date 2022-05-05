@@ -37,7 +37,7 @@ function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Ele
                         toast.dismiss(id)
                     }}
                     type="secondary"
-                    compact
+                    size="small"
                 >
                     {button.label}
                 </LemonButton>
