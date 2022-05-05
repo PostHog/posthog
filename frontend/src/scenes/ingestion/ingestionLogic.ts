@@ -5,6 +5,8 @@ import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { PluginTypeWithConfig } from 'scenes/plugins/types'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export const ingestionLogic = kea<ingestionLogicType>({
     path: ['scenes', 'ingestion', 'ingestionLogic'],
@@ -23,6 +25,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
         setActiveTab: (tab: string) => ({ tab }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
+        openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
         completeOnboarding: true,
     },
 
@@ -60,12 +63,14 @@ export const ingestionLogic = kea<ingestionLogicType>({
             false,
             {
                 setInstructionsModal: (_, { isOpen }) => isOpen,
+                openThirdPartyPluginModal: () => true
             },
         ],
         thirdPartySource: [
             null,
             {
                 setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
+                openThirdPartyPluginModal: (_, { plugin }) => plugin
             },
         ],
     },
@@ -151,6 +156,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
         updateCurrentTeamSuccess: () => {
             window.location.href = '/'
         },
+        openThirdPartyPluginModal: ({ plugin }) => {
+            pluginsLogic.actions.editPlugin(plugin.id)
+        }
     }),
 })
 
