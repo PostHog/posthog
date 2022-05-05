@@ -244,12 +244,7 @@ export class HookCommander {
     ): Promise<void> {
         let sendablePerson: Record<string, any> = {}
         if (person) {
-            const {      
-                uuid,
-                properties,
-                team_id,
-                id
-            } = person
+            const { uuid, properties, team_id, id } = person
 
             // CachedPersonData has created_at_iso (string), whereas Person has created_at (DateTime)
             // so we standardize into ISO before sending the payload
@@ -260,10 +255,9 @@ export class HookCommander {
                 properties,
                 team_id,
                 id,
-                created_at: createdAt
+                created_at: createdAt,
             }
         }
-
 
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },

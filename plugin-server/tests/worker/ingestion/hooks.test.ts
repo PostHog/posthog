@@ -288,17 +288,21 @@ describe('hooks', () => {
             hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
 
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
-                body: JSON.stringify({ 
-                    hook: { 
-                        id: 'id', 
-                        event: 'foo', 
-                        target: 'foo.bar' 
-                    }, 
-                    data: { 
-                        event: 'foo', 
-                        person: {} // person becomes empty object if undefined
-                    } 
-                }, undefined, 4),
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {}, // person becomes empty object if undefined
+                        },
+                    },
+                    undefined,
+                    4
+                ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
             })
@@ -312,27 +316,31 @@ describe('hooks', () => {
                 properties: { foo: 'bar' },
                 team_id: 1,
                 id: 1,
-                created_at_iso: now
+                created_at_iso: now,
             }
             hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
-                body: JSON.stringify({ 
-                    hook: { 
-                        id: 'id', 
-                        event: 'foo', 
-                        target: 'foo.bar' 
-                    }, 
-                    data: { 
-                        event: 'foo', 
-                        person: {
-                            uuid: uuid,
-                            properties: { foo: 'bar' },
-                            team_id: 1,
-                            id: 1,
-                            created_at: now
-                        }
-                    } 
-                }, undefined, 4),
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now,
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
             })
@@ -351,27 +359,31 @@ describe('hooks', () => {
                 is_identified: false,
                 properties_last_updated_at: {},
                 properties_last_operation: {},
-                version: 15
+                version: 15,
             }
             hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
-                body: JSON.stringify({ 
-                    hook: { 
-                        id: 'id', 
-                        event: 'foo', 
-                        target: 'foo.bar' 
-                    }, 
-                    data: { 
-                        event: 'foo', 
-                        person: {
-                            uuid: uuid,
-                            properties: { foo: 'bar' },
-                            team_id: 1,
-                            id: 1,
-                            created_at: now.toISO()
-                        }
-                    } 
-                }, undefined, 4),
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now.toISO(),
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
             })
