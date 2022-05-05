@@ -1,17 +1,17 @@
 import './CohortCriteriaRowBuilder.scss'
 import React from 'react'
-import {BehavioralFilterType, CohortFieldProps, Field, FilterType} from 'scenes/cohorts/CohortFilters/types'
-import {renderField, ROWS} from 'scenes/cohorts/CohortFilters/constants'
-import {Col, Divider, Row} from 'antd'
-import {LemonButton} from 'lib/components/LemonButton'
-import {IconCopy, IconDelete} from 'lib/components/icons'
-import {AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator} from '~/types'
-import clsx from "clsx";
-import {Field as KeaField} from 'kea-forms'
-import {AlertMessage} from "lib/components/AlertMessage";
-import {useActions} from "kea";
-import {cohortLogic} from "scenes/cohorts/cohortLogic";
-import {cleanCriteria} from "scenes/cohorts/cohortUtils";
+import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
+import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { Col, Divider, Row } from 'antd'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconCopy, IconDelete } from 'lib/components/icons'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import clsx from 'clsx'
+import { Field as KeaField } from 'kea-forms'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { useActions } from 'kea'
+import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
 export interface CohortCriteriaRowBuilderProps {
     criteria: AnyCohortCriteriaType
@@ -30,9 +30,9 @@ export function CohortCriteriaRowBuilder({
     logicalOperator,
     criteria,
     hideDeleteIcon = false,
-    onChangeType
+    onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const {setCriteria, duplicateFilter, removeFilter} = useActions(cohortLogic)
+    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortLogic)
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
@@ -41,7 +41,7 @@ export function CohortCriteriaRowBuilder({
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
-                    ...(_field.type === FilterType.Text ? {value: _field.defaultValue} : {}),
+                    ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
                 } as CohortFieldProps)}
             </Col>
@@ -57,22 +57,23 @@ export function CohortCriteriaRowBuilder({
             )}
             <KeaField
                 name="id"
-                template={({error, kids}) => {
+                template={({ error, kids }) => {
                     return (
                         <>
                             <div
-                                className={clsx('CohortCriteriaRow__Criteria', error && `CohortCriteriaRow__Criteria--error`)}>
+                                className={clsx(
+                                    'CohortCriteriaRow__Criteria',
+                                    error && `CohortCriteriaRow__Criteria--error`
+                                )}
+                            >
                                 {kids}
                                 {error && (
-                                <Row
-                                    className='CohortCriteriaRow__Criteria__error-row'>
-                                    <AlertMessage type='error' style={{width: "100%"}}>
-                                        <>
-                                            {error}
-                                        </>
-                                    </AlertMessage>
-                                </Row>
-                            )}
+                                    <Row className="CohortCriteriaRow__Criteria__error-row">
+                                        <AlertMessage type="error" style={{ width: '100%' }}>
+                                            <>{error}</>
+                                        </AlertMessage>
+                                    </Row>
+                                )}
                             </div>
                         </>
                     )
@@ -81,12 +82,16 @@ export function CohortCriteriaRowBuilder({
                 <>
                     <Row align="middle" wrap={false} className="mb-025">
                         <KeaField
-                            name='value'
-                            template={({error, kids}) => {
+                            name="value"
+                            template={({ error, kids }) => {
                                 return (
                                     <>
                                         <div
-                                            className={clsx('CohortCriteriaRow__Criteria__Field', error && `CohortCriteriaRow__Criteria__Field--error`)}>
+                                            className={clsx(
+                                                'CohortCriteriaRow__Criteria__Field',
+                                                error && `CohortCriteriaRow__Criteria__Field--error`
+                                            )}
+                                        >
                                             {kids}
                                         </div>
                                     </>
@@ -106,15 +111,21 @@ export function CohortCriteriaRowBuilder({
                                 </Col>
                             </>
                         </KeaField>
-                        <div className="CohortCriteriaRow__inline-divider"/>
-                        <LemonButton icon={<IconCopy/>} type="primary-alt"
-                                     onClick={() => duplicateFilter(groupIndex, index)}/>
+                        <div className="CohortCriteriaRow__inline-divider" />
+                        <LemonButton
+                            icon={<IconCopy />}
+                            type="primary-alt"
+                            onClick={() => duplicateFilter(groupIndex, index)}
+                        />
                         {!hideDeleteIcon && (
-                            <LemonButton icon={<IconDelete/>} type="primary-alt"
-                                         onClick={() => removeFilter(groupIndex, index)}/>
+                            <LemonButton
+                                icon={<IconDelete />}
+                                type="primary-alt"
+                                onClick={() => removeFilter(groupIndex, index)}
+                            />
                         )}
                     </Row>
-                    <div style={{display: 'flex'}}>
+                    <div style={{ display: 'flex' }}>
                         <Col>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         </Col>
@@ -122,31 +133,33 @@ export function CohortCriteriaRowBuilder({
                             <Row align="middle">
                                 {rowShape.fields.map((field, i) => {
                                     return (
-                                        !field.hide && (field.fieldKey ? (
-                                                <KeaField
-                                                    key={i}
-                                                    name={field.fieldKey}
-                                                    template={({error, kids}) => {
-                                                        return (
-                                                            <>
-                                                                <div
-                                                                    className={clsx('CohortCriteriaRow__Criteria__Field', error && `CohortCriteriaRow__Criteria__Field--error`)}>
-                                                                    {kids}
-                                                                </div>
-                                                            </>
-                                                        )
-                                                    }}
-                                                >
-                                                    <>
-                                                        {renderFieldComponent(field, i)}
-                                                    </>
-                                                </KeaField>
-                                            ) : (
-                                                <div key={i} className="CohortCriteriaRow__Criteria__Field">
-                                                    {renderFieldComponent(field, i)}
-                                                </div>
-                                            )
-                                        )
+                                        !field.hide &&
+                                        (field.fieldKey ? (
+                                            <KeaField
+                                                key={i}
+                                                name={field.fieldKey}
+                                                template={({ error, kids }) => {
+                                                    return (
+                                                        <>
+                                                            <div
+                                                                className={clsx(
+                                                                    'CohortCriteriaRow__Criteria__Field',
+                                                                    error && `CohortCriteriaRow__Criteria__Field--error`
+                                                                )}
+                                                            >
+                                                                {kids}
+                                                            </div>
+                                                        </>
+                                                    )
+                                                }}
+                                            >
+                                                <>{renderFieldComponent(field, i)}</>
+                                            </KeaField>
+                                        ) : (
+                                            <div key={i} className="CohortCriteriaRow__Criteria__Field">
+                                                {renderFieldComponent(field, i)}
+                                            </div>
+                                        ))
                                     )
                                 })}
                             </Row>

@@ -10,17 +10,17 @@ import {
     CohortType,
     FilterLogicalOperator,
 } from '~/types'
-import {ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE} from 'lib/constants'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
-    FieldWithFieldKey
+    FieldWithFieldKey,
 } from 'scenes/cohorts/CohortFilters/types'
-import {areObjectValuesEmpty, convertPropertyGroupToProperties} from 'lib/utils'
-import {DeepPartialMap, ValidationErrorType} from 'kea-forms'
+import { areObjectValuesEmpty, convertPropertyGroupToProperties } from 'lib/utils'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
-import {CRITERIA_VALIDATIONS, ROWS} from 'scenes/cohorts/CohortFilters/constants'
+import { CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -46,10 +46,9 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
         type = BehavioralFilterKey.Cohort
     }
     if (
-        [
-            BehavioralEventType.HaveProperty,
-            BehavioralEventType.NotHaveProperty,
-        ].includes(criteria.value as BehavioralEventType)
+        [BehavioralEventType.HaveProperty, BehavioralEventType.NotHaveProperty].includes(
+            criteria.value as BehavioralEventType
+        )
     ) {
         type = BehavioralFilterKey.Person
     }
@@ -86,17 +85,27 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 
 export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): FormData {
     const rawCohort = {
-        ...(cohort.name ? {name: cohort.name} : {}),
-        ...(cohort.description ? {description: cohort.description} : {}),
-        ...(cohort.csv ? {csv: cohort.csv} : {}),
-        ...(cohort.is_static ? {is_static: cohort.is_static} : {}),
+        ...(cohort.name ? { name: cohort.name } : {}),
+        ...(cohort.description ? { description: cohort.description } : {}),
+        ...(cohort.csv ? { csv: cohort.csv } : {}),
+        ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(isNewCohortFilterEnabled
             ? {
-                filters: JSON.stringify(cohort.is_static
-                    ? {}
-                    /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
-                    : applyAllNestedCriteria(cohort, (criteriaList) =>
-                        criteriaList.map(c => ({...c, ...("value_property" in c ? {value: c.value_property} : {}), value_property: undefined}) as AnyCohortCriteriaType)).filters),
+                  filters: JSON.stringify(
+                      cohort.is_static
+                          ? {}
+                          : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
+                            applyAllNestedCriteria(cohort, (criteriaList) =>
+                                criteriaList.map(
+                                    (c) =>
+                                        ({
+                                            ...c,
+                                            ...('value_property' in c ? { value: c.value_property } : {}),
+                                            value_property: undefined,
+                                        } as AnyCohortCriteriaType)
+                                )
+                            ).filters
+                  ),
                   groups: JSON.stringify([]),
               }
             : {
@@ -137,11 +146,22 @@ export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled:
             ? {
                   filters: {
                       /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                      properties: applyAllNestedCriteria(cohort, (criteriaList => criteriaList.map(c => c.type && [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) && !("value_property" in c) ? {
-                          ...c,
-                          value_property: c.value,
-                          value: c.type === BehavioralFilterKey.Cohort ? BehavioralCohortType.InCohort : BehavioralEventType.HaveProperty
-                      } : c))).filters.properties,
+                      properties: applyAllNestedCriteria(cohort, (criteriaList) =>
+                          criteriaList.map((c) =>
+                              c.type &&
+                              [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                              !('value_property' in c)
+                                  ? {
+                                        ...c,
+                                        value_property: c.value,
+                                        value:
+                                            c.type === BehavioralFilterKey.Cohort
+                                                ? BehavioralCohortType.InCohort
+                                                : BehavioralEventType.HaveProperty,
+                                    }
+                                  : c
+                          )
+                      ).filters.properties,
                   },
               }
             : {
@@ -168,7 +188,7 @@ export function validateGroup(
         .filter((g) => !isCohortCriteriaGroup(g))
         .map((c, index) => ({ ...c, index }))
     const negatedCriteria = criteria.filter((c) => !!c.negation)
-    const negatedCriteriaIndices = new Set(negatedCriteria.map(c => c.index))
+    const negatedCriteriaIndices = new Set(negatedCriteria.map((c) => c.index))
 
     if (
         // Negation criteria can only be used when matching ALL criteria
@@ -245,16 +265,20 @@ export function validateGroup(
             ) as FieldWithFieldKey[]
 
             const criteriaErrors = Object.fromEntries(
-                    requiredFields.map(({fieldKey, type}) => [
-                        fieldKey,
-                        c[fieldKey] !== undefined && c[fieldKey] !== null ? undefined : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
-                    ])
-                )
-            const consolidatedErrors = Object.values(criteriaErrors).filter(e => !!e).join(" ")
+                requiredFields.map(({ fieldKey, type }) => [
+                    fieldKey,
+                    c[fieldKey] !== undefined && c[fieldKey] !== null
+                        ? undefined
+                        : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
+                ])
+            )
+            const consolidatedErrors = Object.values(criteriaErrors)
+                .filter((e) => !!e)
+                .join(' ')
 
             return {
-                ...(areObjectValuesEmpty(criteriaErrors) ? {} : {id: consolidatedErrors}),
-                ...criteriaErrors
+                ...(areObjectValuesEmpty(criteriaErrors) ? {} : { id: consolidatedErrors }),
+                ...criteriaErrors,
             }
         }),
     }
@@ -283,7 +307,10 @@ export function determineFilterType(
     value: BehavioralFilterType,
     negation: boolean = false
 ): AnyCohortCriteriaType {
-    if (value === BehavioralEventType.NotPerformSequenceEvents || (value === BehavioralEventType.PerformSequenceEvents && negation)) {
+    if (
+        value === BehavioralEventType.NotPerformSequenceEvents ||
+        (value === BehavioralEventType.PerformSequenceEvents && negation)
+    ) {
         return {
             type: BehavioralFilterKey.Behavioral,
             value: BehavioralEventType.PerformSequenceEvents,
@@ -319,7 +346,10 @@ export function determineFilterType(
     }
 }
 
-export function resolveCohortFieldValue(criteria: AnyCohortCriteriaType, fieldKey: string): string | number | boolean | null | undefined {
+export function resolveCohortFieldValue(
+    criteria: AnyCohortCriteriaType,
+    fieldKey: string
+): string | number | boolean | null | undefined {
     // Resolve correct behavioral filter type
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
@@ -327,7 +357,12 @@ export function resolveCohortFieldValue(criteria: AnyCohortCriteriaType, fieldKe
     return criteria?.[fieldKey] ?? null
 }
 
-export function applyAllCriteriaGroup(oldCohort: CohortType, fn: (groupList: (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]): CohortType {
+export function applyAllCriteriaGroup(
+    oldCohort: CohortType,
+    fn: (
+        groupList: (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]
+    ) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]
+): CohortType {
     return {
         ...oldCohort,
         filters: {
@@ -339,7 +374,11 @@ export function applyAllCriteriaGroup(oldCohort: CohortType, fn: (groupList: (An
     }
 }
 
-export function applyAllNestedCriteria(oldCohort: CohortType, fn: (criteriaList: AnyCohortCriteriaType[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[], groupIndex?: number): CohortType {
+export function applyAllNestedCriteria(
+    oldCohort: CohortType,
+    fn: (criteriaList: AnyCohortCriteriaType[]) => (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[],
+    groupIndex?: number
+): CohortType {
     return {
         ...oldCohort,
         filters: {
@@ -348,9 +387,9 @@ export function applyAllNestedCriteria(oldCohort: CohortType, fn: (criteriaList:
                 values: oldCohort.filters.properties.values.map((group, groupI) =>
                     (groupIndex === undefined || groupI === groupIndex) && isCohortCriteriaGroup(group)
                         ? {
-                            ...group,
-                            values: fn(group.values as AnyCohortCriteriaType[]),
-                        }
+                              ...group,
+                              values: fn(group.values as AnyCohortCriteriaType[]),
+                          }
                         : group
                 ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
@@ -361,14 +400,14 @@ export function applyAllNestedCriteria(oldCohort: CohortType, fn: (criteriaList:
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     const populatedCriteria = {}
-    const {fields, ...apiProps} = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = criteria[key] ?? defaultValue
         if (nextValue !== undefined && nextValue !== null) {
             populatedCriteria[key] = nextValue
         }
     })
-    fields.forEach(({fieldKey, defaultValue}) => {
+    fields.forEach(({ fieldKey, defaultValue }) => {
         const nextValue = fieldKey ? criteria[fieldKey] ?? defaultValue : null
         if (fieldKey && nextValue !== undefined && nextValue !== null) {
             populatedCriteria[fieldKey] = nextValue
@@ -376,10 +415,6 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteri
     })
     return {
         ...populatedCriteria,
-        ...determineFilterType(
-            populatedCriteria['type'],
-            populatedCriteria['value'],
-            populatedCriteria['negation']
-        ),
+        ...determineFilterType(populatedCriteria['type'], populatedCriteria['value'], populatedCriteria['negation']),
     }
 }

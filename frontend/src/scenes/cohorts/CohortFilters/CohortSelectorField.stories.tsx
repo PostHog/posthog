@@ -12,7 +12,14 @@ const Template: ComponentStory<typeof CohortSelectorField> = (props: CohortSelec
     const [value, setValue] = useState<string | undefined>(
         Object.keys(props.fieldOptionGroupTypes?.[0] ?? {})?.[0] ?? null
     )
-    return <CohortSelectorField {...props} fieldKey='key' criteria={{key: value}} onChange={(newCriteria) => setValue(newCriteria.key)} />
+    return (
+        <CohortSelectorField
+            {...props}
+            fieldKey="key"
+            criteria={{ key: value }}
+            onChange={(newCriteria) => setValue(newCriteria.key)}
+        />
+    )
 }
 
 export const AggregationSelector = Template.bind({})

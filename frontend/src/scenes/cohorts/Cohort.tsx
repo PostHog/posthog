@@ -33,8 +33,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import clsx from "clsx";
-import {AlertMessage} from "lib/components/AlertMessage";
+import clsx from 'clsx'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -234,19 +234,26 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                         name={['filters', 'properties', 'values', groupIndex]}
                                                     >
                                                         {groupIndex !== 0 && (
-                                                            <div
-                                                                className="cohort-detail__matching-group__logical-divider">
+                                                            <div className="cohort-detail__matching-group__logical-divider">
                                                                 {cohort.filters.properties.type}
                                                             </div>
                                                         )}
                                                         <KeaField
                                                             name="id"
-                                                            template={({error, kids}) => {
+                                                            template={({ error, kids }) => {
                                                                 return (
                                                                     <div
-                                                                        className={clsx('cohort-detail__matching-group', error && `cohort-detail__matching-group--error`)}>
-                                                                        <Row align="middle" wrap={false}
-                                                                             className="pl pr">
+                                                                        className={clsx(
+                                                                            'cohort-detail__matching-group',
+                                                                            error &&
+                                                                                `cohort-detail__matching-group--error`
+                                                                        )}
+                                                                    >
+                                                                        <Row
+                                                                            align="middle"
+                                                                            wrap={false}
+                                                                            className="pl pr"
+                                                                        >
                                                                             <Lettermark
                                                                                 name={alphabet[groupIndex]}
                                                                                 color={LettermarkColor.Gray}
@@ -259,28 +266,35 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                                 }
                                                                                 value={group.type}
                                                                             />
-                                                                            <div style={{flex: 1, minWidth: '0.5rem'}}/>
-                                                                            <LemonButton
-                                                                                icon={<IconCopy/>}
-                                                                                type="primary-alt"
-                                                                                onClick={() => duplicateFilter(groupIndex)}
+                                                                            <div
+                                                                                style={{ flex: 1, minWidth: '0.5rem' }}
                                                                             />
-                                                                            {cohort.filters.properties.values.length > 1 && (
+                                                                            <LemonButton
+                                                                                icon={<IconCopy />}
+                                                                                type="primary-alt"
+                                                                                onClick={() =>
+                                                                                    duplicateFilter(groupIndex)
+                                                                                }
+                                                                            />
+                                                                            {cohort.filters.properties.values.length >
+                                                                                1 && (
                                                                                 <LemonButton
-                                                                                    icon={<IconDelete/>}
+                                                                                    icon={<IconDelete />}
                                                                                     type="primary-alt"
-                                                                                    onClick={() => removeFilter(groupIndex)}
+                                                                                    onClick={() =>
+                                                                                        removeFilter(groupIndex)
+                                                                                    }
                                                                                 />
                                                                             )}
                                                                         </Row>
-                                                                        <LemonDivider large/>
+                                                                        <LemonDivider large />
                                                                         {error && (
-                                                                            <Row
-                                                                                className='cohort-detail__matching-group__error-row'>
-                                                                                <AlertMessage type='error' style={{width: "100%"}}>
-                                                                                    <>
-                                                                                        {error}
-                                                                                    </>
+                                                                            <Row className="cohort-detail__matching-group__error-row">
+                                                                                <AlertMessage
+                                                                                    type="error"
+                                                                                    style={{ width: '100%' }}
+                                                                                >
+                                                                                    <>{error}</>
                                                                                 </AlertMessage>
                                                                             </Row>
                                                                         )}
@@ -292,10 +306,14 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                             <>
                                                                 {group.values.map((criteria, criteriaIndex) => {
                                                                     return isCohortCriteriaGroup(criteria) ? null : (
-                                                                        <Group key={criteriaIndex}
-                                                                               name={["values", criteriaIndex]}>
-                                                                            <BindLogic logic={cohortLogic}
-                                                                                       props={logicProps}>
+                                                                        <Group
+                                                                            key={criteriaIndex}
+                                                                            name={['values', criteriaIndex]}
+                                                                        >
+                                                                            <BindLogic
+                                                                                logic={cohortLogic}
+                                                                                props={logicProps}
+                                                                            >
                                                                                 <CohortCriteriaRowBuilder
                                                                                     groupIndex={groupIndex}
                                                                                     index={criteriaIndex}
@@ -311,25 +329,24 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                                             </BindLogic>
                                                                             {criteriaIndex ===
                                                                                 group.values.length - 1 && (
-                                                                                    <Row>
-                                                                                        <LemonButton
-                                                                                            data-attr={
-                                                                                                'cohort-add-filter-group-criteria'
-                                                                                            }
-                                                                                            style={{margin: '0.75rem'}}
-                                                                                            type="secondary"
-                                                                                            onClick={() =>
-                                                                                                addFilter(groupIndex)
-                                                                                            }
-                                                                                            icon={
-                                                                                                <IconPlusMini
-                                                                                                    color="var(--primary)"/>
-                                                                                            }
-                                                                                        >
-                                                                                            Add criteria
-                                                                                        </LemonButton>
-                                                                                    </Row>
-                                                                                )}
+                                                                                <Row>
+                                                                                    <LemonButton
+                                                                                        data-attr={
+                                                                                            'cohort-add-filter-group-criteria'
+                                                                                        }
+                                                                                        style={{ margin: '0.75rem' }}
+                                                                                        type="secondary"
+                                                                                        onClick={() =>
+                                                                                            addFilter(groupIndex)
+                                                                                        }
+                                                                                        icon={
+                                                                                            <IconPlusMini color="var(--primary)" />
+                                                                                        }
+                                                                                    >
+                                                                                        Add criteria
+                                                                                    </LemonButton>
+                                                                                </Row>
+                                                                            )}
                                                                         </Group>
                                                                     )
                                                                 })}
@@ -343,7 +360,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                                 className="mb mt"
                                                 type="secondary"
                                                 onClick={() => addFilter()}
-                                                icon={<IconPlusMini color="var(--primary)"/>}
+                                                icon={<IconPlusMini color="var(--primary)" />}
                                                 fullWidth
                                             >
                                                 Add criteria group

@@ -33,9 +33,9 @@ import {
     CohortTaxonomicField,
     CohortTextField,
 } from 'scenes/cohorts/CohortFilters/CohortField'
-import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
-import {LemonSelectOptions} from 'lib/components/LemonSelect'
-import {CohortTypeEnum, PROPERTY_MATCH_TYPE} from 'lib/constants'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 /*
  * Cohort filters are broken down into 3 layers of components.
@@ -301,7 +301,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -332,7 +332,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -373,7 +373,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -404,7 +404,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -426,7 +426,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -461,7 +461,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -483,7 +483,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -582,7 +582,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -672,7 +672,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -686,7 +686,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -721,7 +721,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -735,7 +735,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'time_value',
                 type: FilterType.Number,
-                defaultValue: "30",
+                defaultValue: '30',
             },
             {
                 fieldKey: 'time_interval',
@@ -835,12 +835,15 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
     },
 }
 
-export const CRITERIA_VALIDATIONS: Record<string, (d: string | number | null | undefined) => CohortClientErrors | undefined> = {
+export const CRITERIA_VALIDATIONS: Record<
+    string,
+    (d: string | number | null | undefined) => CohortClientErrors | undefined
+> = {
     [FilterType.EventsAndActions]: () => CohortClientErrors.EmptyEventsAndActions,
     [FilterType.EventProperties]: () => CohortClientErrors.EmptyEventProperties,
     [FilterType.EventPropertyValues]: () => CohortClientErrors.EmptyEventPropertyValues,
     [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
-    [FilterType.Number]: (d) => Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber,
+    [FilterType.Number]: (d) => (Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber),
     [FilterType.NumberTicker]: () => CohortClientErrors.EmptyNumberTicker,
     [FilterType.TimeUnit]: () => CohortClientErrors.EmptyTimeUnit,
     [FilterType.MathOperator]: () => CohortClientErrors.EmptyMathOperator,
@@ -865,7 +868,7 @@ export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,
     event_type: TaxonomicFilterGroupType.Events,
-    time_value: "30",
+    time_value: '30',
     time_interval: TimeUnitType.Day,
 }
 

@@ -14,7 +14,9 @@ export interface AlertMessageProps {
 export function AlertMessage({ type, children, style }: AlertMessageProps): JSX.Element {
     return (
         <div className={clsx('AlertMessage', type)} style={style}>
-            <div className="AlertMessage__icon">{type === 'warning' || type === 'error' ? <WarningOutlined /> : <IconInfo />}</div>
+            <div className="AlertMessage__icon">
+                {type === 'warning' || type === 'error' ? <WarningOutlined /> : <IconInfo />}
+            </div>
             <div>{children}</div>
         </div>
     )

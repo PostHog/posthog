@@ -4,7 +4,7 @@ import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
-import {cleanBehavioralTypeCriteria, resolveCohortFieldValue} from 'scenes/cohorts/cohortUtils'
+import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -29,7 +29,8 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
         value: [
             resolveCohortFieldValue(props.criteria, props.fieldKey),
             {
-                onChange: (state, { newField }) => resolveCohortFieldValue({...props.criteria, ...newField}, props.fieldKey) ?? state,
+                onChange: (state, { newField }) =>
+                    resolveCohortFieldValue({ ...props.criteria, ...newField }, props.fieldKey) ?? state,
             },
         ],
     }),

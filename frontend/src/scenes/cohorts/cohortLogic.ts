@@ -26,7 +26,7 @@ import {
     processCohortOnSet,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
-import {NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP} from "scenes/cohorts/CohortFilters/constants";
+import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 
 export interface CohortLogicProps {
     id?: CohortType['id']
@@ -58,7 +58,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         }),
     }),
 
-    reducers: ({values}) => ({
+    reducers: ({ values }) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -88,17 +88,19 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         },
                     },
                 }),
-                setInnerGroupType: (state, { type, groupIndex }) => applyAllCriteriaGroup(state,(groupList) =>
-                    groupList.map((group, groupI) =>
-                        groupI === groupIndex
-                            ? {...group, type}
-                            : group
-                    ) as CohortCriteriaGroupFilter[]
-                ),
+                setInnerGroupType: (state, { type, groupIndex }) =>
+                    applyAllCriteriaGroup(
+                        state,
+                        (groupList) =>
+                            groupList.map((group, groupI) =>
+                                groupI === groupIndex ? { ...group, type } : group
+                            ) as CohortCriteriaGroupFilter[]
+                    ),
                 duplicateFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
-                        return applyAllNestedCriteria(state, (criteriaList) =>
-                            [
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [
                                 ...criteriaList.slice(0, criteriaIndex),
                                 criteriaList[criteriaIndex],
                                 ...criteriaList.slice(criteriaIndex),
@@ -106,47 +108,51 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) =>
-                        [
-                            ...groupList.slice(0, groupIndex),
-                            groupList[groupIndex],
-                            ...groupList.slice(groupIndex),
-                        ]
-                    )
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList.slice(0, groupIndex),
+                        groupList[groupIndex],
+                        ...groupList.slice(groupIndex),
+                    ])
                 },
                 addFilter: (state, { groupIndex }) => {
                     if (groupIndex !== undefined) {
-                        return applyAllNestedCriteria(state, (criteriaList) =>
-                            [...criteriaList, NEW_CRITERIA],
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [...criteriaList, NEW_CRITERIA],
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) =>
-                        [...groupList, NEW_CRITERIA_GROUP]
-                    )
+                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
-                        return applyAllNestedCriteria(state, (criteriaList) =>
-                            [...criteriaList.slice(0, criteriaIndex), ...criteriaList.slice(criteriaIndex + 1)],
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [
+                                ...criteriaList.slice(0, criteriaIndex),
+                                ...criteriaList.slice(criteriaIndex + 1),
+                            ],
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) =>
-                        [
-                            ...groupList.slice(0, groupIndex),
-                            ...groupList.slice(groupIndex + 1),
-                        ]
-                    )
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList.slice(0, groupIndex),
+                        ...groupList.slice(groupIndex + 1),
+                    ])
                 },
-                setCriteria: (state, {newCriteria, groupIndex, criteriaIndex}) => {
-                    return applyAllNestedCriteria(state, (criteriaList) => criteriaList.map((oldCriteria, criteriaI) =>
-                        isCohortCriteriaGroup(oldCriteria)
-                            ? oldCriteria
-                            : criteriaI === criteriaIndex
-                                ? cleanCriteria({...oldCriteria, ...newCriteria})
-                                : oldCriteria
-                    ), groupIndex)
+                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
+                    return applyAllNestedCriteria(
+                        state,
+                        (criteriaList) =>
+                            criteriaList.map((oldCriteria, criteriaI) =>
+                                isCohortCriteriaGroup(oldCriteria)
+                                    ? oldCriteria
+                                    : criteriaI === criteriaIndex
+                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                    : oldCriteria
+                            ),
+                        groupIndex
+                    )
                 },
             },
         ],

@@ -23,7 +23,7 @@ describe('cohortFieldLogic', () => {
     async function initLogic(
         props: CohortFieldLogicProps = {
             cohortFilterLogicKey: '0',
-            fieldKey: "value",
+            fieldKey: 'value',
             criteria: {},
             fieldOptionGroupTypes: [FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation],
         }
@@ -46,8 +46,8 @@ describe('cohortFieldLogic', () => {
             it(key, async () => {
                 await initLogic({
                     cohortFilterLogicKey: '0',
-                    fieldKey: "value",
-            criteria: {},
+                    fieldKey: 'value',
+                    criteria: {},
                     fieldOptionGroupTypes: [key as FieldOptionsType],
                 })
                 await expectLogic(logic).toMatchValues({

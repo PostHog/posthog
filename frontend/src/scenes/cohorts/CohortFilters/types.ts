@@ -1,7 +1,7 @@
-import {LemonSelectOptions} from 'lib/components/LemonSelect'
-import {BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType} from '~/types'
-import {CohortFieldLogicProps} from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
-import {TaxonomicFilterGroupType} from 'lib/components/TaxonomicFilter/types'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType } from '~/types'
+import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export enum FilterType {
     Behavioral = 'behavioral',
@@ -107,7 +107,7 @@ export enum CohortClientErrors {
     EmptyEventPropertyValues = 'Event property value cannot be empty',
     EmptyEventType = 'Event type cannot be empty.',
     EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
-    EmptyNumberTicker =  'Number cannot be empty.',
+    EmptyNumberTicker = 'Number cannot be empty.',
     EmptyTimeUnit = 'Time interval cannot be empty.',
     EmptyMathOperator = 'Math operator cannot be empty.',
     EmptyCohortId = 'Cohort id cannot be empty.',
