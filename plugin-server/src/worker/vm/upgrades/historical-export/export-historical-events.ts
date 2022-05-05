@@ -247,8 +247,6 @@ export function addHistoricalEventsExportCapability(
                 timestampCursor + EVENTS_TIME_INTERVAL
             ).toISOString()}.`
         )
-
-        incrementMetric('events_exported', events.length)
     }
 
     // initTimestampsAndCursor decides what timestamp boundaries to use before
@@ -327,15 +325,6 @@ export function addHistoricalEventsExportCapability(
             .map((_) => '□')
             .join('')
         createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
-    }
-
-    function incrementMetric(metricName: string, value: number) {
-        hub.pluginMetricsManager.updateMetric({
-            metricName,
-            value,
-            pluginConfig,
-            metricOperation: MetricMathOperations.Increment,
-        })
     }
 
     function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {
