@@ -5,6 +5,7 @@ from ee.clickhouse.models.property import extract_tables_and_properties, parse_p
 from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
+from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
@@ -99,11 +100,13 @@ class PersonQuery:
             return True
         if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
             return True
-        if len(self._filter.actions) > 0:
-            for action in self._filter.actions:
-                for step in action._action.steps.all():
-                    if any(prop.get("type") == "cohort" for prop in step.properties):
-                        return True
+        if any(
+            prop.get("type") == "cohort"
+            for entity_action in self._filter.actions
+            for step in ActionStep.objects.filter(action_id=entity_action.id).all()
+            for prop in step.properties
+        ):
+            return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
 

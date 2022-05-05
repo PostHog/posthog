@@ -54,7 +54,9 @@ def get_breakdown_prop_values(
         person_id_joined_alias="pdi.person_id",
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team.pk, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(
+        entity=entity, team_id=team.pk, table_name="e", person_id_joined_alias="pdi.person_id",
+    )
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
