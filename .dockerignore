@@ -20,3 +20,4 @@
 !frontend/public
 !frontend/*.*
 !ee
+!.devcontainer
