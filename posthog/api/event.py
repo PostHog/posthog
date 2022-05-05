@@ -25,6 +25,7 @@ from ee.clickhouse.sql.events import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
+from ee.clickhouse.system_status import query_with_columns
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
@@ -125,7 +126,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return response.Response({"next": next_url, "results": result})
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
-        distinct_ids = [event[5] for event in query_result]
+        distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
@@ -166,14 +167,14 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
@@ -185,7 +186,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             return response.Response(
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
             )
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        query_result = query_with_columns(
+            SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}
+        )
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
