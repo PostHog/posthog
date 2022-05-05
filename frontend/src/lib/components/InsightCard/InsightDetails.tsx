@@ -204,10 +204,24 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
     )
 }
 
+export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return (
+        <div>
+            <h5>Breakdown by</h5>
+            <BreakdownFilter
+                filters={filters}
+                useMultiBreakdown={
+                    filters.insight === InsightType.FUNNELS &&
+                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                }
+            />
+        </div>
+    )
+}
+
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="InsightDetails" ref={ref}>
@@ -221,18 +235,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && (
-                    <div>
-                        <h5>Breakdown by</h5>
-                        <BreakdownFilter
-                            filters={filters}
-                            useMultiBreakdown={
-                                filters.insight === InsightType.FUNNELS &&
-                                !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                            }
-                        />
-                    </div>
-                )}
+                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             </div>
         </div>
     )

@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 import { FilterType, InsightModel } from '~/types'
 import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
-import { FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
 import '../../lib/components/InsightCard/InsightCard.scss'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
@@ -39,6 +39,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
                 <div className="summary-card">
                     <QuerySummary filters={filtersAfter} />
                     <FiltersSummary filters={filtersAfter} />
+                    {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
                 </div>
             </>
         )
@@ -77,20 +78,6 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         return [
             <>
                 <div className="highlighted-activity">favorited</div>
-            </>,
-        ]
-    },
-    saved: function onSaved() {
-        return [
-            <>
-                <div className="highlighted-activity">saved</div>
-            </>,
-        ]
-    },
-    is_sample: function onIsSample() {
-        return [
-            <>
-                set as <div className="highlighted-activity">a sample graph for dashboard templates</div>
             </>,
         ]
     },
@@ -143,6 +130,8 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     last_refresh: () => null,
     last_modified_by: () => null,
     next: () => null, // only used by frontend
+    saved: () => null,
+    is_sample: () => null,
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
