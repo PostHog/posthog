@@ -465,13 +465,6 @@ describe('cohortLogic', () => {
             Object.entries(ROWS).forEach(([key, row]) => {
                 it(`${key} row missing all required fields`, async () => {
                     await initCohortLogic({id: 1})
-                    console.log(
-                        Object.fromEntries(
-                            row.fields
-                                .filter(({fieldKey}) => !!fieldKey)
-                                .map(({fieldKey, type}) => [fieldKey, CRITERIA_VALIDATIONS[type](undefined)])
-                        )
-                    )
                     await expectLogic(logic, async () => {
                         await logic.actions.setCohort({
                             ...mockCohort,

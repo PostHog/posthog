@@ -201,8 +201,6 @@ export function validateGroup(
         })
     })
 
-    console.log("CHECK", group, negatedCriteria, negatedFailingCriteriaIndices)
-
     if (
         group.type === FilterLogicalOperator.And &&
         negatedCriteria.length > 0 &&
@@ -242,7 +240,6 @@ export function validateGroup(
     // Generic criteria values cannot be empty
     return {
         values: criteria.map((c) => {
-            console.log("VALUEC", c, criteriaToBehavioralFilterType(c))
             const requiredFields = ROWS[criteriaToBehavioralFilterType(c)].fields.filter(
                 (f) => !!f.fieldKey
             ) as FieldWithFieldKey[]

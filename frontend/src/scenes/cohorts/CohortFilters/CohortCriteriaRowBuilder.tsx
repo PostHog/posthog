@@ -108,10 +108,10 @@ export function CohortCriteriaRowBuilder({
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider"/>
                         <LemonButton icon={<IconCopy/>} type="primary-alt"
-                                     onClick={() => duplicateFilter(groupIndex, index)} compact/>
+                                     onClick={() => duplicateFilter(groupIndex, index)}/>
                         {!hideDeleteIcon && (
                             <LemonButton icon={<IconDelete/>} type="primary-alt"
-                                         onClick={() => removeFilter(groupIndex, index)} compact/>
+                                         onClick={() => removeFilter(groupIndex, index)}/>
                         )}
                     </Row>
                     <div style={{display: 'flex'}}>
