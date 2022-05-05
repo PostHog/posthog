@@ -34,7 +34,6 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     /** Variation on sizes - default is medium. Small looks better inline with text. Large is a chunkier row.  */
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
-    size?: 'small' | 'medium' | 'large'
 }
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends LemonRowPropsBase<T> {
