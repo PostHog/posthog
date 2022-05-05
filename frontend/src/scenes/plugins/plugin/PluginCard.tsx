@@ -80,14 +80,8 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-    } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
+        useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
