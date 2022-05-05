@@ -128,7 +128,7 @@ export interface CreatePersonalApiKeyPayload {
 
 export interface CachedPersonData {
     uuid: string
-    createdAtIso: string
+    created_at_iso: string
     properties: Properties
     team_id: TeamId
     id: Person['id']
@@ -546,7 +546,7 @@ export class DB {
     }
 
     public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | null> {
-        if (!this.personInfoCachingEnabledTeams.has(teamId)) {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             return null
         }
         const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
@@ -560,7 +560,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: String(personUuid),
-                createdAtIso: String(personCreatedAtIso),
+                created_at_iso: String(personCreatedAtIso),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
                 id: personId,
             }
@@ -582,7 +582,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: personUuid,
-                createdAtIso: personCreatedAtIso,
+                created_at_iso: personCreatedAtIso,
                 properties: personProperties,
                 id: personId,
             }
