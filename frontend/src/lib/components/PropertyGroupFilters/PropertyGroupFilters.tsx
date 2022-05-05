@@ -13,7 +13,7 @@ import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface PropertyGroupFilters {
-    propertyFilters?: PropertyGroupFilter | null
+    propertyFilters: PropertyGroupFilter
     onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -24,7 +24,7 @@ interface PropertyGroupFilters {
 }
 
 export function PropertyGroupFilters({
-    propertyFilters = null,
+    propertyFilters,
     onChange,
     pageKey,
     taxonomicGroupTypes,
@@ -36,7 +36,6 @@ export function PropertyGroupFilters({
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
     const {
-        setFilters,
         addFilterGroup,
         removeFilterGroup,
         setOuterPropertyGroupsType,
@@ -44,11 +43,6 @@ export function PropertyGroupFilters({
         setPropertyFilters,
         duplicateFilterGroup,
     } = useActions(propertyGroupFilterLogic(logicProps))
-
-    // Update the logic's internal filters when the props change
-    useEffect(() => {
-        setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
-    }, [propertyFilters])
 
     const showHeader = !noTitle || (filtersWithNew.type && filtersWithNew.values.length > 1)
 

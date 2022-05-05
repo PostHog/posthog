@@ -12,13 +12,12 @@ export function EFTrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilt
     const { setFilters } = useActions(trendsLogic(insightProps))
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
     return (
         <PropertyGroupFilters
             noTitle
             propertyFilters={convertPropertiesToPropertyGroup(filters.properties ?? [])}
-            onChange={(properties) => {
-                setFilters({ properties })
-            }}
+            onChange={(properties) => setFilters({ properties })}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
