@@ -739,29 +739,6 @@ describe('plugins', () => {
         expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
     })
 
-    test('plugin sets exported metrics', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithArchive(`
-            export const metrics = {
-                'metric1': 'sum',
-                'metric2': 'mAx',
-                'metric3': 'MIN'
-            }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-
-        expect(pluginConfig.plugin!.metrics).toEqual({
-            metric1: 'sum',
-            metric2: 'max',
-            metric3: 'min',
-        })
-    })
-
     test.skip('exportEvents automatically sets metrics', async () => {
         getPluginRows.mockReturnValueOnce([
             mockPluginWithArchive(`
@@ -781,25 +758,6 @@ describe('plugins', () => {
             retry_errors: 'sum',
             undelivered_events: 'sum',
         })
-    })
-
-    test('plugin vm is not setup if metric type is unsupported', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithArchive(`
-            export const metrics = {
-                'unsupportedMetric': 'avg',
-            }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-        const vm = await pluginConfig.vm?.resolveInternalVm
-
-        expect(vm).toEqual(null)
-        expect(pluginConfig.plugin!.metrics).toEqual({})
     })
 
     describe('loadSchedule()', () => {
