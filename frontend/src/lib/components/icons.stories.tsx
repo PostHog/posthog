@@ -2,13 +2,16 @@ import * as React from 'react'
 import * as icons from './icons'
 import { Meta } from '@storybook/react'
 import { LemonTable } from './LemonTable'
+import { IconGauge, IconWithCount } from './icons'
 
 interface IconDefinition {
     name: string
     icon: (...args: any[]) => JSX.Element
 }
 
-const allIcons: IconDefinition[] = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
+const allIcons: IconDefinition[] = Object.entries(icons)
+    .filter(([key]) => key !== 'IconWithCount')
+    .map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
     title: 'Lemon UI/Icons',
@@ -57,5 +60,69 @@ export function Icons(): JSX.Element {
                 },
             ]}
         />
+    )
+}
+
+export function IconWithCountBubble(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+            }}
+        >
+            <IconWithCount count={7}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithCountHidingZero(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+            }}
+        >
+            <IconWithCount count={0} showZero={false}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithCountShowingZero(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+            }}
+        >
+            <IconWithCount count={0} showZero={true}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
+    )
+}
+
+export function IconWithTooHighCount(): JSX.Element {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                fontSize: '1.5rem',
+                border: '1px solid var(--primary)',
+            }}
+        >
+            <IconWithCount count={11} showZero={true}>
+                <IconGauge />
+            </IconWithCount>
+        </span>
     )
 }

@@ -30,7 +30,6 @@ export function EFPathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elem
     ]
 
     const onClickPathtype = (pathType: PathType): void => {
-        console.log({ pathType, types: filter.include_event_types })
         if (filter.include_event_types) {
             if (filter.include_event_types.includes(pathType)) {
                 setFilter({

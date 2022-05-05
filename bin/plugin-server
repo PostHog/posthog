@@ -53,13 +53,18 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+[[ -n $DEBUG ]] && cmd=start:dev || cmd=start:dist
+
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
-  [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist
+  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' SIGTERM
+  yarn $cmd &
+  child=$!
+  wait $child
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist
+    yarn $cmd
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2

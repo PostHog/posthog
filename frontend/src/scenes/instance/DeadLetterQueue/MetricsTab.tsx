@@ -30,7 +30,7 @@ export function MetricsTab(): JSX.Element {
                     icon={deadLetterQueueMetricsLoading ? <Spinner size="sm" /> : <IconRefresh />}
                     onClick={loadDeadLetterQueueMetrics}
                     type="secondary"
-                    compact
+                    size="small"
                 >
                     Refresh
                 </LemonButton>

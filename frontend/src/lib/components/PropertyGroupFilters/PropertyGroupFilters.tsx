@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
@@ -88,13 +88,13 @@ export function PropertyGroupFilters({
                                                 icon={<IconCopy />}
                                                 type="primary-alt"
                                                 onClick={() => duplicateFilterGroup(propertyGroupIndex)}
-                                                compact
+                                                size="small"
                                             />
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 type="primary-alt"
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
-                                                compact
+                                                size="small"
                                             />
                                         </Row>
                                         <PropertyFilters

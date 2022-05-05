@@ -219,7 +219,7 @@ function CollaboratorRow({
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             disabled={!wasInvited}
                             status="danger"
-                            compact
+                            size="small"
                         />
                     )}
                 </div>

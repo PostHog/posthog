@@ -18,8 +18,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -33,9 +31,6 @@ function OverViewTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -157,13 +152,6 @@ function OverViewTab(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                {!showActivityLog && (
-                    <div className="mb float-right">
-                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                            New feature flag
-                        </LemonButton>
-                    </div>
-                )}
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}
@@ -180,9 +168,6 @@ function OverViewTab(): JSX.Element {
 }
 
 export function FeatureFlags(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
-
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
 
@@ -190,33 +175,21 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 title="Feature Flags"
-                caption={
-                    showActivityLog
-                        ? ''
-                        : 'Feature Flags are a way of turning functionality in your app on or off, based on user properties.'
-                }
                 buttons={
-                    showActivityLog ? (
-                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                            New feature flag
-                        </LemonButton>
-                    ) : (
-                        false
-                    )
+                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                        New feature flag
+                    </LemonButton>
                 }
             />
-            {showActivityLog ? (
-                <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverViewTab />
-                    </Tabs.TabPane>
-                    <Tabs.TabPane tab="History" key="history">
-                        <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
-                    </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverViewTab />
-            )}
+
+            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
+                <Tabs.TabPane tab="Overview" key="overview">
+                    <OverViewTab />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="History" key="history">
+                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                </Tabs.TabPane>
+            </Tabs>
         </div>
     )
 }
