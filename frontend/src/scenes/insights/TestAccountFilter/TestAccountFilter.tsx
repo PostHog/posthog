@@ -33,7 +33,7 @@ export function TestAccountFilter({
                         icon={<IconSettings />}
                         to="/project/settings#internal-users-filtering"
                         type="stealth"
-                        compact
+                        size="small"
                         className="ml-025"
                     />
                 </div>
