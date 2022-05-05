@@ -109,7 +109,6 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
                   groups: JSON.stringify([]),
               }
             : {
-                  filters: JSON.stringify({properties:{}}),
                   groups: JSON.stringify(
                       cohort.is_static
                           ? []
@@ -121,6 +120,11 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
                   ),
               }),
     }
+
+    if (!isNewCohortFilterEnabled) {
+        delete rawCohort["filters"]
+    }
+
     // Must use FormData to encode file binary in request
     const cohortFormData = new FormData()
     for (const [itemKey, value] of Object.entries(rawCohort)) {

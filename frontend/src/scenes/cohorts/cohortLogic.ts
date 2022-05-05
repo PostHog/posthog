@@ -58,27 +58,10 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         }),
     }),
 
-    reducers: ({ values }) => ({
+    reducers: () => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
-                onCriteriaChange: (state, { newGroup, id }) => {
-                    const cohort = { ...state }
-                    const index = cohort.groups.findIndex((group: AnyCohortGroupType) => group.id === id)
-                    if (newGroup.matchType) {
-                        cohort.groups[index] = {
-                            id: cohort.groups[index].id,
-                            matchType: ENTITY_MATCH_TYPE,
-                            ...newGroup,
-                        }
-                    } else {
-                        cohort.groups[index] = {
-                            ...cohort.groups[index],
-                            ...newGroup,
-                        }
-                    }
-                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
-                },
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
                     filters: {
@@ -244,6 +227,23 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                },
+                onCriteriaChange: ({ newGroup, id }) => {
+                    const cohort = { ...values.cohort }
+                    const index = cohort.groups.findIndex((group: AnyCohortGroupType) => group.id === id)
+                    if (newGroup.matchType) {
+                        cohort.groups[index] = {
+                            id: cohort.groups[index].id,
+                            matchType: ENTITY_MATCH_TYPE,
+                            ...newGroup,
+                        }
+                    } else {
+                        cohort.groups[index] = {
+                            ...cohort.groups[index],
+                            ...newGroup,
+                        }
+                    }
                     return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
             },
