@@ -2,14 +2,18 @@
     overflow: hidden;
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
-    font-size: 14px;
+    font-size: 0.8125rem;
     z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
-    max-width: 480px;
+    max-width: 30rem;
     border-radius: var(--radius);
-    background: #fafafa;
+    background: var(--bg-light);
     position: absolute;
     pointer-events: none;
+
+    .LemonRow {
+        font-size: 0.8125rem;
+    }
 
     .LemonTable {
         font-size: 0.75rem;
@@ -33,13 +37,11 @@
             overflow: hidden;
         }
         .LemonTable__content > table > thead {
+            letter-spacing: 0;
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
-            }
-            .datum-label-column {
-                letter-spacing: 0;
             }
             .datum-counts-column {
                 .ant-typography {

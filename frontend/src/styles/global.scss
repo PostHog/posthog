@@ -150,7 +150,7 @@ body strong {
     font-size: 8px;
 }
 
-.nowrap {
+.no-wrap {
     white-space: nowrap !important;
 }
 
@@ -564,7 +564,7 @@ input::-ms-clear {
 }
 
 .card-elevated {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
 }
 
 // Horizontal scrollability indication

@@ -13,7 +13,7 @@ declare module 'react' {
 }
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
-    extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
+    extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref' | 'size'> {
     /** If icon width is relaxed, width of icon box is set to auto. Default icon width is 1em  */
     relaxedIconWidth?: boolean
     icon?: React.ReactElement | null
@@ -31,8 +31,8 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
-    /** A compact row is slightly smaller than normal to better look inline with text. */
-    compact?: boolean
+    /** Variation on sizes - default is medium. Small looks better inline with text. Large is a chunkier row.  */
+    size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
 }
 
@@ -40,8 +40,11 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends Le
     sideIcon?: React.ReactElement | null
 }
 
-/** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a presentation element. */
-function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
+/** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
+ *
+ * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
+ */
+export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     {
         children,
         icon,
@@ -52,14 +55,15 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         extendedContent,
         tooltip,
         sideIcon,
+        size = 'medium',
         loading = false,
-        compact = false,
         fullWidth = false,
         center = false,
         outlined = false,
+        disabled = false,
         ...props
     }: LemonRowProps<T>,
-    ref: React.Ref<JSX.IntrinsicElements[T]>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
     const symbolic = children == null || children === false
     if (loading) {
@@ -72,12 +76,15 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 'LemonRow',
                 className,
                 status && `LemonRow--status-${status}`,
-                compact && 'LemonRow--compact',
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
+                disabled && 'LemonRow--disabled',
                 outlined && 'LemonRow--outlined',
-                center && 'LemonRow--center'
+                center && 'LemonRow--center',
+                size === 'large' && 'LemonRow--large',
+                size === 'small' && 'LemonRow--small'
             ),
+            disabled,
             ...props,
             ref,
         },
@@ -111,23 +118,4 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         </>
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
-}
-export const LemonRow = React.forwardRef(LemonRowInternal)
-
-export interface LemonSpacerProps {
-    /** Twice the default amount of margin. */
-    large?: boolean
-    /** Whether the spacer should be vertical instead of horizontal. */
-    vertical?: boolean
-    style?: React.CSSProperties
-}
-
-/** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false, vertical = false, style }: LemonSpacerProps): JSX.Element {
-    return (
-        <div
-            className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')}
-            style={style}
-        />
-    )
-}
+})

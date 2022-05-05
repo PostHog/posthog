@@ -31,7 +31,10 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             const person = await hub.db.fetchPerson(team_id, distinctId)
 
             // even if the buffer is disabled we want to get metrics on how many events would have gone to it
-            const sendEventToBuffer = shouldSendEventToBuffer(hub, result, person) && hub.CONVERSION_BUFFER_ENABLED
+            const sendEventToBuffer =
+                shouldSendEventToBuffer(hub, result, person) &&
+                (hub.CONVERSION_BUFFER_ENABLED || hub.conversionBufferEnabledTeams.has(team_id))
+
             if (sendEventToBuffer) {
                 await hub.eventsProcessor.produceEventToBuffer(result)
             } else {

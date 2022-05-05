@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .LemonRow {
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
@@ -17,7 +15,7 @@
     line-height: 1.25rem;
 
     &.LemonRow--status-highlighted {
-        background: rgba($primary, 0.1);
+        background: var(--primary-bg-hover);
         color: var(--text-default);
         font-weight: 600;
 
@@ -47,7 +45,11 @@
     }
 
     &.LemonRow--status-muted {
-        background: $bg_side;
+        background: var(--bg-side);
+    }
+
+    &.LemonRow--disabled {
+        opacity: var(--opacity-disabled);
     }
 }
 
@@ -103,7 +105,24 @@
     padding: 0;
 }
 
-.LemonRow--compact {
+.LemonRow--large {
+    min-height: 3.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+
+    &.LemonRow--symbolic {
+        min-height: 0;
+        height: 1.75rem;
+        width: 1.75rem;
+        padding: 0;
+    }
+
+    .LemonRow__icon {
+        font-size: 1.75rem;
+    }
+}
+
+.LemonRow--small {
     min-height: 2rem;
     padding: 0.125rem 0.5rem;
 
@@ -129,10 +148,6 @@
     font-size: 1.5rem;
     color: var(--muted-alt);
 
-    &:not(:first-child):last-child {
-        margin-right: -0.5rem;
-    }
-
     &.LemonRow__icon--relaxed-width {
         width: auto;
     }
@@ -149,29 +164,5 @@
 .LemonRow__icon {
     &:not(:first-child) {
         margin-left: 0.5rem;
-    }
-}
-
-.LemonSpacer {
-    width: 100%;
-    height: 1px;
-    opacity: 0.17;
-    background: currentColor;
-    margin: 0.5rem 0;
-    flex-shrink: 0;
-
-    &--large {
-        margin: 1rem 0;
-    }
-
-    &--vertical {
-        width: 1px;
-        height: auto;
-        margin: 0.5rem;
-        align-self: stretch;
-
-        &--large {
-            margin: 0.5rem 1rem;
-        }
     }
 }

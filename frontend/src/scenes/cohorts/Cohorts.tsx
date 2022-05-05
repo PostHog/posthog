@@ -18,7 +18,7 @@ import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/
 import { userLogic } from 'scenes/userLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
@@ -127,7 +127,7 @@ export function Cohorts(): JSX.Element {
                                 >
                                     Export users
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}

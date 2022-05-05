@@ -1,6 +1,9 @@
+import pytest
 from django.db.models import Q
 
 from posthog.test.base import TestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TagsTestCase(TestMigrations):
@@ -109,3 +112,4 @@ class TagsTestCase(TestMigrations):
         Team.objects.get(id=self.team2.id).delete()
         Organization = self.apps.get_model("posthog", "Organization")  # type: ignore
         Organization.objects.get(id=self.org2.id).delete()
+        super().tearDown()

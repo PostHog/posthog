@@ -77,6 +77,7 @@ class Test0002EventsSampleBy(AsyncMigrationBaseTest):
     def tearDown(self):
         self.dropTables()
         execute_query(self.create_events_table_query)
+        super().tearDown()
 
     @classmethod
     def dropTables(cls):
@@ -87,7 +88,7 @@ class Test0002EventsSampleBy(AsyncMigrationBaseTest):
         execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
 
     # Run the full migration through
-    @pytest.mark.ee
+    @pytest.mark.async_migrations
     def test_run_migration_in_full(self):
         from posthog.client import sync_execute
 

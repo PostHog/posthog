@@ -51,7 +51,10 @@ def test_includes_only_intervals_within_range(client: Client):
         distinct_id = "abc"
         update_or_create_person(distinct_ids=[distinct_id], team_id=team.id, properties={"cohort_identifier": 1})
         cohort = create_cohort_ok(
-            client=client, team_id=team.id, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}]
+            client=client,
+            team_id=team.id,
+            name="test cohort",
+            groups=[{"properties": [{"key": "cohort_identifier", "value": 1, "type": "person"}]}],
         )
 
         journeys_for(

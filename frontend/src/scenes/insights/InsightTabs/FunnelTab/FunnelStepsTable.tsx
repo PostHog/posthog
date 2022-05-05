@@ -5,23 +5,24 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { formatDisplayPercentage, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
-import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
+import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonRow } from 'lib/components/LemonRow'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { getSeriesColor } from 'lib/colors'
+import { IconFlag } from 'lib/components/icons'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { insightLoading, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
         useValues(logic)
-    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForStep } = useActions(logic)
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
 
     const isOnlySeries = flattenedBreakdowns.length === 1
@@ -65,7 +66,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 )
                             }}
                             label="Breakdown"
-                            rowProps={{ compact: true, style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
+                            rowProps={{ size: 'small', style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
                         />
                     ),
                     dataIndex: 'breakdown_value',
@@ -83,7 +84,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
                                 rowProps={{
-                                    compact: true,
+                                    size: 'small',
                                     style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
                                     title: label,
                                 }}
@@ -94,7 +95,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                 {
                     title: 'Total conversion',
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0, true),
+                        percentage(breakdown?.conversionRates?.total ?? 0, 1, true),
                     align: 'right',
                 },
             ],
@@ -102,16 +103,16 @@ export function FunnelStepsTable(): JSX.Element | null {
         ...steps.map((step, stepIndex) => ({
             title: (
                 <LemonRow
-                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} double />}
+                    icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                     style={{ font: 'inherit', padding: 0 }}
-                    compact
+                    size="small"
                 >
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                 </LemonRow>
             ),
             children: [
                 {
-                    title: 'Completed',
+                    title: stepIndex === 0 ? 'Entered' : 'Converted',
                     render: function RenderCompleted(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -120,10 +121,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                         return (
                             stepSeries && (
                                 <ValueInspectorButton
-                                    onClick={() => openPersonsModalForStep({ step: stepSeries, converted: true })}
+                                    onClick={() =>
+                                        openPersonsModalForSeries({ step, series: stepSeries, converted: true })
+                                    }
                                     style={{ padding: 0 }}
                                 >
-                                    {stepSeries.count ?? 0}
+                                    {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
                             )
                         )
@@ -131,17 +134,11 @@ export function FunnelStepsTable(): JSX.Element | null {
 
                     align: 'right',
                 },
-                {
-                    title: 'Rate',
-                    render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        formatDisplayPercentage(breakdown.steps?.[stepIndex]?.conversionRates.fromPrevious ?? 0, true),
-                    align: 'right',
-                },
                 ...(stepIndex === 0
                     ? []
                     : [
                           {
-                              title: 'Dropped',
+                              title: 'Dropped off',
                               render: function RenderDropped(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
@@ -151,34 +148,87 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       stepSeries && (
                                           <ValueInspectorButton
                                               onClick={() =>
-                                                  openPersonsModalForStep({ step: stepSeries, converted: false })
+                                                  openPersonsModalForSeries({
+                                                      step,
+                                                      series: stepSeries,
+                                                      converted: false,
+                                                  })
                                               }
                                               style={{ padding: 0 }}
                                           >
-                                              {stepSeries.droppedOffFromPrevious ?? 0}
+                                              {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>
                                       )
                                   )
                               },
                               align: 'right',
                           },
+                      ]),
+                {
+                    title: 'Conversion so far',
+                    render: function RenderConversionSoFar(
+                        _: void,
+                        breakdown: FlattenedFunnelStepByBreakdown
+                    ): JSX.Element | string {
+                        const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
+                        return significance?.total ? (
+                            <LemonRow
+                                className="significance-highlight"
+                                tooltip="Significantly different from other breakdown values"
+                                icon={<IconFlag />}
+                                size="small"
+                            >
+                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)}
+                            </LemonRow>
+                        ) : (
+                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)
+                        )
+                    },
+                    align: 'right',
+                },
+                ...(stepIndex === 0
+                    ? []
+                    : [
                           {
-                              title: 'Rate',
-                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                                  formatDisplayPercentage(
-                                      1 - (breakdown.steps?.[stepIndex]?.conversionRates.fromPrevious ?? 0),
-                                      true
-                                  ),
+                              title: 'Conversion from previous',
+                              render: function RenderConversionFromPrevious(
+                                  _: void,
+                                  breakdown: FlattenedFunnelStepByBreakdown
+                              ): JSX.Element | string {
+                                  const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
+                                  // Only flag as significant here if not flagged already in "Conversion so far"
+                                  return !significance?.total && significance?.fromPrevious ? (
+                                      <LemonRow
+                                          className="significance-highlight"
+                                          tooltip="Significantly different from other breakdown values"
+                                          icon={<IconFlag />}
+                                          size="small"
+                                      >
+                                          {percentage(
+                                              breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                              1,
+                                              true
+                                          )}
+                                      </LemonRow>
+                                  ) : (
+                                      percentage(
+                                          breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                          1,
+                                          true
+                                      )
+                                  )
+                              },
                               align: 'right',
                           },
                           {
-                              title: 'Avg. time',
+                              title: 'Avg. time',
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
                                       ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, 3)
                                       : '–',
                               align: 'right',
-                              className: 'nowrap',
+                              width: 0,
+                              className: 'no-wrap',
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],
@@ -190,8 +240,9 @@ export function FunnelStepsTable(): JSX.Element | null {
             dataSource={flattenedBreakdowns}
             columns={columnsGrouped}
             loading={insightLoading}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex, undefined, flattenedBreakdowns.length)}
             rowKey="breakdownIndex"
+            rowStatus={(record) => (record.significant ? 'highlighted' : undefined)}
+            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex, undefined, flattenedBreakdowns.length)}
         />
     )
 }

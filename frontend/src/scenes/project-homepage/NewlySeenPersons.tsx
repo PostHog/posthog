@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 import { PersonType } from '~/types'
 
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { asDisplay } from 'scenes/persons/PersonHeader'
 import { projectHomepageLogic } from './projectHomepageLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)

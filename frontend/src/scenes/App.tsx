@@ -1,11 +1,11 @@
 import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogicType } from './AppType'
@@ -76,7 +76,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SceneLoading /> : null
+    return showingDelayedSpinner ? <Loading /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -113,12 +113,12 @@ function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Elem
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (() => (showingDelayedSpinner ? <Loading /> : null))
 
     const toastContainer = (
         <ToastContainer
@@ -131,12 +131,22 @@ function AppScene(): JSX.Element | null {
         />
     )
 
+    const protectedBoundActiveScene = (
+        <ErrorBoundary key={activeScene}>
+            {activeLoadedScene?.logic ? (
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                    <SceneComponent user={user} {...params} />
+                </BindLogic>
+            ) : (
+                <SceneComponent user={user} {...params} />
+            )}
+        </ErrorBoundary>
+    )
+
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <ErrorBoundary key={activeScene}>
-                    <SceneComponent {...params} />
-                </ErrorBoundary>
+                {protectedBoundActiveScene}
                 {toastContainer}
             </Layout>
         ) : null
@@ -144,11 +154,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            <Navigation>
-                <ErrorBoundary key={activeScene}>
-                    <SceneComponent user={user} {...params} />
-                </ErrorBoundary>
-            </Navigation>
+            <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
         </>

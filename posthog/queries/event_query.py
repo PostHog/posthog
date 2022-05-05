@@ -125,8 +125,8 @@ class EventQuery(metaclass=ABCMeta):
             return True
         if cohort.is_static:
             return True
-        for group in cohort.groups:
-            if group.get("properties"):
+        for property in cohort.properties.flat:
+            if property.type == "person":
                 return True
         return False
 

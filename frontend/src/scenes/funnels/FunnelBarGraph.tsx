@@ -9,7 +9,7 @@ import { IconTrendingFlatDown, IconInfinity } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
@@ -287,6 +287,7 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
+/** @deprecated */
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dashboardItemId } = insightProps
@@ -303,7 +304,13 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (layout === FunnelLayout.vertical) {
-        return featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? <FunnelBarChart {...props} /> : <FunnelStepTable />
+        return featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? (
+            <BindLogic logic={funnelLogic} props={insightProps}>
+                <FunnelBarChart {...props} />
+            </BindLogic>
+        ) : (
+            <FunnelStepTable />
+        )
     }
 
     // Everything rendered after is a funnel in top-to-bottom mode.

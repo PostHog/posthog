@@ -6,32 +6,6 @@
     padding-bottom: $default_spacing;
     background-color: white;
     box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
-
-    h1 {
-        font-size: 28px;
-        font-weight: 700;
-        margin-bottom: $default_spacing / 2;
-    }
-}
-
-.welcome-panel,
-.panel-footer,
-.framework-panel {
-    .ingestion-btn {
-        margin-bottom: $default_spacing / 2;
-        background-color: black;
-
-        &:hover {
-            background-color: black;
-            opacity: 0.8;
-        }
-
-        &.inverted {
-            background-color: white;
-            color: black;
-            border: 2px solid black;
-        }
-    }
 }
 
 .bookmarklet-warning {
@@ -68,7 +42,7 @@
 }
 
 .ingestion-card-container {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
     max-width: 65vw;
     max-height: 80vh;
     border-radius: $radius;
@@ -86,4 +60,18 @@
         overflow-y: auto;
         padding: 0 $default_spacing $default_spacing $default_spacing;
     }
+}
+
+.ingestion-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.ingestion-listening-for-events {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: $default_spacing;
 }

@@ -11,7 +11,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
-    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -43,15 +42,16 @@ import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export const scene: SceneExport = {
-    component: Experiment_,
+    component: Experiment,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
 }
 
-export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
+export function Experiment(): JSX.Element {
     const {
+        experimentId,
         newExperimentData,
         experimentData,
         experimentInsightId,
@@ -75,7 +75,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         secondaryMetricResults,
         experimentDataLoading,
         secondaryMetricResultsLoading,
-    } = useValues(experimentLogic({ experimentId: id }))
+    } = useValues(experimentLogic)
     const {
         setNewExperimentData,
         createExperiment,
@@ -90,7 +90,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic({ experimentId: id }))
+    } = useActions(experimentLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -157,7 +157,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
     return (
         <>
-            {id === 'new' || editingExistingExperiment ? (
+            {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
@@ -330,7 +330,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             >
                                                                                 <LemonButton
                                                                                     type="primary-alt"
-                                                                                    compact
+                                                                                    size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
