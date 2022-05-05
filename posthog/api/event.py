@@ -25,7 +25,6 @@ from ee.clickhouse.sql.events import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
-from ee.clickhouse.system_status import query_with_columns
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
@@ -138,6 +137,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _query_events_list(
         self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
+        from ee.clickhouse.system_status import query_with_columns
+
         limit += 1
         limit_sql = "LIMIT %(limit)s"
         order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
@@ -182,6 +183,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
     ) -> response.Response:
+        from ee.clickhouse.system_status import query_with_columns
+
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
