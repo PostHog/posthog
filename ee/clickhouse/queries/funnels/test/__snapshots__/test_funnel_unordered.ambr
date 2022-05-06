@@ -17,7 +17,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-       AND (NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0"))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -43,7 +43,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-       AND (NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0"))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -69,7 +69,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-       AND (NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0"))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -156,7 +156,7 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
@@ -213,7 +213,7 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
@@ -270,7 +270,7 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))

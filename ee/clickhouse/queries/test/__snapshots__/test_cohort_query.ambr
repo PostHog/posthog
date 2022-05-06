@@ -305,14 +305,14 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(pmat_$sample_field, _timestamp) as pmat_$sample_field
+               argMax(pmat_sample_field, _timestamp) as pmat_sample_field
         FROM person
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((performed_event_condition_None_level_level_0_0
-          OR has(['test@posthog.com'], "pmat_$sample_field"))) SETTINGS allow_experimental_window_functions = 1
+          OR has(['test@posthog.com'], "pmat_sample_field"))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
