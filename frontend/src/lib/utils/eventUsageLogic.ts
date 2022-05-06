@@ -1012,6 +1012,6 @@ export const eventUsageLogic = kea<
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
-        }
+        },
     }),
 })
