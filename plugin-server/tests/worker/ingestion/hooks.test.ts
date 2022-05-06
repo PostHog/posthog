@@ -1,6 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
+import * as fetch from 'node-fetch'
 
 import { Action, Person } from '../../../src/types'
+import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
     getActionDetails,
@@ -8,8 +11,10 @@ import {
     getTokens,
     getUserDetails,
     getValueOfToken,
+    HookCommander,
     WebhookType,
 } from '../../../src/worker/ingestion/hooks'
+import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
     describe('determineWebhookType', () => {
@@ -258,6 +263,130 @@ describe('hooks', () => {
             )
             expect(text).toBe('2 did thing from browser undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
+        })
+    })
+
+    describe('postRestHook', () => {
+        let hookCommander: HookCommander
+        let hook: Hook
+
+        beforeEach(() => {
+            hookCommander = new HookCommander({} as any, {} as any, {} as any)
+            hook = {
+                id: 'id',
+                team_id: 2,
+                user_id: 1,
+                resource_id: 1,
+                event: 'foo',
+                target: 'foo.bar',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            }
+        })
+
+        test('person = undefined', async () => {
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
+
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {}, // person becomes empty object if undefined
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
+        })
+
+        test('person instanceof CachedPersonData', async () => {
+            const now = new Date().toISOString()
+            const uuid = new UUIDT().toString()
+            const person = {
+                uuid: uuid,
+                properties: { foo: 'bar' },
+                team_id: 1,
+                id: 1,
+                created_at_iso: now,
+            }
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now,
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
+        })
+
+        test('person instanceof Person', async () => {
+            const now = DateTime.now()
+            const uuid = new UUIDT().toString()
+            const person = {
+                uuid: uuid,
+                properties: { foo: 'bar' },
+                team_id: 1,
+                id: 1,
+                created_at: now,
+                is_user_id: 1,
+                is_identified: false,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                version: 15,
+            }
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now.toISO(),
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
         })
     })
 })
