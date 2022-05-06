@@ -11,7 +11,7 @@ import { IconOpenInNew } from 'lib/components/icons'
 import { PanelSupport } from './PanelComponents'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -30,7 +30,7 @@ export function ThirdPartyPanel(): JSX.Element {
             <div style={{ paddingLeft: 24, paddingRight: 24 }}>
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
-                    const installedThirdPartyPlugin = installedPlugins?.find((plugin) =>
+                    const installedThirdPartyPlugin = installedPlugins?.find((plugin: PluginTypeWithConfig) =>
                         plugin.name.includes(source.name)
                     )
                     return (

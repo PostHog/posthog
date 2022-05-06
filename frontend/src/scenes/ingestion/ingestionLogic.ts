@@ -1,6 +1,15 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
-import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY } from 'scenes/ingestion/constants'
+import {
+    API,
+    MOBILE,
+    BACKEND,
+    WEB,
+    BOOKMARKLET,
+    thirdPartySources,
+    THIRD_PARTY,
+    ThirdPartySource,
+} from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -67,7 +76,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
             },
         ],
         thirdPartySource: [
-            null,
+            null as ThirdPartySource | PluginTypeWithConfig | null,
             {
                 setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,

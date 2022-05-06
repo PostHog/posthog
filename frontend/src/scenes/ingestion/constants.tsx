@@ -125,12 +125,20 @@ export const logos = {
     default: posthogLogo,
 }
 
+export interface ThirdPartySource {
+    name: string
+    type: ThirdPartySourceType
+    icon: JSX.Element
+    docsLink?: string
+    pluginName?: string
+}
+
 export enum ThirdPartySourceType {
     Integration = 'INTEGRATION',
     Plugin = 'PLUGIN',
 }
 
-export const thirdPartySources = [
+export const thirdPartySources: ThirdPartySource[] = [
     {
         name: 'Segment',
         type: ThirdPartySourceType.Integration,
