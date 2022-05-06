@@ -425,8 +425,10 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, **kwargs) ->
                 # :TRICKY: We need to ensure we don't have infinite loops in here
                 # guaranteed during cohort creation
                 return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
-    else:
-        return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
+
+    return Filter(
+        data={"properties": cohort.properties.to_dict()}, team=team, flatten_cohorts=flatten_cohorts
+    ).property_groups
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
