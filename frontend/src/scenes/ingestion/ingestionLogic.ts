@@ -76,6 +76,28 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 return !!featFlags[FEATURE_FLAGS.ONBOARDING_1]
             },
         ],
+        frameworkString: [
+            (s) => [s.framework],
+            (framework): string => {
+                if (framework) {
+                    const frameworkStrings = {
+                        NODEJS: 'Node.js',
+                        GO: 'Go',
+                        RUBY: 'Ruby',
+                        PYTHON: 'Python',
+                        PHP: 'PHP',
+                        ELIXIR: 'Elixir',
+                        ANDROID: 'Android',
+                        IOS: 'iOS',
+                        REACT_NATIVE: 'React Native',
+                        FLUTTER: 'Flutter',
+                        API: 'HTTP API',
+                    }
+                    return frameworkStrings[framework] || framework
+                }
+                return ''
+            },
+        ],
     },
 
     actionToUrl: ({ values }) => ({
