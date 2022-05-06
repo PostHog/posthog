@@ -178,13 +178,13 @@ describe('e2e', () => {
         })
 
         test('healthcheck passes when running in parallel', async () => {
-            const parallelConsumers = 5
+            const parallelConsumers = 4
             const promises = []
             for (let i = 0; i < parallelConsumers; ++i) {
-                promises.push(kafkaHealthcheck(hub!.kafka!, statsd, 5000))
+                promises.push(kafkaHealthcheck(hub!.kafka!, statsd, 15000))
             }
-            const healthcheckResults = (await Promise.all(promises)).map(res => res[0])
-            expect(healthcheckResults).toEqual(Array.from({ length: parallelConsumers }).map(e => true))
+            const healthcheckResults = (await Promise.all(promises)).map((res) => res[0])
+            expect(healthcheckResults).toEqual(Array.from({ length: parallelConsumers }).map((e) => true))
         })
 
         test('healthcheck fails if producer throws', async () => {

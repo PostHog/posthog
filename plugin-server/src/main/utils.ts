@@ -69,7 +69,6 @@ export async function kafkaHealthcheck(
 
         await consumer.subscribe({ topic: 'healthcheck', fromBeginning: true })
 
-
         await consumer.run({
             // no-op
             eachMessage: async () => {
@@ -87,7 +86,6 @@ export async function kafkaHealthcheck(
         })
 
         await consumer.connect()
-
 
         await delay(timeoutMs)
 
