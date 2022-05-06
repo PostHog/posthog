@@ -271,7 +271,11 @@ export function validateGroup(
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
-                    c[fieldKey] !== undefined && c[fieldKey] !== null
+                    (
+                        Array.isArray(c[fieldKey])
+                            ? c[fieldKey].length > 0
+                            : c[fieldKey] !== undefined && c[fieldKey] !== null && c[fieldKey] !== ''
+                    )
                         ? undefined
                         : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
                 ])

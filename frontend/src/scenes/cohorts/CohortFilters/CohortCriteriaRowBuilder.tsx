@@ -37,7 +37,7 @@ export function CohortCriteriaRowBuilder({
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
-            <Col key={i}>
+            <Col key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,

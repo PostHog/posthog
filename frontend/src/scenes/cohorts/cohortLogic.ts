@@ -123,8 +123,8 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                         ...groupList.slice(groupIndex + 1),
                     ])
                 },
-                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) => {
-                    return applyAllNestedCriteria(
+                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) =>
+                    applyAllNestedCriteria(
                         state,
                         (criteriaList) =>
                             criteriaList.map((oldCriteria, criteriaI) =>
@@ -135,8 +135,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                                     : oldCriteria
                             ),
                         groupIndex
-                    )
-                },
+                    ),
             },
         ],
         pollTimeout: [

@@ -155,6 +155,7 @@ export function CohortPersonPropertiesValuesField({
 
     return (
         <PropertyValue
+            className={clsx('CohortField', 'CohortField__CohortPersonPropertiesValuesField')}
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type="person"
@@ -162,7 +163,6 @@ export function CohortPersonPropertiesValuesField({
                 onChange({ [fieldKey]: newValue })
             }}
             placeholder="Enter value..."
-            className="CohortField__CohortPersonPropertiesValuesField"
         />
     )
 }
@@ -178,7 +178,7 @@ export function CohortNumberField({
     onChange: _onChange,
 }: CohortNumberFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
-        fieldKey: fieldKey,
+        fieldKey,
         cohortFilterLogicKey,
         criteria,
         onChange: _onChange,
