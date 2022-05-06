@@ -1,0 +1,24 @@
+@import '~/vars';
+
+.insights-filter-group {
+    border-radius: var(--radius);
+    overflow: hidden;
+    background-color: #fff;
+    border: 1px solid var(--bg-mid);
+
+    .insights-filter-group-title {
+        padding: 0.5em;
+        background: var(--bg-mid);
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .insights-filter-group-content {
+        padding: 1em;
+
+        > * + * {
+            margin-top: $default-spacing;
+        }
+    }
+}

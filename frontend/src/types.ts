@@ -1014,7 +1014,11 @@ export interface RecordingEventsFilters {
     query: string
 }
 
-export type InsightEditorFilterGroups = Record<string, InsightEditorFilter[]>
+export type InsightEditorFilterGroup = {
+    title: string
+    defaultExpanded: boolean
+    editorFilters: InsightEditorFilter[]
+}
 
 export interface EditorFilterProps {
     insight: Partial<InsightModel>

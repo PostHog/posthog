@@ -31,9 +31,8 @@ import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { EditorFilterItemTitle } from './EditorFilters/EditorFilterItemTitle'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { EditorFilterGroup } from './EditorFilters/EditorFilterGroup'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -95,63 +94,19 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         [`${InsightType.PATHS}`]: <PathTab />,
     }[activeView]
 
-    // NOTE: Temp var whilst migrating to Editor Panels
-    const isEditorPanelsDone = ![
-        InsightType.TRENDS,
-        InsightType.LIFECYCLE,
-        InsightType.STICKINESS,
-        InsightType.RETENTION,
-        InsightType.PATHS,
-        InsightType.FUNNELS,
-    ].includes(filters.insight as InsightType)
-
     const isSmallScreen = !screens.xl
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const insightTab = usingEditorPanels ? (
         <>
-            {insight &&
-                filters &&
-                Object.entries(getEditorFilters(filters, featureFlags, availableFeatures))
-                    .filter(([, v]) => v.length > 0)
-                    .map(([title, editorFilters]) => {
-                        return (
-                            <div key={title} className="insights-filter-group">
-                                <div className="insights-filter-group-title">{title}</div>
-                                <div className="insights-filter-group-content">
-                                    {editorFilters.map(
-                                        ({ label, tooltip, key, valueSelector, component: Component }) => (
-                                            <div key={key}>
-                                                {label ? (
-                                                    <EditorFilterItemTitle label={label} tooltip={tooltip} />
-                                                ) : null}
-                                                {Component ? (
-                                                    <Component
-                                                        insight={insight}
-                                                        insightProps={insightProps}
-                                                        filters={insight.filters ?? cleanFilters({})}
-                                                        value={
-                                                            (valueSelector
-                                                                ? valueSelector(insight)
-                                                                : insight?.filters?.[key]) ?? null
-                                                        }
-                                                    />
-                                                ) : null}
-                                            </div>
-                                        )
-                                    )}
-                                </div>
-                            </div>
-                        )
-                    })}
-            {isEditorPanelsDone ? (
-                <div style={{ margin: '1em' }}>
-                    <div style={{ padding: '1em', background: 'var(--bg-mid)' }}>Old unstructured filters</div>
-                    <div style={{ padding: '1em', background: '#fff', border: '1px solid var(--bg-mid)' }}>
-                        {insightTabFilters}
-                    </div>
-                </div>
-            ) : null}
+            {getEditorFilters(filters, featureFlags, availableFeatures).map((editorFilterGroup) => (
+                <EditorFilterGroup
+                    key={editorFilterGroup.title}
+                    editorFilterGroup={editorFilterGroup}
+                    insight={insight}
+                    insightProps={insightProps}
+                />
+            ))}
         </>
     ) : (
         insightTabFilters
