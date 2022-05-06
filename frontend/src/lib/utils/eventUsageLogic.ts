@@ -432,6 +432,7 @@ export const eventUsageLogic = kea<
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
+        reportTeamHasIngestedEvents: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1008,6 +1009,9 @@ export const eventUsageLogic = kea<
         },
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
+        },
+        reportTeamHasIngestedEvents: () => {
+            posthog.capture('team has ingested events')
         },
     }),
 })
