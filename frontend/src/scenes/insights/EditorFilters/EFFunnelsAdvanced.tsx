@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import clsx from 'clsx'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Button, Tag } from 'antd'
+import { Tag } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepReference, StepOrderValue, EditorFilterProps } from '~/types'
@@ -11,6 +11,7 @@ import { FunnelStepOrderPicker } from '../InsightTabs/FunnelTab/FunnelStepOrderP
 import { FunnelExclusionsFilter } from '../InsightTabs/FunnelTab/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../InsightTabs/FunnelTab/funnelCommandLogic'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function EFFunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
@@ -80,10 +81,10 @@ export function EFFunnelsAdvanced({ filters, insightProps }: EditorFilterProps):
                         <FunnelExclusionsFilter />
                     </div>
                     {!!advancedOptionsUsedCount && (
-                        <div>
-                            <Button
-                                type="link"
-                                style={{ color: 'var(--danger)', paddingLeft: 0, marginTop: 16 }}
+                        <div className="mt">
+                            <LemonButton
+                                type="stealth"
+                                status="danger"
                                 onClick={() => {
                                     setStepReference(FunnelStepReference.total)
                                     setFilters({
@@ -93,7 +94,7 @@ export function EFFunnelsAdvanced({ filters, insightProps }: EditorFilterProps):
                                 }}
                             >
                                 Reset advanced options
-                            </Button>
+                            </LemonButton>
                         </div>
                     )}
                 </div>

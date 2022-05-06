@@ -32,9 +32,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { Tooltip } from 'lib/components/Tooltip'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { EditorFilterItemTitle } from './EditorFilters/EditorFilterItemTitle'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -71,6 +70,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
+    const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
@@ -104,6 +104,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         InsightType.PATHS,
         InsightType.FUNNELS,
     ].includes(filters.insight as InsightType)
+
+    const isSmallScreen = !screens.xl
+    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const insightTab = usingEditorPanels ? (
         <>
@@ -261,15 +264,43 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 </div>
             ) : (
                 <>
-                    {insightMode !== ItemMode.View ? (
+                    {insightMode === ItemMode.View ? (
+                        <InsightContainer />
+                    ) : (
                         <>
                             <InsightsNav />
-                            <Card className="insight-controls">
-                                <div className="tabs-inner">{insightTab}</div>
-                            </Card>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: verticalLayout ? 'row' : 'column',
+                                    marginBottom: verticalLayout ? 64 : 0,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
+                                        marginRight: verticalLayout ? '1rem' : 0,
+                                    }}
+                                >
+                                    {verticalLayout ? (
+                                        insightTab
+                                    ) : (
+                                        <Card className="insight-controls">
+                                            <div className="tabs-inner">{insightTab}</div>
+                                        </Card>
+                                    )}
+                                </div>
+                                <div
+                                    style={{
+                                        flexGrow: 1,
+                                        width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
+                                    }}
+                                >
+                                    <InsightContainer />
+                                </div>
+                            </div>
                         </>
-                    ) : null}
-                    <InsightContainer />
+                    )}
                 </>
             )}
 
