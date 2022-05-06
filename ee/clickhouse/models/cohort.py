@@ -412,19 +412,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyG
     #
     # Users who match _any_ of the groups are considered to match the cohort.
 
-    for property in cohort.properties.flat:
-        if property.type == "behavioral":
-            # TODO: Support behavioral property type in other insights
-            return PropertyGroup(
-                type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
-            )
-
-        elif property.type == "cohort":
-            # :TRICKY: We need to ensure we don't have infinite loops in here
-            # guaranteed during cohort creation
-            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
-
-    return cohort.properties
+    return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
