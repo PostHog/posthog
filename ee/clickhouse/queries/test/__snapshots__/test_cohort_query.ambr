@@ -44,7 +44,7 @@
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
   '
   
-  SELECT funnel_query.person_id AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT person_id,
             max(if(event = '$new_view'
@@ -84,6 +84,15 @@
              AND timestamp <= now()
              AND timestamp >= now() - INTERVAL 8 day ))
      GROUP BY person_id) funnel_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND ((id IN
             (SELECT person_id

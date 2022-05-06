@@ -718,6 +718,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(count_result, 0)
 
     def test_cohortpeople_with_cyclic_cohort_filter(self):
+        # Getting in such a state shouldn't be possible anymore.
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
 
@@ -727,9 +728,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        self.assertRaises(ValueError, lambda: cohort1.calculate_people_ch(pending_version=0))
+        self.assertRaises(RecursionError, lambda: cohort1.calculate_people_ch(pending_version=0))
 
     def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
+        # Getting in such a state shouldn't be possible anymore.
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
 
@@ -763,7 +765,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # cohort1 depends on cohort2 which depends on cohort3 which depends on cohort4 which depends on cohort2
         # and cohort5 depends on cohort1
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RecursionError):
             cohort5.calculate_people_ch(pending_version=0)
 
         count_result = sync_execute(

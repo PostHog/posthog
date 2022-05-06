@@ -258,6 +258,20 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
 
+        # Update Cohort A to depend on Cohort A itself
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={
+                "name": "Cohort A, reloaded",
+                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 3)
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
