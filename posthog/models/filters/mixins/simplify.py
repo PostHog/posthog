@@ -105,9 +105,9 @@ class SimplifyFilterMixin:
         new_groups = []
         for group in prop_group.values:
             if isinstance(group, PropertyGroup):
-                new_groups.append(self._simplify_property_group(team, group))
+                new_groups.append(self._simplify_property_group(team, group, **kwargs))
             elif isinstance(group, Property):
-                new_groups.append(self._simplify_property(team, group))
+                new_groups.append(self._simplify_property(team, group, **kwargs))
 
         prop_group.values = new_groups
         return prop_group
@@ -123,7 +123,7 @@ class SimplifyFilterMixin:
                 # :TODO: Handle non-existing resource in-query instead
                 return PropertyGroup(type=PropertyOperatorType.AND, values=[property])
 
-            return simplified_cohort_filter_properties(cohort, team)
+            return simplified_cohort_filter_properties(cohort, team, **kwargs)
 
         # PropertyOperatorType doesn't really matter here, since only one value.
         return PropertyGroup(type=PropertyOperatorType.AND, values=[property])

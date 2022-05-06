@@ -105,9 +105,9 @@
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
+        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((steps_0))
+    AND (((((steps_0)))
           AND (steps_1))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
