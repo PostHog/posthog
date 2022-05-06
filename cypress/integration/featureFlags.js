@@ -38,7 +38,7 @@ describe('Feature Flags', () => {
         cy.reload()
 
         // click the sidebar item to go back to the list
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
@@ -68,7 +68,7 @@ describe('Feature Flags', () => {
         // after save there should be a delete button
         cy.get('button[data-attr="delete-flag"]').should('have.text', 'Delete')
 
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
