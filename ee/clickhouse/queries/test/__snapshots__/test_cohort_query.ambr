@@ -197,7 +197,7 @@
                   WHERE team_id = 2
                   GROUP BY id
                   HAVING max(is_deleted) = 0
-                  AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))) )
+                  AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) )
           AND performed_event_condition_None_level_level_0_1)) SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -248,7 +248,7 @@
                   WHERE team_id = 2
                   GROUP BY id
                   HAVING max(is_deleted) = 0
-                  AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))) )
+                  AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) )
           OR performed_event_condition_None_level_level_0_1)) SETTINGS allow_experimental_window_functions = 1
   '
 ---

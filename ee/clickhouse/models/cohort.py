@@ -57,7 +57,10 @@ def format_person_query(
         from ee.clickhouse.queries.cohort_query import CohortQuery
 
         query, params = CohortQuery(
-            Filter(data={"properties": cohort.properties}), cohort.team, cohort_pk=cohort.pk, cohorts_seen=cohorts_seen
+            Filter(data={"properties": cohort.properties}, team=cohort.team),
+            cohort.team,
+            cohort_pk=cohort.pk,
+            cohorts_seen=cohorts_seen,
         ).get_query()
 
         return f"{custom_match_field} IN ({query})", params

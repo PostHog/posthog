@@ -1305,7 +1305,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                     ],
                 },
-            }
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
