@@ -11,24 +11,27 @@ import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
 import { createRoot } from 'react-dom/client'
+import { groupsModel } from '~/models/groupsModel'
+import { toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
 /** --primary in HSL for saturation mixing */
 const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
-const TOOLTIP_OFFSET_PX = 8
+const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
 function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
-    const { tooltipOpacity, currentTooltip, tooltipCoordinates } = useValues(worldMapLogic(insightProps))
+    const { filters, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(worldMapLogic(insightProps))
+    const { aggregationLabel } = useValues(groupsModel)
 
     const svgRef = useRef<SVGSVGElement>(null)
 
     useEffect(() => {
         const svgRect = svgRef.current?.getBoundingClientRect()
         const tooltipEl = ensureTooltipElement()
-        tooltipEl.style.opacity = tooltipOpacity.toString()
+        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipCoordinates) {
             ;(tooltipEl as any).__root = createRoot(tooltipEl)
@@ -61,6 +64,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
+                            groupTypeLabel={aggregationLabel(toLocalFilters(filters)[0].math_group_type_index).plural}
                         />
                     )}
                 </Provider>
@@ -70,19 +74,19 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             if (
                 svgRect &&
                 tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
             ) {
-                xOffset = -(tooltipRect.width + TOOLTIP_OFFSET_PX)
+                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
             } else {
-                xOffset = TOOLTIP_OFFSET_PX
+                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
             }
             tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + TOOLTIP_OFFSET_PX}px`
+            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [tooltipOpacity, currentTooltip, tooltipCoordinates])
+    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
 
     return svgRef
 }

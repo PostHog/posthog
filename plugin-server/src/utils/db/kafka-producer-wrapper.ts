@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Producer, ProducerRecord } from 'kafkajs'
 
@@ -86,6 +87,7 @@ export class KafkaProducerWrapper {
                     topicMessages: messages,
                 })
             } catch (err) {
+                Sentry.captureException(err)
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
                 this.statsd?.increment('query.kafka_send.failure')
                 throw err

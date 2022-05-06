@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
@@ -27,7 +27,9 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -38,8 +40,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps: FeatureFlagLogicProps = { id: id && id !== 'new' ? parseInt(id) : 'new' }
     const {
+        props,
         featureFlag,
         multivariateEnabled,
         variants,
@@ -50,7 +52,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         aggregationTargetName,
         taxonomicGroupTypes,
         featureFlagLoading,
-    } = useValues(featureFlagLogic(logicProps))
+    } = useValues(featureFlagLogic)
     const {
         addConditionSet,
         updateConditionSet,
@@ -62,7 +64,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
-    } = useActions(featureFlagLogic(logicProps))
+    } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
@@ -77,7 +79,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm logic={featureFlagLogic} props={logicProps} formKey="featureFlag">
+                // TODO: kea-form should also use featureFlagLogic's bound props
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag">
                     <PageHeader
                         title="Feature Flag"
                         buttons={
@@ -403,7 +406,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    compact
+                                    size="small"
                                     fullWidth
                                     center
                                 >
@@ -486,7 +489,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    compact
+                                                    size="small"
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
@@ -494,7 +497,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <LemonButton
                                                         icon={<IconDelete />}
-                                                        compact
+                                                        size="small"
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>

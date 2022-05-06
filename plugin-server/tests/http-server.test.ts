@@ -7,10 +7,21 @@ import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/db/sql')
+jest.mock('../src/main/utils', () => {
+    const actual = jest.requireActual('../src/main/utils')
+    return {
+        ...actual,
+        kafkaHealthcheck: async () => {
+            await Promise.resolve()
+            return [true, null]
+        },
+    }
+})
+
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('http server', () => {
-    test('_ready', async () => {
+    test('_health', async () => {
         const testCode = `
             async function processEvent (event) {
                 return event
@@ -28,7 +39,7 @@ describe('http server', () => {
             makePiscina
         )
 
-        http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
+        http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
             const { statusCode } = res
             expect(statusCode).toEqual(200)
         })

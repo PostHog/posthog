@@ -5,7 +5,7 @@ import fetch from 'node-fetch'
 import { format } from 'util'
 
 import { Action, Hook, Person } from '../../types'
-import { DB } from '../../utils/db/db'
+import { CachedPersonData, DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
@@ -29,7 +29,7 @@ export function determineWebhookType(url: string): WebhookType {
 
 export function getUserDetails(
     event: PluginEvent,
-    person: Person | undefined,
+    person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -74,7 +74,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 export function getValueOfToken(
     action: Action,
     event: PluginEvent,
-    person: Person | undefined,
+    person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType,
     tokenParts: string[]
@@ -126,7 +126,7 @@ export function getValueOfToken(
 export function getFormattedMessage(
     action: Action,
     event: PluginEvent,
-    person: Person | undefined,
+    person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -172,7 +172,7 @@ export class HookCommander {
 
     public async findAndFireHooks(
         event: PluginEvent,
-        person: Person | undefined,
+        person: CachedPersonData | Person | undefined,
         siteUrl: string,
         actionMatches: Action[]
     ): Promise<void> {
@@ -213,7 +213,7 @@ export class HookCommander {
         webhookUrl: string,
         action: Action,
         event: PluginEvent,
-        person: Person | undefined,
+        person: CachedPersonData | Person | undefined,
         siteUrl: string
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
@@ -237,10 +237,31 @@ export class HookCommander {
         this.statsd?.increment('webhook_firings')
     }
 
-    private async postRestHook(hook: Hook, event: PluginEvent, person: Person | undefined): Promise<void> {
+    public async postRestHook(
+        hook: Hook,
+        event: PluginEvent,
+        person: CachedPersonData | Person | undefined
+    ): Promise<void> {
+        let sendablePerson: Record<string, any> = {}
+        if (person) {
+            const { uuid, properties, team_id, id } = person
+
+            // CachedPersonData has created_at_iso (string), whereas Person has created_at (DateTime)
+            // so we standardize into ISO before sending the payload
+            const createdAt = 'created_at' in person ? person.created_at.toISO() : person.created_at_iso
+
+            sendablePerson = {
+                uuid,
+                properties,
+                team_id,
+                id,
+                created_at: createdAt,
+            }
+        }
+
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...event, person },
+            data: { ...event, person: sendablePerson },
         }
         const request = await fetch(hook.target, {
             method: 'POST',

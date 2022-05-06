@@ -255,7 +255,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             </div>
 
-                            {editingPlugin.plugin_type === 'source' ? (
+                            {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <Button
                                         type={editingSource ? 'default' : 'primary'}

@@ -9,8 +9,24 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { preflightLogicType } from './preflightLogicType'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 type PreflightMode = 'experimentation' | 'live'
+
+export type PreflightCheckStatus = 'validated' | 'error' | 'warning' | 'optional'
+
+export interface PreflightItemInterface {
+    name: string
+    status: PreflightCheckStatus
+    caption?: string
+    id: string
+}
+
+interface PreflightCheckSummary {
+    summaryString: string
+    summaryStatus: PreflightCheckStatus
+}
 
 export interface EnvironmentConfigOption {
     key: string
@@ -18,7 +34,9 @@ export interface EnvironmentConfigOption {
     value: string
 }
 
-export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightMode>>({
+export const preflightLogic = kea<
+    preflightLogicType<EnvironmentConfigOption, PreflightCheckSummary, PreflightItemInterface, PreflightMode>
+>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     connect: {
         values: [teamLogic, ['currentTeam']],
@@ -27,13 +45,18 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         preflight: [
             null as PreflightStatus | null,
             {
-                loadPreflight: async () => await api.get('_preflight/'),
+                loadPreflight: async () => {
+                    const response = await api.get('_preflight/')
+                    return response
+                },
             },
         ],
     },
     actions: {
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
+        handlePreflightFinished: true,
+        setChecksManuallyExpanded: (expanded: boolean | null) => ({ expanded }),
     },
     reducers: {
         preflightMode: [
@@ -42,8 +65,120 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
                 setPreflightMode: (_, { mode }) => mode,
             },
         ],
+        areChecksManuallyExpanded: [
+            null as boolean | null,
+            {
+                setChecksManuallyExpanded: (_, { expanded }) => expanded,
+            },
+        ],
     },
     selectors: {
+        checks: [
+            (s) => [s.preflight, s.preflightMode],
+            (preflight, preflightMode) => {
+                return [
+                    {
+                        id: 'database',
+                        name: 'Application database · Postgres',
+                        status: preflight?.db ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'clickhouse',
+                        name: 'Analytics database · ClickHouse',
+                        status: preflight?.clickhouse ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'kafka',
+                        name: 'Queue · Kafka',
+                        status: preflight?.kafka ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'backend',
+                        name: 'Backend server · Django',
+                        status: preflight?.django ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'redis',
+                        name: 'Cache · Redis',
+                        status: preflight?.redis ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'celery',
+                        name: 'Background jobs · Celery',
+                        status: preflight?.celery ? 'validated' : 'error',
+                    },
+                    {
+                        id: 'plugins',
+                        name: 'Plugin server · Node',
+                        status: preflight?.plugins
+                            ? 'validated'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.plugins && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : undefined,
+                    },
+                    {
+                        id: 'frontend',
+                        name: 'Frontend build · Webpack',
+                        status: 'validated', // Always validated if we're showing the preflight check
+                    },
+                    {
+                        id: 'tls',
+                        name: 'SSL/TLS certificate',
+                        status:
+                            window.location.protocol === 'https:'
+                                ? 'validated'
+                                : preflightMode === 'experimentation'
+                                ? 'optional'
+                                : 'warning',
+                        caption:
+                            !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
+                                ? 'Not required for experimentation mode'
+                                : 'Set up before ingesting real user data',
+                    },
+                ] as PreflightItemInterface[]
+            },
+        ],
+        checksSummary: [
+            (s) => [s.checks],
+            (checks): PreflightCheckSummary => {
+                const statusCounts = {} as Record<PreflightCheckStatus, number>
+                if (checks.length > 0) {
+                    for (const check of checks) {
+                        statusCounts[check.status] = (statusCounts[check.status] || 0) + 1
+                    }
+                }
+
+                let summaryString = ''
+                let summaryStatus: PreflightCheckStatus = 'validated'
+
+                if (statusCounts.validated) {
+                    summaryString += `${statusCounts.validated} successful, `
+                }
+                if (statusCounts.warning) {
+                    summaryString += `${statusCounts.warning} warning${statusCounts.warning > 1 ? 's' : ''}, `
+                    summaryStatus = 'warning'
+                }
+                if (statusCounts.error) {
+                    summaryString += `${statusCounts.error} error${statusCounts.error > 1 ? 's' : ''}, `
+                    summaryStatus = 'error'
+                }
+                if (statusCounts.optional) {
+                    summaryString += `${statusCounts.optional} optional, `
+                }
+
+                return { summaryString: summaryString.slice(0, -2), summaryStatus: summaryStatus }
+            },
+        ],
+        areChecksExpanded: [
+            (s) => [s.checksSummary, s.areChecksManuallyExpanded],
+            (checksSummary, areChecksManuallyExpanded) => {
+                return areChecksManuallyExpanded ?? checksSummary?.summaryStatus !== 'validated'
+            },
+        ],
         socialAuthAvailable: [
             (s) => [s.preflight],
             (preflight): boolean =>
@@ -89,8 +224,12 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
         ],
     },
     listeners: ({ values, actions }) => ({
+        handlePreflightFinished: () => {
+            router.actions.push(urls.signup())
+        },
         loadPreflightSuccess: () => {
             actions.registerInstrumentationProps()
+            actions.setChecksManuallyExpanded(values.areChecksManuallyExpanded || null)
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
@@ -143,10 +282,10 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
     actionToUrl: ({ values }) => ({
         setPreflightMode: () => ['/preflight', { mode: values.preflightMode }],
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/preflight': (_, { mode }) => {
-            if (mode) {
-                actions.setPreflightMode(mode as PreflightMode, true)
+            if (values.preflightMode !== mode) {
+                actions.setPreflightMode(mode ?? (null as PreflightMode | null), true)
             }
         },
     }),
