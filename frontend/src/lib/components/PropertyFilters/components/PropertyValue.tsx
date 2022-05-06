@@ -26,6 +26,7 @@ export interface PropertyValueProps {
     type: string
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
+    className?: string
     style?: Partial<React.CSSProperties>
     bordered?: boolean
     onSet: CallableFunction
@@ -59,6 +60,7 @@ export function PropertyValue({
     type,
     endpoint = undefined,
     placeholder = undefined,
+    className,
     style = {},
     bordered = true,
     onSet,
@@ -92,6 +94,9 @@ export function PropertyValue({
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
+            return
+        }
+        if (!propertyKey) {
             return
         }
         const key = propertyKey.split('__')[0]
@@ -144,6 +149,7 @@ export function PropertyValue({
     const validationError = operator ? getValidationError(operator, value) : null
 
     const commonInputProps = {
+        className,
         style: { width: '100%', ...style },
         onSearch: (newInput: string) => {
             setInput(newInput)

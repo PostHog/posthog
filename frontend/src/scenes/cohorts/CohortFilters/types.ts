@@ -1,5 +1,11 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType } from '~/types'
+import {
+    BehavioralCohortType,
+    BehavioralEventType,
+    BehavioralLifecycleType,
+    PropertyFilterValue,
+    PropertyOperator,
+} from '~/types'
 import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -14,7 +20,7 @@ export enum FilterType {
     Text = 'text',
     EventsAndActions = 'eventsAndActions',
     EventProperties = 'eventProperties',
-    EventPropertyValues = 'eventPropertyValues',
+    PersonPropertyValues = 'personPropertyValues',
     EventType = 'eventType',
     Number = 'number',
     NumberTicker = 'numberTicker',
@@ -84,6 +90,12 @@ export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'f
     fieldOptionGroupTypes: never
 }
 
+export interface CohortPersonPropertiesValuesFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+    propertyKey: PropertyFilterValue | undefined
+    operator?: PropertyOperator
+}
+
 export interface CohortTextFieldProps extends CohortFieldBaseProps {
     value: string
 }
@@ -97,6 +109,7 @@ export type CohortFieldProps =
     | CohortNumberFieldProps
     | CohortTaxonomicFieldProps
     | CohortTextFieldProps
+    | CohortPersonPropertiesValuesFieldProps
 
 export enum CohortClientErrors {
     NegationCriteriaMissingOther = 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
@@ -104,7 +117,7 @@ export enum CohortClientErrors {
     RegularEventMismatch = 'The lowerbound period value must not be greater than the upperbound value.',
     EmptyEventsAndActions = 'Event or action cannot be empty.',
     EmptyEventProperties = 'Event property cannot be empty.',
-    EmptyEventPropertyValues = 'Event property value cannot be empty',
+    EmptyPersonPropertyValues = 'Person property value cannot be empty',
     EmptyEventType = 'Event type cannot be empty.',
     EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
     EmptyNumberTicker = 'Number cannot be empty.',

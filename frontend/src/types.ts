@@ -586,7 +586,7 @@ export interface CohortCriteriaType {
     operator?: PropertyOperator | null
     group_type_index?: number | null
     event_type?: TaxonomicFilterGroupType | null
-    operator_value?: number | null
+    operator_value?: PropertyFilterValue
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
     total_periods?: number | null

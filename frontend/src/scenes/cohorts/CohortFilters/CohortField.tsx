@@ -8,6 +8,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {
     BehavioralFilterKey,
+    CohortPersonPropertiesValuesFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
     CohortSelectorFieldProps,
@@ -18,6 +19,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import { resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
 import { cohortsModel } from '~/models/cohortsModel'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -130,6 +133,36 @@ export function CohortTaxonomicField({
             }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
+        />
+    )
+}
+
+export function CohortPersonPropertiesValuesField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+    propertyKey,
+    operator,
+}: CohortPersonPropertiesValuesFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    const { onChange } = useActions(logic)
+
+    return (
+        <PropertyValue
+            operator={operator || PropertyOperator.Exact}
+            propertyKey={propertyKey as string}
+            type="person"
+            onSet={(newValue: PropertyOperator) => {
+                onChange({ [fieldKey]: newValue })
+            }}
+            placeholder="Enter value..."
+            className="CohortField__CohortPersonPropertiesValuesField"
         />
     )
 }

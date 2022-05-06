@@ -3,6 +3,7 @@ import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
+    CohortPersonPropertiesValuesFieldProps,
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortTaxonomicFieldProps,
@@ -28,6 +29,7 @@ import {
     ValueOptionType,
 } from '~/types'
 import {
+    CohortPersonPropertiesValuesField,
     CohortNumberField,
     CohortSelectorField,
     CohortTaxonomicField,
@@ -512,7 +514,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'value_property',
-                type: FilterType.EventPropertyValues,
+                type: FilterType.PersonPropertyValues,
             },
         ],
     },
@@ -532,7 +534,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'value_property',
-                type: FilterType.EventPropertyValues,
+                type: FilterType.PersonPropertyValues,
             },
         ],
     },
@@ -804,13 +806,19 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                placeholder="Choose event property"
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                placeholder="Choose person property"
             />
         )
     },
-    [FilterType.EventPropertyValues]: function _renderField() {
-        return <span>TODO</span>
+    [FilterType.PersonPropertyValues]: function _renderField(p) {
+        return (
+            <CohortPersonPropertiesValuesField
+                {...(p as CohortPersonPropertiesValuesFieldProps)}
+                propertyKey={p.criteria.key}
+                operator={p.criteria['operator'] ?? undefined}
+            />
+        )
     },
     [FilterType.Number]: function _renderField(p) {
         return <CohortNumberField {...(p as CohortNumberFieldProps)} />
@@ -841,7 +849,7 @@ export const CRITERIA_VALIDATIONS: Record<
 > = {
     [FilterType.EventsAndActions]: () => CohortClientErrors.EmptyEventsAndActions,
     [FilterType.EventProperties]: () => CohortClientErrors.EmptyEventProperties,
-    [FilterType.EventPropertyValues]: () => CohortClientErrors.EmptyEventPropertyValues,
+    [FilterType.PersonPropertyValues]: () => CohortClientErrors.EmptyPersonPropertyValues,
     [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
     [FilterType.Number]: (d) => (Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber),
     [FilterType.NumberTicker]: () => CohortClientErrors.EmptyNumberTicker,

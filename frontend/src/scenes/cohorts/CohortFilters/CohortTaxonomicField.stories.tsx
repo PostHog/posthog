@@ -36,8 +36,8 @@ EventsAndActions.args = {
     placeholder: 'Choose event or action',
 }
 
-export const EventProperties = Template.bind({})
-EventProperties.args = {
-    taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-    placeholder: 'Choose event property',
+export const PersonProperties = Template.bind({})
+PersonProperties.args = {
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+    placeholder: 'Choose person property',
 }

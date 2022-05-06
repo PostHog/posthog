@@ -16,3 +16,12 @@
 .CohortField__CohortNumberField {
     max-width: 4rem;
 }
+
+.CohortField__CohortPersonPropertiesValuesField {
+    min-width: 150px;
+    height: 40px;
+
+    .ant-select-selector {
+        height: 100%;
+    }
+}
