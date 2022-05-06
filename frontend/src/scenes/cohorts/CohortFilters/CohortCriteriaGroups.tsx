@@ -15,7 +15,7 @@ import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import React from 'react'
 
-export function CohortCriteriaGroup(): JSX.Element {
+export function CohortCriteriaGroups(): JSX.Element {
     const { cohort } = useValues(cohortLogic)
     const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(cohortLogic)
 

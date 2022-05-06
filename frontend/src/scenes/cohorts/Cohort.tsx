@@ -28,7 +28,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroup'
+import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -212,7 +212,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                     </Row>
                                     {newCohortFiltersEnabled ? (
                                         <BindLogic logic={cohortLogic} props={logicProps}>
-                                            <CohortCriteriaGroup />
+                                            <CohortCriteriaGroups />
                                         </BindLogic>
                                     ) : (
                                         <>
