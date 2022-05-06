@@ -12,6 +12,8 @@ import { PanelSupport } from './PanelComponents'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig } from 'scenes/plugins/types'
+import { CodeSnippet } from '../frameworks/CodeSnippet'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -125,6 +127,7 @@ export function ThirdPartyPanel(): JSX.Element {
 export function IntegrationInstructionsModal(): JSX.Element {
     const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <>
@@ -134,6 +137,8 @@ export function IntegrationInstructionsModal(): JSX.Element {
                 <>
                     {thirdPartyIntegrationSource?.name && (
                         <LemonModal
+                            width="auto"
+                            style={{ maxWidth: 600 }}
                             visible={instructionsModalOpen}
                             onCancel={() => setInstructionsModal(false)}
                             bodyStyle={{ padding: 40 }}
@@ -161,6 +166,16 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                                 integration
                                             </a>{' '}
                                             provides a detailed overview of how to set up this integration.
+                                        </div>
+                                        <div className="text-muted text-center">
+                                            <p>
+                                                Team API Key refers to your PostHog Project API Key, which can also be
+                                                found under your Project Settings.
+                                            </p>
+                                            <CodeSnippet copyDescription="project API key">
+                                                {currentTeam?.api_token || ''}
+                                            </CodeSnippet>
+                                            <p>Do not use a Personal API Key for this.</p>
                                         </div>
                                     </div>
                                     <LemonButton
