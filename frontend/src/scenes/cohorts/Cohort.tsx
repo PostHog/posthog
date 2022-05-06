@@ -20,21 +20,15 @@ import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { IconCopy, IconDelete, IconPlusMini, IconUploadFile } from 'lib/components/icons'
+import { IconUploadFile } from 'lib/components/icons'
 import { UploadFile } from 'antd/es/upload/interface'
 import { MatchCriteriaSelector } from 'scenes/cohorts/MatchCriteriaSelector'
 import { Tooltip } from 'lib/components/Tooltip'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { alphabet } from 'lib/utils'
-import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import clsx from 'clsx'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { CohortCriteriaGroup } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroup'
 
 export const scene: SceneExport = {
     component: Cohort,
@@ -46,16 +40,7 @@ export const scene: SceneExport = {
 export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
     const logicProps = { id }
     const logic = cohortLogic(logicProps)
-    const {
-        deleteCohort,
-        setCohort,
-        onCriteriaChange,
-        setOuterGroupsType,
-        setInnerGroupType,
-        duplicateFilter,
-        removeFilter,
-        addFilter,
-    } = useActions(logic)
+    const { deleteCohort, setCohort, onCriteriaChange, setOuterGroupsType } = useActions(logic)
     const { cohort, cohortLoading, newCohortFiltersEnabled } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
@@ -226,146 +211,9 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                         )}
                                     </Row>
                                     {newCohortFiltersEnabled ? (
-                                        <>
-                                            {cohort.filters.properties.values.map((group, groupIndex) =>
-                                                isCohortCriteriaGroup(group) ? (
-                                                    <Group
-                                                        key={groupIndex}
-                                                        name={['filters', 'properties', 'values', groupIndex]}
-                                                    >
-                                                        {groupIndex !== 0 && (
-                                                            <div className="cohort-detail__matching-group__logical-divider">
-                                                                {cohort.filters.properties.type}
-                                                            </div>
-                                                        )}
-                                                        <KeaField
-                                                            name="id"
-                                                            template={({ error, kids }) => {
-                                                                return (
-                                                                    <div
-                                                                        className={clsx(
-                                                                            'cohort-detail__matching-group',
-                                                                            error &&
-                                                                                `cohort-detail__matching-group--error`
-                                                                        )}
-                                                                    >
-                                                                        <Row
-                                                                            align="middle"
-                                                                            wrap={false}
-                                                                            className="pl pr"
-                                                                        >
-                                                                            <Lettermark
-                                                                                name={alphabet[groupIndex]}
-                                                                                color={LettermarkColor.Gray}
-                                                                            />
-                                                                            <AndOrFilterSelect
-                                                                                prefix="Match persons against"
-                                                                                suffix="criteria"
-                                                                                onChange={(value) =>
-                                                                                    setInnerGroupType(value, groupIndex)
-                                                                                }
-                                                                                value={group.type}
-                                                                            />
-                                                                            <div
-                                                                                style={{ flex: 1, minWidth: '0.5rem' }}
-                                                                            />
-                                                                            <LemonButton
-                                                                                icon={<IconCopy />}
-                                                                                type="primary-alt"
-                                                                                onClick={() =>
-                                                                                    duplicateFilter(groupIndex)
-                                                                                }
-                                                                            />
-                                                                            {cohort.filters.properties.values.length >
-                                                                                1 && (
-                                                                                <LemonButton
-                                                                                    icon={<IconDelete />}
-                                                                                    type="primary-alt"
-                                                                                    onClick={() =>
-                                                                                        removeFilter(groupIndex)
-                                                                                    }
-                                                                                />
-                                                                            )}
-                                                                        </Row>
-                                                                        <LemonDivider large />
-                                                                        {error && (
-                                                                            <Row className="cohort-detail__matching-group__error-row">
-                                                                                <AlertMessage
-                                                                                    type="error"
-                                                                                    style={{ width: '100%' }}
-                                                                                >
-                                                                                    <>{error}</>
-                                                                                </AlertMessage>
-                                                                            </Row>
-                                                                        )}
-                                                                        {kids}
-                                                                    </div>
-                                                                )
-                                                            }}
-                                                        >
-                                                            <>
-                                                                {group.values.map((criteria, criteriaIndex) => {
-                                                                    return isCohortCriteriaGroup(criteria) ? null : (
-                                                                        <Group
-                                                                            key={criteriaIndex}
-                                                                            name={['values', criteriaIndex]}
-                                                                        >
-                                                                            <BindLogic
-                                                                                logic={cohortLogic}
-                                                                                props={logicProps}
-                                                                            >
-                                                                                <CohortCriteriaRowBuilder
-                                                                                    groupIndex={groupIndex}
-                                                                                    index={criteriaIndex}
-                                                                                    logicalOperator={group.type}
-                                                                                    criteria={criteria}
-                                                                                    type={criteriaToBehavioralFilterType(
-                                                                                        criteria
-                                                                                    )}
-                                                                                    hideDeleteIcon={
-                                                                                        group.values.length <= 1
-                                                                                    }
-                                                                                />
-                                                                            </BindLogic>
-                                                                            {criteriaIndex ===
-                                                                                group.values.length - 1 && (
-                                                                                <Row>
-                                                                                    <LemonButton
-                                                                                        data-attr={
-                                                                                            'cohort-add-filter-group-criteria'
-                                                                                        }
-                                                                                        style={{ margin: '0.75rem' }}
-                                                                                        type="secondary"
-                                                                                        onClick={() =>
-                                                                                            addFilter(groupIndex)
-                                                                                        }
-                                                                                        icon={
-                                                                                            <IconPlusMini color="var(--primary)" />
-                                                                                        }
-                                                                                    >
-                                                                                        Add criteria
-                                                                                    </LemonButton>
-                                                                                </Row>
-                                                                            )}
-                                                                        </Group>
-                                                                    )
-                                                                })}
-                                                            </>
-                                                        </KeaField>
-                                                    </Group>
-                                                ) : null
-                                            )}
-                                            <LemonButton
-                                                data-attr={`cohort-add-filter-group`}
-                                                className="mb mt"
-                                                type="secondary"
-                                                onClick={() => addFilter()}
-                                                icon={<IconPlusMini color="var(--primary)" />}
-                                                fullWidth
-                                            >
-                                                Add criteria group
-                                            </LemonButton>
-                                        </>
+                                        <BindLogic logic={cohortLogic} props={logicProps}>
+                                            <CohortCriteriaGroup />
+                                        </BindLogic>
                                     ) : (
                                         <>
                                             {cohort.groups.map((group: CohortGroupType, index: number) => (
