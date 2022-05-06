@@ -1,10 +1,13 @@
 import React, { useState } from 'react'
-import { SaveToDashboardModal } from './SaveToDashboardModal'
+import { AddToDashboardModal, SaveToDashboardModal } from './SaveToDashboardModal'
 import { InsightModel } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { urls } from '../../../scenes/urls'
 import { LemonButton } from '../LemonButton'
+import { IconGauge, IconWithCount } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
@@ -15,21 +18,47 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const multiDashboardInsights = featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
+
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
-            <SaveToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
-            {dashboards.length > 0 ? (
-                <LemonButton
-                    to={urls.dashboard(dashboards[0].id, insight.short_id)}
-                    type="secondary"
-                    className="btn-save"
-                >
-                    {dashboards.length > 1 ? 'On multiple dashboards' : `On dashboard: ${dashboards[0]?.name}`}
-                </LemonButton>
+            {multiDashboardInsights ? (
+                <>
+                    <AddToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
+                    <LemonButton
+                        onClick={() => setOpenModal(true)}
+                        type="secondary"
+                        icon={
+                            <IconWithCount count={dashboards.length} showZero={false}>
+                                <IconGauge />
+                            </IconWithCount>
+                        }
+                    >
+                        Add to dashboard
+                    </LemonButton>
+                </>
             ) : (
-                <LemonButton onClick={() => setOpenModal(true)} type="secondary" className="btn-save">
-                    Add to dashboard
-                </LemonButton>
+                <>
+                    <SaveToDashboardModal
+                        visible={openModal}
+                        closeModal={() => setOpenModal(false)}
+                        insight={insight}
+                    />
+                    {dashboards.length > 0 ? (
+                        <LemonButton
+                            to={urls.dashboard(dashboards[0].id, insight.short_id)}
+                            type="secondary"
+                            icon={<IconGauge />}
+                        >
+                            {dashboards.length > 1 ? 'On multiple dashboards' : `On dashboard: ${dashboards[0]?.name}`}
+                        </LemonButton>
+                    ) : (
+                        <LemonButton onClick={() => setOpenModal(true)} type="secondary" icon={<IconGauge />}>
+                            Add to dashboard
+                        </LemonButton>
+                    )}
+                </>
             )}
         </span>
     )

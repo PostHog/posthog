@@ -11,17 +11,17 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/@current/feature_flags/5/activity': (_, __, ctx) => [
+                '/api/projects/:team/feature_flags/5/activity': (_, __, ctx) => [
                     ctx.delay(86400000),
                     ctx.status(200),
                     ctx.json({ results: [] }),
                 ],
-                '/api/projects/@current/feature_flags/6/activity': (_, __, ctx) => [
+                '/api/projects/:team/feature_flags/6/activity': (_, __, ctx) => [
                     ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: [] }),
                 ],
-                '/api/projects/@current/feature_flags/7/activity': (_, __, ctx) => [
+                '/api/projects/:team/feature_flags/7/activity': (_, __, ctx) => [
                     ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: featureFlagsActivityResponseJson }),

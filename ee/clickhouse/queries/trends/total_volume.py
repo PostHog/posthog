@@ -1,5 +1,5 @@
-from datetime import datetime
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
 import pytz
@@ -27,7 +27,7 @@ class ClickhouseTrendsTotalVolume:
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity, team)
+        aggregate_operation, join_condition, math_params = process_math(entity, team, person_id_alias="person_id")
 
         trend_event_query = TrendsEventQuery(
             filter=filter,
@@ -105,9 +105,7 @@ class ClickhouseTrendsTotalVolume:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
-                parsed_result.update(
-                    {"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])}
-                )
+                parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
                 parsed_results.append(parsed_result)
 
                 parsed_result.update({"filter": filter.to_dict()})
@@ -139,10 +137,20 @@ class ClickhouseTrendsTotalVolume:
 
         return _parse
 
-    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]) -> List[Dict[str, Any]]:
+    def _get_persons_url(
+        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]
+    ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            date_in_utc = datetime(date.year, date.month, date.day, getattr(date, 'hour', 0), getattr(date, 'minute', 0), getattr(date, 'second', 0), tzinfo=getattr(date, 'tzinfo', pytz.UTC)).astimezone(pytz.UTC)
+            date_in_utc = datetime(
+                date.year,
+                date.month,
+                date.day,
+                getattr(date, "hour", 0),
+                getattr(date, "minute", 0),
+                getattr(date, "second", 0),
+                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,

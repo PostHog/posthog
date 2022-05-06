@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import pytest
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
+from ee.clickhouse.models.cohort import (
+    format_filter_query,
+    get_person_ids_by_cohort_id,
+    recalculate_cohortpeople,
+    recalculate_cohortpeople_with_new_query,
+)
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -483,7 +487,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         return action
 
-    @snapshot_clickhouse_queries
     def test_cohortpeople_action_count(self):
 
         action = self._setup_actions_with_different_counts()
@@ -724,14 +727,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.assertRaises(ValueError, lambda: cohort1.calculate_people_ch(pending_version=0))
 
-        count_result = sync_execute(
-            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-        )[0][0]
-        self.assertEqual(count_result, 2)
-
-    @pytest.mark.skip("Old cohorts don't handle this case")
     def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
@@ -783,3 +780,152 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+    def test_query_with_multiple_new_style_cohorts(self):
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+        )
+
+        # satiesfies all conditions
+        p1 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # doesn't satisfy action
+        p2 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(weeks=3),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # satisfies special condition (not pushed down person property in OR group)
+        p3 = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "special", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": action1.pk,
+                            "event_type": "actions",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "day",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                                {"key": "name", "value": "special", "type": "person"},  # this is NOT pushed down
+                            ],
+                        },
+                        {"type": "AND", "values": [{"key": "id", "value": cohort2.pk, "type": "cohort",},],},
+                    ],
+                },
+            },
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch(pending_version=0)
+
+        result = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )
+        self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
+
+    def test_new_and_old_aligned(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+
+        p1.properties = {"foo": "bar"}
+        p1.save()
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "days": None,
+                    "count": None,
+                    "label": None,
+                    "end_date": None,
+                    "event_id": None,
+                    "action_id": None,
+                    "properties": [{"key": "foo", "type": "person", "value": "bar"}],
+                    "start_date": None,
+                    "count_operator": None,
+                }
+            ],
+            name="cohort1",
+        )
+
+        count = recalculate_cohortpeople(cohort2)
+        new_count = recalculate_cohortpeople_with_new_query(cohort2)
+
+        self.assertEqual(count, new_count)

@@ -1,4 +1,5 @@
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
@@ -10,7 +11,6 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
 )
-from datetime import datetime
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
@@ -45,6 +45,8 @@ from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
+    DISTINCT_ID_TABLE_ALIAS = "pdi"
+
     def __init__(
         self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EnterpriseColumnOptimizer] = None
     ):
@@ -72,8 +74,11 @@ class ClickhouseTrendsBreakdown:
             property_group=outer_properties,
             table_name="e",
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-        aggregate_operation, _, math_params = process_math(self.entity, self.team, event_table_alias="e")
+        aggregate_operation, _, math_params = process_math(
+            self.entity, self.team, event_table_alias="e", person_id_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         action_query = ""
         action_params: Dict = {}
@@ -289,7 +294,15 @@ class ClickhouseTrendsBreakdown:
     ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            date_in_utc = datetime(date.year, date.month, date.day, getattr(date, 'hour', 0), getattr(date, 'minute', 0), getattr(date, 'second', 0), tzinfo=getattr(date, 'tzinfo', pytz.UTC)).astimezone(pytz.UTC)
+            date_in_utc = datetime(
+                date.year,
+                date.month,
+                date.day,
+                getattr(date, "hour", 0),
+                getattr(date, "minute", 0),
+                getattr(date, "second", 0),
+                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
@@ -348,7 +361,7 @@ class ClickhouseTrendsBreakdown:
                 f"""
             {event_join}
             INNER JOIN ({query}) person
-            ON person.id = pdi.person_id
+            ON person.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """,
                 params,
             )

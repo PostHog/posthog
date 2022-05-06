@@ -134,7 +134,7 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": 1,
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event_multiple",
                                 "event_type": "actions",
                                 "operator": "eq",
@@ -180,7 +180,7 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": "$pageview",
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event",
                                 "event_type": "events",
                                 "operator": "gte",
@@ -213,13 +213,44 @@ class TestCohort(BaseTest):
                         "values": [
                             {
                                 "key": "$pageview",
-                                "type": "behavioural",
+                                "type": "behavioral",
                                 "value": "performed_event",
                                 "event_type": "events",
                                 "operator": "lte",
                                 "operator_value": 0,
                                 "time_interval": "day",
                                 "time_value": "4",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    def test_group_to_property_conversion_with_missing_days_and_invalid_count(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"count": -3, "label": "$pageview", "event_id": "$pageview", "count_operator": "gte"},],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 0,
+                                "time_interval": "day",
+                                "time_value": 365,
                             }
                         ],
                     }

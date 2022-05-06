@@ -1291,8 +1291,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
-            persons = self.client.get('/'+response[0]['persons_urls'][7]['url']).json()
-            self.assertEqual(persons['results'][0]['count'], 1)
+            persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
+            self.assertEqual(persons["results"][0]["count"], 1)
 
             response = ClickhouseTrends().run(
                 Filter(
@@ -1488,7 +1488,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
-        import ipdb;ipdb.set_trace()
         self.assertEqual(response[0]["data"][17], 1)
 
         # Custom date range, single day, dayly interval
@@ -1504,7 +1503,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(response[0]["data"], [1.0])
-
 
     def test_same_day(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
