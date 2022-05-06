@@ -1141,7 +1141,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    def test_creating_feature_flag_with_behavioural_cohort(self):
+    def test_creating_feature_flag_with_non_existant_cohort(self):
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
             [{"key": "id", "type": "cohort", "value": 5151},],
@@ -1151,12 +1151,14 @@ class TestFeatureFlag(APIBaseTest):
         self.assertDictContainsSubset(
             {
                 "type": "validation_error",
-                "code": "invalid_input",
+                "code": "cohort_does_not_exist",
                 "detail": "Cohort with id 5151 does not exist",
                 "attr": "filters",
             },
             cohort_request.json(),
         )
+
+    def test_creating_feature_flag_with_behavioral_cohort(self):
 
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,
@@ -1194,8 +1196,8 @@ class TestFeatureFlag(APIBaseTest):
         self.assertDictContainsSubset(
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Cohorts with behavioral filters cannot be used in feature flags: cohort2",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
                 "attr": "filters",
             },
             cohort_request.json(),
@@ -1228,8 +1230,8 @@ class TestFeatureFlag(APIBaseTest):
         self.assertDictContainsSubset(
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Cohorts with behavioral filters cannot be used in feature flags: cohort2",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),

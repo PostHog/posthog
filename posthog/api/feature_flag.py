@@ -109,10 +109,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                         cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                             raise serializers.ValidationError(
-                                f"Cohorts with behavioral filters cannot be used in feature flags: {cohort.name}"
+                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                code="behavioral_cohort_found",
                             )
                     except Cohort.DoesNotExist:
-                        raise serializers.ValidationError(f"Cohort with id {prop.value} does not exist")
+                        raise serializers.ValidationError(
+                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist")
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
