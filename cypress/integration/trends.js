@@ -54,11 +54,7 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        // select several values to give time for the graph to load
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=prop-val-1]').click({ force: true })
-        cy.get('[data-attr=prop-val-2]').click({ force: true })
-        cy.get('[data-attr=prop-val-3]').click({ force: true })
+        cy.get('.filter-row-popup .ant-select-item').contains('hogflix.com/1').click({ force: true })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
@@ -71,7 +67,7 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('.filter-row-popup .ant-select-item').contains('hogflix.com/1').click({ force: true })
 
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
@@ -133,7 +129,7 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('.filter-row-popup .ant-select-item').contains('hogflix.com/1').click({ force: true })
 
         cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()
