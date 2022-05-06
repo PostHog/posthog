@@ -134,6 +134,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
+    KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
 }
 
