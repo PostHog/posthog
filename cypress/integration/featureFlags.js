@@ -73,7 +73,6 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
-        cy.wait(200)
         cy.get('.Toastify__toast .LemonButton').contains('Undo').should('exist')
     })
 })
