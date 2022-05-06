@@ -74,7 +74,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
     if filter.date_from:
         params.update(
             {
-                "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff, filter)}'"
+                "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff)}'"
             }
         )
     else:
@@ -85,7 +85,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
         else:
             params.update(
                 {
-                    "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff, filter)}'"
+                    "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff)}'"
                 }
             )
 

@@ -333,6 +333,7 @@ export const insightLogic = kea<insightLogicType>({
                         ...values.insight,
                         result: response.result,
                         next: response.next,
+                        timezone: response.timezone,
                         filters,
                     } as Partial<InsightModel>
                 },

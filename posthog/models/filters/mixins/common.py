@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+import pytz
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
@@ -272,6 +273,24 @@ class DateMixin(BaseParamMixin):
     def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_TO, None)
 
+    @property
+    def date_from_has_explicit_time(self) -> bool:
+        """
+        Whether date_from has an explicit time set that we want to filter on
+        """
+        if not self._date_from:
+            return False
+        return isinstance(self._date_from, datetime.datetime) or 'T' in self._date_from
+
+    @property
+    def date_to_has_explicit_time(self) -> bool:
+        """
+        Whether date_to has an explicit time set that we want to filter on
+        """
+        if not self._date_to:
+            return False
+        return isinstance(self._date_to, datetime.datetime) or 'T' in self._date_to
+
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
         if self._date_from:
@@ -287,10 +306,18 @@ class DateMixin(BaseParamMixin):
     def date_to(self) -> datetime.datetime:
         if self._date_to:
             if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
+                try:
+                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                except ValueError:
+                    date = relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return timezone.now()
+        else:
+            if self.interval == 'hour': # type: ignore
+                return timezone.now()
+            date = timezone.now()
+
+        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @cached_property
     def date_filter_Q(self) -> Q:

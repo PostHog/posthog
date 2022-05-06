@@ -577,8 +577,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team,)
 
             self.assertEqual(result[0]["count"], response[0]["count"])
-            self.assertEqual(result[0]["data"], response[0]["data"])
             self.assertEqual(result[0]["labels"], response[0]["labels"])
+            self.assertEqual(result[0]["data"], response[0]["data"])
             self.assertEqual(result[0]["days"], response[0]["days"])
 
         def test_hour_interval(self):
@@ -602,7 +602,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 3.0,
-                        "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                        "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0, 0, 0, 0],
                         "labels": [
                             "1-Nov-2020 12:00",
                             "1-Nov-2020 13:00",
@@ -611,6 +611,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "1-Nov-2020 16:00",
                             "1-Nov-2020 17:00",
                             "1-Nov-2020 18:00",
+                            "1-Nov-2020 19:00",
+                            "1-Nov-2020 20:00",
+                            "1-Nov-2020 21:00",
+                            "1-Nov-2020 22:00",
+                            "1-Nov-2020 23:00",
                         ],
                         "days": [
                             "2020-11-01 12:00:00",
@@ -620,6 +625,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "2020-11-01 16:00:00",
                             "2020-11-01 17:00:00",
                             "2020-11-01 18:00:00",
+                            "2020-11-01 19:00:00",
+                            "2020-11-01 20:00:00",
+                            "2020-11-01 21:00:00",
+                            "2020-11-01 22:00:00",
+                            "2020-11-01 23:00:00",
                         ],
                     }
                 ],

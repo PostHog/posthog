@@ -93,7 +93,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         if self.period == "Hour":
             return date_to
         else:
-            return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+            return date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @cached_property
     def period_increment(self) -> Union[timedelta, relativedelta]:

@@ -14,6 +14,7 @@ import {
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
+import { shortTimeZone } from 'lib/utils'
 
 function ClickToInspectActors({
     isTruncated,
@@ -39,6 +40,7 @@ function ClickToInspectActors({
 
 export function InsightTooltip({
     date,
+    timezone='UTC',
     seriesData = [],
     altTitle,
     altRightTitle,
@@ -63,8 +65,16 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title =
-        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    const title = function() {
+        const title = getTooltipTitle(seriesData, altTitle, date)
+        if(title) {
+            return title
+        } 
+        return <>
+            {getFormattedDate(date, seriesData?.[0]?.filter?.interval)}
+            {shortTimeZone(timezone)}
+        </>
+    }()
     const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
 
     const renderTable = (): JSX.Element => {
