@@ -266,7 +266,6 @@ class CohortQuery(EnterpriseEventQuery):
         return query, params, self.PERSON_TABLE_ALIAS
 
     def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
-        # TODO: handle as params
         date_query = ""
         date_params: Dict[str, Any] = {}
         earliest_time_param = f"earliest_time_{self._cohort_pk}"
@@ -372,7 +371,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
+        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
         self._fields.append(field)
 
         return column_name, {f"{date_param}": date_value, **entity_params}
@@ -389,7 +388,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
+        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
         self._fields.append(field)
 
         return (
@@ -564,7 +563,7 @@ class CohortQuery(EnterpriseEventQuery):
             duplicate_event = 1
 
         aggregate_cols = []
-        aggregate_condition = f"max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
+        aggregate_condition = f"{'NOT' if prop.negation else ''} max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
         aggregate_cols.append(aggregate_condition)
 
         condition_cols = []
