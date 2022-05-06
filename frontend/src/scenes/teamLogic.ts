@@ -141,6 +141,12 @@ export const teamLogic = kea<teamLogicType>({
             if (contextualTeam) {
                 // If app context is available (it should be practically always) we can immediately know currentTeam
                 actions.loadCurrentTeamSuccess(contextualTeam)
+                if (contextualTeam.ingested_event) {
+                    const builtEventUsageLogic = eventUsageLogic.build()
+                    const unmount = eventUsageLogic.mount()
+                    builtEventUsageLogic.actions.reportTeamHasIngestedEvents()
+                    unmount()
+                }
             } else {
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()
