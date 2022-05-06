@@ -11,7 +11,7 @@ import { IconOpenInNew } from 'lib/components/icons'
 import { PanelSupport } from './PanelComponents'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
+import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig } from 'scenes/plugins/types'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -99,7 +99,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                                         const pluginUrl = filteredUninstalledPlugins?.find(
                                                             (plugin) =>
                                                                 plugin.name.includes(source.name) &&
-                                                                plugin.type === 'data_in'
+                                                                plugin.type === PluginRepositoryEntryType.DataIn
                                                         )?.url
                                                         if (pluginUrl) {
                                                             installPlugin(pluginUrl, PluginInstallationType.Repository)
@@ -123,11 +123,7 @@ export function ThirdPartyPanel(): JSX.Element {
 }
 
 export function IntegrationInstructionsModal(): JSX.Element {
-    const {
-        instructionsModalOpen,
-        thirdPartySource: thirdPartyIntegrationSource,
-        thirdPartyPluginSource,
-    } = useValues(ingestionLogic)
+    const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
 
     return (

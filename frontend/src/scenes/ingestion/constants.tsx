@@ -157,7 +157,7 @@ export const thirdPartySources: ThirdPartySource[] = [
         docsLink: 'https://www.rudderstack.com/docs/destinations/analytics/posthog/',
     },
     {
-        name: 'Redshift',
+        name: 'Redshift (beta)',
         type: ThirdPartySourceType.Plugin,
         pluginName: 'redshift-import-plugin-(beta)',
         icon: (
