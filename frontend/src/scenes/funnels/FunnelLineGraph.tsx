@@ -36,7 +36,11 @@ export function FunnelLineGraph({
                     if (!steps?.[0]?.days) {
                         return 'Trend'
                     }
-                    return getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval) + ' ' + shortTimeZone(insight.timezone)
+                    return (
+                        getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval) +
+                        ' ' +
+                        shortTimeZone(insight.timezone)
+                    )
                 },
                 renderCount: (count) => {
                     return `${count}%`
