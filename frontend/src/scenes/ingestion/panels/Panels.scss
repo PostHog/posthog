@@ -1,11 +1,12 @@
 @import '~/vars';
 
 .welcome-panel {
+    max-width: 480px;
     border-radius: $radius;
     padding: 40px;
     padding-bottom: $default_spacing;
     background-color: white;
-    box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--shadow-elevation);
 }
 
 .bookmarklet-warning {
@@ -29,10 +30,8 @@
 }
 
 .panel-footer {
-    border-top: 2px dashed $border;
     background-color: white;
-    padding-top: $default_spacing;
-    margin: 0 $default_spacing $default_spacing $default_spacing;
+    margin-bottom: $default_spacing;
     bottom: 0;
 }
 
@@ -42,9 +41,10 @@
 }
 
 .ingestion-card-container {
+    padding: 40px;
+    margin-bottom: 40px;
     box-shadow: var(--shadow-elevation);
     max-width: 65vw;
-    max-height: 80vh;
     border-radius: $radius;
     display: flex;
     flex-direction: column;
@@ -52,13 +52,6 @@
 
     .ant-card-head-title {
         padding-bottom: 0;
-    }
-
-    .ingestion-card-container-top {
-        flex: 1;
-        overflow: hidden;
-        overflow-y: auto;
-        padding: 0 $default_spacing $default_spacing $default_spacing;
     }
 }
 
