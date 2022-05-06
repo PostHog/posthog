@@ -69,16 +69,21 @@ export const ingestionLogic = kea<ingestionLogicType>({
             },
         ],
         instructionsModalOpen: [
-            false,
+            false as boolean,
             {
                 setInstructionsModal: (_, { isOpen }) => isOpen,
                 openThirdPartyPluginModal: () => true,
             },
         ],
-        thirdPartySource: [
-            null as ThirdPartySource | PluginTypeWithConfig | null,
+        thirdPartyIntegrationSource: [
+            null as ThirdPartySource | null,
             {
                 setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
+            },
+        ],
+        thirdPartyPluginSource: [
+            null as PluginTypeWithConfig | null,
+            {
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],

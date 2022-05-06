@@ -123,26 +123,32 @@ export function ThirdPartyPanel(): JSX.Element {
 }
 
 export function IntegrationInstructionsModal(): JSX.Element {
-    const { instructionsModalOpen, thirdPartySource } = useValues(ingestionLogic)
+    const {
+        instructionsModalOpen,
+        thirdPartySource: thirdPartyIntegrationSource,
+        thirdPartyPluginSource,
+    } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
 
     return (
         <>
-            {thirdPartySource?.config_schema ? (
+            {thirdPartyPluginSource?.config_schema ? (
                 <PluginDrawer />
             ) : (
                 <>
-                    {thirdPartySource?.name && (
+                    {thirdPartyIntegrationSource?.name && (
                         <LemonModal
                             visible={instructionsModalOpen}
                             onCancel={() => setInstructionsModal(false)}
                             bodyStyle={{ padding: 40 }}
                         >
-                            {thirdPartySource.type === ThirdPartySourceType.Integration ? (
+                            {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
                                     <p className="text-muted fw-500">Configure integration</p>
-                                    {thirdPartySource.icon}
-                                    <h1 className="ingestion-title">Integrate with {thirdPartySource.name} </h1>
+                                    {thirdPartyIntegrationSource.icon}
+                                    <h1 className="ingestion-title">
+                                        Integrate with {thirdPartyIntegrationSource.name}{' '}
+                                    </h1>
                                     <div style={{ borderTop: '2px dashed var(--border)' }}>
                                         <div
                                             style={{
@@ -154,8 +160,9 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                             }}
                                         >
                                             The{' '}
-                                            <a target="_blank" href={thirdPartySource.docsLink}>
-                                                official {thirdPartySource.name} docs page for the PostHog integration
+                                            <a target="_blank" href={thirdPartyIntegrationSource.docsLink}>
+                                                official {thirdPartyIntegrationSource.name} docs page for the PostHog
+                                                integration
                                             </a>{' '}
                                             provides a detailed overview of how to set up this integration.
                                         </div>
@@ -164,10 +171,10 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         type="secondary"
                                         fullWidth
                                         center
-                                        onClick={() => window.open(`https://${thirdPartySource.name}.com`)}
+                                        onClick={() => window.open(`https://${thirdPartyIntegrationSource.name}.com`)}
                                         sideIcon={<IconOpenInNew style={{ color: 'var(--primary)' }} />}
                                     >
-                                        Take me to {thirdPartySource.name}
+                                        Take me to {thirdPartyIntegrationSource.name}
                                     </LemonButton>
                                     <div
                                         style={{
@@ -178,7 +185,10 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                     >
                                         <h4>Steps:</h4>
                                         <ol className="pl">
-                                            <li>Complete the steps in the {thirdPartySource.name} integration.</li>
+                                            <li>
+                                                Complete the steps in the {thirdPartyIntegrationSource.name}{' '}
+                                                integration.
+                                            </li>
                                             <li>
                                                 Close this step and click <strong>continue</strong> to begin listening
                                                 for events.
