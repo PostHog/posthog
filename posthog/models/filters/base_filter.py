@@ -28,7 +28,7 @@ class BaseFilter(BaseParamMixin):
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             flatten_cohorts = kwargs.get("flatten_cohorts", False)
-            simplified_filter = getattr(self, "simplify")(kwargs["team"], flatten_cohorts)
+            simplified_filter = getattr(self, "simplify")(kwargs["team"], flatten_cohorts=flatten_cohorts)
             self._data = simplified_filter._data
 
     def to_dict(self) -> Dict[str, Any]:
