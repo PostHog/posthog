@@ -41,7 +41,7 @@ function LemonButtonInternal(
         disabled,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<JSX.IntrinsicElements['button']>
+    ref: React.Ref<HTMLButtonElement>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
@@ -83,7 +83,7 @@ function LemonButtonInternal(
     }
     return workingButton
 }
-export const LemonButton = React.forwardRef(LemonButtonInternal) as typeof LemonButtonInternal
+export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
