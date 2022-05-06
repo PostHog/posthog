@@ -32,7 +32,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit]').click()
 
         // after save there should be a delete button
-        cy.get('[data-attr="delete-flag"] button').should('have.text', 'Delete')
+        cy.get('button[data-attr="delete-flag"]').should('have.text', 'Delete')
 
         // make sure the data is there as expected after a page reload!
         cy.reload()
@@ -66,7 +66,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit]').click()
 
         // after save there should be a delete button
-        cy.get('[data-attr="delete-flag"] button').should('have.text', 'Delete')
+        cy.get('button[data-attr="delete-flag"]').should('have.text', 'Delete')
 
         cy.get('[data-attr="menu-item-featureflags"]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
