@@ -15,6 +15,7 @@ import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig
 import { CodeSnippet } from '../frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { Link } from 'lib/components/Link'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -219,6 +220,12 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                                 for events.
                                             </li>
                                         </ol>
+                                        <p className="text-muted">
+                                            <b>
+                                                In order to access the session recordings feature, you'll also have to{' '}
+                                                <Link to="/ingestion/web">integrate posthog js</Link>.
+                                            </b>
+                                        </p>
                                     </div>
                                     <LemonButton
                                         fullWidth
