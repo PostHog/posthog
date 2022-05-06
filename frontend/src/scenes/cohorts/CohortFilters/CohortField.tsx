@@ -68,6 +68,7 @@ export function CohortSelectorField({
             className="CohortField"
             sideIcon={undefined}
             popup={{
+                placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
                         {fieldOptionGroups.map(({ label, type: groupKey, values }, i) => (
