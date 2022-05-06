@@ -8,34 +8,33 @@ from .matrix import Matrix
 from .models import SimGroup, SimPerson
 
 
-def save_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, PersonDistinctId]]:
+def save_sim_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, PersonDistinctId]]:
     if subject.first_seen_at is None:
         return  # Don't save a person who never participated
     from ee.clickhouse.models.event import create_event
     from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
     person_uuid_str = str(UUIDT(unix_time_ms=int(subject.first_seen_at.timestamp() * 1000)))
-    person_distinct_id_str = str(UUIDT(unix_time_ms=int(subject.first_seen_at.timestamp() * 1000)))
     person = Person(team_id=team_id, properties=subject.properties, uuid=person_uuid_str)
-    person_distinct_id = PersonDistinctId(team_id=team_id, person=person, distinct_id=person_distinct_id_str)
+    person_distinct_id = PersonDistinctId(team_id=team_id, person=person, distinct_id=str(subject.distinct_id))
     create_person(
         uuid=person_uuid_str, team_id=team_id, properties=subject.properties,
     )
-    create_person_distinct_id(team_id=team_id, distinct_id=person_distinct_id_str, person_id=person_uuid_str)
+    create_person_distinct_id(team_id=team_id, distinct_id=str(subject.distinct_id), person_id=person_uuid_str)
     for event in subject.events:
         event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
         create_event(
             event_uuid=event_uuid,
             event=event.event,
             team=team_id,
-            distinct_id=person_distinct_id_str,
+            distinct_id=str(subject.distinct_id),
             timestamp=event.timestamp,
             properties=event.properties,
         )
     return (person, person_distinct_id)
 
 
-def save_group(team_id: int, subject: SimGroup) -> Group:
+def save_sim_group(team_id: int, subject: SimGroup) -> Group:
     from ee.clickhouse.models.group import create_group
 
     return create_group(team_id, subject.type_index, subject.key, subject.properties)
@@ -63,9 +62,9 @@ class MatrixManager:
             print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")  # rm
             individual_time = time.time()  # rm
             for sim_group in sim_groups:
-                save_group(team.id, sim_group)
+                save_sim_group(team.id, sim_group)
             for sim_person in sim_persons:
-                sim_person_save_result = save_person(team.id, sim_person)
+                sim_person_save_result = save_sim_person(team.id, sim_person)
                 if sim_person_save_result is not None:  # None is returned if the person wasn't ever seen
                     persons_to_bulk_save.append(sim_person_save_result[0])
                     person_distinct_ids_to_bulk_save.append(sim_person_save_result[1])
