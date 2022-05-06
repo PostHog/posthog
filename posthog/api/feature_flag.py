@@ -114,7 +114,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                             )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
-                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist")
+                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                        )
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
