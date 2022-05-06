@@ -174,7 +174,7 @@ class FeatureFlagMatcher:
         self.cache = cache or FlagsMatcherCache(self.feature_flag.team_id)
         person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=feature_flag.team_id).first()
         if person:
-            self.person_id = str(person.id)
+            self.person_id: Optional[str] = str(person.id)
         else:
             self.person_id = None
 
