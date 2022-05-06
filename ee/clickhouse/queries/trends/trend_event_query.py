@@ -36,7 +36,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
                     + f" as {property}"
                     for property in self._extra_event_properties
                 ]
-            ) 
+            )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (

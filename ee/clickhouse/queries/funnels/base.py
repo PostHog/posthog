@@ -77,7 +77,7 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({OFFSET: self._filter.offset})
 
         self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = [] 
+        self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
             self._extra_event_fields = ["uuid", "mat_session_id", "mat_window_id"]
 
