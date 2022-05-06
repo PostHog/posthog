@@ -14,7 +14,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ),
+          AND (NOT has([''], "group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.uuid AS uuid,
@@ -32,7 +32,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -79,7 +79,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ),
+          AND (NOT has([''], "group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.uuid AS uuid,
@@ -97,7 +97,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -137,7 +137,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_1")) ),
+          AND (NOT has([''], "group_1")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.uuid AS uuid,
@@ -155,7 +155,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_1")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "group_1")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -382,7 +382,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ),
+          AND (NOT has([''], "group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.uuid AS uuid,
@@ -400,7 +400,7 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM

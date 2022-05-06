@@ -534,7 +534,7 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT $group_0) as data,
+        UNION ALL SELECT count(DISTINCT group_0) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
@@ -544,7 +544,7 @@
              AND event = '$pageview'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND (NOT has([''], "$group_0")) )
+             AND (NOT has([''], "group_0")) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -562,8 +562,8 @@
        AND event = '$pageview'
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0")) )
+       AND (NOT has([''], "group_0")
+            AND NOT has([''], "group_0")) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

@@ -4,7 +4,7 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
@@ -30,7 +30,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
@@ -57,7 +57,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
@@ -84,7 +84,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
