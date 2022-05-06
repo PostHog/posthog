@@ -24,6 +24,9 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     onClick={() => setIsRowExpanded(!isRowExpanded)}
                     sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                     title={isRowExpanded ? 'Show less' : 'Show more'}
+                    style={{
+                        fontWeight: 600,
+                    }}
                 >
                     {title}
                 </LemonButton>

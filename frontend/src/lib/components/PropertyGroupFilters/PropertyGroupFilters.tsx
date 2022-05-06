@@ -52,10 +52,7 @@ export function PropertyGroupFilters({
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                         {showHeader ? (
-                            <div
-                                className="pr pb mb space-between-items"
-                                style={{ borderBottom: !noTitle ? '1px solid var(--border)' : '' }}
-                            >
+                            <div className="pr pb mb space-between-items border-bottom">
                                 {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {filtersWithNew.type && filtersWithNew.values.length > 1 && (
                                     <AndOrFilterSelect
