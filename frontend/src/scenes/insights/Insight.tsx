@@ -33,6 +33,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { EditorFilterGroup } from './EditorFilters/EditorFilterGroup'
+import { CSSTransition } from 'react-transition-group'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -207,7 +208,15 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
             {usingEditorPanels ? (
                 <div className="insights-wrapper">
-                    {insightMode === ItemMode.Edit ? <div className="insight-editor-area">{insightTab}</div> : null}
+                    <CSSTransition
+                        in={insightMode === ItemMode.Edit}
+                        timeout={150}
+                        classNames="anim-"
+                        mountOnEnter
+                        unmountOnExit
+                    >
+                        <div className="insight-editor-area">{insightTab}</div>
+                    </CSSTransition>
                     <div className="insights-container">
                         <InsightContainer />
                     </div>
