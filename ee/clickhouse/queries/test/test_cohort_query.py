@@ -16,12 +16,12 @@ from posthog.test.base import (
 )
 
 
-def _make_event_sequence(team, distinct_id, interval_days, period_event_counts):
+def _make_event_sequence(team, distinct_id, interval_days, period_event_counts, event="$pageview"):
     for period_index, event_count in enumerate(period_event_counts):
         for i in range(event_count):
             _create_event(
                 team=team,
-                event="$pageview",
+                event=event,
                 properties={},
                 distinct_id=distinct_id,
                 timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1, minutes=i),
@@ -1311,7 +1311,87 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
-        self.assertEqual(sorted([p1.uuid, p2.uuid]), sorted([r[0] for r in res]))
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_cohort_filter_with_another_cohort_with_event_sequence(self):
+        # passes filters for cohortCeption, but not main cohort
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@gmail.com"}
+        )
+        _make_event_sequence(self.team, "p1", 2, [1, 1])
+
+        # passes filters for cohortCeption and main cohort
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _make_event_sequence(self.team, "p2", 2, [1, 1])
+        _make_event_sequence(self.team, "p2", 6, [1, 1], event="$new_view")
+
+        # passes filters for neither cohortCeption nor main cohort
+        p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"email": "test@posthog.com"})
+        _make_event_sequence(self.team, "p3", 2, [1, 1])
+
+        # passes filters for mainCohort but not cohortCeption
+        p4 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _make_event_sequence(self.team, "p4", 6, [1, 1])
+        _make_event_sequence(self.team, "p4", 6, [1, 1], event="$new_view")
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohortCeption",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "name", "value": "test", "type": "person"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 8,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$new_view",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 8,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 8,
+                            "seq_event": "$new_view",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_performed_event_sequence(self):

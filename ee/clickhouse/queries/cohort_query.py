@@ -545,10 +545,10 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
         event = validate_entity((prop.event_type, prop.key))
-        entity_query, entity_params = self._get_entity(event, "event_sequence", idx)
+        entity_query, entity_params = self._get_entity(event, f"event_sequence_{self._cohort_pk}", idx)
         seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
 
-        seq_entity_query, seq_entity_params = self._get_entity(seq_event, "seq_event_sequence", idx)
+        seq_entity_query, seq_entity_params = self._get_entity(seq_event, f"seq_event_sequence_{self._cohort_pk}", idx)
 
         time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         time_interval = validate_interval(prop.time_interval)
