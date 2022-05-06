@@ -23,10 +23,10 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
         # Ideally, we would set this up by running the other migrations leading up
         # to this migrations, but it's very slow if we do that. So instead, we drop
         # the columns that this migration creates
-        sync_execute("ALTER TABLE events DROP COLUMN $session_id")
-        sync_execute("ALTER TABLE events DROP COLUMN $window_id")
-        sync_execute("ALTER TABLE sharded_events DROP COLUMN $session_id")
-        sync_execute("ALTER TABLE sharded_events DROP COLUMN $window_id")
+        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS $session_id")
+        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS $window_id")
+        sync_execute("ALTER TABLE sharded_events DROP COLUMN IF EXISTS $session_id")
+        sync_execute("ALTER TABLE sharded_events DROP COLUMN IF EXISTS $window_id")
 
     def tearDown(self):
         self.recreate_database()
