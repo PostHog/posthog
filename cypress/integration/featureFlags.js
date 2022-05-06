@@ -44,7 +44,7 @@ describe('Feature Flags', () => {
             .should('have.value', name + '-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.wait(100)
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
         cy.get(`[data-row-key=${name}-updated] [data-attr=more-button]`).click()
