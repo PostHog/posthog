@@ -4,9 +4,11 @@ import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
 import './panels/Panels.scss'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 
 export function CardContainer({
     index,
+    onBack,
     children,
     showFooter,
     onSubmit,
@@ -22,6 +24,13 @@ export function CardContainer({
     return (
         <div className="ingestion-card-container">
             <Row align="middle" data-attr="wizard-step-counter">
+                {index !== 0 && (
+                    <ArrowLeftOutlined
+                        className="button-border clickable"
+                        style={{ marginRight: 4 }}
+                        onClick={onBack}
+                    />
+                )}
                 <PanelHeader index={index} />
             </Row>
             {children}

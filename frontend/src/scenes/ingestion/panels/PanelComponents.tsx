@@ -61,11 +61,8 @@ export function PanelFooter(): JSX.Element {
 }
 
 export function PanelHeader({ index }: { index: number }): JSX.Element {
-    if (index === 1) {
-        return <></>
-    }
     return (
-        <Row align="middle" className="panel-header mb">
+        <Row align="middle" className="panel-header">
             <span style={index === 1 ? { color: 'black' } : {}}>Step 1</span>
             {index > 1 && (
                 <>
