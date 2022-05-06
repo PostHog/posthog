@@ -493,7 +493,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["label"]}
+                line = {"series": item["action"].get("custom_name") or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
