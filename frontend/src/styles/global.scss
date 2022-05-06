@@ -385,13 +385,13 @@ code.code {
 }
 
 .space-y-05 {
-    &> * + * {
+    & > * + * {
         @extend .mt-05;
     }
 }
 
 .space-y {
-    &> * + * {
+    & > * + * {
         @extend .mt;
     }
 }

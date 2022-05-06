@@ -24,6 +24,7 @@ import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
 import { EFPathsAdvanced, EFPathsAdvancedPaywall } from './EFPathsAdvanced'
 import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
 import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
+import { EFPathsExclusions } from './EFPathsExclusions'
 
 export function getEditorFilters(
     filters: Partial<FilterType>,
@@ -160,6 +161,15 @@ export function getEditorFilters(
                       component: EFTrendsBreakdown,
                   }
                 : null,
+            isPaths && {
+                key: 'paths-exclusions',
+                label: 'Exclusions',
+                tooltip: (
+                    <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                ),
+
+                component: EFPathsExclusions,
+            },
             isPaths &&
                 (hasPathsAdvanced
                     ? {
