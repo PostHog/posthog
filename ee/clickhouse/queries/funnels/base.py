@@ -37,6 +37,7 @@ class ClickhouseFunnelBase(ABC):
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
     _extra_event_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
 
     def __init__(
         self,
@@ -76,6 +77,7 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({OFFSET: self._filter.offset})
 
         self._extra_event_fields: List[ColumnName] = []
+        self._extra_event_properties: List[PropertyName] = [] 
         if self._filter.include_recordings:
             self._extra_event_fields = ["uuid", "mat_session_id", "mat_window_id"]
 
@@ -105,7 +107,7 @@ class ClickhouseFunnelBase(ABC):
 
     @property
     def extra_event_fields_and_properties(self):
-        return self._extra_event_fields
+        return self._extra_event_fields + self._extra_event_properties
 
     def _update_filters(self):
         # format default dates
