@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
@@ -11,7 +11,6 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { objectsEqual } from 'lib/utils'
 
 interface PropertyGroupFilters {
     propertyFilters: PropertyGroupFilter
@@ -37,7 +36,6 @@ export function PropertyGroupFilters({
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
     const {
-        setFilters,
         addFilterGroup,
         removeFilterGroup,
         setOuterPropertyGroupsType,
@@ -45,13 +43,6 @@ export function PropertyGroupFilters({
         setPropertyFilters,
         duplicateFilterGroup,
     } = useActions(propertyGroupFilterLogic(logicProps))
-
-    // Update the logic's internal filters when the props change
-    useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
-            setFilters(propertyFilters)
-        }
-    }, [propertyFilters])
 
     const showHeader = !noTitle || (filtersWithNew.type && filtersWithNew.values.length > 1)
 

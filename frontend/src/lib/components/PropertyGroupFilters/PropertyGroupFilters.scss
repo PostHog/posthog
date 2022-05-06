@@ -18,9 +18,9 @@
             position: absolute;
             left: 24px; // TODO: Make this value relative to content
             top: 0;
-            width: 3px;
+            width: 2px;
             height: 100%;
-            background-color: $bg_side;
+            background-color: $border_light;
             content: ' ';
         }
 
@@ -60,6 +60,7 @@
         background-color: $light-grey;
         color: $primary_alt;
         font-size: 12px;
+
         &.selected {
             background-color: $primary;
             color: white;

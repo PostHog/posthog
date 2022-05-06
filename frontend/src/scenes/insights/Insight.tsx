@@ -207,17 +207,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
             {usingEditorPanels ? (
                 <div className="insights-wrapper">
-                    {insightMode !== ItemMode.View ? (
-                        <div className="insight-editor-area">
-                            {/* These are insight specific filters. They each have insight specific logics */}
-                            {insightTab}
-                        </div>
-                    ) : null}
+                    {insightMode === ItemMode.Edit ? <div className="insight-editor-area">{insightTab}</div> : null}
                     <div className="insights-container">
                         <InsightContainer />
                     </div>
                 </div>
             ) : (
+                // Old View mode
                 <>
                     {insightMode === ItemMode.View ? (
                         <InsightContainer />

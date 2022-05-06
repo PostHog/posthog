@@ -71,23 +71,23 @@ export function LemonCheckbox({
             style={style}
             icon={
                 <>
+                    <input
+                        className="LemonCheckbox__input"
+                        type="checkbox"
+                        checked={localChecked}
+                        defaultChecked={defaultChecked}
+                        onChange={(e) => {
+                            checked === undefined && setLocalChecked(e.target.checked)
+                            onChange?.(e)
+                        }}
+                        id={id}
+                        disabled={disabled}
+                    />
                     <label
                         htmlFor={id}
                         className="LemonCheckbox__box"
                         style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}
                     >
-                        <input
-                            className="LemonCheckbox__input"
-                            type="checkbox"
-                            checked={localChecked}
-                            defaultChecked={defaultChecked}
-                            onChange={(e) => {
-                                checked === undefined && setLocalChecked(e.target.checked)
-                                onChange?.(e)
-                            }}
-                            id={id}
-                            disabled={disabled}
-                        />
                         <svg fill="none" height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg">
                             <path d={!wasIndeterminateLast ? 'm3.5 8 3 3 6-6' : 'm3.5 8h9'} strokeWidth="2" />
                         </svg>
