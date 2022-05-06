@@ -14,6 +14,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { CodeSnippet } from '../frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -50,8 +51,25 @@ export function ThirdPartyPanel(): JSX.Element {
                                 <Row align="middle">
                                     {source.icon}
                                     <Col className="ml-05">
-                                        <h3 className="mb-0" style={{ fontWeight: 600, fontSize: 16 }}>
+                                        <h3
+                                            className="mb-0"
+                                            style={{
+                                                fontWeight: 600,
+                                                fontSize: 16,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                            }}
+                                        >
                                             {source.name} Import
+                                            {source.labels?.map((label, labelIdx) => (
+                                                <LemonTag
+                                                    key={labelIdx}
+                                                    type={label === 'beta' ? 'warning' : 'default'}
+                                                    style={{ marginLeft: 8 }}
+                                                >
+                                                    {label}
+                                                </LemonTag>
+                                            ))}
                                         </h3>
                                         <p className="mb-0 text-muted">Send events from {source.name} into PostHog</p>
                                     </Col>
@@ -160,22 +178,18 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                                 fontWeight: 500,
                                             }}
                                         >
-                                            The{' '}
-                                            <a target="_blank" href={thirdPartyIntegrationSource.docsLink}>
-                                                official {thirdPartyIntegrationSource.name} docs page for the PostHog
-                                                integration
-                                            </a>{' '}
-                                            provides a detailed overview of how to set up this integration.
-                                        </div>
-                                        <div className="text-muted text-center">
                                             <p>
-                                                Team API Key refers to your PostHog Project API Key, which can also be
-                                                found under your Project Settings.
+                                                The{' '}
+                                                <a target="_blank" href={thirdPartyIntegrationSource.docsLink}>
+                                                    official {thirdPartyIntegrationSource.name} docs page for the
+                                                    PostHog integration
+                                                </a>{' '}
+                                                provides a detailed overview of how to set up this integration.
                                             </p>
+                                            <b>PostHog Project API Key</b>
                                             <CodeSnippet copyDescription="project API key">
                                                 {currentTeam?.api_token || ''}
                                             </CodeSnippet>
-                                            <p>Do not use a Personal API Key for this.</p>
                                         </div>
                                     </div>
                                     <LemonButton

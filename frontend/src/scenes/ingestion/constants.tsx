@@ -130,6 +130,7 @@ export interface ThirdPartySource {
     type: ThirdPartySourceType
     icon: JSX.Element
     docsLink?: string
+    labels?: string[]
     pluginName?: string
 }
 
@@ -157,9 +158,10 @@ export const thirdPartySources: ThirdPartySource[] = [
         docsLink: 'https://www.rudderstack.com/docs/destinations/analytics/posthog/',
     },
     {
-        name: 'Redshift (beta)',
+        name: 'Redshift',
         type: ThirdPartySourceType.Plugin,
         pluginName: 'redshift-import-plugin-(beta)',
+        labels: ['beta'],
         icon: (
             <img
                 style={{ height: 48, width: 48 }}
