@@ -1,11 +1,13 @@
 describe('Feature Flags', () => {
+    let name
+
     beforeEach(() => {
+        name = 'feature-flag-' + Math.floor(Math.random() * 10000000)
         cy.visit('/feature_flags')
     })
 
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
-        const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
@@ -28,6 +30,9 @@ describe('Feature Flags', () => {
 
         // save the feature flag
         cy.get('[data-attr=feature-flag-submit]').click()
+
+        // after save there should be a delete button
+        cy.get('[data-attr="delete-flag"] button').should('have.text', 'Delete')
 
         // make sure the data is there as expected after a page reload!
         cy.reload()
@@ -55,11 +60,14 @@ describe('Feature Flags', () => {
     })
 
     it('Delete feature flag', () => {
-        const name = 'to-be-deleted' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-submit]').click()
+
+        // after save there should be a delete button
+        cy.get('[data-attr="delete-flag"] button').should('have.text', 'Delete')
+
         cy.get('[data-attr="menu-item-featureflags"]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
