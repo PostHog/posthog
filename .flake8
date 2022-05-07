@@ -57,6 +57,7 @@ per-file-ignores =
     ./docker-compose-config.py: T001
     ./posthog/client.py: T001
     ./ee/clickhouse/generate_local.py: T001
+    ./ee/management/commands/dry_run_matrix.py: T001
     ./ee/management/commands/migrate_clickhouse.py: T001
     ./ee/management/commands/run_async_migrations.py: T001
     ./gunicorn.config.py: T001

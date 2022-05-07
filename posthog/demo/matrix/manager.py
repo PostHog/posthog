@@ -50,17 +50,17 @@ class MatrixManager:
 
     @classmethod
     def run_on_team(cls, matrix: Matrix, team: Team, user: User, simulate_journeys: bool = True) -> Team:
-        set_time = time.time()  # rm
+        set_time = time.time()  # FIXME
         matrix.set_project_up(team, user)
-        print(f"[DEMO] Setting project up in {time.time() -set_time}")  # rm
+        print(f"[DEMO] Setting project up in {time.time() -set_time}")  # noqa: T001
         if simulate_journeys:
             persons_to_bulk_save: List[Person] = []
             person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
             matrix.simulate()
-            simulation_time = time.time()  # rm
+            simulation_time = time.time()  # FIXME
             sim_persons, sim_groups = matrix.people, matrix.groups
-            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")  # rm
-            individual_time = time.time()  # rm
+            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")  # noqa: T001
+            individual_time = time.time()  # FIXME
             for sim_group in sim_groups:
                 save_sim_group(team.id, sim_group)
             for sim_person in sim_persons:
@@ -68,11 +68,15 @@ class MatrixManager:
                 if sim_person_save_result is not None:  # None is returned if the person wasn't ever seen
                     persons_to_bulk_save.append(sim_person_save_result[0])
                     person_distinct_ids_to_bulk_save.append(sim_person_save_result[1])
-            print(f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time}")  # rm
-            bulk_time = time.time()  # rm
+            print(
+                f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time}"
+            )  # noqa: T001
+            bulk_time = time.time()  # FIXME
             Person.objects.bulk_create(persons_to_bulk_save)
             PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
-            print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}")  # rm
+            print(
+                f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}"
+            )  # noqa: T001
         team.save()
         for action in Action.objects.filter(team=team):
             action.calculate_events()
