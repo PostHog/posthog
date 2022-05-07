@@ -75,7 +75,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action">
+            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
                     title={
                         <Field name="name">
