@@ -17,10 +17,10 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
         dashboardLogic: [
             (s) => [s.primaryDashboardId],
             (primaryDashboardId): ReturnType<typeof dashboardLogic.build> | null =>
-                dashboardLogic.build(
-                    { id: primaryDashboardId ?? undefined, placement: DashboardPlacement.ProjectHomepage },
-                    false
-                ),
+                dashboardLogic({
+                    id: primaryDashboardId ?? undefined,
+                    placement: DashboardPlacement.ProjectHomepage,
+                }),
         ],
     },
 

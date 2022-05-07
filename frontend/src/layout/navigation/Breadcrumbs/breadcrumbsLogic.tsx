@@ -58,7 +58,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
-            null, // PropTypes
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
