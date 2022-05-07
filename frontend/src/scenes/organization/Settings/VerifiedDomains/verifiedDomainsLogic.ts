@@ -139,7 +139,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
     forms: ({ actions, values }) => ({
         samlConfig: {
             defaults: {} as SAMLConfigType,
-            validator: (payload) => ({
+            errors: (payload) => ({
                 saml_acs_url:
                     payload.saml_acs_url && !payload.saml_acs_url.match(SECURE_URL_REGEX)
                         ? 'Please enter a valid URL, including https://'

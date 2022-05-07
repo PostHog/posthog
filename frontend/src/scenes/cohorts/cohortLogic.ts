@@ -121,7 +121,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
     forms: ({ actions }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            validator: ({ name, csv, is_static, groups }) => ({
+            errors: ({ name, csv, is_static, groups }) => ({
                 name: !name ? 'You need to set a name' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
                 // Return type of validator[groups](...) must be the shape of groups. Returning the error message
