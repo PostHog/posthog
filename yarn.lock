@@ -5008,7 +5008,7 @@ assign-symbols@^1.0.0:
   resolved "https://registry.yarnpkg.com/assign-symbols/-/assign-symbols-1.0.0.tgz#59667f41fadd4f20ccbc2bb96b8d4f7f78ec0367"
   integrity sha1-WWZ/QfrdTyDMvCu5a41Pf3jsA2c=
 
-ast-types@^0.14.2:
+ast-types@0.14.2, ast-types@^0.14.2:
   version "0.14.2"
   resolved "https://registry.yarnpkg.com/ast-types/-/ast-types-0.14.2.tgz#600b882df8583e3cd4f2df5fa20fa83759d4bdfd"
   integrity sha512-O0yuUDnZeQDL+ncNGlJ78BiO4jnYI3bvMsD5prT0/nsgijG/LpNBIr63gTjVTNsiGkgQhiyCShTgxt8oXOrklA==
@@ -7354,11 +7354,6 @@ diff@^4.0.1:
   resolved "https://registry.yarnpkg.com/diff/-/diff-4.0.2.tgz#60f3aecb89d5fae520c11aa19efc2bb982aade7d"
   integrity sha512-58lmxKSA4BNyLz+HHMUzlOEpg09FV+ev6ZMe3vJihgdxzgcwZ8VoEEPmALCZG9LmqfVoNMMKpttIYTVG6uDY7A==
 
-diff@^5.0.0:
-  version "5.0.0"
-  resolved "https://registry.yarnpkg.com/diff/-/diff-5.0.0.tgz#7ed6ad76d859d030787ec35855f5b1daf31d852b"
-  integrity sha512-/VTCrvm5Z0JGty/BWHljh+BAiw3IK+2j87NGMu8Nwc/f48WoDAC395uomO9ZD117ZOBaHmkX1oyLvkVM/aIT3w==
-
 diffie-hellman@^5.0.0:
   version "5.0.3"
   resolved "https://registry.yarnpkg.com/diffie-hellman/-/diffie-hellman-5.0.3.tgz#40e8ee98f55a2149607146921c63e1ae5f3d2875"
@@ -8158,7 +8153,7 @@ espree@^7.3.0:
     acorn-jsx "^5.2.0"
     eslint-visitor-keys "^1.3.0"
 
-esprima@^4.0.0, esprima@^4.0.1:
+esprima@^4.0.0, esprima@^4.0.1, esprima@~4.0.0:
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/esprima/-/esprima-4.0.1.tgz#13b04cdb3e6c5d19df91ab6987a8695619b0aa71"
   integrity sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==
@@ -11012,25 +11007,25 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
-kea-forms@^0.2.4:
-  version "0.2.4"
-  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-0.2.4.tgz#413a9747c0de1ace73cc245a9eb659a7af229628"
-  integrity sha512-wj0M95t3xkpF/GcsK5hYwK1hpijbDh9CmCRq9l8Vr74cpK6zH2kchK689llnwI1sdsvV41S/RlW1lw0HAfezOw==
+kea-forms@^3.0.0-alpha.3:
+  version "3.0.0-alpha.3"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.3.tgz#69d50f9f4bd5218a97606acfe39fc36d0eaa7f7e"
+  integrity sha512-a2fDrAt9lTATGpOu8S4bBjEfXWJ2Yguc+pn8toE+OSvSy+EuXDMzpMivuDAx0+JeTV4MWzKUmnd8PsPCAw9PGA==
 
-kea-loaders@^0.5.1:
-  version "0.5.1"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.1.tgz#558eeeeaf9d5c613e66b2ede7677f7dbe2f460f1"
-  integrity sha512-gbTnxfwISS2iAHmdhvkzZnAiNe0c9FM+wbGrCNnh2PgYJntd5e5lV6sD6sWu9gJnN1ME6fXlblFzRZdobo+22w==
+kea-loaders@^3.0.0-alpha.2:
+  version "3.0.0-alpha.2"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.2.tgz#a77a33644d37d143c08d4309a48c16af9828484c"
+  integrity sha512-bwfcOEzVaK0BS5w2doEugI0vZW1iyhaaN8x5st6UQeT6dlqSttCDaXkVmoqKfbpVdd/WrHAV6QqvqaRriuFv+w==
 
-kea-localstorage@^1.1.1:
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
-  integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
+kea-localstorage@^3.0.0-alpha.2:
+  version "3.0.0-alpha.2"
+  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-3.0.0-alpha.2.tgz#6cd82270eb5364f348b769a4c37d43ca92003f6e"
+  integrity sha512-OQP+vQb057TKS3DiKORptSCQFbo5WiKCbt9Zezs2YiXga2e9xmQRchZwcRLtOrumpOfxroT34rQmNBVGvbDkUA==
 
-kea-router@^1.0.7:
-  version "1.0.7"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.7.tgz#433b92f9640877f6f8d39b4cef47c3ad30f5623f"
-  integrity sha512-RMhYlgaA/0PywAOm6cgkTKCLlvsCfvOnbkKEyyLLRQ4f0WbS70QUmkeOKTyJ3KB2Yf6qc7fbYOlOZ6ZUJaTMsw==
+kea-router@^3.0.0-alpha.0:
+  version "3.0.0-alpha.0"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-3.0.0-alpha.0.tgz#9df5d60e608e14b4881d6c2c785de6243ffe5f7c"
+  integrity sha512-gGai3mPQtZRljVHimCJuVgFTNmtrtUtNcrxFjrRrbQMLjJqQglIUODcNWIhppw1J/A6Hx6kFg+DHfSLAV+Q+LA==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -11041,14 +11036,14 @@ kea-test-utils@^0.2.2:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^1.4.3:
-  version "1.4.3"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.4.3.tgz#bdee4c3add82f8eebb1573b3db58ed0b05cb1ffc"
-  integrity sha512-l/WhfaEkMMOG9jPn5e5/tveBQBTiJyXurNBng/+orZbQyt4Rdg7Jrdj+ZYzqJqtWJuzsnO0tYF2vS91wmiDJ/g==
+kea-typegen@^3.0.0-alpha.8:
+  version "3.0.0-alpha.8"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.8.tgz#90ba06b026db18b6c221e811f4c0e0805091015c"
+  integrity sha512-rbdIv5gUNryUalgUSK2Er+vKx2R2PJWSPjcxpbpwh97i+s0g9K5jXJyibvvcq//1FejsOXmKj0dsFx5nffzZEA==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
-    diff "^5.0.0"
     prettier "^2.5.1"
+    recast "^0.20.5"
     yargs "^16.2.0"
 
 kea-waitfor@^0.2.1:
@@ -11056,15 +11051,19 @@ kea-waitfor@^0.2.1:
   resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.1.tgz#d786ff69bcd05939dfef0211faecdbce132e5a04"
   integrity sha512-oXZ42wZl46+KShuPORgAHKFQr1ewrNJ1ZVBUFLDyn4J3XTndQqCvN0GaFrSCIR0qeBzGHtNu/WwPgVGsmDH8DA==
 
-kea-window-values@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
-  integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
+kea-window-values@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
+  integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^2.6.0:
-  version "2.6.0"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.6.0.tgz#774a82188e0fb52cdb18b72843a875ee857f3807"
-  integrity sha512-+yaLyZx8h2v96aL01XIRZjqA8Qk4fIUziznSKnkjDItUU8YnH75xER6+vMHT5EHC3MJeSScxIx5UuqZl30DBdg==
+kea@^3.0.0-beta.0:
+  version "3.0.0-beta.0"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.0.tgz#91b89ae315e773eccbd00aaec0bb9eaf0e5e7c33"
+  integrity sha512-kh1I9xJKBrq94dVcrL/XatI5ZjgnxtMV4Df3b/hC0V/CkJf7WLpZddOqPAaBNZE8rW26HDHdInIslbGKBoOqqA==
+  dependencies:
+    redux "^4.2.0"
+    reselect "^4.1.5"
+    use-sync-external-store "^1.0.0"
 
 killable@^1.0.1:
   version "1.0.1"
@@ -14264,6 +14263,16 @@ readdirp@~3.6.0:
   dependencies:
     picomatch "^2.2.1"
 
+recast@^0.20.5:
+  version "0.20.5"
+  resolved "https://registry.yarnpkg.com/recast/-/recast-0.20.5.tgz#8e2c6c96827a1b339c634dd232957d230553ceae"
+  integrity sha512-E5qICoPoNL4yU0H0NoBDntNB0Q5oMSNh9usFctYniLBluTthi3RsQVBXIJNbApOlvSwW/RGxIuokPcAc59J5fQ==
+  dependencies:
+    ast-types "0.14.2"
+    esprima "~4.0.0"
+    source-map "~0.6.1"
+    tslib "^2.0.1"
+
 rechoir@^0.7.0:
   version "0.7.0"
   resolved "https://registry.yarnpkg.com/rechoir/-/rechoir-0.7.0.tgz#32650fd52c21ab252aa5d65b19310441c7e03aca"
@@ -16548,6 +16557,11 @@ use-resize-observer@^8.0.0:
   integrity sha512-n0iKSeiQpJCyaFh5JA0qsVLBIovsF4EIIR1G6XiBwKJN66ZrD4Oj62bjcuTAATPKiSp6an/2UZZxCf/67fk3sQ==
   dependencies:
     "@juggle/resize-observer" "^3.3.1"
+
+use-sync-external-store@^1.0.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.1.0.tgz#3343c3fe7f7e404db70f8c687adf5c1652d34e82"
+  integrity sha512-SEnieB2FPKEVne66NpXPd1Np4R1lTNKfjuy3XdIoPQKYBAFdzbzSZlSn1KJZUiihQLQC5Znot4SBz1EOTBwQAQ==
 
 use@^3.1.0:
   version "3.1.1"
