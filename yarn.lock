@@ -11022,10 +11022,10 @@ kea-localstorage@^3.0.0-alpha.2:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-3.0.0-alpha.2.tgz#6cd82270eb5364f348b769a4c37d43ca92003f6e"
   integrity sha512-OQP+vQb057TKS3DiKORptSCQFbo5WiKCbt9Zezs2YiXga2e9xmQRchZwcRLtOrumpOfxroT34rQmNBVGvbDkUA==
 
-kea-router@^3.0.0-alpha.0:
-  version "3.0.0-alpha.0"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-3.0.0-alpha.0.tgz#9df5d60e608e14b4881d6c2c785de6243ffe5f7c"
-  integrity sha512-gGai3mPQtZRljVHimCJuVgFTNmtrtUtNcrxFjrRrbQMLjJqQglIUODcNWIhppw1J/A6Hx6kFg+DHfSLAV+Q+LA==
+kea-router@^3.0.0-alpha.1:
+  version "3.0.0-alpha.1"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-3.0.0-alpha.1.tgz#3c0a27b3217fa37ee4d20f85d750986912fbca39"
+  integrity sha512-BAesYqHmgp7RAVIJUFJeMMmKUK0IoC9/lo03lKIU92Af643PCxyrWRVI/b8PYjRIrZVFQiw0g5qs7xJg1zo/JQ==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -11036,10 +11036,10 @@ kea-test-utils@^0.2.2:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^3.0.0-alpha.8:
-  version "3.0.0-alpha.8"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.8.tgz#90ba06b026db18b6c221e811f4c0e0805091015c"
-  integrity sha512-rbdIv5gUNryUalgUSK2Er+vKx2R2PJWSPjcxpbpwh97i+s0g9K5jXJyibvvcq//1FejsOXmKj0dsFx5nffzZEA==
+kea-typegen@^3.0.0-alpha.11:
+  version "3.0.0-alpha.11"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.11.tgz#77e683bdeca21c73bc8e57b02baa53ef16fc7818"
+  integrity sha512-9bDtyEKZwWoNdRedpICmZAdLy+Z8kiyf3SP//lCdDwN4sCYJDth4+vnFI/Hl/BofecNm6/pzAL2+wvB8JCfQjw==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     prettier "^2.5.1"
