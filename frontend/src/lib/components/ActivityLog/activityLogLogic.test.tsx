@@ -109,6 +109,7 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
+            teamLogic.mount()
             logic = activityLogLogic({
                 scope: ActivityScope.FEATURE_FLAG,
                 id: 7,
@@ -139,6 +140,7 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
+            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.PERSON, id: 7, describer: personActivityDescriber })
             logic.mount()
         })

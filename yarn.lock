@@ -11432,10 +11432,10 @@ kea-forms@^3.0.0-alpha.3:
   resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.3.tgz#69d50f9f4bd5218a97606acfe39fc36d0eaa7f7e"
   integrity sha512-a2fDrAt9lTATGpOu8S4bBjEfXWJ2Yguc+pn8toE+OSvSy+EuXDMzpMivuDAx0+JeTV4MWzKUmnd8PsPCAw9PGA==
 
-kea-loaders@^3.0.0-alpha.3:
-  version "3.0.0-alpha.3"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.3.tgz#11525b435ae96e74c3e60c54a25fe5bc1986b03b"
-  integrity sha512-Gnr+hhmFRZJb3m/eZk8gK6dbRPfwnRoJXndYKNJC8DMh4V6tcxY9x/YIoCgtQBBiq56wXQ2qCd2dcID5KB50dQ==
+kea-loaders@^3.0.0-alpha.4:
+  version "3.0.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.4.tgz#aa66a6e61cf46e76e256f3a116365c2b67b03d8f"
+  integrity sha512-bisajrP4/fZiiX1u7TRDDEtb0rRSBO9XgPkSM7jd6ewyI/W7vQrd59X7wmDmDvgO8/g6xtBeNI3piJ3tRutxPQ==
 
 kea-localstorage@^3.0.0-alpha.2:
   version "3.0.0-alpha.2"

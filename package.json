@@ -91,7 +91,7 @@
         "fuse.js": "^6.4.1",
         "kea": "^3.0.0-beta.1",
         "kea-forms": "^3.0.0-alpha.3",
-        "kea-loaders": "^3.0.0-alpha.3",
+        "kea-loaders": "^3.0.0-alpha.4",
         "kea-localstorage": "^3.0.0-alpha.2",
         "kea-router": "^3.0.0-alpha.1",
         "kea-subscriptions": "^3.0.0-alpha.0",
