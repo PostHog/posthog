@@ -6,7 +6,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/components/lemonToast'
-import { subscriptionsPlugin } from '~/subscriptionsPlugin'
+import { subscriptionsPlugin } from 'kea-subscriptions'
 import { formsPlugin } from 'kea-forms'
 
 /*

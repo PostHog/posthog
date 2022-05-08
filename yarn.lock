@@ -11012,10 +11012,10 @@ kea-forms@^3.0.0-alpha.3:
   resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.3.tgz#69d50f9f4bd5218a97606acfe39fc36d0eaa7f7e"
   integrity sha512-a2fDrAt9lTATGpOu8S4bBjEfXWJ2Yguc+pn8toE+OSvSy+EuXDMzpMivuDAx0+JeTV4MWzKUmnd8PsPCAw9PGA==
 
-kea-loaders@^3.0.0-alpha.2:
-  version "3.0.0-alpha.2"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.2.tgz#a77a33644d37d143c08d4309a48c16af9828484c"
-  integrity sha512-bwfcOEzVaK0BS5w2doEugI0vZW1iyhaaN8x5st6UQeT6dlqSttCDaXkVmoqKfbpVdd/WrHAV6QqvqaRriuFv+w==
+kea-loaders@^3.0.0-alpha.3:
+  version "3.0.0-alpha.3"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-3.0.0-alpha.3.tgz#11525b435ae96e74c3e60c54a25fe5bc1986b03b"
+  integrity sha512-Gnr+hhmFRZJb3m/eZk8gK6dbRPfwnRoJXndYKNJC8DMh4V6tcxY9x/YIoCgtQBBiq56wXQ2qCd2dcID5KB50dQ==
 
 kea-localstorage@^3.0.0-alpha.2:
   version "3.0.0-alpha.2"
@@ -11028,6 +11028,11 @@ kea-router@^3.0.0-alpha.1:
   integrity sha512-BAesYqHmgp7RAVIJUFJeMMmKUK0IoC9/lo03lKIU92Af643PCxyrWRVI/b8PYjRIrZVFQiw0g5qs7xJg1zo/JQ==
   dependencies:
     url-pattern "^1.0.3"
+
+kea-subscriptions@^3.0.0-alpha.0:
+  version "3.0.0-alpha.0"
+  resolved "https://registry.yarnpkg.com/kea-subscriptions/-/kea-subscriptions-3.0.0-alpha.0.tgz#a9dfa095ceae1c1f517628428c5f04de6d6faf20"
+  integrity sha512-/SrciCid1mD82B/TymoH6mkq75LhTaIJyqjG4bIG4d/d2l7aRMXxp/atL+k+B6tZj+ANTvjh8s6PmVU4e8+P5A==
 
 kea-test-utils@^0.2.2:
   version "0.2.2"
@@ -11056,10 +11061,10 @@ kea-window-values@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-beta.0:
-  version "3.0.0-beta.0"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.0.tgz#91b89ae315e773eccbd00aaec0bb9eaf0e5e7c33"
-  integrity sha512-kh1I9xJKBrq94dVcrL/XatI5ZjgnxtMV4Df3b/hC0V/CkJf7WLpZddOqPAaBNZE8rW26HDHdInIslbGKBoOqqA==
+kea@^3.0.0-beta.1:
+  version "3.0.0-beta.1"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.1.tgz#3ac3270bc734ede167863f8e594c31ad6306e438"
+  integrity sha512-I3F9t9noVGP7tvdEpAVVbxhazPR0D6+9Ms7RunioJ3nJ0meeWtzGfve0ROh6dKhTlZ3dyKxcKp8a0n+nPW4SiQ==
   dependencies:
     redux "^4.2.0"
     reselect "^4.1.5"
@@ -16272,10 +16277,10 @@ typedarray@^0.0.6:
   resolved "https://registry.yarnpkg.com/typedarray/-/typedarray-0.0.6.tgz#867ac74e3864187b1d3d47d996a78ec5c8830777"
   integrity sha1-hnrHTjhkGHsdPUfZlqeOxciDB3c=
 
-typescript@^4.6.2:
-  version "4.6.2"
-  resolved "https://registry.yarnpkg.com/typescript/-/typescript-4.6.2.tgz#fe12d2727b708f4eef40f51598b3398baa9611d4"
-  integrity sha512-HM/hFigTBHZhLXshn9sN37H085+hQGeJHJ/X7LpBWLID/fbc2acUMfU+lGD98X81sKP+pFa9f0DZmCwB9GnbAg==
+typescript@^4.6.4:
+  version "4.6.4"
+  resolved "https://registry.yarnpkg.com/typescript/-/typescript-4.6.4.tgz#caa78bbc3a59e6a5c510d35703f6a09877ce45e9"
+  integrity sha512-9ia/jWHIEbo49HfjrLGfKbZSuWo9iTMwXO+Ca3pRsSpbsMbc7/IU8NKdCZVRRBafVPGnoJeFL76ZOAA84I9fEg==
 
 uglify-js@^3.1.4:
   version "3.15.2"
