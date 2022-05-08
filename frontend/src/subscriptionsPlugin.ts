@@ -17,36 +17,6 @@ export const subscriptionsPlugin: KeaPlugin = {
     defaults: () => ({
         subscriptions: undefined,
     }),
-
-    buildOrder: {
-        subscriptions: { after: 'listeners' },
-    },
-
-    buildSteps: {
-        subscriptions(logic: BuiltLogic, input: LogicInput): void {
-            if (!input.subscriptions) {
-                return
-            }
-
-            const newSubscribers = (
-                typeof input.subscriptions === 'function' ? input.subscriptions(logic) : input.subscriptions
-            ) as Record<string, Subscription['subscription']>
-
-            ;(logic as any).subscriptions = [
-                ...((logic as any).subscriptions || []),
-                ...Object.keys(newSubscribers).map(
-                    (selectorKey) =>
-                        ({
-                            selector: logic.selectors[selectorKey],
-                            subscription: newSubscribers[selectorKey],
-                            lastValue: undefined,
-                            logic: logic,
-                        } as Subscription)
-                ),
-            ]
-        },
-    },
-
     events: {
         afterPlugin(): void {
             setPluginContext('subscriptions', {
@@ -76,6 +46,29 @@ export const subscriptionsPlugin: KeaPlugin = {
                 }
                 return response
             })
+        },
+
+        legacyBuild(logic: BuiltLogic, input: LogicInput): void {
+            if (!input.subscriptions) {
+                return
+            }
+
+            const newSubscribers = (
+                typeof input.subscriptions === 'function' ? input.subscriptions(logic) : input.subscriptions
+            ) as Record<string, Subscription['subscription']>
+
+            ;(logic as any).subscriptions = [
+                ...((logic as any).subscriptions || []),
+                ...Object.keys(newSubscribers).map(
+                    (selectorKey) =>
+                        ({
+                            selector: logic.selectors[selectorKey],
+                            subscription: newSubscribers[selectorKey],
+                            lastValue: undefined,
+                            logic: logic,
+                        } as Subscription)
+                ),
+            ]
         },
 
         afterMount(logic: any): void {
