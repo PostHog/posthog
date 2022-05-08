@@ -16,6 +16,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const ingestionLogic = kea<ingestionLogicType>({
     path: ['scenes', 'ingestion', 'ingestionLogic'],
@@ -146,14 +147,14 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : platform === 'third-party'
-                    ? THIRD_PARTY
-                    : null,
+                        ? WEB
+                        : platform === 'backend'
+                            ? BACKEND
+                            : platform === 'just-exploring'
+                                ? BOOKMARKLET
+                                : platform === 'third-party'
+                                    ? THIRD_PARTY
+                                    : null,
                 framework,
                 true
             )
@@ -170,14 +171,14 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : platform === 'third-party'
-                    ? THIRD_PARTY
-                    : null,
+                        ? WEB
+                        : platform === 'backend'
+                            ? BACKEND
+                            : platform === 'just-exploring'
+                                ? BOOKMARKLET
+                                : platform === 'third-party'
+                                    ? THIRD_PARTY
+                                    : null,
                 framework as Framework,
                 false
             )
@@ -194,6 +195,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
         },
         openThirdPartyPluginModal: ({ plugin }) => {
             pluginsLogic.actions.editPlugin(plugin.id)
+        },
+        setPlatform: ({ platform }) => {
+            eventUsageLogic.actions.reportIngestionSelectPlatformType(platform)
         },
     }),
 })
@@ -212,14 +216,14 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : platform === BOOKMARKLET
-                        ? 'just-exploring'
-                        : platform === THIRD_PARTY
-                        ? 'third-party'
-                        : undefined,
+                            ? 'mobile'
+                            : platform === BACKEND
+                                ? 'backend'
+                                : platform === BOOKMARKLET
+                                    ? 'just-exploring'
+                                    : platform === THIRD_PARTY
+                                        ? 'third-party'
+                                        : undefined,
                 framework: framework?.toLowerCase() || undefined,
             },
         ]
@@ -234,10 +238,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : undefined,
+                            ? 'mobile'
+                            : platform === BACKEND
+                                ? 'backend'
+                                : undefined,
             },
         ]
     }
