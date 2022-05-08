@@ -548,6 +548,7 @@ describe('funnelLogic', () => {
         })
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
+            personsModalLogic.mount()
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
