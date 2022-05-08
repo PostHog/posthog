@@ -11463,10 +11463,10 @@ kea-window-values@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-beta.1:
-  version "3.0.0-beta.1"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.1.tgz#3ac3270bc734ede167863f8e594c31ad6306e438"
-  integrity sha512-I3F9t9noVGP7tvdEpAVVbxhazPR0D6+9Ms7RunioJ3nJ0meeWtzGfve0ROh6dKhTlZ3dyKxcKp8a0n+nPW4SiQ==
+kea@^3.0.0-beta.2:
+  version "3.0.0-beta.2"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.2.tgz#32a19cc689450a7f91f8352c9251594896a2b8b6"
+  integrity sha512-F8ksUrV/ik8u0tx5DqiXA0KquTAw9Ekx1Ya0DvMnn6Fk/t6zBbOqeHtXUkCGJchLv8wGEQUArCRpnzgh3bwCbQ==
   dependencies:
     redux "^4.2.0"
     reselect "^4.1.5"
