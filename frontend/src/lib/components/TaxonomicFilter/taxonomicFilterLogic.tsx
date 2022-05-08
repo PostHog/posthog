@@ -1,6 +1,6 @@
 import React from 'react'
 import { BuiltLogic, kea } from 'kea'
-import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
     TaxonomicFilterGroupType,
