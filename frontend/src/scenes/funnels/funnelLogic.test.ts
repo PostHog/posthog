@@ -329,7 +329,7 @@ describe('funnelLogic', () => {
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(false)
         window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/project/@current
     })
 
@@ -349,7 +349,6 @@ describe('funnelLogic', () => {
     }
 
     async function initFunnelLogic(props: InsightLogicProps = defaultProps): Promise<void> {
-        teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
         userLogic.mount()
         await expectLogic(userLogic).toFinishAllListeners()

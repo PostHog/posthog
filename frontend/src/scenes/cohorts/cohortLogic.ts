@@ -182,6 +182,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                             cohortsModel.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {
+                        breakpoint()
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }

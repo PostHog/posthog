@@ -12,7 +12,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { urls } from 'scenes/urls'
-import { teamLogic } from 'scenes/teamLogic'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -134,8 +133,6 @@ describe('eventDefinitionsTableLogic', () => {
             },
         })
         initKeaTests()
-        organizationLogic.mount()
-        teamLogic.mount()
         await expectLogic(organizationLogic)
             .toFinishAllListeners()
             .toDispatchActions(['loadCurrentOrganizationSuccess'])
