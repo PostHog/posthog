@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic } from '../ingestionLogic'
@@ -81,10 +82,17 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
 }
 
 export function PanelSupport(): JSX.Element {
+    const { reportIngestionHelpClicked } = useValues(eventUsageLogic)
+
     return (
         <p className="text-center mb-0 pb-05 mt text-muted" style={{ fontSize: 16 }}>
             Need help?{' '}
-            <a data-attr="support-docs-help" href="https://posthog.com/support" target="_blank">
+            <a
+                data-attr="support-docs-help"
+                href="https://posthog.com/support"
+                target="_blank"
+                onClick={() => reportIngestionHelpClicked('support')}
+            >
                 Visit support
             </a>{' '}
             or{' '}
@@ -92,6 +100,7 @@ export function PanelSupport(): JSX.Element {
                 data-attr="ingestion-docs-help"
                 href="https://posthog.com/docs/integrate/ingest-live-data"
                 target="_blank"
+                onClick={() => reportIngestionHelpClicked('documentation')}
             >
                 read our documentation
             </a>

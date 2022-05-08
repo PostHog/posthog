@@ -435,6 +435,7 @@ export const eventUsageLogic = kea<
         reportPersonOpenedFromNewlySeenPersonsList: true,
         reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
+        reportIngestionHelpClicked: (type: string) => ({ type }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1018,6 +1019,11 @@ export const eventUsageLogic = kea<
         reportIngestionSelectPlatformType: ({ platform }) => {
             posthog.capture('ingestion select platform type', {
                 platform: platform,
+            })
+        },
+        reportIngestionHelpClicked: ({ type }) => {
+            posthog.capture('ingestion help clicked', {
+                type: type,
             })
         },
     }),
