@@ -12,7 +12,7 @@ import './Panels.scss'
 export function PanelFooter(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
-    const { reportIngestionTryWithBookmarkletClicked } = useValues(eventUsageLogic)
+    const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
     return (
         <Col className="panel-footer">
@@ -92,7 +92,7 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
 }
 
 export function PanelSupport(): JSX.Element {
-    const { reportIngestionHelpClicked } = useValues(eventUsageLogic)
+    const { reportIngestionHelpClicked } = useActions(eventUsageLogic)
 
     return (
         <p className="text-center mb-0 pb-05 mt text-muted" style={{ fontSize: 16 }}>

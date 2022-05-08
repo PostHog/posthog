@@ -16,7 +16,7 @@ export function VerificationPanel(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
     const { index } = useValues(ingestionLogic)
-    const { reportIngestionContinueWithoutVerifying } = useValues(eventUsageLogic)
+    const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
         if (!currentTeam?.ingested_event) {

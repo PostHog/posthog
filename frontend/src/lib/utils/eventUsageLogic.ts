@@ -438,6 +438,9 @@ export const eventUsageLogic = kea<
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
+        reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1033,6 +1036,21 @@ export const eventUsageLogic = kea<
         },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
+        },
+        reportIngestionThirdPartyAboutClicked: ({ name }) => {
+            posthog.capture('ingestion third party about clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyConfigureClicked: ({ name }) => {
+            posthog.capture('ingestion third party configure clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyPluginInstalled: ({ name }) => {
+            posthog.capture('report ingestion third party plugin installed', {
+                name: name,
+            })
         },
     }),
 })

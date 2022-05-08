@@ -107,7 +107,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
             () => [],
             (): boolean => {
                 const featFlags = featureFlagLogic.values.featureFlags
-                return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test' || !!featFlags[FEATURE_FLAGS.ONBOARDING_1]
+                return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
             },
         ],
         frameworkString: [
