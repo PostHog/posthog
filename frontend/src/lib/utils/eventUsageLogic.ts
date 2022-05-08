@@ -436,6 +436,8 @@ export const eventUsageLogic = kea<
         reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
+        reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionContinueWithoutVerifying: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1025,6 +1027,12 @@ export const eventUsageLogic = kea<
             posthog.capture('ingestion help clicked', {
                 type: type,
             })
+        },
+        reportIngestionTryWithBookmarkletClicked: () => {
+            posthog.capture('ingestion try posthog with bookmarklet clicked')
+        },
+        reportIngestionContinueWithoutVerifying: () => {
+            posthog.capture('ingestion continue without verifying')
         },
     }),
 })

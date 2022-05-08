@@ -9,12 +9,14 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { PanelSupport } from './PanelComponents'
 import './Panels.scss'
 import { IconCheckCircleOutline } from 'lib/components/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
     const { index } = useValues(ingestionLogic)
+    const { reportIngestionContinueWithoutVerifying } = useValues(eventUsageLogic)
 
     useInterval(() => {
         if (!currentTeam?.ingested_event) {
@@ -34,7 +36,15 @@ export function VerificationPanel(): JSX.Element {
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
                                 received and continue.
                             </p>
-                            <LemonButton fullWidth center type="secondary" onClick={completeOnboarding}>
+                            <LemonButton
+                                fullWidth
+                                center
+                                type="secondary"
+                                onClick={() => {
+                                    completeOnboarding()
+                                    reportIngestionContinueWithoutVerifying()
+                                }}
+                            >
                                 Continue without verifying
                             </LemonButton>
                         </div>

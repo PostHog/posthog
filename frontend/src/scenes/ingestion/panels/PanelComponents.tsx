@@ -12,13 +12,23 @@ import './Panels.scss'
 export function PanelFooter(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
+    const { reportIngestionTryWithBookmarkletClicked } = useValues(eventUsageLogic)
 
     return (
         <Col className="panel-footer">
             <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
             {platform === BOOKMARKLET ? (
                 <div>
-                    <LemonButton type="primary" size="large" fullWidth center onClick={() => setVerify(true)}>
+                    <LemonButton
+                        type="primary"
+                        size="large"
+                        fullWidth
+                        center
+                        onClick={() => {
+                            reportIngestionTryWithBookmarkletClicked()
+                            setVerify(true)
+                        }}
+                    >
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
                     <LemonButton
