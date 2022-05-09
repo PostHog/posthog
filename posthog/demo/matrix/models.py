@@ -4,8 +4,12 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
-
+from urllib.parse import urlparse
 from posthog.models.utils import UUIDT
+
+# Event name constants to be used in simulations
+EVENT_PAGEVIEW = "$pageview"
+EVENT_AUTOCAPTURE = "$autocapture"
 
 
 @dataclass
@@ -36,13 +40,11 @@ class SimPerson(ABC):
     """A simulated person."""
 
     first_seen_at: Optional[dt.datetime]
-    internal_state: Dict[str, Any]
     properties: Dict[str, Any]
     events: List[SimEvent]
 
     def __init__(self):
         self.first_seen_at = None
-        self.internal_state = {}
         self.properties = {}
         self.events = []
 
@@ -50,17 +52,32 @@ class SimPerson(ABC):
     def simulate(self, *, start: dt.datetime, end: dt.datetime):
         raise NotImplementedError()
 
-    def capture_event(self, event: str, timestamp: dt.datetime, properties: Optional[Dict[str, Any]] = None):
+    def capture(self, event: str, timestamp: dt.datetime, properties: Dict[str, Any] = {}):
         if self.first_seen_at is None or self.first_seen_at > timestamp:
             self.first_seen_at = timestamp
-        if properties:
-            if properties.get("$set_once"):
-                for key, value in properties["$set_once"].items():
-                    if key not in self.properties:
-                        self.properties[key] = value
-            if properties.get("$set"):
-                self.properties.update(properties["$set"])
+        if properties.get("$set_once"):
+            for key, value in properties["$set_once"].items():
+                if key not in self.properties:
+                    self.properties[key] = value
+        if properties.get("$set"):
+            self.properties.update(properties["$set"])
+        properties["$timestamp"] = timestamp.isoformat()
         self.events.append(SimEvent(event=event, properties=properties or {}, timestamp=timestamp))
+
+    def capture_pageview(self, timestamp: dt.datetime, properties: Dict[str, Any] = {}, *, current_url: str, referrer: Optional[str] = None):
+        properties["$lib"] = "web"
+        parsed_current_url = urlparse(current_url)
+        properties["$current_url"] = current_url
+        properties["$host"] = parsed_current_url.netloc
+        properties["$pathname"] = parsed_current_url.path
+        if referrer:
+            parsed_referrer = urlparse(referrer)
+            properties["$referrer"] = referrer
+            properties["$referring_domain"] = parsed_referrer.netloc
+        # TODO: properties["$os"]
+        # TODO: properties["$browser"]
+        # TODO: properties["$device_type"]
+        self.capture(EVENT_PAGEVIEW, timestamp, properties)
 
     @cached_property
     def distinct_id(self) -> Optional[UUID]:

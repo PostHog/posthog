@@ -9,7 +9,8 @@ EVENT_SIGNUP = "signup"
 
 class HedgeboxPerson(SimPerson):
     def simulate(self, *, start: dt.datetime, end: dt.datetime):
-        self.capture_event(EVENT_SIGNUP, start)
+        self.capture(EVENT_SIGNUP, start)
+        self.capture(EVENT_SIGNUP, start)
 
 
 class HedgeboxMatrix(Matrix):

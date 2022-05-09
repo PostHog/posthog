@@ -16,8 +16,8 @@ class Command(BaseCommand):
             options["seed"], start=dt.datetime(2022, 2, 1), end=dt.datetime(2022, 5, 1), n_clusters=1
         )
         matrix.simulate()
-        seen_people = [person for person in matrix.people if person.first_seen_at is not None]
-        print(f"Simulated {len(seen_people)} people with events")
+        seen_people = [person for person in matrix.persons if person.first_seen_at is not None]
+        print(f"Simulated {len(seen_people)} person{'s' if len(seen_people) != 1 else ''} with events")
         for person in seen_people:
             print()
             print(person)

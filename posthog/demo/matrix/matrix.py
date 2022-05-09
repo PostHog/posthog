@@ -8,10 +8,6 @@ from posthog.models import Team, User
 
 from .models import SimGroup, SimPerson
 
-# Event name constants to be used in simulations
-EVENT_PAGEVIEW = "$pageview"
-EVENT_AUTOCAPTURE = "$autocapture"
-
 
 class Cluster:
     """A cluster of people."""
@@ -24,7 +20,7 @@ class Cluster:
 
     radius: int
     # Grid containing all people in the cluster.
-    people_matrix: List[List[SimPerson]]
+    persons_matrix: List[List[SimPerson]]
     # A mapping of groups. The first key is the group type, the second key is the group key.
     groups_mapping: DefaultDict[str, Dict[str, SimGroup]]
 
@@ -35,17 +31,17 @@ class Cluster:
         self.start = start
         self.end = end
         self.radius = random.randint(self.min_radius, self.max_radius)
-        self.people_matrix = [[person_model() for _ in range(1 + self.radius * 2)] for _ in range(1 + self.radius * 2)]
+        self.persons_matrix = [[person_model() for _ in range(1 + self.radius * 2)] for _ in range(1 + self.radius * 2)]
         self.groups_mapping = defaultdict(dict)
 
     def simulate(self):
-        self.people_matrix[self.radius][self.radius].simulate(start=self.start, end=self.end)
+        self.persons_matrix[self.radius][self.radius].simulate(start=self.start, end=self.end)
         # TODO: Support neighbors
         # for distance_from_kernel in range(1, self.radius + 1):
 
     @property
-    def people(self) -> List[SimPerson]:
-        return [person for row in self.people_matrix for person in row]
+    def persons(self) -> List[SimPerson]:
+        return [person for row in self.persons_matrix for person in row]
 
     @property
     def groups(self) -> List[SimGroup]:
@@ -71,8 +67,8 @@ class Matrix(ABC):
             cluster.simulate()
 
     @property
-    def people(self) -> List[SimPerson]:
-        return [person for cluster in self.clusters for person in cluster.people]
+    def persons(self) -> List[SimPerson]:
+        return [person for cluster in self.clusters for person in cluster.persons]
 
     @property
     def groups(self) -> List[SimGroup]:

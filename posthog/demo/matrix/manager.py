@@ -58,7 +58,7 @@ class MatrixManager:
             person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
             matrix.simulate()
             simulation_time = time.time()  # FIXME
-            sim_persons, sim_groups = matrix.people, matrix.groups
+            sim_persons, sim_groups = matrix.persons, matrix.groups
             print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")  # noqa: T001
             individual_time = time.time()  # FIXME
             for sim_group in sim_groups:
