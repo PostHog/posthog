@@ -40,7 +40,7 @@ export function UserDetails(): JSX.Element {
                     },
                 ]}
             >
-                <Input.Password
+                <Input
                     className="ph-ignore-input"
                     autoFocus
                     data-attr="settings-update-first-name"
