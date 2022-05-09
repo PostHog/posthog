@@ -3,11 +3,11 @@ import { LemonButtonWithPopup } from '.'
 import { IconEllipsis } from '../icons'
 import { PopupProps } from '../Popup/Popup'
 
-interface MoreInterface extends Partial<Pick<PopupProps, 'overlay'>> {
+export interface MoreProps extends Partial<Pick<PopupProps, 'overlay'>> {
     style?: React.CSSProperties
 }
 
-export function More({ overlay, style }: MoreInterface): JSX.Element {
+export function More({ overlay, style }: MoreProps): JSX.Element {
     return (
         <LemonButtonWithPopup
             data-attr="more-button"

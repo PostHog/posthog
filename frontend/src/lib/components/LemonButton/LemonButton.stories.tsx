@@ -9,6 +9,8 @@ import {
     LemonButtonWithSideActionProps,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
+import { More, MoreProps } from './More'
+import { LemonDivider } from '../LemonDivider'
 
 export default {
     title: 'Lemon UI/Lemon Button',
@@ -35,6 +37,10 @@ const SideActionTemplate: ComponentStory<typeof LemonButtonWithSideAction> = (
     props: LemonButtonWithSideActionProps
 ) => {
     return <LemonButtonWithSideAction {...props} />
+}
+
+const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
+    return <More {...props} />
 }
 
 export const Default = BasicTemplate.bind({})
@@ -208,4 +214,22 @@ export const WithExtendedContent = BasicTemplate.bind({})
 WithExtendedContent.args = {
     type: 'stealth',
     extendedContent: "This is some extra info about this particular item. Hopefully it's helpful.",
+}
+
+export const More_ = MoreTemplate.bind({})
+More_.args = {
+    overlay: (
+        <>
+            <LemonButton type="stealth" fullWidth>
+                View
+            </LemonButton>
+            <LemonButton type="stealth" fullWidth>
+                Edit
+            </LemonButton>
+            <LemonDivider />
+            <LemonButton type="stealth" status="danger" fullWidth>
+                Delete
+            </LemonButton>
+        </>
+    ),
 }
