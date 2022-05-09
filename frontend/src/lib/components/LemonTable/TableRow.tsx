@@ -10,7 +10,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowKeyDetermined: string | number
     rowClassNameDetermined: string | null | undefined
     rowRibbonColorDetermined: string | null | undefined
-    rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
+    rowStatusDetermined: 'highlighted' | null | undefined
     columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
