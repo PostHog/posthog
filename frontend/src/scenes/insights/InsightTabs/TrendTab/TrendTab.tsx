@@ -127,7 +127,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                                 <PropertyGroupFilters
-                                    propertyGroupFilter={convertPropertiesToPropertyGroup(filters.properties)}
+                                    value={convertPropertiesToPropertyGroup(filters.properties)}
                                     onChange={(properties) => {
                                         setFilters({ properties })
                                     }}

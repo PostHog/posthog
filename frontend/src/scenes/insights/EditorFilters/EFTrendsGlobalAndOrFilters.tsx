@@ -17,7 +17,7 @@ export function EFTrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilt
     return (
         <PropertyGroupFilters
             noTitle
-            propertyGroupFilter={convertPropertiesToPropertyGroup(filters.properties)}
+            value={convertPropertiesToPropertyGroup(filters.properties)}
             onChange={(properties) => setFilters({ properties })}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,

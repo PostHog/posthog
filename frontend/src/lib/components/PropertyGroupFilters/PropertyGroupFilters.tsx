@@ -14,7 +14,7 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { objectsEqual } from 'lib/utils'
 
 interface PropertyGroupFilters {
-    propertyGroupFilter: PropertyGroupFilter
+    value: PropertyGroupFilter
     onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -25,7 +25,7 @@ interface PropertyGroupFilters {
 }
 
 export function PropertyGroupFilters({
-    propertyGroupFilter: _propertyGroupFilter,
+    value,
     onChange,
     pageKey,
     taxonomicGroupTypes,
@@ -34,7 +34,7 @@ export function PropertyGroupFilters({
     filters,
     noTitle,
 }: PropertyGroupFilters): JSX.Element {
-    const logicProps = { propertyGroupFilter: _propertyGroupFilter, onChange, pageKey }
+    const logicProps = { propertyGroupFilter: value, onChange, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         setFilters,
@@ -49,10 +49,10 @@ export function PropertyGroupFilters({
     const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
 
     useEffect(() => {
-        if (!objectsEqual(_propertyGroupFilter, propertyGroupFilter)) {
-            setFilters(_propertyGroupFilter)
+        if (!objectsEqual(value, propertyGroupFilter)) {
+            setFilters(value)
         }
-    }, [_propertyGroupFilter])
+    }, [JSON.stringify(value)])
 
     return (
         <>
