@@ -13,11 +13,7 @@ export function createHttpServer(hub: Hub, serverConfig: PluginsServerConfig): S
             let serverHealthy = true
 
             if (hub.kafka) {
-                const [kafkaHealthy, error] = await kafkaHealthcheck(
-                    hub.kafka!,
-                    hub.statsd,
-                    serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
-                )
+                const [kafkaHealthy, error] = await kafkaHealthcheck(hub.kafka!)
                 if (kafkaHealthy) {
                     status.info('💚', `Kafka healthcheck succeeded`)
                 } else {

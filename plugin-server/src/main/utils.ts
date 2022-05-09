@@ -41,12 +41,7 @@ export async function runInstrumentedFunction({
     }
 }
 
-export async function kafkaHealthcheck(
-    kafka: Kafka,
-    statsd?: StatsD,
-    timeoutMs = 20000
-): Promise<[boolean, Error | null]> {
-    let consumer: Consumer | null = null
+export async function kafkaHealthcheck(kafka: Kafka): Promise<[boolean, Error | null]> {
     let producer: Producer | null = null
 
     try {
@@ -62,42 +57,10 @@ export async function kafkaHealthcheck(
             ],
         })
 
-        let kafkaConsumerWorking = false
-        consumer = kafka.consumer({
-            groupId: 'healthcheck-group',
-        })
-
-        await consumer.subscribe({ topic: 'healthcheck', fromBeginning: true })
-
-        await consumer.run({
-            // no-op
-            eachMessage: async () => {
-                await Promise.resolve()
-            },
-        })
-
-        let timer: Date | null = new Date()
-        consumer.on(consumer.events.FETCH_START, () => {
-            if (timer) {
-                statsd?.timing('kafka_healthcheck_consumer_latency', timer)
-                timer = null
-            }
-            kafkaConsumerWorking = true
-        })
-
-        await consumer.connect()
-
-        await delay(timeoutMs)
-
-        if (!kafkaConsumerWorking) {
-            throw new KafkaConsumerError('Unable to consume a message in time.')
-        }
-
         return [true, null]
     } catch (error) {
         return [false, error]
     } finally {
-        await consumer?.disconnect()
         await producer?.disconnect()
     }
 }
