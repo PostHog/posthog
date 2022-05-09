@@ -388,7 +388,7 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
     return None
 
 
-def simplified_cohort_filter_properties(cohort: Cohort, team: Team, **kwargs) -> PropertyGroup:
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyGroup:
     """
     'Simplifies' cohort property filters, removing team-specific context from properties.
     """
@@ -412,23 +412,19 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, **kwargs) ->
     #
     # Users who match _any_ of the groups are considered to match the cohort.
 
-    flatten_cohorts = kwargs.get("flatten_cohorts", False)
-    if not flatten_cohorts:
-        for property in cohort.properties.flat:
-            if property.type == "behavioral":
-                # TODO: Support behavioral property type in other insights
-                return PropertyGroup(
-                    type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
-                )
+    for property in cohort.properties.flat:
+        if property.type == "behavioral":
+            # TODO: Support behavioral property type in other insights
+            return PropertyGroup(
+                type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
+            )
 
-            elif property.type == "cohort":
-                # :TRICKY: We need to ensure we don't have infinite loops in here
-                # guaranteed during cohort creation
-                return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
+        elif property.type == "cohort":
+            # :TRICKY: We need to ensure we don't have infinite loops in here
+            # guaranteed during cohort creation
+            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
 
-    return Filter(
-        data={"properties": cohort.properties.to_dict()}, team=team, flatten_cohorts=flatten_cohorts
-    ).property_groups
+    return cohort.properties
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

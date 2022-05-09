@@ -139,12 +139,8 @@ class CohortQuery(EnterpriseEventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
-
-        # Simplify and make sure cohort properties are surfaced
-        simplified_again = Filter(data={**filter._data, "is_simplified": False}, team=team, flatten_cohorts=True)
-
         super().__init__(
-            filter=simplified_again,
+            filter=filter,
             team=team,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,

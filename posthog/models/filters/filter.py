@@ -121,6 +121,5 @@ class Filter(
         self.kwargs = kwargs
 
         if "team" in kwargs and not self.is_simplified:
-            flatten_cohorts = kwargs.get("flatten_cohorts", False)
-            simplified_filter = self.simplify(kwargs["team"], flatten_cohorts=flatten_cohorts)
+            simplified_filter = self.simplify(kwargs["team"])
             self._data = simplified_filter._data
