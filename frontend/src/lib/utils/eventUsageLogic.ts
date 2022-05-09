@@ -31,7 +31,7 @@ import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType } from 'scenes/ingestion/types'
+import { PlatformType, Framework } from 'scenes/ingestion/types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -435,6 +435,7 @@ export const eventUsageLogic = kea<
         reportPersonOpenedFromNewlySeenPersonsList: true,
         reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
+        reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
@@ -1024,6 +1025,11 @@ export const eventUsageLogic = kea<
         reportIngestionSelectPlatformType: ({ platform }) => {
             posthog.capture('ingestion select platform type', {
                 platform: platform,
+            })
+        },
+        reportIngestionSelectFrameworkType: ({ framework }) => {
+            posthog.capture('ingestion select framework type', {
+                framework: framework,
             })
         },
         reportIngestionHelpClicked: ({ type }) => {

@@ -199,6 +199,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
         setPlatform: ({ platform }) => {
             eventUsageLogic.actions.reportIngestionSelectPlatformType(platform)
         },
+        setFramework: ({ framework }) => {
+            eventUsageLogic.actions.reportIngestionSelectFrameworkType(framework)
+        },
     }),
 })
 
