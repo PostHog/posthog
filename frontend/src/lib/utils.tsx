@@ -1260,12 +1260,12 @@ export function isPropertyGroup(
 }
 
 export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[]
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
         return properties
     }
-    if (properties.length > 0) {
+    if (properties && properties.length > 0) {
         return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
     }
     return { type: FilterLogicalOperator.And, values: [] }
@@ -1301,3 +1301,8 @@ export function flattenPropertyGroup(
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
+export const autoSorter = (a: any, b: any): number => {
+    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+}
