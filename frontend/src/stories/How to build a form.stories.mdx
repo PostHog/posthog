@@ -35,7 +35,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
             defaults: { ...NEW_FLAG } as FeatureFlagModel,
 
             // sync validation, will be shown as errors in the form
-            validator: (featureFlag) => ({
+            errors: (featureFlag) => ({
                 key: !featureFlag.key ? 'Must have a key' : undefined,
             }),
 

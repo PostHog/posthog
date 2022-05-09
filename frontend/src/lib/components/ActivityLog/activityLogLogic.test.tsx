@@ -17,7 +17,6 @@ import {
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -39,7 +38,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
@@ -201,7 +199,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope, id: 7, describer })
             logic.mount()
 

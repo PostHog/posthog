@@ -79,7 +79,7 @@ export const insightLogic = kea<insightLogicType>({
             mathsLogic,
             ['mathDefinitions'],
         ],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
     },
 
     actions: () => ({
