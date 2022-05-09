@@ -135,6 +135,8 @@ class TestLoadDataFromRequest(TestCase):
     def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
         rf = RequestFactory()
         post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
+        # the server presents any http headers in upper case with http_ as a prefix
+        # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
         post_request.META["HTTP_ORIGIN"] = origin
         post_request.META["HTTP_REFERER"] = referer
         return post_request
