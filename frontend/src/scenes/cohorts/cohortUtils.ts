@@ -256,7 +256,7 @@ export function validateGroup(
     const regularEventCriteria = criteria.filter((c) => c.value === BehavioralLifecycleType.PerformEventRegularly)
     if (
         regularEventCriteria.length > 0 &&
-        regularEventCriteria.every((c) => isNumeric(c.min_periods) && typeof isNumeric(c.total_periods))
+        regularEventCriteria.every((c) => isNumeric(c.min_periods) && isNumeric(c.total_periods))
     ) {
         return {
             values: criteria.map((c) =>

@@ -873,6 +873,7 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.NumberTicker]: () => CohortClientErrors.EmptyNumberTicker,
     [FilterType.TimeUnit]: () => CohortClientErrors.EmptyTimeUnit,
     [FilterType.MathOperator]: () => CohortClientErrors.EmptyMathOperator,
+    [FilterType.EventsAndActionsMathOperator]: () => CohortClientErrors.EmptyMathOperator,
     [FilterType.CohortId]: () => CohortClientErrors.EmptyCohortId,
     [FilterType.CohortValues]: () => CohortClientErrors.EmptyCohortValues,
     [FilterType.Value]: () => CohortClientErrors.EmptyValue,

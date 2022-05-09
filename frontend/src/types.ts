@@ -594,7 +594,7 @@ export interface CohortCriteriaType {
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
     seq_event?: string | number | null
-    seq_time_value?: number | null
+    seq_time_value?: number | string | null
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls

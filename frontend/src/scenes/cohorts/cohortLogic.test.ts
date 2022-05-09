@@ -461,6 +461,63 @@ describe('cohortLogic', () => {
             expect(api.update).toBeCalledTimes(0)
         })
 
+        it('do not save on invalid lower and upper bound period values', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, async () => {
+                await logic.actions.setCohort({
+                    ...mockCohort,
+                    filters: {
+                        properties: {
+                            type: FilterLogicalOperator.Or,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.Or,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformSequenceEvents,
+                                            negation: false,
+                                            key: '$groupidentify',
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: '28',
+                                            time_interval: TimeUnitType.Day,
+                                            seq_event: '$groupidentify',
+                                            seq_time_value: '30',
+                                            seq_time_interval: TimeUnitType.Day,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                await logic.actions.submitCohort()
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+                .toMatchValues({
+                    cohortErrors: partial({
+                        filters: {
+                            properties: {
+                                values: [
+                                    {
+                                        values: [
+                                            {
+                                                id: 'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                                time_value:
+                                                    'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                                seq_time_value:
+                                                    'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    }),
+                })
+            expect(api.update).toBeCalledTimes(0)
+        })
+
         describe('empty input errors', () => {
             Object.entries(ROWS).forEach(([key, row]) => {
                 it(`${key} row missing all required fields`, async () => {
