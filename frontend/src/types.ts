@@ -1570,7 +1570,7 @@ export interface PropertyGroupFilterValue {
 }
 
 export interface CohortCriteriaGroupFilter {
-    id: string
+    id?: string
     type: FilterLogicalOperator
     values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
 }

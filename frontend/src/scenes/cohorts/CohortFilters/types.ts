@@ -16,6 +16,7 @@ export enum FilterType {
     TimeUnit = 'timeUnit',
     DateOperator = 'dateOperator',
     MathOperator = 'mathOperator',
+    EventsAndActionsMathOperator = 'eventsAndActionsMathOperator',
     Value = 'value',
     Text = 'text',
     EventsAndActions = 'eventsAndActions',
@@ -39,6 +40,7 @@ export enum FieldOptionsType {
     DateOperators = 'dateOperators',
     MathOperators = 'mathOperators',
     ValueOptions = 'valueOptions',
+    EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }
 
 export interface FieldValues {

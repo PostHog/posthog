@@ -95,16 +95,28 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
                       cohort.is_static
                           ? {}
                           : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
-                            applyAllNestedCriteria(cohort, (criteriaList) =>
-                                criteriaList.map(
-                                    (c) =>
-                                        ({
-                                            ...c,
-                                            ...('value_property' in c ? { value: c.value_property } : {}),
-                                            value_property: undefined,
-                                        } as AnyCohortCriteriaType)
-                                )
-                            ).filters
+                            {
+                                properties: {
+                                    ...applyAllCriteriaGroup(
+                                        applyAllNestedCriteria(cohort, (criteriaList) =>
+                                            criteriaList.map(
+                                                (c) =>
+                                                    ({
+                                                        ...c,
+                                                        ...('value_property' in c ? { value: c.value_property } : {}),
+                                                        value_property: undefined,
+                                                    } as AnyCohortCriteriaType)
+                                            )
+                                        ),
+                                        (groupList) =>
+                                            groupList.map((g) => ({
+                                                ...g,
+                                                id: undefined,
+                                            }))
+                                    ).filters.properties,
+                                    id: undefined,
+                                },
+                            }
                   ),
                   groups: JSON.stringify([]),
               }

@@ -263,6 +263,21 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             },
         },
     },
+    [FieldOptionsType.EventsAndActionsMathOperators]: {
+        label: 'Operators',
+        type: FieldOptionsType.EventsAndActionsMathOperators,
+        values: {
+            [PropertyOperator.Exact]: {
+                label: 'equals',
+            },
+            [PropertyOperator.GreaterThanOrEqual]: {
+                label: 'greater than or equal to',
+            },
+            [PropertyOperator.LessThanOrEqual]: {
+                label: 'less than or equal to',
+            },
+        },
+    },
     [FieldOptionsType.ValueOptions]: {
         label: 'Value Options',
         type: FieldOptionsType.ValueOptions,
@@ -360,7 +375,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'operator',
-                type: FilterType.MathOperator,
+                type: FilterType.EventsAndActionsMathOperator,
                 defaultValue: PropertyOperator.Exact,
             },
             {
@@ -610,7 +625,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'operator',
-                type: FilterType.MathOperator,
+                type: FilterType.EventsAndActionsMathOperator,
                 defaultValue: PropertyOperator.Exact,
             },
             {
@@ -785,6 +800,9 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
     },
     [FilterType.MathOperator]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.MathOperators]} />
+    },
+    [FilterType.EventsAndActionsMathOperator]: function _renderField(p) {
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.EventsAndActionsMathOperators]} />
     },
     [FilterType.Value]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.ValueOptions]} />
