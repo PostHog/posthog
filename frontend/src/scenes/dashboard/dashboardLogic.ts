@@ -124,7 +124,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     } catch (error: any) {
                         actions.setReceivedErrorsFromAPI(true)
                         if (error.status === 404) {
-                            return []
+                            return null
                         }
                         throw error
                     }

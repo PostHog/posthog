@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -525,6 +525,14 @@ export const insightLogic = kea<insightLogicType>({
             ({ filters }) => {
                 // any real filter will have the `insight` key in it
                 return 'insight' in (filters ?? {})
+            },
+        ],
+        filterPropertiesCount: [
+            (s) => [s.filters],
+            (filters): number => {
+                return Array.isArray(filters.properties)
+                    ? filters.properties.length
+                    : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
         csvExportUrl: [
