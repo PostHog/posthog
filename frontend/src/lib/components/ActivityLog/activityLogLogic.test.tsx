@@ -17,7 +17,6 @@ import {
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -39,7 +38,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
@@ -201,7 +199,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope, id: 7, describer })
             logic.mount()
 
@@ -249,7 +246,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'merged into this person: User A, and User C'
+                    'merged into this person: User A,andUser C'
                 )
             })
 
@@ -267,7 +264,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'split this person into a, and b'
+                    'split this person into a,andb'
                 )
             })
         })
@@ -315,7 +312,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
+                    'changed rollout percentage to 36%,andchanged the description to "strawberry" on test flag'
                 )
             })
 
@@ -374,7 +371,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
+                    'changed the filter conditions to apply to 100% ofID 98,and100% ofID 411 on with cohort'
                 )
             })
 
@@ -535,7 +532,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome ,and99% ofInitial Browser Version = 100 on with two changes'
                 )
             })
         })

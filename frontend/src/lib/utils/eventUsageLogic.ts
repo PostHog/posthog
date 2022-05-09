@@ -608,13 +608,13 @@ export const eventUsageLogic = kea<
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items.length,
+                item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
                 has_share_token: hasShareToken,
                 dashboard_id: id,
             }
 
-            for (const item of dashboard.items) {
+            for (const item of dashboard.items || []) {
                 const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1

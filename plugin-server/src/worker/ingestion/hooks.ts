@@ -234,7 +234,10 @@ export class HookCommander {
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
         })
-        this.statsd?.increment('webhook_firings')
+        this.statsd?.increment('webhook_firings', {
+            team_id: event.team_id.toString(),
+            action: action.name || 'unknown',
+        })
     }
 
     public async postRestHook(

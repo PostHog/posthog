@@ -2,7 +2,7 @@ import { BuiltLogic, kea } from 'kea'
 import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
-import { insightSceneLogicType } from './insightSceneLogicType'
+import type { insightSceneLogicType } from './insightSceneLogicType'
 import { urls } from 'scenes/urls'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -116,7 +116,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
                 if (insightId) {
-                    const logic = insightLogic.build({ dashboardItemId: insightId }, false)
+                    const logic = insightLogic.build({ dashboardItemId: insightId })
                     const unmount = logic.mount()
                     actions.setInsightLogic(logic, unmount)
                 } else {

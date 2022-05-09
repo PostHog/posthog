@@ -44,7 +44,7 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
 
     return (
         <div
-            className={clsx('funnel-options-container', horizontal && 'flex-center')}
+            className={clsx('funnel-options-container text-muted', horizontal && 'flex-center')}
             style={horizontal ? { flexDirection: 'row' } : undefined}
         >
             <span className="funnel-options-label">
@@ -64,25 +64,25 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
                 </Tooltip>
             </span>
             <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
-                <InputNumber
-                    className="time-value-input"
-                    min={intervalBounds[0]}
-                    max={intervalBounds[1]}
-                    defaultValue={conversionWindow.funnel_window_interval}
-                    value={localConversionWindow.funnel_window_interval}
-                    onChange={(funnel_window_interval) => {
-                        setLocalConversionWindow((state) => ({
-                            ...state,
-                            funnel_window_interval: Number(funnel_window_interval),
-                        }))
-                        setConversionWindow()
-                    }}
-                    onBlur={setConversionWindow}
-                    onPressEnter={setConversionWindow}
-                />
+                <span className="mr-05">
+                    <InputNumber
+                        min={intervalBounds[0]}
+                        max={intervalBounds[1]}
+                        defaultValue={conversionWindow.funnel_window_interval}
+                        value={localConversionWindow.funnel_window_interval}
+                        onChange={(funnel_window_interval) => {
+                            setLocalConversionWindow((state) => ({
+                                ...state,
+                                funnel_window_interval: Number(funnel_window_interval),
+                            }))
+                            setConversionWindow()
+                        }}
+                        onBlur={setConversionWindow}
+                        onPressEnter={setConversionWindow}
+                    />
+                </span>
                 <Select
                     ref={timeUnitRef}
-                    className="time-unit-input"
                     defaultValue={conversionWindow.funnel_window_interval_unit}
                     dropdownMatchSelectWidth={false}
                     value={localConversionWindow.funnel_window_interval_unit}
