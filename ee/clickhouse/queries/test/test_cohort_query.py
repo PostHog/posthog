@@ -1000,6 +1000,64 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
 
+    def test_negation_with_simplify_filters(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": True,
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                        },
+                        {
+                            "key": "$feature_flag_called",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                        },
+                    ],
+                }
+            },
+            team=self.team,
+        )
+
+        # shouldn't raise negation error, but it does right now
+        # because simplify converts each individual property to its own property group
+        CohortQuery(filter=filter, team=self.team).get_query()
+        # self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
+
     def test_negation_dynamic_time_bound_with_performed_event(self):
         # invalid dude because $pageview happened too early
         p1 = _create_person(
