@@ -117,6 +117,7 @@ export enum CohortClientErrors {
     NegationCriteriaMissingOther = 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
     NegationCriteriaCancel = 'These criteria cancel each other out, and would result in no matching persons.',
     RegularEventMismatch = 'The lowerbound period value must not be greater than the upperbound value.',
+    SequentialTimeMismatch = 'The lowerbound period sequential time value must not be greater than the upperbound time value.',
     EmptyEventsAndActions = 'Event or action cannot be empty.',
     EmptyEventProperties = 'Event property cannot be empty.',
     EmptyPersonPropertyValues = 'Person property value cannot be empty',

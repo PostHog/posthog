@@ -17,7 +17,7 @@ import {
     CohortClientErrors,
     FieldWithFieldKey,
 } from 'scenes/cohorts/CohortFilters/types'
-import { areObjectValuesEmpty, convertPropertyGroupToProperties } from 'lib/utils'
+import { areObjectValuesEmpty, convertPropertyGroupToProperties, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
 import { CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -252,11 +252,11 @@ export function validateGroup(
         }
     }
 
-    // Specific criteria value scenarios
+    // Complete event regularly time comparison
     const regularEventCriteria = criteria.filter((c) => c.value === BehavioralLifecycleType.PerformEventRegularly)
     if (
         regularEventCriteria.length > 0 &&
-        regularEventCriteria.every((c) => typeof c.min_periods === 'number' && typeof c.total_periods === 'number')
+        regularEventCriteria.every((c) => isNumeric(c.min_periods) && typeof isNumeric(c.total_periods))
     ) {
         return {
             values: criteria.map((c) =>
@@ -266,6 +266,37 @@ export function validateGroup(
                               id: CohortClientErrors.RegularEventMismatch,
                               min_periods: CohortClientErrors.RegularEventMismatch,
                               total_periods: CohortClientErrors.RegularEventMismatch,
+                          }
+                        : {}
+                    : {}
+            ) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
+        }
+    }
+
+    // Sequential times comparison
+    const sequentialTimeCriteria = criteria.filter((c) =>
+        [
+            BehavioralLifecycleType.StartPerformEventAgain,
+            BehavioralLifecycleType.StopPerformEvent,
+            BehavioralEventType.PerformSequenceEvents,
+        ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
+    )
+    if (
+        sequentialTimeCriteria.length > 0 &&
+        sequentialTimeCriteria.every((c) => isNumeric(c.seq_time_value) && isNumeric(c.time_value))
+    ) {
+        return {
+            values: criteria.map((c) =>
+                [
+                    BehavioralLifecycleType.StartPerformEventAgain,
+                    BehavioralLifecycleType.StopPerformEvent,
+                    BehavioralEventType.PerformSequenceEvents,
+                ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
+                    ? (c.seq_time_value ?? 0) > (c.time_value ?? 0)
+                        ? {
+                              id: CohortClientErrors.SequentialTimeMismatch,
+                              seq_time_value: CohortClientErrors.SequentialTimeMismatch,
+                              time_value: CohortClientErrors.SequentialTimeMismatch,
                           }
                         : {}
                     : {}

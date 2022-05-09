@@ -1304,3 +1304,11 @@ export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 export const autoSorter = (a: any, b: any): number => {
     return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
 }
+
+// https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
+export function isNumeric(str: any): boolean {
+    if (typeof str != 'string') {
+        return false
+    }
+    return !isNaN(Number(str)) && !isNaN(parseFloat(str))
+}

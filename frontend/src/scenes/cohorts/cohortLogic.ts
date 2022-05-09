@@ -270,7 +270,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, key }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort(values.cohort)
             router.actions.push(urls.cohorts())
@@ -291,6 +291,14 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)
+                }
+                if ((cohort.errors_calculating ?? 0) > 0) {
+                    lemonToast.error(
+                        'Cohort error. There was an error calculating this cohort. Make sure the cohort filters are correct.',
+                        {
+                            toastId: `cohort-calculation-error-${key}`,
+                        }
+                    )
                 }
             }
         },

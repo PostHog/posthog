@@ -618,6 +618,7 @@ export interface CohortType {
     deleted?: boolean
     id: number | 'new'
     is_calculating?: boolean
+    errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
     name?: string
