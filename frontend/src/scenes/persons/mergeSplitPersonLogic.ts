@@ -20,8 +20,8 @@ type PersonIds = NonNullable<PersonType['id']>[]
 
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType, PersonIds, SplitPersonLogicProps>>({
     props: {} as SplitPersonLogicProps,
-    key: (props) => props.person.id,
-    path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key || 'new'],
+    key: (props) => props.person.id ?? 'new',
+    path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key],
     connect: () => ({
         actions: [
             personsLogic({ syncWithUrl: true }),

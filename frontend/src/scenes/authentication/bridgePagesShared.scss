@@ -54,7 +54,7 @@
         }
 
         .inner {
-            @extend %mixin-elevated;
+            box-shadow: var(--shadow-elevation);
             width: 100%;
             max-width: 400px; // 320px + 80px padding
             padding: 1rem 2.5rem 1.75rem;
