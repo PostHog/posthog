@@ -116,6 +116,7 @@ $editor_panel_width: min(28rem, 50%);
         @media screen and (min-width: $md) {
             display: flex;
             overflow: hidden;
+            gap: $default_spacing;
             flex-direction: row-reverse;
         }
 
@@ -131,9 +132,7 @@ $editor_panel_width: min(28rem, 50%);
             }
 
             @media screen and (min-width: $md) {
-                margin-left: 1em;
                 width: $editor_panel_width;
-                transition: width 150ms;
 
                 &.anim--enter {
                     width: 0px;
@@ -141,6 +140,7 @@ $editor_panel_width: min(28rem, 50%);
 
                 &.anim--enter-active {
                     width: $editor_panel_width;
+                    transition: width 250ms;
                 }
 
                 &.anim--exit {
@@ -149,6 +149,7 @@ $editor_panel_width: min(28rem, 50%);
 
                 &.anim--exit-active {
                     width: 0px;
+                    transition: width 250ms;
                 }
             }
         }

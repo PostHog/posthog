@@ -193,7 +193,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 <div className="insights-wrapper">
                     <CSSTransition
                         in={insightMode === ItemMode.Edit}
-                        timeout={150}
+                        timeout={250}
                         classNames="anim-"
                         mountOnEnter
                         unmountOnExit
