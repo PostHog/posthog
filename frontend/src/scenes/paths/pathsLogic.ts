@@ -41,6 +41,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
     connect: (props: InsightLogicProps) => ({
+        logic: [personsModalLogic],
         values: [insightLogic(props), ['filters as filter', 'insight', 'insightLoading']],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),

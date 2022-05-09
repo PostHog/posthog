@@ -356,6 +356,7 @@ export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+    History = 'history',
 }
 
 export enum ExperimentsTabs {
@@ -1054,6 +1055,28 @@ export interface FilterType {
 
 export interface RecordingEventsFilters {
     query: string
+}
+
+export type InsightEditorFilterGroup = {
+    title: string
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+    count?: number
+}
+
+export interface EditorFilterProps {
+    insight: Partial<InsightModel>
+    insightProps: InsightLogicProps
+    filters: Partial<FilterType>
+    value: any
+}
+
+export interface InsightEditorFilter {
+    key: string
+    label?: string
+    tooltip?: JSX.Element
+    valueSelector?: (insight: Partial<InsightModel>) => any
+    component?: (props: EditorFilterProps) => JSX.Element
 }
 
 export interface SystemStatusSubrows {

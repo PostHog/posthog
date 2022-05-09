@@ -643,6 +643,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(
+        self.assertCountEqual(
             activity, expected,
         )

@@ -1,6 +1,6 @@
 import React from 'react'
-import { kea } from 'kea'
-import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { BuiltLogic, kea } from 'kea'
+import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
     TaxonomicFilterGroupType,
@@ -41,6 +41,7 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -65,7 +66,7 @@ export const propertyTaxonomicGroupProps = (
 })
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
-    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
+    path: ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic'],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
     connect: {
@@ -406,7 +407,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, ReturnType<typeof infiniteListLogic.build>> =>
+            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
                 Object.fromEntries(
                     taxonomicGroupTypes.map((groupType) => [
                         groupType,

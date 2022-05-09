@@ -39,6 +39,7 @@ export function LemonCheckbox({
     className,
     color,
     rowProps,
+    style,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
 
@@ -67,6 +68,7 @@ export function LemonCheckbox({
                 className
             )}
             disabled={disabled}
+            style={style}
             icon={
                 <>
                     <input
@@ -75,7 +77,8 @@ export function LemonCheckbox({
                         checked={localChecked}
                         defaultChecked={defaultChecked}
                         onChange={(e) => {
-                            setLocalChecked(e.target.checked)
+                            // NOTE: We only want to setLocalChecked if the component is not controlled externally
+                            checked === undefined && setLocalChecked(e.target.checked)
                             onChange?.(e)
                         }}
                         id={id}

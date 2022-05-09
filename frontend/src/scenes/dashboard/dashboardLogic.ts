@@ -723,15 +723,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
-            if (values.allItems) {
-                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+            // Caching `allItems`, as the dashboard might have unmounted after the breakpoint,
+            // and "values.allItems" will then fail
+            const { allItems } = values
+            if (allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
-                    router.values.location.pathname === urls.dashboard(values.allItems.id) ||
+                    router.values.location.pathname === urls.dashboard(allItems.id) ||
                     router.values.location.pathname === urls.projectHomepage() ||
                     (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                    eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken, 10)
                 }
             } else {
                 // allItems has not loaded yet, report after API request is completed

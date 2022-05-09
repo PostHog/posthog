@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
@@ -16,6 +16,9 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { actionToUrl } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     applyAllCriteriaGroup,
@@ -32,12 +35,12 @@ export interface CohortLogicProps {
     id?: CohortType['id']
 }
 
-export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
-    props: {} as CohortLogicProps,
-    key: (props) => props.id || 'new',
-    path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
+export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
+    props({} as CohortLogicProps),
+    key((props) => props.id || 'new'),
+    path(['scenes', 'cohorts', 'cohortLogic']),
 
-    actions: () => ({
+    actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
@@ -58,7 +61,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
         }),
     }),
 
-    reducers: () => ({
+    reducers(() => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -144,12 +147,12 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
-    }),
+    })),
 
-    forms: ({ actions, values }) => ({
+    forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            validator: ({ name, csv, is_static, groups, filters }) => ({
+            errors: ({ name, csv, is_static, groups, filters }) => ({
                 name: !name ? 'You need to set a name' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
                 ...(values.newCohortFiltersEnabled
@@ -180,9 +183,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 actions.saveCohort(cohort)
             },
         },
-    }),
+    })),
 
-    loaders: ({ actions, values, key }) => ({
+    loaders(({ actions, values, key }) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -214,6 +217,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                             cohortsModel.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {
+                        breakpoint()
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
@@ -247,9 +251,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 },
             },
         ],
-    }),
+    })),
 
-    selectors: {
+    selectors({
         newCohortFiltersEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],
@@ -264,9 +268,9 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 ...(cohort ? [{ name: cohort.name || 'Untitled' }] : []),
             ],
         ],
-    },
+    }),
 
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort(values.cohort)
             router.actions.push(urls.cohorts())
@@ -290,24 +294,22 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>({
                 }
             }
         },
-    }),
+    })),
 
-    actionToUrl: ({ values }) => ({
+    actionToUrl(({ values }) => ({
         saveCohortSuccess: () => urls.cohort(values.cohort.id),
-    }),
+    })),
 
-    events: ({ values, actions, props }) => ({
-        afterMount: async () => {
-            if (!props.id || props.id === 'new') {
-                actions.setCohort(NEW_COHORT)
-            } else {
-                actions.fetchCohort(props.id)
-            }
-        },
-        beforeUnmount: () => {
-            if (values.pollTimeout) {
-                clearTimeout(values.pollTimeout)
-            }
-        },
+    afterMount(({ actions, props }) => {
+        if (!props.id || props.id === 'new') {
+            actions.setCohort(NEW_COHORT)
+        } else {
+            actions.fetchCohort(props.id)
+        }
     }),
-})
+    beforeUnmount(({ values }) => {
+        if (values.pollTimeout) {
+            clearTimeout(values.pollTimeout)
+        }
+    }),
+])

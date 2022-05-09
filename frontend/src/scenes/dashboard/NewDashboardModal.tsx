@@ -47,7 +47,7 @@ export function NewDashboardModal(): JSX.Element {
                 </>
             }
         >
-            <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form">
+            <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form" enableFormOnSubmit>
                 <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Field name="name" label="Name">
                     <Input autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />

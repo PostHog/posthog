@@ -12,7 +12,7 @@ export const tableConfigLogic = kea<tableConfigLogicType<TableConfigLogicProps>>
     props: { startingColumns: 'DEFAULT' } as TableConfigLogicProps,
     actions: {
         showModal: true,
-        hideModal: false,
+        hideModal: true,
         setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }),
     },
     reducers: ({ props }) => ({

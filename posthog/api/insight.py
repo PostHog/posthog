@@ -76,6 +76,11 @@ from posthog.utils import (
 logger = structlog.get_logger(__name__)
 
 
+def choose_insight_name(insight):
+    name_for_logged_activity = insight.name if insight.name else insight.derived_name
+    return name_for_logged_activity or "(empty string)"
+
+
 class InsightBasicSerializer(serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
@@ -205,9 +210,6 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        name_for_logged_activity = (
-            insight.name if insight.name is not None and len(insight.name) > 0 else insight.derived_name
-        )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
@@ -215,7 +217,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             item_id=insight.id,
             scope="Insight",
             activity="created",
-            detail=Detail(name=name_for_logged_activity, short_id=insight.short_id),
+            detail=Detail(name=(choose_insight_name(insight)), short_id=insight.short_id),
         )
         return insight
 
@@ -250,11 +252,6 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
-        name_for_logged_activity = (
-            updated_insight.name
-            if updated_insight.name is not None and len(updated_insight.name) > 0
-            else updated_insight.derived_name
-        )
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
@@ -262,7 +259,9 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             item_id=updated_insight.id,
             scope="Insight",
             activity="updated",
-            detail=Detail(name=name_for_logged_activity, changes=changes, short_id=updated_insight.short_id),
+            detail=Detail(
+                name=(choose_insight_name(updated_insight)), changes=changes, short_id=updated_insight.short_id
+            ),
         )
 
         return updated_insight
@@ -493,7 +492,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["label"]}
+                line = {"series": item["action"].get("custom_name") or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
@@ -648,9 +647,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
-        name_for_logged_activity = (
-            instance.name if instance.name is not None and len(instance.name) > 0 else instance.derived_name
-        )
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -658,7 +654,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             item_id=instance_id,
             scope="Insight",
             activity="deleted",
-            detail=Detail(name=name_for_logged_activity, short_id=instance_short_id),
+            detail=Detail(name=(choose_insight_name(instance)), short_id=instance_short_id),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

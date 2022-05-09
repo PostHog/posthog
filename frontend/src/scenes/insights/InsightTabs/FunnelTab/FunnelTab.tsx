@@ -128,7 +128,7 @@ export function FunnelTab(): JSX.Element {
                 <div className="mt" />
                 {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                     <PropertyGroupFilters
-                        propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                        value={convertPropertiesToPropertyGroup(filters.properties)}
                         onChange={(properties: PropertyGroupFilter) => {
                             setFilters({ properties })
                         }}
