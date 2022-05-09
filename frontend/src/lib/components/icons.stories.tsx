@@ -20,7 +20,7 @@ export default {
         docs: {
             description: {
                 component:
-                    'Lemon Icons are generally Material Icons with some matching in-house additions. All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square.',
+                    'Lemon Icons are generally Material Icons with some matching in-house additions. All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square. Please follow the existing `IconFoo` naming convention when adding new icons.',
             },
         },
     },
