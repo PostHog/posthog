@@ -58,7 +58,7 @@ export function GroupPropertyFilters(): JSX.Element {
     return (
         <>
             <PropertyGroupFilters
-                propertyFilters={propertyGroupFilter}
+                propertyGroupFilter={propertyGroupFilter}
                 onChange={setPropertyGroupFilter}
                 pageKey="page"
                 taxonomicGroupTypes={taxonomicGroupTypes}
@@ -67,7 +67,6 @@ export function GroupPropertyFilters(): JSX.Element {
                 filters={filters}
                 noTitle
             />
-            <hr />
         </>
     )
 }
@@ -85,7 +84,7 @@ export function EmptyGroupPropertyFilters(): JSX.Element {
     return (
         <>
             <PropertyGroupFilters
-                propertyFilters={propertyGroupFilter}
+                propertyGroupFilter={propertyGroupFilter}
                 onChange={setPropertyGroupFilter}
                 pageKey="page-empty"
                 taxonomicGroupTypes={taxonomicGroupTypes}

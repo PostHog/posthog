@@ -10,13 +10,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function EFTrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
+
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <PropertyGroupFilters
             noTitle
-            propertyFilters={convertPropertiesToPropertyGroup(filters.properties ?? [])}
+            propertyGroupFilter={convertPropertiesToPropertyGroup(filters.properties)}
             onChange={(properties) => setFilters({ properties })}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
