@@ -4,6 +4,7 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -160,23 +161,26 @@ class CohortQuery(EnterpriseEventQuery):
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
-
+        # KLUDGE: unwraps cohort properties if filter has previously been simplified
+        # Assumes that each property is wrapped in a PropertyGroup
         if not filter.is_simplified:
             return filter
 
         def _unwrap(property_group: PropertyGroup):
             if len(property_group.values):
                 if isinstance(property_group.values[0], PropertyGroup):
-                    return PropertyGroup(type=property_group.type, values=[_unwrap(v) for v in property_group.values])
+                    return PropertyGroup(type=property_group.type, values=[_unwrap(v) for v in property_group.values])  # type: ignore
 
-                # KLUDGE: handles
                 elif isinstance(property_group.values[0], Property) and (
                     property_group.values[0].type == "cohort" or property_group.values[0].type == "precalculated-cohort"
                 ):
                     try:
                         prop_cohort: Cohort = Cohort.objects.get(pk=property_group.values[0].value, team_id=team_id)
                     except Cohort.DoesNotExist:
-                        pass
+                        return PropertyGroup(
+                            type=PropertyOperatorType.AND,
+                            values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                        )
 
                     return prop_cohort.properties
             return property_group

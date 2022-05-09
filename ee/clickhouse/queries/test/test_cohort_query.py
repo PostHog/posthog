@@ -1236,7 +1236,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = Filter(
-            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},}
+            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},},
+            team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
