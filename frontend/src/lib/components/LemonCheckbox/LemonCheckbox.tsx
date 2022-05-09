@@ -77,6 +77,7 @@ export function LemonCheckbox({
                         checked={localChecked}
                         defaultChecked={defaultChecked}
                         onChange={(e) => {
+                            // NOTE: We only want to setLocalChecked if the component is not controlled externally
                             checked === undefined && setLocalChecked(e.target.checked)
                             onChange?.(e)
                         }}
