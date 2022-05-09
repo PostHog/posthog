@@ -1,5 +1,4 @@
 import random
-import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
@@ -55,7 +54,7 @@ class UUIDT(uuid.UUID):
             unix_time_ms = int(time() * 1000)
         time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE
         series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
-        random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
+        random_component = random.randbytes(8)  # 64 bits for random gibberish
         bytes = time_component + series_component + random_component
         assert len(bytes) == 16
         super().__init__(bytes=bytes)
