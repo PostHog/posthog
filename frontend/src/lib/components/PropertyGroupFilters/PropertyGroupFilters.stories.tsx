@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { FilterLogicalOperator, FilterType, PropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { useMountedLogic } from 'kea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PropertyGroupFilters } from './PropertyGroupFilters'
