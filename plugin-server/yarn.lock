@@ -3508,6 +3508,11 @@ chownr@^2.0.0:
   resolved "https://registry.yarnpkg.com/chownr/-/chownr-2.0.0.tgz#15bfbe53d2eab4cf70f18a8cd68ebe5b3cb1dece"
   integrity sha512-bIomtDF5KGpdogkLd9VspvFzk9KfpyyGlS8YFVZl7TGPBHL5snIOnxeshwVgPteQ9b4Eydl+pVbIyE1DcvCWgQ==
 
+ci-info@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/ci-info/-/ci-info-2.0.0.tgz#67a9e964be31a51e15e5010d58e6f12834002f46"
+  integrity sha512-5tK7EtrZ0N+OLFMthtqOj4fI2Jeb88C4CAZPu25LDVUgXJ0A3Js4PMGqrn0JU1W0Mh1/Z8wZzYPxqUrXeBboCQ==
+
 ci-info@^3.1.1:
   version "3.2.0"
   resolved "https://registry.yarnpkg.com/ci-info/-/ci-info-3.2.0.tgz#2876cb948a498797b5236f0095bc057d0dca38b6"
@@ -5362,6 +5367,13 @@ is-callable@^1.2.3:
   resolved "https://registry.yarnpkg.com/is-callable/-/is-callable-1.2.3.tgz#8b1e0500b73a1d76c70487636f368e519de8db8e"
   integrity sha512-J1DcMe8UYTBSrKezuIUTUwjXsho29693unXM2YhJUTR2txK/eG47bvNa/wipPFmZFgr/N6f1GA66dv0mEyTIyQ==
 
+is-ci@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/is-ci/-/is-ci-2.0.0.tgz#6bc6334181810e04b5c22b3d589fdca55026404c"
+  integrity sha512-YfJT7rkpQB0updsdHLGWrvhBJfcfzNNawYDNIyQXJz0IViGf75O8EBPKSdvw2rF+LGCsX4FZ8tcr3b19LcZq4w==
+  dependencies:
+    ci-info "^2.0.0"
+
 is-ci@^3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/is-ci/-/is-ci-3.0.0.tgz#c7e7be3c9d8eef7d0fa144390bd1e4b88dc4c994"
@@ -6018,6 +6030,14 @@ jest-serializer@^27.0.1:
     "@types/node" "*"
     graceful-fs "^4.2.4"
 
+jest-silent-reporter@^0.5.0:
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/jest-silent-reporter/-/jest-silent-reporter-0.5.0.tgz#5fd8ccd61665227e3bf19d908b7350719d06ff38"
+  integrity sha512-epdLt8Oj0a1AyRiR6F8zx/1SVT1Mi7VU3y4wB2uOBHs/ohIquC7v2eeja7UN54uRPyHInIKWdL+RdG228n5pJQ==
+  dependencies:
+    chalk "^4.0.0"
+    jest-util "^26.0.0"
+
 jest-snapshot@^27.0.4:
   version "27.0.4"
   resolved "https://registry.yarnpkg.com/jest-snapshot/-/jest-snapshot-27.0.4.tgz#2b96e22ca90382b3e93bd0aae2ce4c78bf51fb5b"
@@ -6047,6 +6067,18 @@ jest-snapshot@^27.0.4:
     natural-compare "^1.4.0"
     pretty-format "^27.0.2"
     semver "^7.3.2"
+
+jest-util@^26.0.0:
+  version "26.6.2"
+  resolved "https://registry.yarnpkg.com/jest-util/-/jest-util-26.6.2.tgz#907535dbe4d5a6cb4c47ac9b926f6af29576cbc1"
+  integrity sha512-MDW0fKfsn0OI7MS7Euz6h8HNDXVQ0gaM9uW6RjfDmd1DAFcaxX9OqIakHIqhbnmF08Cf2DLDG+ulq8YQQ0Lp0Q==
+  dependencies:
+    "@jest/types" "^26.6.2"
+    "@types/node" "*"
+    chalk "^4.0.0"
+    graceful-fs "^4.2.4"
+    is-ci "^2.0.0"
+    micromatch "^4.0.2"
 
 jest-util@^27.0.0, jest-util@^27.0.2:
   version "27.0.2"
