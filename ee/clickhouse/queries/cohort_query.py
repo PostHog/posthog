@@ -140,7 +140,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
         super().__init__(
-            filter=filter,
+            filter=CohortQuery.unwrap_cohort(filter, team.pk),
             team=team,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
@@ -157,6 +157,32 @@ class CohortQuery(EnterpriseEventQuery):
         property_groups = self._column_optimizer.property_optimizer.parse_property_groups(self._filter.property_groups)
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
+
+    @staticmethod
+    def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
+
+        if not filter.is_simplified:
+            return filter
+
+        def _unwrap(property_group: PropertyGroup):
+            if len(property_group.values):
+                if isinstance(property_group.values[0], PropertyGroup):
+                    return PropertyGroup(type=property_group.type, values=[_unwrap(v) for v in property_group.values])
+
+                # KLUDGE: handles
+                elif isinstance(property_group.values[0], Property) and (
+                    property_group.values[0].type == "cohort" or property_group.values[0].type == "precalculated-cohort"
+                ):
+                    try:
+                        prop_cohort: Cohort = Cohort.objects.get(pk=property_group.values[0].value, team_id=team_id)
+                    except Cohort.DoesNotExist:
+                        pass
+
+                    return prop_cohort.properties
+            return property_group
+
+        new_props = _unwrap(filter.property_groups)
+        return filter.with_data({"properties": new_props.to_dict()})
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
@@ -323,7 +349,9 @@ class CohortQuery(EnterpriseEventQuery):
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
-        elif prop.type == "cohort":
+        elif (
+            prop.type == "static-cohort"
+        ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
             res, params = self.get_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
