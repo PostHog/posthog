@@ -121,7 +121,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, personsModalLogic],
     }),
 
     actions: () => ({
