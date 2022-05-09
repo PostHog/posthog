@@ -30,18 +30,14 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { getEditorFilters } from 'scenes/insights/EditorFilters/getEditorFilters'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { EditorFilterGroup } from './EditorFilters/EditorFilterGroup'
 import { CSSTransition } from 'react-transition-group'
+import { EditorFilters } from './EditorFilters/EditorFilters'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const { user } = useValues(userLogic)
-    const availableFeatures = user?.organization?.available_features || []
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -98,20 +94,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const isSmallScreen = !screens.xl
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
-    const insightTab = usingEditorPanels ? (
-        <>
-            {getEditorFilters(filters, featureFlags, availableFeatures).map((editorFilterGroup) => (
-                <EditorFilterGroup
-                    key={editorFilterGroup.title}
-                    editorFilterGroup={editorFilterGroup}
-                    insight={insight}
-                    insightProps={insightProps}
-                />
-            ))}
-        </>
-    ) : (
-        insightTabFilters
-    )
+    const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
 
     const insightScene = (
         <div className="insights-page">

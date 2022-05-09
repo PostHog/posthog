@@ -1016,8 +1016,9 @@ export interface RecordingEventsFilters {
 
 export type InsightEditorFilterGroup = {
     title: string
-    defaultExpanded: boolean
     editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+    count?: number
 }
 
 export interface EditorFilterProps {

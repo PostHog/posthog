@@ -1,16 +1,15 @@
 import {
     AvailableFeature,
-    FilterType,
     FunnelVizType,
     InsightEditorFilter,
     InsightEditorFilterGroup,
+    InsightLogicProps,
     InsightType,
 } from '~/types'
 import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
 import { EFTrendsFormula } from 'scenes/insights/EditorFilters/EFTrendsFormula'
 import { EFTrendsBreakdown } from 'scenes/insights/EditorFilters/EFTrendsBreakdown'
@@ -25,12 +24,27 @@ import { EFPathsAdvanced, EFPathsAdvancedPaywall } from './EFPathsAdvanced'
 import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
 import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
 import { EFPathsExclusions } from './EFPathsExclusions'
+import { EditorFilterGroup } from './EditorFilterGroup'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
+import { insightLogic } from '../insightLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function getEditorFilters(
-    filters: Partial<FilterType>,
-    featureFlags: FeatureFlagsSet,
-    availableFeatures: AvailableFeature[]
-): InsightEditorFilterGroup[] {
+export interface EditorFiltersProps {
+    insightProps: InsightLogicProps
+}
+
+export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element {
+    const { user } = useValues(userLogic)
+    const availableFeatures = user?.organization?.available_features || []
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const logic = insightLogic(insightProps)
+    const { filters, insight } = useValues(logic)
+
+    const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
+
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const isLifecycle = filters.insight === InsightType.LIFECYCLE
     const isStickiness = filters.insight === InsightType.STICKINESS
@@ -41,12 +55,14 @@ export function getEditorFilters(
 
     const hasBreakdown = isTrends || (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
-    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED) || true
+    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
 
-    return [
+    const advancedOptionsExpanded = !!advancedOptionsUsedCount
+    const advancedOptionsCount = advancedOptionsUsedCount
+
+    const editorFilters: InsightEditorFilterGroup[] = [
         {
             title: 'General',
-            defaultExpanded: true,
             editorFilters: filterFalsy([
                 {
                     key: 'insight',
@@ -103,7 +119,6 @@ export function getEditorFilters(
         },
         {
             title: 'Steps',
-            defaultExpanded: true,
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'steps',
@@ -113,18 +128,11 @@ export function getEditorFilters(
         },
         {
             title: 'Filters',
-            defaultExpanded: true,
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
                           key: 'properties',
-                          label: 'Filters',
                           component: EFLifecycleGlobalFilters,
-                          tooltip: (
-                              <>
-                                  These filters will apply to <b>all</b> the actions/events in this graph.
-                              </>
-                          ),
                       }
                     : null,
                 isLifecycle
@@ -146,8 +154,8 @@ export function getEditorFilters(
         },
         {
             title: 'Advanced Options',
-            defaultExpanded: false,
-
+            defaultExpanded: advancedOptionsExpanded,
+            count: advancedOptionsCount,
             editorFilters: filterFalsy([
                 isTrends
                     ? {
@@ -190,7 +198,6 @@ export function getEditorFilters(
                     (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
-                              //   label: 'Advanced Options',
                               component: EFPathsAdvanced,
                           }
                         : {
@@ -200,12 +207,24 @@ export function getEditorFilters(
                           }),
                 isFunnels && {
                     key: 'funnels-advanced',
-                    //   label: 'Advanced Options',
                     component: EFFunnelsAdvanced,
                 },
             ]),
         },
     ].filter((x) => x.editorFilters.length > 0)
+
+    return (
+        <>
+            {editorFilters.map((editorFilterGroup) => (
+                <EditorFilterGroup
+                    key={editorFilterGroup.title}
+                    editorFilterGroup={editorFilterGroup}
+                    insight={insight}
+                    insightProps={insightProps}
+                />
+            ))}
+        </>
+    )
 }
 
 function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {

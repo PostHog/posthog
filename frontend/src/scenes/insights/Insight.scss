@@ -121,7 +121,7 @@ $editor_panel_width: min(28rem, 50%);
 
         .insights-container {
             flex: 1;
-            overflow-x: scroll;
+            overflow-x: auto;
         }
         .insight-editor-area {
             flex-shrink: 0;

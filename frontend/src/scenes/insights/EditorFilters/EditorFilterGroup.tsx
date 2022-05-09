@@ -13,7 +13,7 @@ export interface EditorFilterGroupProps {
 }
 
 export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: EditorFilterGroupProps): JSX.Element {
-    const { title, editorFilters, defaultExpanded } = editorFilterGroup
+    const { title, editorFilters, count, defaultExpanded = true } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
     return (
         <div key={title} className="insights-filter-group">
@@ -27,8 +27,10 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     style={{
                         fontWeight: 600,
                     }}
+                    data-attr="editor-filter-group-collapse"
                 >
                     {title}
+                    {count ? <span className="insights-filter-group-count">{count}</span> : null}
                 </LemonButton>
             </div>
             {isRowExpanded ? (

@@ -6,7 +6,6 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
@@ -16,7 +15,6 @@ export function EFTrendsGlobalFilters({ filters, insightProps }: EditorFilterPro
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     return (
         <>
-            <GlobalFiltersTitle />
             <PropertyFilters
                 propertyFilters={convertPropertyGroupToProperties(filters.properties)}
                 onChange={(properties) => setFilters({ properties })}
