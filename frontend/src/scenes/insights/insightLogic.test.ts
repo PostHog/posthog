@@ -1,7 +1,16 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { createEmptyInsight, insightLogic } from './insightLogic'
-import { AvailableFeature, InsightShortId, InsightType, ItemMode, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    AvailableFeature,
+    FilterLogicalOperator,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    PropertyGroupFilter,
+    PropertyOperator,
+} from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -655,5 +664,57 @@ describe('insightLogic', () => {
             new Error('Will not override empty filters in saveInsight.'),
             expect.any(Object)
         )
+    })
+
+    describe('filterPropertiesCount selector', () => {
+        const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
+        const cases: {
+            properties: AnyPropertyFilter[] | PropertyGroupFilter
+            count: number
+        }[] = [
+            {
+                properties: [standardPropertyFilter],
+                count: 1,
+            },
+            {
+                properties: [standardPropertyFilter, standardPropertyFilter],
+                count: 2,
+            },
+            {
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.Or,
+                            values: [standardPropertyFilter, standardPropertyFilter],
+                        },
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [standardPropertyFilter, standardPropertyFilter, standardPropertyFilter],
+                        },
+                    ],
+                },
+                count: 5,
+            },
+        ]
+
+        it.each(cases)('returns the correct count for filter properties', ({ properties, count }) => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {
+                        insight: InsightType.TRENDS,
+                        events: [{ id: 2 }],
+                        properties,
+                    },
+                },
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({
+                filterPropertiesCount: count,
+            })
+        })
     })
 })
