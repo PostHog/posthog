@@ -174,7 +174,6 @@ describe('e2e', () => {
             const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafka!)
             expect(kafkaHealthy).toEqual(true)
             expect(error).toEqual(null)
-            expect(statsd.timing).toHaveBeenCalledWith('kafka_healthcheck_consumer_latency', expect.any(Date))
         })
 
         test('healthcheck passes when running in parallel', async () => {
