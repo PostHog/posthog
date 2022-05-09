@@ -132,7 +132,27 @@ class TestDefaultEventName(BaseTest):
 
 class TestLoadDataFromRequest(TestCase):
     @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope(self, patched_scope):
+    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
+        origin = "potato.io"
+        referer = "https://" + origin
+
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        rf = RequestFactory()
+        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
+        post_request.META["origin"] = origin
+        post_request.META["HTTP_REFERER"] = referer
+
+        with self.assertRaises(RequestParsingError) as ctx:
+            load_data_from_request(post_request)
+
+        patched_scope.assert_called_once()
+        mock_set_tag.assert_has_calls(
+            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+        )
+
+    @patch("posthog.utils.configure_scope")
+    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_scope):
         origin = "potato.io"
         referer = "https://" + origin
 
