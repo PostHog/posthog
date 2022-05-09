@@ -1,10 +1,8 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
+import { EditorFilterProps, PathEdgeParameters } from '~/types'
 import { InfoCircleOutlined, SettingOutlined } from '@ant-design/icons'
 
-import { PayCard } from 'lib/components/PayCard/PayCard'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { InputNumber, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
@@ -116,22 +114,5 @@ export function EFPathsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
             </div>
             <PathCleanFilterInput />
         </div>
-    )
-}
-
-export function EFPathsAdvancedPaywall({}: EditorFilterProps): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
-
-    if (preflight?.instance_preferences?.disable_paid_fs) {
-        return <></>
-    }
-
-    return (
-        <PayCard
-            identifier={AvailableFeature.PATHS_ADVANCED}
-            title="Get a deeper understanding of your users"
-            caption="Advanced features such as interconnection with funnels, grouping &amp; wildcarding and exclusions can help you gain deeper insights."
-            docsLink="https://posthog.com/docs/user-guides/paths"
-        />
     )
 }

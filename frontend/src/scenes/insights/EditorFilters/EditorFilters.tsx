@@ -20,7 +20,7 @@ import { EFRetentionSummary } from './EFRetentionSummary'
 import { EFPathsEventTypes } from './EFPathsEventTypes'
 import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
 import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
-import { EFPathsAdvanced, EFPathsAdvancedPaywall } from './EFPathsAdvanced'
+import { EFPathsAdvanced } from './EFPathsAdvanced'
 import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
 import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
 import { EFPathsExclusions } from './EFPathsExclusions'
@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -196,14 +197,13 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                     component: EFPathsExclusions,
                 },
                 isPaths &&
-                    (hasPathsAdvanced
+                    (!hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
                               component: EFPathsAdvanced,
                           }
                         : {
                               key: 'paths-paywall',
-                              label: 'Paywall',
                               component: EFPathsAdvancedPaywall,
                           }),
                 isFunnels && {
