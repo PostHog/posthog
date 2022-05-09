@@ -258,6 +258,20 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
 
+        # Update Cohort A to depend on Cohort A itself
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={
+                "name": "Cohort A, reloaded",
+                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 3)
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
@@ -370,6 +384,31 @@ email@example.org,
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(3, len(response.json()["results"]))
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_creating_update_and_calculating_ignore_bad_filters(self, patch_calculate_cohort, patch_capture):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        Person.objects.create(team=self.team, properties={"team_id": 5})
+        Person.objects.create(team=self.team, properties={"team_id": 6})
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+            data={"name": "whatever", "filters": "[Slkasd=lkxcn]", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        self.assertEqual(update_response.status_code, 400, response.content)
+        self.assertDictContainsSubset(
+            {"detail": "Filters must be a dictionary with a 'properties' key.", "type": "validation_error"},
+            update_response.json(),
+        )
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):

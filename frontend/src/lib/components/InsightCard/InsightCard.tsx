@@ -253,7 +253,7 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            compact={showDetailsButtonLabel}
+                                            size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>

@@ -140,6 +140,13 @@ describe('LazyPluginVM', () => {
             const lazyVm = createVM()
 
             await lazyVm._setupPlugin(mockVm as any)
+
+            expect(mockServer.db.queuePluginLogEntry).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    instanceId: undefined,
+                    message: expect.stringContaining('oh no'),
+                })
+            )
             await lazyVm._setupPlugin(mockVm as any)
             await lazyVm._setupPlugin(mockVm as any)
             await lazyVm._setupPlugin(mockVm as any)

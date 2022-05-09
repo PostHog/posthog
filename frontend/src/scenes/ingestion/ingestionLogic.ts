@@ -1,10 +1,21 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
-import { API, MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
+import {
+    API,
+    MOBILE,
+    BACKEND,
+    WEB,
+    BOOKMARKLET,
+    thirdPartySources,
+    THIRD_PARTY,
+    ThirdPartySource,
+} from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { PluginTypeWithConfig } from 'scenes/plugins/types'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export const ingestionLogic = kea<ingestionLogicType>({
     path: ['scenes', 'ingestion', 'ingestionLogic'],
@@ -21,6 +32,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
             verify,
         }),
         setActiveTab: (tab: string) => ({ tab }),
+        setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
+        setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
+        openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
         completeOnboarding: true,
     },
 
@@ -54,6 +68,25 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        instructionsModalOpen: [
+            false as boolean,
+            {
+                setInstructionsModal: (_, { isOpen }) => isOpen,
+                openThirdPartyPluginModal: () => true,
+            },
+        ],
+        thirdPartyIntegrationSource: [
+            null as ThirdPartySource | null,
+            {
+                setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
+            },
+        ],
+        thirdPartyPluginSource: [
+            null as PluginTypeWithConfig | null,
+            {
+                openThirdPartyPluginModal: (_, { plugin }) => plugin,
+            },
+        ],
     },
 
     selectors: {
@@ -63,7 +96,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 if (verify) {
                     return 3
                 }
-                if (platform === WEB || platform === BOOKMARKLET) {
+                if (platform === WEB || platform === BOOKMARKLET || platform === THIRD_PARTY) {
                     return 2
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
@@ -74,6 +107,28 @@ export const ingestionLogic = kea<ingestionLogicType>({
             (): boolean => {
                 const featFlags = featureFlagLogic.values.featureFlags
                 return !!featFlags[FEATURE_FLAGS.ONBOARDING_1]
+            },
+        ],
+        frameworkString: [
+            (s) => [s.framework],
+            (framework): string => {
+                if (framework) {
+                    const frameworkStrings = {
+                        NODEJS: 'Node.js',
+                        GO: 'Go',
+                        RUBY: 'Ruby',
+                        PYTHON: 'Python',
+                        PHP: 'PHP',
+                        ELIXIR: 'Elixir',
+                        ANDROID: 'Android',
+                        IOS: 'iOS',
+                        REACT_NATIVE: 'React Native',
+                        FLUTTER: 'Flutter',
+                        API: 'HTTP API',
+                    }
+                    return frameworkStrings[framework] || framework
+                }
+                return ''
             },
         ],
     },
@@ -96,6 +151,8 @@ export const ingestionLogic = kea<ingestionLogicType>({
                     ? BACKEND
                     : platform === 'just-exploring'
                     ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
                     : null,
                 framework,
                 true
@@ -118,6 +175,8 @@ export const ingestionLogic = kea<ingestionLogicType>({
                     ? BACKEND
                     : platform === 'just-exploring'
                     ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
                     : null,
                 framework as Framework,
                 false
@@ -132,6 +191,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
         },
         updateCurrentTeamSuccess: () => {
             window.location.href = '/'
+        },
+        openThirdPartyPluginModal: ({ plugin }) => {
+            pluginsLogic.actions.editPlugin(plugin.id)
         },
     }),
 })
@@ -155,6 +217,8 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                         ? 'backend'
                         : platform === BOOKMARKLET
                         ? 'just-exploring'
+                        : platform === THIRD_PARTY
+                        ? 'third-party'
                         : undefined,
                 framework: framework?.toLowerCase() || undefined,
             },
@@ -192,6 +256,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
 
     if (platform === BOOKMARKLET) {
         url += '/just-exploring'
+    }
+
+    if (platform === THIRD_PARTY) {
+        url += '/third-party'
     }
 
     if (framework) {

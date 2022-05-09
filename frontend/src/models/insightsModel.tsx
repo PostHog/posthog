@@ -13,6 +13,7 @@ import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
+    connect: [prompt({ key: 'rename-insight' })],
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -31,7 +32,7 @@ export const insightsModel = kea<insightsModelType>({
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
-            prompt({ key: `rename-insight-${item.short_id}` }).actions.prompt({
+            prompt({ key: 'rename-insight' }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,

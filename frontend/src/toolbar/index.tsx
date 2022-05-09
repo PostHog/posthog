@@ -6,7 +6,6 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from '@posthog/simmerjs'
 import { getContext } from 'kea'
-import { Provider } from 'react-redux'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { EditorProps } from '~/types'
@@ -24,14 +23,12 @@ import { PostHog } from 'posthog-js'
     }
 
     ReactDOM.render(
-        <Provider store={getContext().store}>
-            <ToolbarApp
-                {...editorParams}
-                actionId={parseInt(String(editorParams.actionId))}
-                jsURL={editorParams.jsURL || editorParams.apiURL}
-                posthog={posthog}
-            />
-        </Provider>,
+        <ToolbarApp
+            {...editorParams}
+            actionId={parseInt(String(editorParams.actionId))}
+            jsURL={editorParams.jsURL || editorParams.apiURL}
+            posthog={posthog}
+        />,
         container
     )
 }

@@ -893,7 +893,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="2")
             response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview'}])}&export_name=Pageview count&export_insight_id=test123",
+                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview', 'custom_name': 'test custom'}])}&export_name=Pageview count&export_insight_id=test123",
             )
 
         lines = response.content.splitlines()
@@ -904,7 +904,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
             lines[0],
         )
-        self.assertEqual(lines[2], b"$pageview,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(lines[2], b"test custom,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
         self.assertEqual(len(lines), 3, response.content)
 
     # Extra permissioning tests here

@@ -26,7 +26,6 @@ import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from 
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
@@ -261,8 +260,6 @@ export async function createHub(
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
-
-    hub.pluginMetricsManager = new PluginMetricsManager()
 
     try {
         await hub.jobQueueManager.connectProducer()

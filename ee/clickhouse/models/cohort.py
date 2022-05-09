@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from dateutil import parser
@@ -39,12 +39,7 @@ logger = structlog.get_logger(__name__)
 
 
 def format_person_query(
-    cohort: Cohort,
-    index: int,
-    *,
-    custom_match_field: str = "person_id",
-    cohorts_seen: Optional[Set[int]] = None,
-    using_new_query: bool = False,
+    cohort: Cohort, index: int, *, custom_match_field: str = "person_id", using_new_query: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
@@ -57,7 +52,7 @@ def format_person_query(
         from ee.clickhouse.queries.cohort_query import CohortQuery
 
         query, params = CohortQuery(
-            Filter(data={"properties": cohort.properties}), cohort.team, cohort_pk=cohort.pk, cohorts_seen=cohorts_seen
+            Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,
         ).get_query()
 
         return f"{custom_match_field} IN ({query})", params
@@ -262,14 +257,10 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 
 def format_filter_query(
-    cohort: Cohort,
-    index: int = 0,
-    id_column: str = "distinct_id",
-    cohorts_seen: Optional[Set[int]] = None,
-    using_new_query: bool = False,
+    cohort: Cohort, index: int = 0, id_column: str = "distinct_id", using_new_query: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     person_query, params = format_cohort_subquery(
-        cohort, index, custom_match_field="person_id", cohorts_seen=cohorts_seen, using_new_query=using_new_query
+        cohort, index, custom_match_field="person_id", using_new_query=using_new_query
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
@@ -281,23 +272,13 @@ def format_filter_query(
 
 
 def format_cohort_subquery(
-    cohort: Cohort,
-    index: int,
-    custom_match_field="person_id",
-    cohorts_seen: Optional[Set[int]] = None,
-    using_new_query: bool = False,
+    cohort: Cohort, index: int, custom_match_field="person_id", using_new_query: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
         format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
         if is_precalculated
-        else format_person_query(
-            cohort,
-            index,
-            custom_match_field=custom_match_field,
-            cohorts_seen=cohorts_seen,
-            using_new_query=using_new_query,
-        )
+        else format_person_query(cohort, index, custom_match_field=custom_match_field, using_new_query=using_new_query,)
     )
     return person_query, params
 

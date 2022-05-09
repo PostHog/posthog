@@ -3,6 +3,7 @@ import Piscina from '@posthog/piscina'
 import { ONE_HOUR } from '../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
+import { kafkaHealthcheck } from '../../src/main/utils'
 import { LogLevel, PluginsServerConfig } from '../../src/types'
 import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
@@ -156,6 +157,63 @@ describe('e2e', () => {
             expect(
                 pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
             ).toEqual(1)
+        })
+    })
+
+    describe('kafkaHealthcheck', () => {
+        let statsd: any
+
+        beforeEach(() => {
+            statsd = {
+                timing: jest.fn(),
+            }
+        })
+
+        // if kafka is up and running it should pass this healthcheck
+        test('healthcheck passes under normal conditions', async () => {
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafka!, statsd, 5000)
+            expect(kafkaHealthy).toEqual(true)
+            expect(error).toEqual(null)
+            expect(statsd.timing).toHaveBeenCalledWith('kafka_healthcheck_consumer_latency', expect.any(Date))
+        })
+
+        test('healthcheck passes when running in parallel', async () => {
+            const parallelConsumers = 4
+            const promises = []
+            for (let i = 0; i < parallelConsumers; ++i) {
+                promises.push(kafkaHealthcheck(hub!.kafka!, statsd, 15000))
+            }
+            const healthcheckResults = (await Promise.all(promises)).map((res) => res[0])
+            expect(healthcheckResults).toEqual(Array.from({ length: parallelConsumers }).map((e) => true))
+        })
+
+        test('healthcheck fails if producer throws', async () => {
+            hub!.kafka!.producer = jest.fn(() => {
+                throw new Error('producer error')
+            })
+
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafka!, statsd, 5000)
+            expect(kafkaHealthy).toEqual(false)
+            expect(error!.message).toEqual('producer error')
+            expect(statsd.timing).not.toHaveBeenCalled()
+        })
+
+        test('healthcheck fails if consumer throws', async () => {
+            hub!.kafka!.consumer = jest.fn(() => {
+                throw new Error('consumer error')
+            })
+
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafka!, statsd, 5000)
+            expect(kafkaHealthy).toEqual(false)
+            expect(error!.message).toEqual('consumer error')
+            expect(statsd.timing).not.toHaveBeenCalled()
+        })
+
+        test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafka!, statsd, 0)
+            expect(kafkaHealthy).toEqual(false)
+            expect(error!.message).toEqual('Unable to consume a message in time.')
+            expect(statsd.timing).not.toHaveBeenCalled()
         })
     })
 
