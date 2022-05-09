@@ -9,6 +9,7 @@ import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 import { OptOutCapture } from './OptOutCapture'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
+import { UserDetails } from './UserDetails'
 
 export const scene: SceneExport = {
     component: MySettings,
@@ -23,6 +24,12 @@ export function MySettings(): JSX.Element {
         <div style={{ marginBottom: 128 }}>
             <PageHeader title="My Settings" />
             <Card>
+                <h2 id="details" className="subtitle">
+                    Details
+                </h2>
+                <UserDetails />
+                <Divider />
+
                 <h2 id="password" className="subtitle">
                     Change Password
                 </h2>

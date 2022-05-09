@@ -1,22 +1,23 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Input, Form } from 'antd'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { PasswordInput } from 'scenes/authentication/PasswordInput'
 import { LemonButton } from 'lib/components/LemonButton'
 
-export function ChangePassword(): JSX.Element {
+export function UserDetails(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const [form] = Form.useForm()
 
-    const updateCompleted = (): void => {
-        form.resetFields()
-    }
+    useEffect(() => {
+        form.setFieldsValue({
+            first_name: user?.first_name,
+        })
+    }, [user?.first_name])
 
     return (
         <Form
-            onFinish={(values) => updateUser(values, updateCompleted)}
+            onFinish={(values) => updateUser(values)}
             labelAlign="left"
             layout="vertical"
             requiredMark={false}
@@ -26,26 +27,31 @@ export function ChangePassword(): JSX.Element {
             }}
         >
             <Form.Item
-                label="Current Password"
+                name="first_name"
+                label="Your name"
                 rules={[
                     {
-                        required: !user || user.has_password,
-                        message: 'Please enter your current password',
+                        required: true,
+                        message: 'Please enter your name',
+                    },
+                    {
+                        max: 150,
+                        message: 'The name you have given is too long. Please pick something shorter.',
                     },
                 ]}
-                name="current_password"
             >
                 <Input.Password
-                    autoComplete="current-password"
-                    disabled={(!!user && !user.has_password) || userLoading}
-                    placeholder={user && !user.has_password ? 'signed up with external login' : '********'}
                     className="ph-ignore-input"
+                    autoFocus
+                    data-attr="settings-update-first-name"
+                    placeholder="Jane Doe"
+                    disabled={userLoading}
                 />
             </Form.Item>
-            <PasswordInput label="New Password" showStrengthIndicator style={{ maxWidth: 400 }} validateMinLength />
+
             <Form.Item>
                 <LemonButton type="primary" htmlType="submit" loading={userLoading}>
-                    Change Password
+                    Update Details
                 </LemonButton>
             </Form.Item>
         </Form>
