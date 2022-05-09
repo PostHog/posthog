@@ -114,13 +114,13 @@ export function CohortCriteriaRowBuilder({
                         <div className="CohortCriteriaRow__inline-divider" />
                         <LemonButton
                             icon={<IconCopy />}
-                            type="primary-alt"
+                            type="alt"
                             onClick={() => duplicateFilter(groupIndex, index)}
                         />
                         {!hideDeleteIcon && (
                             <LemonButton
                                 icon={<IconDelete />}
-                                type="primary-alt"
+                                type="alt"
                                 onClick={() => removeFilter(groupIndex, index)}
                             />
                         )}
