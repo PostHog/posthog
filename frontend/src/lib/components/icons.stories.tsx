@@ -26,7 +26,7 @@ export default {
     },
 } as Meta
 
-export function Icons(): JSX.Element {
+export function Library(): JSX.Element {
     return (
         <LemonTable
             dataSource={allIcons}
