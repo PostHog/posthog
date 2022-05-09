@@ -1260,12 +1260,12 @@ export function isPropertyGroup(
 }
 
 export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[]
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
         return properties
     }
-    if (properties.length > 0) {
+    if (properties && properties.length > 0) {
         return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
     }
     return { type: FilterLogicalOperator.And, values: [] }
