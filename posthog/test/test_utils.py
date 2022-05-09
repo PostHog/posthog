@@ -1,5 +1,6 @@
 from unittest.mock import call, patch
 
+from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -131,6 +132,13 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
+    def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
+        rf = RequestFactory()
+        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
+        post_request.META["HTTP_ORIGIN"] = origin
+        post_request.META["HTTP_REFERER"] = referer
+        return post_request
+
     @patch("posthog.utils.configure_scope")
     def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
         origin = "potato.io"
@@ -138,10 +146,7 @@ class TestLoadDataFromRequest(TestCase):
 
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
-        rf = RequestFactory()
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
-        post_request.META["origin"] = origin
-        post_request.META["HTTP_REFERER"] = referer
+        post_request = self._create_request_with_headers(origin, referer)
 
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
@@ -158,10 +163,7 @@ class TestLoadDataFromRequest(TestCase):
 
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
-        rf = RequestFactory()
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
-        post_request.META["REMOTE_HOST"] = origin
-        post_request.META["HTTP_REFERER"] = referer
+        post_request = self._create_request_with_headers(origin, referer)
 
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
