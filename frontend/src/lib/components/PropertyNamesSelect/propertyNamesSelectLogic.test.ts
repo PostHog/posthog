@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
 
-describe('funnelLogic', () => {
+describe('propertyNamesSelectLogic', () => {
     let logic: ReturnType<typeof propertySelectLogic.build>
     const allProperties: string[] = ['property 1', 'property 2']
 

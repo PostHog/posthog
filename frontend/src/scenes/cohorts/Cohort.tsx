@@ -70,7 +70,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
 
     return (
         <div className="cohort">
-            <VerticalForm logic={cohortLogic} props={logicProps} formKey="cohort">
+            <VerticalForm logic={cohortLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={

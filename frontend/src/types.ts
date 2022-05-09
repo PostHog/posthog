@@ -348,6 +348,7 @@ export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+    History = 'history',
 }
 
 export enum ExperimentsTabs {

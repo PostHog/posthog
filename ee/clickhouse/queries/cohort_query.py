@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
@@ -124,7 +124,6 @@ class CohortQuery(EnterpriseEventQuery):
         team: Team,
         *,
         cohort_pk: Optional[int] = None,
-        cohorts_seen: Optional[Set[int]] = None,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -140,7 +139,6 @@ class CohortQuery(EnterpriseEventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
-        self._cohorts_seen = cohorts_seen
         super().__init__(
             filter=filter,
             team=team,
@@ -266,7 +264,6 @@ class CohortQuery(EnterpriseEventQuery):
         return query, params, self.PERSON_TABLE_ALIAS
 
     def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
-        # TODO: handle as params
         date_query = ""
         date_params: Dict[str, Any] = {}
         earliest_time_param = f"earliest_time_{self._cohort_pk}"
@@ -342,24 +339,16 @@ class CohortQuery(EnterpriseEventQuery):
             return "", {}
 
     def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-
         try:
             prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
             return "0 = 14", {}
 
-        if prop_cohort.pk == self._cohort_pk or (self._cohorts_seen and prop_cohort.pk in self._cohorts_seen):
-            # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort eventually),
-            # we treat it as an invalid cohort condition
-            raise ValueError(f"Cyclic dependency detected when computing cohort with id: {prop_cohort.pk}")
-        else:
-            cohorts_seen = list(self._cohorts_seen) if self._cohorts_seen is not None else []
-            if self._cohort_pk is not None:
-                cohorts_seen.append(self._cohort_pk)
-            person_id_query, cohort_filter_params = format_filter_query(
-                prop_cohort, idx, "person_id", cohorts_seen=set(cohorts_seen), using_new_query=True
-            )
-            return f"id IN ({person_id_query})", cohort_filter_params
+        # If we reach this stage, it means there are no cyclic dependencies
+        # They should've been caught by API update validation
+        # and if not there, `simplifyFilter` would've failed
+        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id", using_new_query=True)
+        return f"id IN ({person_id_query})", cohort_filter_params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -372,7 +361,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
+        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
         self._fields.append(field)
 
         return column_name, {f"{date_param}": date_value, **entity_params}
@@ -389,7 +378,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
+        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
         self._fields.append(field)
 
         return (
@@ -546,10 +535,10 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _get_sequence_filter(self, prop: Property, idx: int) -> Tuple[List[str], List[str], List[str], Dict[str, Any]]:
         event = validate_entity((prop.event_type, prop.key))
-        entity_query, entity_params = self._get_entity(event, "event_sequence", idx)
+        entity_query, entity_params = self._get_entity(event, f"event_sequence_{self._cohort_pk}", idx)
         seq_event = validate_entity((prop.seq_event_type, prop.seq_event))
 
-        seq_entity_query, seq_entity_params = self._get_entity(seq_event, "seq_event_sequence", idx)
+        seq_entity_query, seq_entity_params = self._get_entity(seq_event, f"seq_event_sequence_{self._cohort_pk}", idx)
 
         time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         time_interval = validate_interval(prop.time_interval)
@@ -564,7 +553,7 @@ class CohortQuery(EnterpriseEventQuery):
             duplicate_event = 1
 
         aggregate_cols = []
-        aggregate_condition = f"max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
+        aggregate_condition = f"{'NOT' if prop.negation else ''} max(if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)) = 2 AS {self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"
         aggregate_cols.append(aggregate_condition)
 
         condition_cols = []
