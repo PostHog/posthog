@@ -93,7 +93,7 @@ WithInternalLink.args = {
 
 export const WithExternalLink = BasicTemplate.bind({})
 WithExternalLink.args = {
-    href: 'https://google.com/',
+    href: 'https://example.com/',
 }
 
 export const Success = BasicTemplate.bind({})
