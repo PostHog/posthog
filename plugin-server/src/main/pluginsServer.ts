@@ -2,10 +2,12 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
+import { Consumer } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
+import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
 import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
@@ -18,6 +20,7 @@ import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
+import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -27,7 +30,7 @@ export type ServerInstance = {
     piscina: Piscina
     queue: Queue
     mmdb?: ReaderModel
-    kafkaSuccessiveHealthchecksFailed: number
+    kafkaHealthcheckConsumer?: Consumer
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
@@ -260,8 +263,20 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
+        if (hub.kafka) {
+            serverInstance.kafkaHealthcheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+
+            await serverInstance.kafkaHealthcheckConsumer.connect()
+
+            try {
+                serverInstance.kafkaHealthcheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+            } catch (err) {
+                console.log(err)
+            }
+        }
+
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub!, serverConfig)
+        httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
