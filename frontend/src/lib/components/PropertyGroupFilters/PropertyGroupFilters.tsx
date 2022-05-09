@@ -65,8 +65,8 @@ export function PropertyGroupFilters({
                         ) : null}
                         {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
-                                <>
-                                    <div className="property-group" key={propertyGroupIndex}>
+                                <div key={propertyGroupIndex}>
+                                    <div className="property-group">
                                         <Row justify="space-between" align="middle" className="mb-05">
                                             <AndOrFilterSelect
                                                 onChange={(type) => setInnerPropertyGroupType(type, propertyGroupIndex)}
@@ -112,7 +112,7 @@ export function PropertyGroupFilters({
                                             <span>{filtersWithNew.type}</span>
                                         </div>
                                     )}
-                                </>
+                                </div>
                             )
                         })}
                         <div className="mb" />

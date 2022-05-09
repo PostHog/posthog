@@ -1,28 +1,36 @@
 import { useActions } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Select } from 'antd'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import React from 'react'
 import { EditorFilterProps } from '~/types'
+import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+
+const INSIGHT_TYPE_OPTIONS: LemonSelectOptions = Object.entries(INSIGHT_TYPES_METADATA).reduce((acc, [key, meta]) => {
+    return {
+        ...acc,
+        [key]: {
+            label: meta.name,
+            icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : null,
+        },
+    }
+}, {})
 
 export function EFInsightType({ value }: EditorFilterProps): JSX.Element {
     const { setActiveView } = useActions(insightLogic)
+
     return (
-        <Select value={value} onChange={(v): void => setActiveView(v)} dropdownMatchSelectWidth={false}>
-            {Object.entries(INSIGHT_TYPES_METADATA).map(([type, meta], index) => (
-                <Select.Option key={index} value={type}>
-                    <div className="insight-type-icon-wrapper">
-                        {meta.icon ? (
-                            <div className="icon-container">
-                                <div className="icon-container-inner">
-                                    <meta.icon color="#747EA2" noBackground />
-                                </div>
-                            </div>
-                        ) : null}
-                        <div>{meta.name}</div>
-                    </div>
-                </Select.Option>
-            ))}
-        </Select>
+        <LemonSelect
+            options={INSIGHT_TYPE_OPTIONS}
+            value={value}
+            onChange={(v: any): void => {
+                if (v) {
+                    setActiveView(v)
+                }
+            }}
+            type="stealth"
+            outlined
+            fullWidth
+            data-attr="insight-type"
+        />
     )
 }
