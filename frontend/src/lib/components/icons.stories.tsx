@@ -111,7 +111,7 @@ export function IconWithCountShowingZero(): JSX.Element {
     )
 }
 
-export function IconWithTooHighCount(): JSX.Element {
+export function IconWithCountOverflowing(): JSX.Element {
     return (
         <span
             style={{
