@@ -24,7 +24,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     value,
     onChange,
     options,
-    placeholder,
+    placeholder = 'Select a value',
     dropdownMatchSelectWidth = true,
     allowClear = false,
     ...buttonProps
@@ -83,7 +83,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
             </LemonButtonWithPopup>
             {isClearButtonShown && (
                 <LemonButton
-                    className="side-button"
+                    className="LemonButtonWithSideAction--side-button"
                     type="tertiary"
                     icon={<IconClose style={{ fontSize: '1rem' }} />}
                     tooltip="Clear selection"
