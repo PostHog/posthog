@@ -1028,49 +1028,50 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         filter = Filter(
             data={
                 "properties": {
+                    "id": "85808",
                     "type": "OR",
                     "values": [
                         {
+                            "id": "45528",
                             "type": "OR",
                             "values": [
                                 {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
+                                    "key": "$feature_flag_called",
                                     "type": "behavioral",
+                                    "value": "performed_event",
                                     "negation": False,
-                                },
-                                {"key": "email", "value": "test@posthog.com", "type": "person",},
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
                             ],
                         },
                         {
+                            "id": "45528",
                             "type": "AND",
                             "values": [
                                 {
                                     "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
                                     "type": "behavioral",
+                                    "value": "performed_event",
                                     "negation": True,
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
                                 },
-                                {"key": "email", "value": "test@posthog.com", "type": "person",},
                                 {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
+                                    "key": "$feature_flag_called",
                                     "type": "behavioral",
-                                    "negation": True,
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
                                 },
                             ],
                         },
                     ],
-                },
+                }
             }
         )
 
