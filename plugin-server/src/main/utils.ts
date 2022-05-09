@@ -8,7 +8,6 @@ import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { PluginsServerConfig } from './../types'
 
 class KafkaConsumerError extends Error {}
 

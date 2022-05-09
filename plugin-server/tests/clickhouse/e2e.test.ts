@@ -184,7 +184,6 @@ describe('e2e', () => {
             const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
             expect(kafkaHealthy).toEqual(true)
             expect(error).toEqual(null)
-            expect(statsd.timing).toHaveBeenCalledWith('kafka_healthcheck_consumer_latency', expect.any(Date))
         })
 
         test('healthcheck fails if producer throws', async () => {
