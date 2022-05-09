@@ -20,7 +20,7 @@ function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
     if (obligationReason && !columnKey) {
-        throw new Error(`LemonTable: Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
+        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
 }
@@ -37,12 +37,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Color to mark each row with. */
     rowRibbonColor?: string | ((record: T) => string | null)
     /** Status of each row. Defaults no status. */
-    rowStatus?:
-        | 'success'
-        | 'warning'
-        | 'danger'
-        | 'highlighted'
-        | ((record: T) => 'success' | 'warning' | 'danger' | 'highlighted' | undefined)
+    rowStatus?: 'highlighted' | ((record: T) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
@@ -205,7 +200,11 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
+                            <thead
+                                style={
+                                    !uppercaseHeader ? { textTransform: 'none', letterSpacing: 'normal' } : undefined
+                                }
+                            >
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
                                         {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}

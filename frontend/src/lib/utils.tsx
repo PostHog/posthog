@@ -1301,3 +1301,8 @@ export function flattenPropertyGroup(
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
+export const autoSorter = (a: any, b: any): number => {
+    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+}

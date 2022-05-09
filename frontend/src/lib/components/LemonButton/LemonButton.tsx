@@ -12,7 +12,7 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
 }
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     ref?: React.Ref<HTMLButtonElement>
-    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted' | 'primary-alt'
+    type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
     htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether the button should have transparent background in its base state (i.e. non-hover). */
     translucent?: boolean
