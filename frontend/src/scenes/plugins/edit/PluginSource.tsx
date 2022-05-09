@@ -6,6 +6,8 @@ import MonacoEditor from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
 import { validateJsonFormItem } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
+import { canGloballyManagePlugins } from '../access'
 
 const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
@@ -46,10 +48,15 @@ const defaultConfig = [
     },
 ]
 
-export function PluginSource(): JSX.Element {
+export function PluginSource(): JSX.Element | null {
+    const { user } = useValues(userLogic)
     const { editingPlugin, editingSource, loading } = useValues(pluginsLogic)
     const { setEditingSource, editPluginSource } = useActions(pluginsLogic)
     const [form] = Form.useForm()
+
+    if (!canGloballyManagePlugins(user?.organization)) {
+        return null
+    }
 
     useEffect(() => {
         if (editingPlugin) {

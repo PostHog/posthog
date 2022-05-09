@@ -1,5 +1,3 @@
-import './featureFlags.scss'
-
 import React, { useEffect, useRef, useState } from 'react'
 
 export function AnimatedCollapsible({
@@ -21,7 +19,7 @@ export function AnimatedCollapsible({
         } else {
             setHeight(0)
         }
-    }, [collapsed])
+    }, [collapsed, children])
 
     return (
         <div

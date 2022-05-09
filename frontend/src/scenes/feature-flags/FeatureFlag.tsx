@@ -80,7 +80,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         <div className="feature-flag">
             {featureFlag ? (
                 // TODO: kea-form should also use featureFlagLogic's bound props
-                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag">
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
                     <PageHeader
                         title="Feature Flag"
                         buttons={
@@ -406,7 +406,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    compact
+                                    size="small"
                                     fullWidth
                                     center
                                 >
@@ -489,7 +489,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    compact
+                                                    size="small"
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
@@ -497,7 +497,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <LemonButton
                                                         icon={<IconDelete />}
-                                                        compact
+                                                        size="small"
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>

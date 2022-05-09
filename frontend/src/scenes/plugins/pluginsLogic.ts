@@ -95,8 +95,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
         hidePluginLogs: true,
-        showPluginMetrics: (id: number) => ({ id }),
-        hidePluginMetrics: true,
         processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
@@ -420,13 +418,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 showPluginLogs: (_, { id }) => id,
             },
         ],
-        showingMetricsPluginId: [
-            null as number | null,
-            {
-                showPluginMetrics: (_, { id }) => id,
-                hidePluginMetrics: () => null,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
@@ -577,11 +568,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             (s) => [s.lastShownLogsPluginId, s.installedPlugins],
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
-        ],
-        showingMetricsPlugin: [
-            (s) => [s.showingMetricsPluginId, s.installedPlugins],
-            (showingMetricsPluginId, installedPlugins) =>
-                showingMetricsPluginId ? installedPlugins.find((plugin) => plugin.id === showingMetricsPluginId) : null,
         ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],

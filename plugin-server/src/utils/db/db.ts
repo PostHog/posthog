@@ -126,10 +126,12 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-type PersonData = {
+export interface CachedPersonData {
     uuid: string
     created_at_iso: string
     properties: Properties
+    team_id: TeamId
+    id: Person['id']
 }
 
 export type GroupIdentifier = {
@@ -543,7 +545,7 @@ export class DB {
         return null
     }
 
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<PersonData | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | null> {
         if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             return null
         }
@@ -556,9 +558,11 @@ export class DB {
             this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
 
             return {
+                team_id: teamId,
                 uuid: String(personUuid),
                 created_at_iso: String(personCreatedAtIso),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
+                id: personId,
             }
         }
         this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
@@ -576,15 +580,17 @@ export class DB {
             void this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso)
             void this.updatePersonPropertiesCache(teamId, personId, personProperties)
             return {
+                team_id: teamId,
                 uuid: personUuid,
                 created_at_iso: personCreatedAtIso,
                 properties: personProperties,
+                id: personId,
             }
         }
         return null
     }
 
-    public async getPersonData(teamId: number, distinctId: string): Promise<PersonData | null> {
+    public async getPersonData(teamId: number, distinctId: string): Promise<CachedPersonData | null> {
         const personId = await this.getPersonId(teamId, distinctId)
         if (personId) {
             return await this.getPersonDataByPersonId(teamId, personId)
@@ -604,7 +610,10 @@ export class DB {
         teamId: number,
         groupIdentifiers: GroupIdentifier[]
     ): Promise<Record<string, string>> {
-        const query_options: string[] = []
+        if (groupIdentifiers.length === 0) {
+            return {}
+        }
+        const queryOptions: string[] = []
         const args: any[] = [teamId]
         let index = args.length + 1
         for (const gi of groupIdentifiers) {
@@ -612,13 +621,13 @@ export class DB {
                 team_id: teamId.toString(),
                 group_type_index: gi.index.toString(),
             })
-            query_options.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
+            queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
             args.push(gi.index, gi.key)
         }
         const result = await this.postgresQuery(
             'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
-                query_options.join(' OR ')
+                queryOptions.join(' OR ')
             ),
             args,
             'fetchGroupProperties'
@@ -652,20 +661,22 @@ export class DB {
             return this.getGroupProperty(teamId, groupIdentifier)
         })
         const cachedRes = await Promise.all(promises)
-        const useFromCache = cachedRes.filter((gp) => gp.properties !== null)
         let res: Record<string, string> = {}
-        useFromCache.forEach((gp) => {
-            res[`group${gp.identifier.index}_properties`] = JSON.stringify(gp.properties)
-            this.statsd?.increment(`group_properties_cache.hit`, {
-                team_id: teamId.toString(),
-                group_type_index: gp.identifier.index.toString(),
-            })
-        })
+        const groupsToLookupFromDb = []
+        for (const group of cachedRes) {
+            if (group.properties) {
+                res[`group${group.identifier.index}_properties`] = JSON.stringify(group.properties)
+                this.statsd?.increment(`group_properties_cache.hit`, {
+                    team_id: teamId.toString(),
+                    group_type_index: group.identifier.index.toString(),
+                })
+            } else {
+                groupsToLookupFromDb.push(group.identifier)
+            }
+        }
 
-        // Lookup the properties from DB if they weren't in cache and update the cache
-        const lookupFromDb = cachedRes.filter((gp) => gp.properties === null).map((gp) => gp.identifier)
-        if (lookupFromDb.length > 0) {
-            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(teamId, lookupFromDb)
+        if (groupsToLookupFromDb.length > 0) {
+            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(teamId, groupsToLookupFromDb)
             res = { ...res, ...fromDb }
         }
         return res
@@ -1113,7 +1124,11 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, person: Person, teamId: Team['id']): Promise<boolean> {
+    public async doesPersonBelongToCohort(
+        cohortId: number,
+        person: CachedPersonData | Person,
+        teamId: Team['id']
+    ): Promise<boolean> {
         if (this.kafkaProducer) {
             const chResult = await this.clickhouseQuery(
                 `SELECT 1 FROM person_static_cohort
@@ -1131,7 +1146,7 @@ export class DB {
         }
 
         const psqlResult = await this.postgresQuery(
-            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2);`,
+            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
             [cohortId, person.id],
             'doesPersonBelongToCohort'
         )

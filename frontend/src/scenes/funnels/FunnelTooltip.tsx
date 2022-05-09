@@ -1,4 +1,4 @@
-import { getContext, useValues } from 'kea'
+import { useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { funnelLogic } from './funnelLogic'
@@ -9,7 +9,6 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ensureTooltipElement } from 'scenes/insights/LineGraph/LineGraph'
-import { Provider } from 'react-redux'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
@@ -89,7 +88,7 @@ export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number):
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipCoordinates) {
             ReactDOM.render(
-                <Provider store={getContext().store}>
+                <>
                     {currentTooltip && (
                         <FunnelTooltip
                             showPersonsModal={showPersonsModal}
@@ -98,7 +97,7 @@ export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number):
                             groupTypeLabel={aggregationLabel(filters.aggregation_group_type_index).plural}
                         />
                     )}
-                </Provider>,
+                </>,
                 tooltipEl
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
