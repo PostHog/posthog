@@ -41,7 +41,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
     const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = insightLogic(insightProps)
-    const { filters, insight } = useValues(logic)
+    const { filters, insight, filterPropertiesCount } = useValues(logic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
@@ -128,6 +128,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Filters',
+            count: filterPropertiesCount,
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {

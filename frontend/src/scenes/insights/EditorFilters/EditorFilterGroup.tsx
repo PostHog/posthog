@@ -5,6 +5,7 @@ import { EditorFilterItemTitle } from './EditorFilterItemTitle'
 import './EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { slugify } from 'lib/utils'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
@@ -27,7 +28,7 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     style={{
                         fontWeight: 600,
                     }}
-                    data-attr="editor-filter-group-collapse"
+                    data-attr={'editor-filter-group-collapse-' + slugify(title)}
                 >
                     {title}
                     {count ? <span className="insights-filter-group-count">{count}</span> : null}
