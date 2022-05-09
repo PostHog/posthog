@@ -168,7 +168,7 @@ export function AndOrFilterSelect({
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={value || FilterLogicalOperator.And}
+                value={value}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
