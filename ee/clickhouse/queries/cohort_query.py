@@ -212,6 +212,9 @@ class CohortQuery(EnterpriseEventQuery):
                     subq_alias == self.PERSON_TABLE_ALIAS
                     and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
                     and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                    and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                    and "precalculated-cohort"
+                    not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
                 ):
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = f"{subq_alias}.person_id"
@@ -323,7 +326,7 @@ class CohortQuery(EnterpriseEventQuery):
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
-        elif prop.type == "cohort":
+        elif prop.type in ["cohort", "static-cohort", "precalculated-cohort"]:
             res, params = self.get_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
@@ -632,7 +635,7 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = (
-            self._column_optimizer.is_using_person_properties or self._column_optimizer.is_using_cohort_propertes
+            self._column_optimizer.is_using_person_properties or self._column_optimizer.is_using_any_cohort_propertes
         )
 
     @cached_property
