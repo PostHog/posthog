@@ -31,6 +31,9 @@ Default.args = {}
 export const Large = HorizontalTemplate.bind({})
 Large.args = { large: true }
 
+export const ThickDashed = HorizontalTemplate.bind({})
+ThickDashed.args = { thick: true, dashed: true }
+
 const VerticalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDividerProps) => {
     return (
         <div className="flex-center">

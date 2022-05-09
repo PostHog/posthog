@@ -4,7 +4,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
-import { teamLogic } from 'scenes/teamLogic'
 import { AppContext } from '~/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { groupsModel } from '~/models/groupsModel'
@@ -35,7 +34,6 @@ describe('taxonomicFilterLogic', () => {
             },
         })
         initKeaTests()
-        teamLogic.mount()
         actionsModel.mount()
         groupsModel.mount()
 

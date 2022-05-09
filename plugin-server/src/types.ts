@@ -13,7 +13,6 @@ import { VM } from 'vm2'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
-import { PluginMetricsManager } from './utils/plugin-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -135,6 +134,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
+    KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
 }
 
@@ -150,7 +150,6 @@ export interface Hub extends PluginsServerConfig {
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
-    pluginMetricsManager: PluginMetricsManager
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>

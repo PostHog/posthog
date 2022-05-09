@@ -80,7 +80,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         <div className="feature-flag">
             {featureFlag ? (
                 // TODO: kea-form should also use featureFlagLogic's bound props
-                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag">
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
                     <PageHeader
                         title="Feature Flag"
                         buttons={
