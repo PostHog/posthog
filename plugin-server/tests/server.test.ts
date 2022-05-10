@@ -2,7 +2,8 @@ import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { LogLevel, PluginsServerConfig } from '../src/types'
+import { startPluginSchedules } from '../src/main/services/schedule'
+import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
@@ -11,6 +12,7 @@ import { resetTestDatabase } from './helpers/sql'
 jest.mock('@sentry/node')
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
+jest.mock('../src/main/services/schedule')
 jest.setTimeout(60000) // 60 sec timeout
 
 function numberOfScheduledJobs() {
@@ -20,14 +22,18 @@ function numberOfScheduledJobs() {
 describe('server', () => {
     let pluginsServer: ServerInstance | null = null
 
-    function createPluginServer(config: Partial<PluginsServerConfig> = {}) {
+    function createPluginServer(
+        config: Partial<PluginsServerConfig> = {},
+        capabilities: PluginServerCapabilities | null = null
+    ) {
         return startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },
-            makePiscina
+            makePiscina,
+            capabilities
         )
     }
 
@@ -90,5 +96,19 @@ describe('server', () => {
         pluginsServer = null
 
         expect(numberOfScheduledJobs()).toEqual(0)
+    })
+
+    describe('plugin-server capabilities', () => {
+        test('starts all main services by default', async () => {
+            pluginsServer = await createPluginServer()
+
+            expect(startPluginSchedules).toHaveBeenCalled()
+        })
+
+        test('disabling pluginScheduledTasks', async () => {
+            pluginsServer = await createPluginServer({}, { ingestion: true, pluginScheduledTasks: false, jobs: true })
+
+            expect(startPluginSchedules).not.toHaveBeenCalled()
+        })
     })
 })

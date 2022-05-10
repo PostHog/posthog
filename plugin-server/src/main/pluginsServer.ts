@@ -8,7 +8,14 @@ import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
 import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
-import { Hub, JobQueueConsumerControl, PluginScheduleControl, PluginsServerConfig, Queue } from '../types'
+import {
+    Hub,
+    JobQueueConsumerControl,
+    PluginScheduleControl,
+    PluginServerCapabilities,
+    PluginsServerConfig,
+    Queue,
+} from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
@@ -38,7 +45,8 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina
+    makePiscina: (config: PluginsServerConfig) => Piscina,
+    capabilities: PluginServerCapabilities | null = null
 ): Promise<ServerInstance> {
     const timer = new Date()
 
@@ -122,7 +130,7 @@ export async function startPluginsServer(
     })
 
     try {
-        ;[hub, closeHub] = await createHub(serverConfig, null)
+        ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
 
         const serverInstance: Partial<ServerInstance> & Pick<ServerInstance, 'hub'> = {
             hub,
