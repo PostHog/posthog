@@ -97,7 +97,7 @@ class Cohort(models.Model):
     groups: models.JSONField = models.JSONField(default=list)
 
     @property
-    def properties(self):
+    def properties(self) -> PropertyGroup:
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []

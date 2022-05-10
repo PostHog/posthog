@@ -2,19 +2,21 @@ import * as Sentry from '@sentry/node'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { status } from '../../utils/status'
+import { ServerInstance } from '../pluginsServer'
 import { kafkaHealthcheck } from '../utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
 
-export function createHttpServer(hub: Hub, serverConfig: PluginsServerConfig): Server {
+export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             let serverHealthy = true
 
-            if (hub.kafka) {
+            if (hub.kafkaProducer && serverInstance.kafkaHealthcheckConsumer) {
                 const [kafkaHealthy, error] = await kafkaHealthcheck(
-                    hub.kafka!,
+                    hub.kafkaProducer.producer,
+                    serverInstance.kafkaHealthcheckConsumer,
                     hub.statsd,
                     serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
                 )
