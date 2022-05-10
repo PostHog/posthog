@@ -11409,10 +11409,10 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
-kea-forms@^3.0.0-alpha.3:
-  version "3.0.0-alpha.3"
-  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.3.tgz#69d50f9f4bd5218a97606acfe39fc36d0eaa7f7e"
-  integrity sha512-a2fDrAt9lTATGpOu8S4bBjEfXWJ2Yguc+pn8toE+OSvSy+EuXDMzpMivuDAx0+JeTV4MWzKUmnd8PsPCAw9PGA==
+kea-forms@^3.0.0-alpha.4:
+  version "3.0.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.4.tgz#0e194b1d2f126996341cca4fcaddc70a1d2986df"
+  integrity sha512-bnZWluf36skuOSFKoRme8b9ZhVhKjJxzhL0fUFgaU26VaA7Voj8dJGgZUzCI54zoyivl2stZGNAaCqbvj6kAvw==
 
 kea-loaders@^3.0.0-alpha.4:
   version "3.0.0-alpha.4"
@@ -11463,10 +11463,10 @@ kea-window-values@^3.0.0-alpha.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-3.0.0-alpha.1.tgz#489fe62be880bcfaf94cb2c6db384805eede9a65"
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
-kea@^3.0.0-beta.2:
-  version "3.0.0-beta.2"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.2.tgz#32a19cc689450a7f91f8352c9251594896a2b8b6"
-  integrity sha512-F8ksUrV/ik8u0tx5DqiXA0KquTAw9Ekx1Ya0DvMnn6Fk/t6zBbOqeHtXUkCGJchLv8wGEQUArCRpnzgh3bwCbQ==
+kea@^3.0.0-beta.5:
+  version "3.0.0-beta.5"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.5.tgz#af9a41e9e53a149d666ecefff2bbcc86778b6416"
+  integrity sha512-IvFcW+JdeI0zK+hBL30oX7Z3vATVHJB+FWiQvWiKeIN4O64u61gUQ1UNYIwGnuqvyfsiii8PjLSs2pfotfzARA==
   dependencies:
     redux "^4.2.0"
     reselect "^4.1.5"
