@@ -175,6 +175,24 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
     return result
 
 
+def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
+    metrics, types = sync_execute(query, args, with_column_types=True)
+    type_names = [key for key, _type in types]
+
+    rows = []
+    for row in metrics:
+        result = {}
+        for type_name, value in zip(type_names, row):
+            if isinstance(value, list):
+                value = ", ".join(map(str, value))
+            if type_name not in columns_to_remove:
+                result[type_name] = value
+
+        rows.append(result)
+
+    return rows
+
+
 REDIS_STATUS_TTL = 600  # 10 minutes
 
 

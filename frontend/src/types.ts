@@ -1294,6 +1294,8 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    clickhouse: boolean
+    kafka: boolean
     /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
     /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */

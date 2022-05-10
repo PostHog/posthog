@@ -545,7 +545,7 @@ input::-ms-clear {
 }
 
 .card-elevated {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
 }
 
 // Horizontal scrollability indication
