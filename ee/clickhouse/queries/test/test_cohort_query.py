@@ -1236,7 +1236,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = Filter(
-            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},}
+            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},},
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1281,7 +1281,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                     ],
                 },
-            }
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1306,6 +1306,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 },
             },
+            team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1385,13 +1386,99 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                     ],
                 },
-            }
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_static_cohort_filter(self):
+
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+        flush_persons_and_events()
+        cohort.insert_users_by_list(["p1"])
+
+        filter = Filter(
+            data={
+                "properties": {"type": "OR", "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}],},
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_static_cohort_filter_with_extra(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+        cohort.insert_users_by_list(["p1", "p2"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            },
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p2.uuid], [r[0] for r in res])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            },
+            team=self.team,
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_performed_event_sequence(self):

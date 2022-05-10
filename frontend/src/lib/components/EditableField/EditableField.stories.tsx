@@ -5,11 +5,11 @@ import { EditableField as EditableFieldComponent } from './EditableField'
 import { PageHeader } from '../PageHeader'
 
 export default {
-    title: 'Forms/EditableField',
+    title: 'Forms/Editable Field',
     component: EditableFieldComponent,
 } as ComponentMeta<typeof EditableFieldComponent>
 
-export function TitleAndDescription(): JSX.Element {
+export function EditableField_(): JSX.Element {
     const [savedTitle, setSavedTitle] = React.useState('Foo')
     const [savedDescription, setSavedDescription] = React.useState('Lorem ipsum dolor sit amet.')
 

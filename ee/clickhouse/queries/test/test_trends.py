@@ -20,7 +20,7 @@ from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, test_with_materialized_columns
 
 
 def _create_action(**kwargs):
@@ -634,6 +634,24 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(action_response[0]["count"], 0)
+
+    def test_person_filtering_in_cohort_in_action(self):
+        # This caused some issues with SQL parsing
+        sign_up_action, _ = self._create_events()
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="a",
+            groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
+        )
+        step = sign_up_action.steps.first()
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+        step.save()
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id}], "breakdown": "$some_property",}), self.team,
+            )
+        self.assertEqual(action_response[0]["count"], 2)
 
     @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_user_props_with_filter(self):

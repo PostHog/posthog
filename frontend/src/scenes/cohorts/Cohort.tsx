@@ -93,14 +93,12 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                 <Row gutter={[16, 24]} style={{ maxWidth: 640 }}>
                     <Col xs={24} sm={12}>
                         <Field name="name" label="Name">
-                            {({ value, onValueChange }) => (
-                                <LemonInput value={value} onChange={onValueChange} data-attr="cohort-name" />
-                            )}
+                            <LemonInput data-attr="cohort-name" />
                         </Field>
                     </Col>
                     <Col xs={24} sm={12}>
                         <Field name="is_static" label="Type">
-                            {({ value, onValueChange }) => (
+                            {({ value, onChange }) => (
                                 <Tooltip
                                     title={
                                         isNewCohort ? null : 'Create a new cohort to use a different type of cohort.'
@@ -112,7 +110,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             options={COHORT_TYPE_OPTIONS}
                                             value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
                                             onChange={(cohortType) => {
-                                                onValueChange(cohortType === CohortTypeEnum.Static)
+                                                onChange(cohortType === CohortTypeEnum.Static)
                                             }}
                                             type="stealth"
                                             outlined
@@ -129,7 +127,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                     <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
                         <Col span={24}>
                             <Field name="description" label="Description" data-attr="cohort-description">
-                                {({ value, onValueChange }) => <LemonTextArea value={value} onChange={onValueChange} />}
+                                <LemonTextArea />
                             </Field>
                         </Col>
                     </Row>
@@ -138,7 +136,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                     <Row gutter={24} className="mt ph-ignore-input">
                         <Col span={24}>
                             <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
-                                {({ onValueChange }) => (
+                                {({ onChange }) => (
                                     <>
                                         <span className="mb">
                                             Upload a CSV file to add users to your cohort. The CSV file only requires a
@@ -151,7 +149,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                             accept=".csv"
                                             showUploadList={false}
                                             beforeUpload={(file: UploadFile) => {
-                                                onValueChange(file)
+                                                onChange(file)
                                                 return false
                                             }}
                                             className="cohort-csv-dragger"
