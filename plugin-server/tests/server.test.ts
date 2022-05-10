@@ -109,14 +109,20 @@ describe('server', () => {
         })
 
         test('disabling pluginScheduledTasks', async () => {
-            pluginsServer = await createPluginServer({}, { ingestion: true, pluginScheduledTasks: false, jobs: true })
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: true, pluginScheduledTasks: false, processJobs: true }
+            )
 
             expect(startPluginSchedules).not.toHaveBeenCalled()
             expect(startJobQueueConsumer).toHaveBeenCalled()
         })
 
-        test('disabling jobs', async () => {
-            pluginsServer = await createPluginServer({}, { ingestion: true, pluginScheduledTasks: true, jobs: false })
+        test('disabling processJobs', async () => {
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: true, pluginScheduledTasks: true, processJobs: false }
+            )
 
             expect(startPluginSchedules).toHaveBeenCalled()
             expect(startJobQueueConsumer).not.toHaveBeenCalled()

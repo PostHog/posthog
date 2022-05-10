@@ -152,7 +152,7 @@ export async function startPluginsServer(
         if (hub.capabilities.pluginScheduledTasks) {
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
-        if (hub.capabilities.jobs) {
+        if (hub.capabilities.processJobs) {
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
         }
 
