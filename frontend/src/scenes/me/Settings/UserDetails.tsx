@@ -18,7 +18,7 @@ export function UserDetails(): JSX.Element {
                 maxWidth: 400,
             }}
         >
-            <Field name="first_name" label="Name">
+            <Field name="first_name" label="Your name">
                 <LemonInput
                     className="ph-ignore-input"
                     autoFocus
