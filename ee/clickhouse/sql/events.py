@@ -193,7 +193,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    person_properties
 FROM events
 """
 
@@ -206,7 +207,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    person_properties
 FROM events WHERE team_id = %(team_id)s
 """
 
@@ -245,7 +247,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    person_properties
 FROM
     events
 where team_id = %(team_id)s
@@ -262,7 +265,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    person_properties
 FROM events
 WHERE
 team_id = %(team_id)s
@@ -280,7 +284,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    person_properties
 FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 

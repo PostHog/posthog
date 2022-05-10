@@ -141,6 +141,14 @@ class ClickhouseEventSerializer(serializers.Serializer):
     person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
     elements_chain = serializers.SerializerMethodField()
+    person_properties = serializers.SerializerMethodField()
+
+    def _parse_props(self, props):
+        # parse_constants gets called for any NaN, Infinity etc values
+        # we just want those to be returned as None
+        props = json.loads(props, parse_constant=lambda x: None)
+        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
+        return unpadded
 
     def get_id(self, event):
         return str(event[0])
@@ -149,15 +157,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[5]
 
     def get_properties(self, event):
-        if len(event) >= 10 and event[8] and event[9]:
-            prop_vals = [res.strip('"') for res in event[9]]
-            return dict(zip(event[8], prop_vals))
-        else:
-            # parse_constants gets called for any NaN, Infinity etc values
-            # we just want those to be returned as None
-            props = json.loads(event[2], parse_constant=lambda x: None)
-            unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-            return unpadded
+        return self._parse_props(event[2])
 
     def get_event(self, event):
         return event[1]
@@ -186,6 +186,11 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_chain(self, event):
         return event[6]
+
+    def get_person_properties(self, event):
+        if event[8]:
+            return self._parse_props(event[8])
+        return {}
 
 
 def determine_event_conditions(
