@@ -94,11 +94,14 @@
             <!-- Settings profile for user. -->
             <profile>default</profile>
 
+
+            cat /var/log/clickhouse-server/clickhouse-server.err.log
+
             <!-- Quota for user. -->
             <quota>default</quota>
 
             <!-- User can create other users and grant rights to them. -->
-            <!-- <access_management>1</access_management> -->
+            <access_management>1</access_management>
         </default>
     </users>
 
