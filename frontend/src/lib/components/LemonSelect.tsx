@@ -14,8 +14,8 @@ export type LemonSelectOptions = Record<string | number, LemonSelectOption>
 export interface LemonSelectProps<O extends LemonSelectOptions>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
     options: O
-    value: keyof O | null
-    onChange: (newValue: keyof O | null) => void
+    value?: keyof O | null
+    onChange?: (newValue: keyof O | null) => void
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
 }
@@ -54,7 +54,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                             icon={option.icon}
                             onClick={() => {
                                 if (key != localValue) {
-                                    onChange(key)
+                                    onChange?.(key)
                                     setLocalValue(key)
                                 }
                             }}
@@ -88,7 +88,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     icon={<IconClose style={{ fontSize: '1rem' }} />}
                     tooltip="Clear selection"
                     onClick={() => {
-                        onChange(null)
+                        onChange?.(null)
                         setLocalValue(null)
                     }}
                 />
