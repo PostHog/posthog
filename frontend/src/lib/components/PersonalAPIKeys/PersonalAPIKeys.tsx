@@ -164,7 +164,7 @@ export function PersonalAPIKeys(): JSX.Element {
                     setIsCreateKeyModalVisible(true)
                 }}
             >
-                + Create Personal API Key
+                + Create personal API key
             </LemonButton>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable />

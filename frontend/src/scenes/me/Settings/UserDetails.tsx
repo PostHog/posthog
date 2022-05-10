@@ -1,5 +1,4 @@
 import React from 'react'
-import { Input } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -35,7 +34,7 @@ export function UserDetails(): JSX.Element {
                 loading={isUserDetailsSubmitting}
                 data-attr="user-details-submit-bottom"
             >
-                Update Details
+                Save name
             </LemonButton>
         </VerticalForm>
     )

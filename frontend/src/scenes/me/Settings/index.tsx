@@ -24,9 +24,6 @@ export function MySettings(): JSX.Element {
         <div style={{ marginBottom: 128 }}>
             <PageHeader title="My Settings" />
             <Card>
-                <h2 id="details" className="subtitle">
-                    Details
-                </h2>
                 <UserDetails />
                 <Divider />
 

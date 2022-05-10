@@ -46,7 +46,7 @@ export function ChangePassword(): JSX.Element {
             <PasswordInput label="New Password" showStrengthIndicator style={{ maxWidth: 400 }} validateMinLength />
             <Form.Item>
                 <LemonButton type="primary" htmlType="submit" loading={userLoading}>
-                    Change Password
+                    Change password
                 </LemonButton>
             </Form.Item>
         </Form>
