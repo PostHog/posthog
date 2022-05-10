@@ -28,7 +28,7 @@ def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[s
             {
                 "date_from": format_ch_timestamp(
                     filter.date_from,
-                    convert_to_timezone=team.timezone_for_charts if not filter.date_from_has_explicit_time else None,
+                    convert_to_timezone=team.timezones if not filter.date_from_has_explicit_time else None,
                 )
             }
         )
@@ -48,7 +48,7 @@ def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[s
         {
             "date_to": format_ch_timestamp(
                 _date_to,
-                convert_to_timezone=team.timezone_for_charts
+                convert_to_timezone=team.timezones
                 if filter._date_to and not filter.date_to_has_explicit_time
                 else None,
             )

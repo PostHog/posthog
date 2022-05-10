@@ -300,7 +300,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def get_timezone(self, insight: Insight):
         if should_refresh(self.context["request"]):
-            return insight.team.timezone_for_charts
+            return insight.team.timezones
         result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -538,7 +538,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        return {"result": result, "timezone": team.timezone_for_charts}
+        return {"result": result, "timezone": team.timezones}
 
     # ******************************************
     # /projects/:id/insights/funnel
@@ -582,16 +582,16 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {
                 "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone_for_charts,
+                "timezone": team.timezones,
             }
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
             return {
                 "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone_for_charts,
+                "timezone": team.timezones,
             }
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone_for_charts}
+            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezones}
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -613,7 +613,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
         result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone_for_charts}
+        return {"result": result, "timezone": team.timezones}
 
     # ******************************************
     # /projects/:id/insights/path
@@ -644,7 +644,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
-        return {"result": resp, "timezone": team.timezone_for_charts}
+        return {"result": resp, "timezone": team.timezones}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
