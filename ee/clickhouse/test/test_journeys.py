@@ -43,6 +43,10 @@ def journeys_for(
     for distinct_id, events in events_by_person.items():
         if create_people:
             people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
+        else:
+            people[distinct_id] = Person.objects.get(
+                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=team.pk
+            )
 
         for event in events:
             if "timestamp" not in event:
@@ -73,7 +77,17 @@ def journeys_for(
 def _create_all_events(all_events: List[Dict]):
     parsed = ""
     for event in all_events:
-        data: Dict[str, Any] = {"properties": {}, "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}
+        data: Dict[str, Any] = {
+            "properties": {},
+            "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "person_id": "00000000-0000-0000-0000-000000000000",
+            "person_properties": {},
+            "group0_properties": {},
+            "group1_properties": {},
+            "group2_properties": {},
+            "group3_properties": {},
+            "group4_properties": {},
+        }
         data.update(event)
         in_memory_event = InMemoryEvent(**data)
         parsed += f"""

@@ -91,7 +91,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
     def _get_extra_person_columns(self) -> str:
         if self._team.actor_on_events_querying_enabled:
             return " ".join(
-                f", {get_property_string_expr(self.EVENT_TABLE_ALIAS, column_name, var='person_properties', allow_denormalized_props=False)} as {column_name}"
+                f", {get_property_string_expr('events', column_name, var=f'{column_name}', allow_denormalized_props=False, column='person_properties', table_alias=self.EVENT_TABLE_ALIAS)} as {column_name}"
                 for column_name in self._extra_person_fields
             )
         else:
