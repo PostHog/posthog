@@ -1,5 +1,6 @@
 import {
     AvailableFeature,
+    ChartDisplayType,
     FunnelVizType,
     InsightEditorFilter,
     InsightEditorFilterGroup,
@@ -54,7 +55,12 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
     const isFunnels = filters.insight === InsightType.FUNNELS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
-    const hasBreakdown = isTrends || (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
+    const hasBreakdown =
+        isTrends ||
+        (isRetention &&
+            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+            filters.display !== ChartDisplayType.ActionsLineGraph) ||
+        (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
 
@@ -156,6 +162,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Breakdown',
+            count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
