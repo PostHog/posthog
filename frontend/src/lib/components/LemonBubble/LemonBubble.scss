@@ -38,12 +38,12 @@ $position-offset: 0.5rem;
     }
 
     &.LemonBubble--position-bottom-left {
-        top: -$position-offset;
-        right: -$position-offset;
+        bottom: -$position-offset;
+        left: -$position-offset;
     }
 
     &.LemonBubble--position-bottom-right {
-        top: -$position-offset;
+        bottom: -$position-offset;
         right: -$position-offset;
     }
 

@@ -8,12 +8,11 @@ interface IconWithCountProps {
     showZero?: boolean
 }
 
-export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+export function IconWithCount({ count, children, showZero }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBubble count={count} size="small" position="top-right" />
-            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
+            <LemonBubble count={count} size="small" position="top-right" showZero={showZero} />
         </span>
     )
 }
