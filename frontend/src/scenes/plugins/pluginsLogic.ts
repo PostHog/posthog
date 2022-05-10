@@ -15,6 +15,8 @@ import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 type PluginForm = FormInstance
 
@@ -658,6 +660,29 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
     },
 
     listeners: ({ actions, values }) => ({
+        toggleEnabledSuccess: ({ pluginConfigs, payload: { id, enabled } }) => {
+            const pluginConfig = Object.values(pluginConfigs).find(({ id: _id }) => _id === id)
+            if (pluginConfig) {
+                const { plugin } = pluginConfig
+                if (values.plugins[plugin]?.source_frontend) {
+                    if (enabled) {
+                        frontendAppsLogic.findMounted()?.actions.loadFrontendApp(plugin)
+                    } else {
+                        frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(plugin)
+                    }
+                }
+            }
+        },
+        editPluginSourceSuccess: ({ payload }) => {
+            const { source_frontend, id } = payload || {}
+            if (source_frontend && id && values.pluginConfigs[id]?.enabled) {
+                frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(id)
+                lemonToast.success(`Frontend Source saved! Reloading plugin in 5 seconds...`)
+                window.setTimeout(() => {
+                    frontendAppsLogic.findMounted()?.actions.loadFrontendApp(id, true)
+                }, 5000)
+            }
+        },
         checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
             const { updatablePlugins } = values
