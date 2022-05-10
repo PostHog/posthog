@@ -1,17 +1,16 @@
 @import '~/vars';
 
+.svg-dashboard-wrapper {
+    width: 95%;
+    margin: auto;
+}
+
 .histogram-container {
     display: flex;
     width: 100%;
 
     svg {
-        width: 100%;
-        height: 100%;
-        position: relative;
-        top: 0;
-        left: 0;
-        margin-left: 0;
-        margin-right: 0;
+        margin: auto;
 
         g#bars {
             fill: $funnel_alt;
