@@ -12,12 +12,21 @@ export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () => void): Promise<ScheduleControl> {
     status.info('⏰', 'Starting scheduling service...')
 
-    let stopped = false
-    let weHaveTheLock = false
-
     // Import this just to trigger build on ts-node-dev
     // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
     const _ = require('../../worker/worker')
+
+    if (!server.capabilities.scheduledTasks) {
+        return {
+            stopSchedule: async () => {
+                await waitForTasksToFinish(server)
+            },
+            reloadSchedule: () => Promise.resolve(),
+        }
+    }
+
+    let stopped = false
+    let weHaveTheLock = false
 
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
@@ -61,7 +70,7 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
         runEveryMinuteJob && schedule.cancelJob(runEveryMinuteJob)
 
         await unlock()
-        await waitForTasksToFinish(server!)
+        await waitForTasksToFinish(server)
     }
 
     const reloadSchedule = async () => {
