@@ -16,7 +16,7 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
     // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
     const _ = require('../../worker/worker')
 
-    if (!server.capabilities.scheduledTasks) {
+    if (!server.capabilities.pluginScheduledTasks) {
         return {
             stopSchedule: async () => {
                 await waitForTasksToFinish(server)

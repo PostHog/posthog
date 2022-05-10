@@ -43,7 +43,7 @@ export async function createHub(
         ...config,
     }
     if (capabilities === null) {
-        capabilities = { ingestion: true, scheduledTasks: true, jobs: true }
+        capabilities = { ingestion: true, pluginScheduledTasks: true, jobs: true }
     }
     const instanceId = new UUIDT()
 

@@ -182,7 +182,7 @@ export interface Hub extends PluginsServerConfig {
 
 export interface PluginServerCapabilities {
     ingestion?: boolean
-    scheduledTasks?: boolean
+    pluginScheduledTasks?: boolean
     jobs?: boolean
 }
 
