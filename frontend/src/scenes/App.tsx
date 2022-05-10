@@ -16,13 +16,13 @@ import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { appsLogic } from 'scenes/appsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { ToastCloseButton } from 'lib/components/lemonToast'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
-    connect: [teamLogic, organizationLogic, appsLogic],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

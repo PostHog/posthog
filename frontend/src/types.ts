@@ -816,7 +816,7 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
-export interface FrontendPlugin {
+export interface FrontendApp {
     id: number
     error?: any
     title?: string
