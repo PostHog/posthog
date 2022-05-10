@@ -176,6 +176,8 @@
                     "plugins": false,
                     "celery": false,
                     "db": true,
+                    "clickhouse": false,
+                    "kafka": false,
                     "initiated": true,
                     "cloud": false,
                     "realm": "hosted-clickhouse",

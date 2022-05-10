@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import pytest
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -719,6 +718,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(count_result, 0)
 
     def test_cohortpeople_with_cyclic_cohort_filter(self):
+        # Getting in such a state shouldn't be possible anymore.
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
 
@@ -728,55 +728,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        cohort1.calculate_people_ch(pending_version=0)
-
-        count_result = sync_execute(
-            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-        )[0][0]
-        self.assertEqual(count_result, 2)
-
-    @pytest.mark.skip("Old cohorts don't handle this case")
-    def test_cohortpeople_with_misdirecting_cyclic_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
-
-        cohort1: Cohort = Cohort.objects.create(
-            team=self.team, groups=[], name="cohort1",
-        )
-        cohort2: Cohort = Cohort.objects.create(
-            team=self.team, groups=[], name="cohort2",
-        )
-        cohort3: Cohort = Cohort.objects.create(
-            team=self.team, groups=[], name="cohort3",
-        )
-        cohort4: Cohort = Cohort.objects.create(
-            team=self.team, groups=[], name="cohort4",
-        )
-        cohort5: Cohort = Cohort.objects.create(
-            team=self.team, groups=[], name="cohort5",
-        )
-
-        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort2.id}]}]
-        cohort1.save()
-        cohort2.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort3.id}]}]
-        cohort2.save()
-        cohort3.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort4.id}]}]
-        cohort3.save()
-        cohort4.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort2.id}]}]
-        cohort4.save()
-        cohort5.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
-        cohort5.save()
-
-        # cohort1 depends on cohort2 which depends on cohort3 which depends on cohort4 which depends on cohort2
-        # and cohort5 depends on cohort1
-
-        with self.assertRaises(ValueError):
-            cohort5.calculate_people_ch(pending_version=0)
-
-        count_result = sync_execute(
-            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-        )[0][0]
-        self.assertEqual(count_result, 0)
+        # raised via simplify trying to simplify cyclic cohort filters. This should be impossible via API,
+        # which now has validation.
+        self.assertRaises(RecursionError, lambda: cohort1.calculate_people_ch(pending_version=0))
 
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(
@@ -788,7 +742,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
-    @pytest.mark.skip("Old cohorts don't handle this case")
     def test_query_with_multiple_new_style_cohorts(self):
 
         action1 = Action.objects.create(team=self.team, name="action1")
@@ -909,7 +862,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
-    # TODO: remove this when old queries are deprecated
     def test_new_and_old_aligned(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
 

@@ -1,3 +1,4 @@
+import './InstructionsPanel.scss'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import {
     AndroidInstructions,
@@ -6,21 +7,19 @@ import {
     FlutterInstructions,
     GoInstructions,
     IOSInstructions,
-    JSInstructions,
     NodeInstructions,
     PHPInstructions,
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
 } from 'scenes/ingestion/frameworks'
-import { Row } from 'antd'
 import React from 'react'
-import { API, MOBILE, BACKEND } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { WebInstructions } from '../frameworks/WebInstructions'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
-    PURE_JS: JSInstructions,
     NODEJS: NodeInstructions,
     GO: GoInstructions,
     RUBY: RubyInstructions,
@@ -35,59 +34,61 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, platform, framework } = useValues(ingestionLogic)
-    const { setFramework, setVerify } = useActions(ingestionLogic)
+    const { index, platform, framework, frameworkString } = useValues(ingestionLogic)
+    const { setFramework, setVerify, setPlatform } = useActions(ingestionLogic)
 
-    if (!framework) {
+    if (platform !== WEB && !framework) {
         return <></>
     }
 
-    const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework] as React.ComponentType
-
-    if (framework === API) {
-        return (
-            <CardContainer
-                index={index}
-                showFooter={true}
-                onSubmit={() => setVerify(true)}
-                onBack={() => setFramework(null)}
-            >
-                <h2>API</h2>
-                <p className="prompt-text">
-                    {
-                        "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
-                    }
-                </p>
-                <FrameworkSnippet />
-            </CardContainer>
-        )
-    }
+    const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework as string] as React.ComponentType
 
     return (
-        <CardContainer
-            index={index}
-            showFooter={true}
-            onSubmit={() => setVerify(true)}
-            onBack={() => setFramework(null)}
-        >
-            {platform === BACKEND ? (
-                <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
-                    <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
-                </Row>
-            ) : (
-                <h2>Setup</h2>
-            )}
-            {platform === BACKEND ? (
-                <>
+        <div className="InstructionsPanel mb-2">
+            {platform === WEB ? (
+                <CardContainer
+                    index={index}
+                    showFooter={true}
+                    onSubmit={() => setVerify(true)}
+                    onBack={() => setPlatform(null)}
+                >
+                    <WebInstructions />
+                </CardContainer>
+            ) : framework === API ? (
+                <CardContainer
+                    index={index}
+                    showFooter={true}
+                    onSubmit={() => setVerify(true)}
+                    onBack={() => setFramework(null)}
+                >
+                    <h2>{frameworkString}</h2>
                     <p className="prompt-text">
                         {
-                            'To send events from your backend or add custom events, you can use our framework specific libraries.'
+                            "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
                         }
                     </p>
                     <FrameworkSnippet />
-                </>
-            ) : null}
-            {platform === MOBILE ? <FrameworkSnippet /> : null}
-        </CardContainer>
+                </CardContainer>
+            ) : (
+                <CardContainer
+                    index={index}
+                    showFooter={true}
+                    onSubmit={() => setVerify(true)}
+                    onBack={() => setFramework(null)}
+                >
+                    <h1>{`Setup ${frameworkString}`}</h1>
+
+                    {platform === BACKEND ? (
+                        <>
+                            <p className="prompt-text">
+                                {`Follow the instructions below to send custom events from your ${frameworkString} backend.`}
+                            </p>
+                            <FrameworkSnippet />
+                        </>
+                    ) : null}
+                    {platform === MOBILE ? <FrameworkSnippet /> : null}
+                </CardContainer>
+            )}
+        </div>
     )
 }

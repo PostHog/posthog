@@ -43,6 +43,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup
+from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
@@ -101,7 +102,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
+        team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
+        new_filters = validated_data.get("filters")
+
+        if new_filters is not None and not team.behavioral_cohort_querying_enabled:
+            raise ValidationError("New cohort filters have not been enabled on this team")
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -123,13 +129,21 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
+    def validate_filters(self, request_filters: Dict):
+
+        if isinstance(request_filters, dict) and "properties" in request_filters:
+            return request_filters
+        else:
+            raise ValidationError("Filters must be a dictionary with a 'properties' key.")
+
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
-        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
+        cohort.filters = validated_data.get("filters", cohort.filters)
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
@@ -162,6 +176,13 @@ class CohortSerializer(serializers.ModelSerializer):
         )
 
         return cohort
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = (
+            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+        )
+        return representation
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -220,6 +241,10 @@ def will_create_loops(cohort: Cohort, new_properties: PropertyGroup) -> bool:
     cohorts_queue = [property.value for property in new_properties.flat if property.type == "cohort"]
     while cohorts_queue:
         current_cohort_id = cohorts_queue.pop()
+
+        if current_cohort_id in cohorts_seen:
+            return True
+
         try:
             current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
         except Cohort.DoesNotExist:

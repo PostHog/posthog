@@ -1863,6 +1863,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "pxpeterxu",
+      "name": "Peter Xu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2924388?v=4",
+      "profile": "https://wanderlog.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "kuberaspeaking",
+      "name": "Shruti Kuber",
+      "avatar_url": "https://avatars.githubusercontent.com/u/27010949?v=4",
+      "profile": "https://github.com/restackio",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

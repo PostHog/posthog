@@ -2,6 +2,7 @@ import { Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic } from '../ingestionLogic'
@@ -13,22 +14,18 @@ export function PanelFooter(): JSX.Element {
 
     return (
         <Col className="panel-footer">
+            <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
             {platform === BOOKMARKLET ? (
                 <div>
-                    <LemonButton
-                        type="primary"
-                        fullWidth
-                        center
-                        className="ingestion-btn"
-                        onClick={() => setVerify(true)}
-                    >
+                    <LemonButton type="primary" size="large" fullWidth center onClick={() => setVerify(true)}>
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
                     <LemonButton
+                        className="mt-05"
+                        size="large"
                         fullWidth
                         center
                         type="secondary"
-                        className="ingestion-btn inverted"
                         onClick={() => setPlatform(null)}
                     >
                         Back to setup
@@ -38,18 +35,20 @@ export function PanelFooter(): JSX.Element {
                 <div>
                     <LemonButton
                         type="primary"
+                        size="large"
                         fullWidth
                         center
-                        className="ingestion-btn"
+                        className="mb-05"
                         onClick={() => setVerify(true)}
                     >
                         Continue
                     </LemonButton>
                     <LemonButton
+                        className="mt-05"
+                        size="large"
                         fullWidth
                         center
                         type="secondary"
-                        className="ingestion-btn inverted"
                         onClick={() => setVerify(true)}
                     >
                         Skip for now
@@ -83,7 +82,7 @@ export function PanelHeader({ index }: { index: number }): JSX.Element {
 
 export function PanelSupport(): JSX.Element {
     return (
-        <p className="text-center mb-0 pb-05 text-muted">
+        <p className="text-center mb-0 pb-05 mt text-muted" style={{ fontSize: 16 }}>
             Need help?{' '}
             <a data-attr="support-docs-help" href="https://posthog.com/support" target="_blank">
                 Visit support

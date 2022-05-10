@@ -25,12 +25,6 @@ const HorizontalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDiv
     )
 }
 
-export const Default = HorizontalTemplate.bind({})
-Default.args = {}
-
-export const Large = HorizontalTemplate.bind({})
-Large.args = { large: true }
-
 const VerticalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDividerProps) => {
     return (
         <div className="flex-center">
@@ -50,5 +44,14 @@ const VerticalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDivid
     )
 }
 
+export const Default = HorizontalTemplate.bind({})
+Default.args = {}
+
+export const Large = HorizontalTemplate.bind({})
+Large.args = { large: true }
+
 export const Vertical = VerticalTemplate.bind({})
 Vertical.args = { vertical: true }
+
+export const ThickDashed = HorizontalTemplate.bind({})
+ThickDashed.args = { thick: true, dashed: true }

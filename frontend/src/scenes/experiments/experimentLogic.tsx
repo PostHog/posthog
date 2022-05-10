@@ -191,14 +191,14 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             },
         ],
     },
-    listeners: ({ values, props, actions }) => ({
+    listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
             let response: Experiment | null = null
-            const isUpdate = !!props.experimentId && props.experimentId !== 'new'
+            const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
                 if (isUpdate) {
                     response = await api.update(
-                        `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`,
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         {
                             ...values.newExperimentData,
                             parameters: {
@@ -323,7 +323,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
-            if (props.experimentId === 'new' || values.editingExistingExperiment) {
+            if (values.experimentId === 'new' || values.editingExistingExperiment) {
                 actions.createNewExperimentInsight()
             } else {
                 actions.createNewExperimentInsight(values.experimentData?.filters)
@@ -333,23 +333,23 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             actions.updateExperiments(experimentData)
         },
     }),
-    loaders: ({ values, props }) => ({
+    loaders: ({ values }) => ({
         experimentData: [
             null as Experiment | null,
             {
                 loadExperiment: async () => {
-                    if (props.experimentId && props.experimentId !== 'new') {
+                    if (values.experimentId && values.experimentId !== 'new') {
                         try {
                             const response = await api.get(
-                                `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
+                                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
                             )
                             return response as Experiment
                         } catch (error: any) {
                             if (error.status === 404) {
                                 router.actions.push(urls.experiments())
                             } else {
-                                lemonToast.error(`Failed to load experiment ${props.experimentId}`)
-                                throw new Error(`Failed to load experiment ${props.experimentId}`)
+                                lemonToast.error(`Failed to load experiment ${values.experimentId}`)
+                                throw new Error(`Failed to load experiment ${values.experimentId}`)
                             }
                         }
                     }
@@ -357,7 +357,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                 },
                 updateExperiment: async (update: Partial<Experiment>) => {
                     const response: Experiment = await api.update(
-                        `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`,
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         update
                     )
                     return response
@@ -370,7 +370,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                 loadExperimentResults: async () => {
                     try {
                         const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/results`
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
@@ -392,7 +392,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                         (values.experimentData?.secondary_metrics || []).map(async (_, index) => {
                             try {
                                 const secResults = await api.get(
-                                    `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/secondary_results?id=${index}`
+                                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
                                 )
                                 return secResults.result
                             } catch (error) {
@@ -405,8 +405,12 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         ],
     }),
     selectors: {
+        experimentId: [
+            () => [(_, props) => props.experimentId ?? 'new'],
+            (experimentId): Experiment['id'] => experimentId,
+        ],
         breadcrumbs: [
-            (s) => [s.experimentData, (_, props) => props.experimentId],
+            (s) => [s.experimentData, s.experimentId],
             (experimentData, experimentId): Breadcrumb[] => [
                 {
                     name: 'Experiments',
@@ -647,13 +651,14 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             },
         ],
     },
-    urlToAction: ({ actions, values, props }) => ({
-        '/experiments/:id': ({ id }) => {
+    urlToAction: ({ actions, values }) => ({
+        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return
             }
-            if (id) {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
@@ -663,7 +668,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
 
                 actions.setEditExperiment(false)
 
-                if (parsedId !== 'new' && parsedId === props.experimentId) {
+                if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
                 }
             }

@@ -99,7 +99,7 @@ export function findInsightFromMountedLogic(
         const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
         for (const dashModelId of Object.keys(dashboards || {})) {
             const insight = dashboardLogic
-                .findMounted({ id: dashModelId })
+                .findMounted({ id: parseInt(dashModelId) })
                 ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
             if (insight) {
                 return insight

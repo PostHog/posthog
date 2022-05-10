@@ -5,19 +5,19 @@ import { router } from 'kea-router'
 import { dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardPrivilegeLevel, OrganizationMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
-    InsightModel,
+    ChartDisplayType,
     DashboardLayoutSize,
     DashboardMode,
+    DashboardPlacement,
     DashboardType,
     FilterType,
+    InsightModel,
     InsightShortId,
     InsightType,
-    DashboardPlacement,
-    ChartDisplayType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -46,15 +46,20 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
-    connect: {
+    path: ['scenes', 'dashboard', 'dashboardLogic'],
+    connect: () => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
-    },
+    }),
 
     props: {} as DashboardLogicProps,
 
-    key: (props) => props.id || 'dashboardLogic',
+    key: (props) => {
+        if (typeof props.id === 'string') {
+            throw Error('Must init dashboardLogic with a numeric key')
+        }
+        return props.id ?? 'new'
+    },
 
     actions: {
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
@@ -95,6 +100,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     },
 
     loaders: ({ actions, props }) => ({
+        // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
             {
@@ -118,7 +124,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     } catch (error: any) {
                         actions.setReceivedErrorsFromAPI(true)
                         if (error.status === 404) {
-                            return []
+                            return null
                         }
                         throw error
                     }
@@ -190,7 +196,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         }
                         return {
                             ...state,
-                            items: newItems,
+                            items: newItems
+                                .filter((i) => !i.deleted)
+                                .filter((i) => (i.dashboards || []).includes(props.id || -1)),
                         } as DashboardType
                     }
                     return null
@@ -306,7 +314,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 interval: number
                 enabled: boolean
             },
-            { persist: true },
+            { persist: true, prefix: '1_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -322,24 +330,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
     }),
-    selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
+    selectors: () => ({
+        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
-            () => [selectors.allItemsLoading, selectors.refreshStatus],
+            (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
-        isRefreshing: [
-            () => [selectors.refreshStatus],
-            (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading,
-        ],
+        isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            () => [selectors.items],
+            (s) => [s.items],
             (items) => {
                 if (!items || !items.length) {
                     return null
@@ -358,9 +364,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboard, dashboardsModel.selectors.nameSortedDashboards],
-            (sharedDashboard, dashboards): DashboardType | null => {
-                return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
+            () => [
+                dashboardsModel.selectors.sharedDashboard,
+                dashboardsModel.selectors.nameSortedDashboards,
+                (_, { shareToken }) => shareToken,
+                (_, { id }) => id,
+            ],
+            (sharedDashboard, dashboards, shareToken, id): DashboardType | null => {
+                return shareToken ? sharedDashboard : dashboards.find((d) => d.id === id) || null
             },
         ],
         canEditDashboard: [
@@ -712,15 +723,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
-            if (values.allItems) {
-                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+            // Caching `allItems`, as the dashboard might have unmounted after the breakpoint,
+            // and "values.allItems" will then fail
+            const { allItems } = values
+            if (allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
-                    router.values.location.pathname === urls.dashboard(values.allItems.id) ||
+                    router.values.location.pathname === urls.dashboard(allItems.id) ||
                     router.values.location.pathname === urls.projectHomepage() ||
                     (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                    eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken, 10)
                 }
             } else {
                 // allItems has not loaded yet, report after API request is completed

@@ -373,7 +373,15 @@ def cors_response(request, response):
     response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
     response["Access-Control-Allow-Credentials"] = "true"
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response["Access-Control-Allow-Headers"] = "X-Requested-With"
+
+    # Handle headers that sentry randomly sends for every request.
+    #  Would cause a CORS failure otherwise.
+    allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+
+    response["Access-Control-Allow-Headers"] = "X-Requested-With" + (
+        "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
+    )
     return response
 
 
@@ -419,8 +427,8 @@ def load_data_from_request(request):
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
         scope.set_context("data", data)
-        scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
-        scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
+        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
         scope.set_tag("library.version", request.GET.get("ver", "unknown"))
 

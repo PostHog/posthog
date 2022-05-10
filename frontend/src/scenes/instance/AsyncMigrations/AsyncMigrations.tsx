@@ -247,7 +247,7 @@ export function AsyncMigrations(): JSX.Element {
                                     icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
                                     onClick={loadAsyncMigrations}
                                     type="secondary"
-                                    compact
+                                    size="small"
                                 >
                                     Refresh
                                 </LemonButton>

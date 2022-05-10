@@ -80,6 +80,13 @@ export function PathTab(): JSX.Element {
         }
     }
 
+    const disablePageviewSelector =
+        filter.include_event_types?.includes(PathType.PageView) && filter.include_event_types?.length === 1
+    const disableScreenviewSelector =
+        filter.include_event_types?.includes(PathType.Screen) && filter.include_event_types?.length === 1
+    const disableCustomEventSelector =
+        filter.include_event_types?.includes(PathType.CustomEvent) && filter.include_event_types?.length === 1
+
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
         const targetEntity =
             filters.events?.filter((event: Record<string, any>) => {
@@ -158,10 +165,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn left ant-btn"
-                                onClick={() => onClickPathtype(PathType.PageView)}
+                                onClick={() => !disablePageviewSelector && onClickPathtype(PathType.PageView)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.PageView)}
+                                    disabled={disablePageviewSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -174,10 +182,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn center ant-btn"
-                                onClick={() => onClickPathtype(PathType.Screen)}
+                                onClick={() => !disableScreenviewSelector && onClickPathtype(PathType.Screen)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.Screen)}
+                                    disabled={disableScreenviewSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -190,10 +199,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn right ant-btn"
-                                onClick={() => onClickPathtype(PathType.CustomEvent)}
+                                onClick={() => !disableCustomEventSelector && onClickPathtype(PathType.CustomEvent)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.CustomEvent)}
+                                    disabled={disableCustomEventSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -392,7 +402,7 @@ export function PathTab(): JSX.Element {
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filter.properties ? (
                         <PropertyGroupFilters
-                            propertyFilters={convertPropertiesToPropertyGroup(filter.properties)}
+                            value={convertPropertiesToPropertyGroup(filter.properties)}
                             onChange={(properties: PropertyGroupFilter) => {
                                 setFilter({ properties })
                             }}

@@ -10,9 +10,11 @@ services:
         ports:
             - '5432:5432'
     redis:
-        image: 'redis:6.2-alpine'
+        image: redis:6.2.7-alpine
         ports:
             - '6379:6379'
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -33,7 +35,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         depends_on:
@@ -73,11 +75,6 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -103,8 +100,3 @@ services:
             - redis
             - clickhouse
             - kafka
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka

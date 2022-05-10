@@ -27,6 +27,7 @@ export type ServerInstance = {
     piscina: Piscina
     queue: Queue
     mmdb?: ReaderModel
+    kafkaSuccessiveHealthchecksFailed: number
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
@@ -260,7 +261,7 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverConfig)
+        httpServer = createHttpServer(hub!, serverConfig)
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')

@@ -384,6 +384,18 @@ code.code {
     padding-left: $default_spacing;
 }
 
+.space-y-05 {
+    & > * + * {
+        @extend .mt-05;
+    }
+}
+
+.space-y {
+    & > * + * {
+        @extend .mt;
+    }
+}
+
 .full-width {
     width: 100%;
 }
@@ -399,6 +411,14 @@ code.code {
 .space-between-items {
     display: flex;
     justify-content: space-between;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.flex {
+    display: flex;
 }
 
 .flex-center {
@@ -545,7 +565,7 @@ input::-ms-clear {
 }
 
 .card-elevated {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
 }
 
 // Horizontal scrollability indication
