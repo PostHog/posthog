@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta
 
-from ee.clickhouse.queries.cohort_query import CohortQuery
+from ee.clickhouse.queries.cohort_query import CohortQuery, check_negation_clause
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.property import Property, PropertyGroup
 from posthog.test.base import (
     BaseTest,
     _create_event,
@@ -1324,6 +1326,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             q, params = CohortQuery(filter=filter, team=self.team).get_query()
+            # Precalculated cohorts should not be used as is
+            # since we want cohort calculation with cohort properties to not be out of sync
+            self.assertTrue("cohortpeople" not in q)
             res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
@@ -1358,6 +1363,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             q, params = CohortQuery(filter=filter, team=self.team).get_query()
+            self.assertTrue("cohortpeople" not in q)
             res = sync_execute(q, params)
 
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
@@ -1937,3 +1943,161 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual(set([p1.uuid, p2.uuid]), set([r[0] for r in res]))
+
+
+class TestCohortNegationValidation(BaseTest):
+    def test_basic_valid_negation_tree(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(key="name", value="test", type="person",),
+                Property(key="email", value="xxx", type="person", negation=True,),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_valid_negation_tree_with_extra_layers(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR, values=[Property(key="email", value="xxx", type="person",),]
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_invalid_negation_tree_with_extra_layers(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, True)
+
+    def test_valid_negation_tree_with_extra_layers_recombining_at_top(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,  # top level AND protects the 2 negations from being invalid
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.OR, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_invalid_negation_tree_no_positive_filter(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.OR,
+                    values=[Property(key="name", value="test", type="person", negation=True,),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, False)
+
+    def test_empty_property_group(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[],  # type: ignore
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, False)
+
+    def test_basic_invalid_negation_tree(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(key="email", value="xxx", type="person", negation=True,),],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, False)
+
+    def test_basic_valid_negation_tree_with_no_negations(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
