@@ -1,7 +1,8 @@
 import * as Sentry from '@sentry/node'
+import * as nodeSchedule from 'node-schedule'
 
-import { startPluginsServer } from '../src/main/pluginsServer'
-import { LogLevel } from '../src/types'
+import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
+import { LogLevel, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
@@ -12,23 +13,37 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.setTimeout(60000) // 60 sec timeout
 
+function numberOfScheduledJobs() {
+    return Object.keys(nodeSchedule.scheduledJobs).length
+}
+
 describe('server', () => {
-    test('startPluginsServer', async () => {
+    let pluginsServer: ServerInstance | null = null
+
+    function createPluginServer(config: Partial<PluginsServerConfig> = {}) {
+        return startPluginsServer(
+            {
+                WORKER_CONCURRENCY: 2,
+                LOG_LEVEL: LogLevel.Debug,
+                ...config,
+            },
+            makePiscina
+        )
+    }
+
+    afterEach(async () => {
+        await pluginsServer?.stop()
+        pluginsServer = null
+    })
+
+    test('startPluginsServer does not error', async () => {
         const testCode = `
         async function processEvent (event) {
             return event
         }
     `
         await resetTestDatabase(testCode)
-        const pluginsServer = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                LOG_LEVEL: LogLevel.Debug,
-            },
-            makePiscina
-        )
-
-        await pluginsServer.stop()
+        pluginsServer = await createPluginServer()
     })
 
     describe('plugin server staleness check', () => {
@@ -40,14 +55,9 @@ describe('server', () => {
         `
             await resetTestDatabase(testCode)
 
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 2,
-                    STALENESS_RESTART_SECONDS: 5,
-                    LOG_LEVEL: LogLevel.Debug,
-                },
-                makePiscina
-            )
+            pluginsServer = await createPluginServer({
+                STALENESS_RESTART_SECONDS: 5,
+            })
 
             await delay(10000)
 
@@ -66,8 +76,19 @@ describe('server', () => {
                     },
                 }
             )
-
-            await pluginsServer.stop()
         })
+    })
+
+    test('starting and stopping node-schedule scheduled jobs', async () => {
+        expect(numberOfScheduledJobs()).toEqual(0)
+
+        pluginsServer = await createPluginServer()
+
+        expect(numberOfScheduledJobs()).toBeGreaterThan(1)
+
+        await pluginsServer.stop()
+        pluginsServer = null
+
+        expect(numberOfScheduledJobs()).toEqual(0)
     })
 })
