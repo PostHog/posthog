@@ -128,7 +128,7 @@ export class LazyPluginVM {
                     }
                     await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    await this.upgradePluginCapabilitiesIfNeeded(vm)
+                    await this.updatePluginCapabilitiesIfNeeded(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
@@ -213,7 +213,7 @@ export class LazyPluginVM {
         void disablePlugin(this.hub, this.pluginConfig.id)
     }
 
-    private async upgradePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
+    private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
         if (!this.pluginConfig.plugin) {
             throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
         }
