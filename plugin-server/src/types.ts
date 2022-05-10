@@ -140,7 +140,7 @@ export interface PluginsServerConfig extends Record<string, any> {
 
 export interface Hub extends PluginsServerConfig {
     instanceId: UUID
-    // Capabilities for this hub
+    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
