@@ -10,7 +10,14 @@ export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting } = useValues(userLogic)
 
     return (
-        <Form logic={userLogic} formKey="userDetails" className="ant-form-vertical ant-form-hide-required-mark">
+        <Form
+            logic={userLogic}
+            formKey="userDetails"
+            className="ant-form-vertical ant-form-hide-required-mark"
+            style={{
+                maxWidth: 400,
+            }}
+        >
             <Field name="first_name" label="Name">
                 {({ value, onChange }) => (
                     <Input
