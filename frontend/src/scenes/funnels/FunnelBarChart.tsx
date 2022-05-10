@@ -124,7 +124,12 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>
-            <LemonRow icon={<IconTrendingFlat />} status="success" title="Users who converted in this step">
+            <LemonRow
+                icon={<IconTrendingFlat />}
+                status="success"
+                style={{ color: 'unset' }} // Prevent status color from affecting text
+                title="Users who converted in this step"
+            >
                 {showPersonsModal ? (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, converted: true })}
@@ -139,7 +144,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             <LemonRow
                 icon={<IconTrendingFlatDown />}
                 status="danger"
-                style={{ color: 'inherit' }}
+                style={{ color: 'unset' }} // Prevent status color from affecting text
                 title="Users who dropped of at this step"
             >
                 {showPersonsModal ? (
