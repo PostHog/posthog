@@ -41,7 +41,7 @@ describe('e2e celery & postgres benchmark', () => {
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        queue = startResponse.queue
+        queue = startResponse.queue!
         redis = await hub.redisPool.acquire()
 
         await redis.del(hub.PLUGINS_CELERY_QUEUE)
