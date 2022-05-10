@@ -17,7 +17,7 @@ export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
 }
 
 export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
-    propertyGroupFilter?: PropertyGroupFilter
+    value?: PropertyGroupFilter
     onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {

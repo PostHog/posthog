@@ -1,12 +1,14 @@
 import React from 'react'
-import { Input, Button, Form } from 'antd'
+import { Input, Form } from 'antd'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { PasswordInput } from 'scenes/authentication/PasswordInput'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function ChangePassword(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
+
     const [form] = Form.useForm()
 
     const updateCompleted = (): void => {
@@ -20,6 +22,9 @@ export function ChangePassword(): JSX.Element {
             layout="vertical"
             requiredMark={false}
             form={form}
+            style={{
+                maxWidth: 400,
+            }}
         >
             <Form.Item
                 label="Current Password"
@@ -32,7 +37,6 @@ export function ChangePassword(): JSX.Element {
                 name="current_password"
             >
                 <Input.Password
-                    style={{ maxWidth: 400 }}
                     autoComplete="current-password"
                     disabled={(!!user && !user.has_password) || userLoading}
                     placeholder={user && !user.has_password ? 'signed up with external login' : '********'}
@@ -41,9 +45,9 @@ export function ChangePassword(): JSX.Element {
             </Form.Item>
             <PasswordInput label="New Password" showStrengthIndicator style={{ maxWidth: 400 }} validateMinLength />
             <Form.Item>
-                <Button type="primary" htmlType="submit" loading={userLoading}>
-                    Change Password
-                </Button>
+                <LemonButton type="primary" htmlType="submit" loading={userLoading}>
+                    Change password
+                </LemonButton>
             </Form.Item>
         </Form>
     )
