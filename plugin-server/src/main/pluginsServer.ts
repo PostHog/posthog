@@ -8,7 +8,7 @@ import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
 import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
-import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
+import { Hub, JobQueueConsumerControl, PluginScheduleControl, PluginsServerConfig, Queue } from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
@@ -19,7 +19,7 @@ import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startSchedule } from './services/schedule'
+import { startPluginSchedules } from './services/schedule'
 import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
@@ -60,7 +60,7 @@ export async function startPluginsServer(
     let redisQueueForPluginJobs: Queue | undefined | null
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
-    let scheduleControl: ScheduleControl | undefined
+    let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
@@ -89,7 +89,7 @@ export async function startPluginsServer(
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
-        await scheduleControl?.stopSchedule()
+        await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -150,7 +150,7 @@ export async function startPluginsServer(
         piscina = makePiscina(serverConfig)
 
         if (!hub.capabilities.pluginScheduledTasks) {
-            scheduleControl = await startSchedule(hub, piscina)
+            pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
         jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
 
@@ -179,7 +179,7 @@ export async function startPluginsServer(
 
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await scheduleControl?.reloadSchedule()
+                await pluginScheduleControl?.reloadSchedule()
             },
             'reload-action': async (message) =>
                 await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),

@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import * as schedule from 'node-schedule'
 
-import { Hub, PluginConfigId, ScheduleControl } from '../../types'
+import { Hub, PluginConfigId, PluginScheduleControl } from '../../types'
 import { processError } from '../../utils/db/error'
 import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
@@ -9,7 +9,11 @@ import { delay } from '../../utils/utils'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
-export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () => void): Promise<ScheduleControl> {
+export async function startPluginSchedules(
+    server: Hub,
+    piscina: Piscina,
+    onLock?: () => void
+): Promise<PluginScheduleControl> {
     status.info('⏰', 'Starting scheduling service...')
 
     // Import this just to trigger build on ts-node-dev

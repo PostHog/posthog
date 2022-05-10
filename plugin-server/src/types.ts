@@ -816,7 +816,7 @@ export enum Database {
     Postgres = 'postgres',
 }
 
-export interface ScheduleControl {
+export interface PluginScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
 }
