@@ -353,7 +353,7 @@ describe('DB', () => {
                 uuid,
                 [distinctId]
             )
-            db.personAndGroupsCachingEnabledTeams.add(2) // enabled later, i.e. previous not cached
+            db.personAndGroupsCachingEnabledTeams.add(2)
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
             expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())

@@ -185,6 +185,7 @@ export class LazyPluginVM {
                 `setupPlugin failed (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
                 PluginLogEntryType.Error
             )
+            await this.createLogEntry(error.message, PluginLogEntryType.Error)
             this.clearRetryTimeoutIfExists()
             this.initRetryTimeout = setTimeout(async () => {
                 await this._setupPlugin(vm)

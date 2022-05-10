@@ -139,10 +139,8 @@ class Cohort(models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         if self.filters:
-            properties = Filter(data=self.filters, team=self.team).property_groups
-            if not properties.values:
-                raise ValueError("Cohort has no properties")
-            return properties
+            # Do not try simplifying properties at this stage. We'll let this happen at query time.
+            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 

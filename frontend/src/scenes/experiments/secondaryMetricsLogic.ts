@@ -55,7 +55,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
         createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         showModal: true,
-        hideModal: false,
+        hideModal: true,
         changeInsightType: (type?: InsightType) => ({ type }),
         setCurrentMetricName: (name: string) => ({ name }),
         deleteMetric: (metricId: number) => ({ metricId }),

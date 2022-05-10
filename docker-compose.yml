@@ -11,6 +11,7 @@ services:
     redis:
         container_name: posthog_redis
         image: redis:6.2.7-alpine
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -31,7 +32,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         depends_on:
@@ -66,11 +67,6 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
         image: posthog/posthog:latest
-        links:
-            - db:db
-            - redis:redis
-            - clickhouse:clickhouse
-            - kafka:kafka
         ports:
             - 8000:8000
             - 80:8000

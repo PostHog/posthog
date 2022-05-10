@@ -26,19 +26,20 @@
 
     &.LemonRow--status-danger {
         color: var(--danger);
-
         .LemonRow__icon {
             color: var(--danger);
         }
     }
 
     &.LemonRow--status-warning {
+        color: var(--warning);
         .LemonRow__icon {
             color: var(--warning);
         }
     }
 
     &.LemonRow--status-success {
+        color: var(--success);
         .LemonRow__icon {
             color: var(--success);
         }
@@ -105,7 +106,24 @@
     padding: 0;
 }
 
-.LemonRow--compact {
+.LemonRow--large {
+    min-height: 3.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+
+    &.LemonRow--symbolic {
+        min-height: 0;
+        height: 1.75rem;
+        width: 1.75rem;
+        padding: 0;
+    }
+
+    .LemonRow__icon {
+        font-size: 1.75rem;
+    }
+}
+
+.LemonRow--small {
     min-height: 2rem;
     padding: 0.125rem 0.5rem;
 

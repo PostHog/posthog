@@ -4,7 +4,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { teamLogic } from 'scenes/teamLogic'
 import { AppContext, PropertyDefinition } from '~/types'
 import { useMocks } from '~/mocks/jest'
 
@@ -49,7 +48,6 @@ describe('infiniteListLogic', () => {
             },
         })
         initKeaTests()
-        teamLogic.mount()
     })
 
     const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {

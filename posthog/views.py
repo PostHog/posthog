@@ -13,6 +13,7 @@ from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
 from posthog.email import is_email_available
+from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.utils import (
     get_available_timezones_with_offsets,
@@ -94,6 +95,8 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "redis": is_redis_alive() or settings.TEST,
         "plugins": is_plugin_server_alive() or settings.TEST,
         "celery": is_celery_alive() or settings.TEST,
+        "clickhouse": is_clickhouse_connected() or settings.TEST,
+        "kafka": is_kafka_connected() or settings.TEST,
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
         "cloud": settings.MULTI_TENANCY,
