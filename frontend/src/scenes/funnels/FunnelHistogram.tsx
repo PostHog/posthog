@@ -23,6 +23,7 @@ export function FunnelHistogram(): JSX.Element {
     return (
         <div
             className={clsx('funnel-histogram-outer-container', { scrollable: !isViewedOnDashboard })}
+            style={{ flexGrow: 1 }}
             ref={ref}
             data-attr="funnel-histogram"
         >
