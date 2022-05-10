@@ -89,7 +89,7 @@
                     WHERE team_id = 2
                       AND event IN ['step one', 'step three', 'step two']
                       AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2021-01-09 23:59:59', 'UTC') ) events
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
