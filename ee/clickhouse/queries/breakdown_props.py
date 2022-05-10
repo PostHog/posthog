@@ -16,6 +16,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -51,7 +52,7 @@ def get_breakdown_prop_values(
     groups_join_params: Dict = {}
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
-        outer_properties = props_to_filter
+        outer_properties: Optional[PropertyGroup] = props_to_filter
         person_id_joined_alias = "e.person_id"
     else:
         outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer

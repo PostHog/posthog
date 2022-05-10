@@ -224,7 +224,8 @@ class ClickhouseTrendsBreakdown:
 
         # :TRICKY: We only support string breakdown for event/person properties
         assert isinstance(self.filter.breakdown, str)
-        breakdown_value = self._get_breakdown_value()
+
+        breakdown_value = self._get_breakdown_value(self.filter.breakdown)
 
         return (
             {"values": values_arr},
@@ -233,14 +234,15 @@ class ClickhouseTrendsBreakdown:
             breakdown_value,
         )
 
-    def _get_breakdown_value(self):
+    def _get_breakdown_value(self, breakdown: str):
+
         if self.filter.breakdown_type == "person":
-            breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
+            breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
         elif self.filter.breakdown_type == "group":
             properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
-            breakdown_value, _ = get_property_string_expr("groups", self.filter.breakdown, "%(key)s", properties_field)
+            breakdown_value, _ = get_property_string_expr("groups", breakdown, "%(key)s", properties_field)
         else:
-            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
+            breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         return breakdown_value
 
@@ -382,15 +384,13 @@ class ClickhouseTrendsBreakdown_PersonsOnEvents(ClickhouseTrendsBreakdown):
     def _groups_join_conditino(self) -> Tuple[str, Dict]:
         return "", {}
 
-    def _get_breakdown_value(self):
+    def _get_breakdown_value(self, breakdown: str):
         if self.filter.breakdown_type == "person":
-            breakdown_value, _ = get_property_string_expr(
-                "events", self.filter.breakdown, "%(key)s", "person_properties"
-            )
+            breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
         elif self.filter.breakdown_type == "group":
             properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
-            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", properties_field)
+            breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
         else:
-            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
+            breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         return breakdown_value
