@@ -12,6 +12,7 @@ import { Hub, JobQueueConsumerControl, PluginScheduleControl, PluginsServerConfi
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
+import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
@@ -19,7 +20,7 @@ import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { cancelAllScheduledJobs, startPluginSchedules } from './services/schedule'
+import { startPluginSchedules } from './services/schedule'
 import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
@@ -75,10 +76,10 @@ export async function startPluginsServer(
         }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
+        cancelAllScheduledJobs()
         await queue?.stop()
         await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
-        cancelAllScheduledJobs()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>

@@ -3,6 +3,7 @@ import * as schedule from 'node-schedule'
 
 import { Hub, PluginConfigId, PluginScheduleControl } from '../../types'
 import { processError } from '../../utils/db/error'
+import { cancelAllScheduledJobs } from '../../utils/node-schedule'
 import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
@@ -73,12 +74,6 @@ export async function startPluginSchedules(
     }
 
     return { stopSchedule, reloadSchedule }
-}
-
-export function cancelAllScheduledJobs(): void {
-    Object.values(schedule.scheduledJobs).forEach((job) => {
-        job.cancel()
-    })
 }
 
 export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
