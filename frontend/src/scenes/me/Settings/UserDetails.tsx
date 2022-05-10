@@ -19,17 +19,13 @@ export function UserDetails(): JSX.Element {
             }}
         >
             <Field name="first_name" label="Name">
-                {({ value, onChange }) => (
-                    <Input
-                        className="ph-ignore-input"
-                        autoFocus
-                        data-attr="settings-update-first-name"
-                        placeholder="Jane Doe"
-                        disabled={userLoading}
-                        value={value}
-                        onChange={onChange}
-                    />
-                )}
+                <Input
+                    className="ph-ignore-input"
+                    autoFocus
+                    data-attr="settings-update-first-name"
+                    placeholder="Jane Doe"
+                    disabled={userLoading}
+                />
             </Field>
 
             <LemonButton
