@@ -13,6 +13,8 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     actions({
         loadFrontendApp: (id: number, reload = false) => ({ id, reload }),
         unloadFrontendApp: (id: number) => ({ id }),
+        setAppConfigs: (appConfigs: Record<string, Record<string, any>>) => ({ appConfigs }),
+        setAppConfig: (id: number, appConfig: Record<string, any>) => ({ id, appConfig }),
     }),
     defaults({
         frontendApps: {} as Record<string, FrontendApp>,
@@ -51,11 +53,21 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                 return rest
             },
         },
+        appConfigs: [
+            {} as Record<string, Record<string, any>>,
+            {
+                setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
+                setAppConfig: (state, { id, appConfig }) => ({ ...state, [id]: appConfig }),
+            },
+        ],
     }),
     afterMount(({ actions }) => {
-        const appContext = getAppContext()
-        for (const id of appContext?.frontend_apps || []) {
-            actions.loadFrontendApp(id)
+        const appConfigs = getAppContext()?.frontend_apps || {}
+        if (Object.keys(appConfigs).length > 0) {
+            actions.setAppConfigs(appConfigs)
+            for (const id of Object.keys(appConfigs)) {
+                actions.loadFrontendApp(parseInt(id))
+            }
         }
     }),
 ])

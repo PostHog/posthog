@@ -268,7 +268,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
-                posthog_app_context["frontend_apps"] = get_active_plugins(team.pk)
+                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -304,17 +304,28 @@ def get_default_event_name():
     return "$pageview"
 
 
-def get_active_plugins(team_id: int) -> List[int]:
+def get_frontend_apps(team_id: int) -> List[int]:
     from posthog.models import Plugin
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
         .exclude(transpiled_frontend__isnull=True)
         .exclude(transpiled_frontend__exact="")
-        .values("id")
+        .values("id", "pluginconfig__config", "config_schema")
         .all()
     )
-    return [p["id"] for p in plugin_configs]
+
+    frontend_apps = {}
+    for p in plugin_configs:
+        config = p["pluginconfig__config"]
+        config_schema = p["config_schema"]
+        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        for key in secret_fields:
+            if key in config:
+                config[key] = "** SECRET FIELD **"
+        frontend_apps[p["id"]] = config
+
+    return frontend_apps
 
 
 def json_uuid_convert(o):

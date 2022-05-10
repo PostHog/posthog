@@ -4,6 +4,7 @@ import { FrontendApp } from '~/types'
 import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 export interface FrontendAppSceneLogicProps {
     /** Used as the logic's key */
@@ -13,16 +14,24 @@ export interface FrontendAppSceneLogicProps {
 /** Logic responsible for loading the injected frontend scene */
 export const frontendAppSceneLogic = kea<frontendAppSceneLogicType<FrontendAppSceneLogicProps>>([
     path(['scenes', 'plugins', 'Frontend']),
-    connect([frontendAppsLogic]),
+    connect({ values: [frontendAppsLogic, ['frontendApps', 'appConfigs']] }),
     props({} as FrontendAppSceneLogicProps),
     key((props) => props.id),
     selectors({
         frontendApp: [
-            () => [frontendAppsLogic.selectors.frontendApps, (_, props) => props.id],
-            (apps, id): FrontendApp => apps[id],
+            (s) => [s.frontendApps, (_, props) => props.id],
+            (frontendApps, id): FrontendApp => frontendApps[id],
+        ],
+        appConfig: [
+            (s) => [s.appConfigs, (_, props) => props.id],
+            (appConfigs, id): Record<string, any> => appConfigs[id],
         ],
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
-        builtLogic: [(s) => [s.logic, (_, props) => props], (logic: any, props: any) => logic?.(props)],
+        logicProps: [
+            (s) => [(_, props) => props.id, s.appConfig],
+            (id, appConfig) => ({ id, url: urls.frontendApp(id), config: appConfig }),
+        ],
+        builtLogic: [(s) => [s.logic, s.logicProps], (logic: any, props: any) => logic?.(props)],
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
         breadcrumbsSelector: [(s) => [s.builtLogic], (builtLogic) => builtLogic?.selectors.breadcrumbs],
         breadcrumbs: [

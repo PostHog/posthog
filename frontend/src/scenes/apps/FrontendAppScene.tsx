@@ -1,14 +1,14 @@
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
 import { Skeleton } from 'antd'
 import { frontendAppSceneLogic } from 'scenes/apps/frontendAppSceneLogic'
 
-export function FrontendAppScene(props: Record<string, any> = {}): JSX.Element {
-    const { Component } = useValues(frontendAppSceneLogic)
+export function FrontendAppScene(): JSX.Element {
+    const { Component, logicProps } = useValues(frontendAppSceneLogic)
+
     if (Component) {
-        return <Component {...props} />
+        return <Component {...logicProps} />
     }
     return (
         <div style={{ marginTop: 20 }}>
@@ -20,5 +20,5 @@ export function FrontendAppScene(props: Record<string, any> = {}): JSX.Element {
 export const scene: SceneExport = {
     component: FrontendAppScene,
     logic: frontendAppSceneLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: parseInt(id) ?? 0, url: id ? urls.frontendApp(id) : '' }),
+    paramsToProps: ({ params: { id } }) => ({ id: parseInt(id) ?? 0 }),
 }
