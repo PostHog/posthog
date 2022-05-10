@@ -101,7 +101,7 @@ class SignupSerializer(serializers.Serializer):
                 start=dt.datetime.now() - dt.timedelta(days=30), end=dt.datetime.now(), n_clusters=1,
             )
             team = MatrixManager.create_team_and_run(matrix, organization, new_user)
-            print(f"[DEMO] Prepared in {time.time() - demo_time}!")
+            print(f"[DEMO] Prepared in {time.time() - demo_time}!")  # noqa: T001
             self._organization, self._team, self._user = organization, team, new_user
         else:
             self._organization, self._team, self._user = existing_user.organization, existing_user.team, existing_user
