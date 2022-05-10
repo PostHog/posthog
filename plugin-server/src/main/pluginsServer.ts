@@ -152,7 +152,9 @@ export async function startPluginsServer(
         if (hub.capabilities.pluginScheduledTasks) {
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
-        jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        if (hub.capabilities.jobs) {
+            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        }
 
         const queues = await startQueues(hub, piscina)
 
