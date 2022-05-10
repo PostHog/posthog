@@ -1176,6 +1176,24 @@ export class DB {
                             ...(typeof event['properties'] === 'string'
                                 ? { properties: JSON.parse(event.properties) }
                                 : {}),
+                            ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
+                                ? { person_properties: JSON.parse(event.person_properties) }
+                                : {}),
+                            ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
+                                ? { group0_properties: JSON.parse(event.group0_properties) }
+                                : {}),
+                            ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
+                                ? { group1_properties: JSON.parse(event.group1_properties) }
+                                : {}),
+                            ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
+                                ? { group2_properties: JSON.parse(event.group2_properties) }
+                                : {}),
+                            ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
+                                ? { group3_properties: JSON.parse(event.group3_properties) }
+                                : {}),
+                            ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
+                                ? { group4_properties: JSON.parse(event.group4_properties) }
+                                : {}),
                             timestamp: clickHouseTimestampToISO(event.timestamp),
                         } as ClickHouseEvent)
                 ) || []

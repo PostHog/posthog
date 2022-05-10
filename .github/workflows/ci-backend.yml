@@ -204,6 +204,9 @@ jobs:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -214,6 +217,19 @@ jobs:
                   clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
+
+            - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
+              if: ${{ matrix.clickhouse-server-image-version == '21.11.11.1' }}
+              with:
+                  # The arguments for the `git add` command (see the paragraph below for more info)
+                  # Default: '.'
+                  add: 'ee/clickhouse'
+
+                  default_author: github_actions
+
+                  # The message for the commit.
+                  # Default: 'Commit from GitHub Actions (name of the workflow)'
+                  message: 'Update snapshots'
 
     cloud:
         needs: changes

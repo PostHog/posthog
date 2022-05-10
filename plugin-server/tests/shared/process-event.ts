@@ -2423,6 +2423,83 @@ export const createProcessEventTests = (
                 version: 2,
             })
         })
+
+        test('person and group properties on events', async () => {
+            // setup 2 groups with properties
+            hub.db.personAndGroupsCachingEnabledTeams.add(2)
+            await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
+
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: '$groupidentify',
+                    properties: {
+                        token: team.api_token,
+                        distinct_id: 'distinct_id1',
+                        $group_type: 'organization',
+                        $group_key: 'org:5',
+                        $group_set: {
+                            foo: 'bar',
+                        },
+                    },
+                } as any as PluginEvent,
+                team.id,
+                now,
+                now,
+                new UUIDT().toString()
+            )
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: '$groupidentify',
+                    properties: {
+                        token: team.api_token,
+                        distinct_id: 'distinct_id1',
+                        $group_type: 'second',
+                        $group_key: 'second_key',
+                        $group_set: {
+                            pineapple: 'yummy',
+                        },
+                    },
+                } as any as PluginEvent,
+                team.id,
+                now,
+                now,
+                new UUIDT().toString()
+            )
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: 'test event',
+                    properties: {
+                        token: team.api_token,
+                        distinct_id: 'distinct_id1',
+                        $set: { new: 5 },
+                        $group_0: 'org:5',
+                        $group_1: 'second_key',
+                    },
+                } as any as PluginEvent,
+                team.id,
+                now,
+                now,
+                new UUIDT().toString()
+            )
+
+            const events = await hub.db.fetchEvents()
+            const event = [...events].find((e: any) => e['event'] === 'test event')
+            console.log(event)
+            expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
+            expect(event?.group0_properties).toEqual({ foo: 'bar' })
+            expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
+
+            hub.db.personAndGroupsCachingEnabledTeams.delete(2)
+        })
     }
 
     test('set and set_once on the same key', async () => {

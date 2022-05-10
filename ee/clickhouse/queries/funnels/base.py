@@ -115,6 +115,7 @@ class ClickhouseFunnelBase(ABC):
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
+
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
 

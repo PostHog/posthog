@@ -327,7 +327,6 @@ export function SavedInsights(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
-    console.log(showActivityLog)
 
     return (
         <div className="saved-insights">
