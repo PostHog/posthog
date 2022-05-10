@@ -60,7 +60,7 @@ export async function startPluginSchedules(
 
     const stopSchedule = async () => {
         stopped = true
-        cancelAllJobs()
+        cancelAllScheduledJobs()
 
         await unlock()
         await waitForTasksToFinish(server)
@@ -75,7 +75,7 @@ export async function startPluginSchedules(
     return { stopSchedule, reloadSchedule }
 }
 
-function cancelAllJobs() {
+export function cancelAllScheduledJobs(): void {
     Object.values(schedule.scheduledJobs).forEach((job) => {
         job.cancel()
     })

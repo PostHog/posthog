@@ -19,7 +19,7 @@ import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startPluginSchedules } from './services/schedule'
+import { cancelAllScheduledJobs, startPluginSchedules } from './services/schedule'
 import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
@@ -50,11 +50,6 @@ export async function startPluginsServer(
 
     let pubSub: PubSub | undefined
     let hub: Hub | undefined
-    let actionsReloadJob: schedule.Job | undefined
-    let pingJob: schedule.Job | undefined
-    let piscinaStatsJob: schedule.Job | undefined
-    let internalMetricsStatsJob: schedule.Job | undefined
-    let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
     let redisQueueForPluginJobs: Queue | undefined | null
@@ -83,11 +78,7 @@ export async function startPluginsServer(
         await queue?.stop()
         await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
-        actionsReloadJob && schedule.cancelJob(actionsReloadJob)
-        pingJob && schedule.cancelJob(pingJob)
-        pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
-        piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
-        internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
+        cancelAllScheduledJobs()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -197,18 +188,18 @@ export async function startPluginsServer(
         }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-        actionsReloadJob = schedule.scheduleJob('*/5 * * * *', async () => {
+        schedule.scheduleJob('*/5 * * * *', async () => {
             await piscina?.broadcastTask({ task: 'reloadAllActions' })
         })
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-        pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
+        schedule.scheduleJob('*/5 * * * * *', async () => {
             await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
                 jsonSerialize: false,
             })
             await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
         })
         // every 10 seconds sends stuff to StatsD
-        piscinaStatsJob = schedule.scheduleJob('*/10 * * * * *', () => {
+        schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
                     hub!.statsd?.gauge(`piscina.${key}`, value)
@@ -218,12 +209,13 @@ export async function startPluginsServer(
 
         // every minute flush internal metrics
         if (hub.internalMetrics) {
-            internalMetricsStatsJob = schedule.scheduleJob('0 * * * * *', async () => {
+            schedule.scheduleJob('0 * * * * *', async () => {
                 await hub!.internalMetrics?.flush(piscina!)
             })
         }
 
-        pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
+        // Send plugin metrics every 30 seconds
+        schedule.scheduleJob('*/30 * * * *', async () => {
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
 
