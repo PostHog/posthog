@@ -9,6 +9,7 @@ export interface ColumnConfiguratorLogicProps {
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnConfiguratorLogicProps>>({
     path: ['lib', 'components', 'ResizableTable', 'columnConfiguratorLogic'],
     props: { selectedColumns: [] } as ColumnConfiguratorLogicProps,
+    connect: [tableConfigLogic],
     actions: {
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),

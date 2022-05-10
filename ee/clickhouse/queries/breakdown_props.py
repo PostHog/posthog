@@ -54,7 +54,9 @@ def get_breakdown_prop_values(
         person_id_joined_alias="pdi.person_id",
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team.pk, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(
+        entity=entity, team_id=team.pk, table_name="e", person_id_joined_alias="pdi.person_id",
+    )
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
@@ -66,6 +68,10 @@ def get_breakdown_prop_values(
         person_join_clauses = f"""
             INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
+        """
+    elif column_optimizer.is_using_cohort_propertes:
+        person_join_clauses = f"""
+            INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
         """
 
     groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()

@@ -329,7 +329,7 @@ export function Experiment(): JSX.Element {
                                                                                 placement="bottomLeft"
                                                                             >
                                                                                 <LemonButton
-                                                                                    type="primary-alt"
+                                                                                    type="alt"
                                                                                     size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>

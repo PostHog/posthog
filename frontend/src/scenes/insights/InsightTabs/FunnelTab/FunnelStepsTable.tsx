@@ -241,7 +241,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             columns={columnsGrouped}
             loading={insightLoading}
             rowKey="breakdownIndex"
-            rowStatus={(record) => (record.significant ? 'highlighted' : undefined)}
+            rowStatus={(record) => (record.significant ? 'highlighted' : null)}
             rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
         />
     )

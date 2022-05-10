@@ -14,7 +14,6 @@ describe('cohortLogic', () => {
     let logic: ReturnType<typeof cohortLogic.build>
 
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
-        teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
         cohortsModel.mount()
         await expectLogic(cohortsModel).toFinishAllListeners()

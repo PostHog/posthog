@@ -1,10 +1,10 @@
 import React from 'react'
 import './IngestionWizard.scss'
+import '../authentication/bridgePagesShared.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
-import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
@@ -13,6 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import posthogLogo from 'public/posthog-logo.png'
+import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -31,7 +32,7 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (framework && platform !== WEB) {
+    if (framework || platform === WEB) {
         return (
             <IngestionContainer>
                 <InstructionsPanel />
@@ -44,14 +45,6 @@ export function IngestionWizard(): JSX.Element {
         return (
             <IngestionContainer>
                 <PlatformPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (platform === WEB) {
-        return (
-            <IngestionContainer>
-                <AutocapturePanel />
             </IngestionContainer>
         )
     }
@@ -72,23 +65,20 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
+    if (platform === THIRD_PARTY) {
+        return (
+            <IngestionContainer>
+                <ThirdPartyPanel />
+            </IngestionContainer>
+        )
+    }
+
     return <></>
 }
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div
-            className="background"
-            style={{
-                display: 'flex',
-                width: '100vw',
-                height: '100%',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                flexDirection: 'column',
-                paddingTop: '2rem',
-            }}
-        >
+        <div className="bridge-page IngestionContainer">
             <div className="mb">
                 <img src={posthogLogo} style={{ width: 157, height: 30 }} />
             </div>

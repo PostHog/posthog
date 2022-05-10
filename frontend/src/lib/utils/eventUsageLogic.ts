@@ -432,6 +432,7 @@ export const eventUsageLogic = kea<
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
+        reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -599,13 +600,13 @@ export const eventUsageLogic = kea<
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items.length,
+                item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
                 has_share_token: hasShareToken,
                 dashboard_id: id,
             }
 
-            for (const item of dashboard.items) {
+            for (const item of dashboard.items || []) {
                 const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
@@ -1008,6 +1009,9 @@ export const eventUsageLogic = kea<
         },
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
+        },
+        reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
+            posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
     }),
 })

@@ -7,6 +7,12 @@ export interface PluginRepositoryEntry {
     tag: string
     config?: Record<string, PluginConfigType>
     maintainer?: string
+    type?: PluginRepositoryEntryType
+}
+
+export enum PluginRepositoryEntryType {
+    DataIn = 'data_in',
+    DataOut = 'data_out',
 }
 
 export interface PluginTypeWithConfig extends PluginType {

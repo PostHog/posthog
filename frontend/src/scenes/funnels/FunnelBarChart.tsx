@@ -15,6 +15,7 @@ import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { useFunnelTooltip } from './FunnelTooltip'
+import { FunnelStepMore } from './FunnelStepMore'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -117,10 +118,18 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
 
     return (
         <div className="StepLegend">
-            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
+            <LemonRow
+                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+                sideIcon={<FunnelStepMore stepIndex={stepIndex} />}
+            >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>
-            <LemonRow icon={<IconTrendingFlat />} status="success" title="Users who converted in this step">
+            <LemonRow
+                icon={<IconTrendingFlat />}
+                status="success"
+                style={{ color: 'unset' }} // Prevent status color from affecting text
+                title="Users who converted in this step"
+            >
                 {showPersonsModal ? (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, converted: true })}
@@ -135,7 +144,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             <LemonRow
                 icon={<IconTrendingFlatDown />}
                 status="danger"
-                style={{ color: 'inherit' }}
+                style={{ color: 'unset' }} // Prevent status color from affecting text
                 title="Users who dropped of at this step"
             >
                 {showPersonsModal ? (

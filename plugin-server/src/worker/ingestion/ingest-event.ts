@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
+import { CachedPersonData } from 'utils/db/db'
 
 import { Element, Hub, IngestEventResponse, Person, PreIngestionEvent } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -67,9 +68,9 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 }
 
 export async function ingestBufferEvent(hub: Hub, event: PreIngestionEvent): Promise<IngestEventResponse> {
-    const person = await hub.db.fetchPerson(event.teamId, event.distinctId)
+    const person = await hub.db.getPersonData(event.teamId, event.distinctId)
     const [, eventId, elements] = await hub.eventsProcessor.createEvent(event)
-    const actionMatches = await handleActionMatches(hub, event as any, '', eventId, elements, person)
+    const actionMatches = await handleActionMatches(hub, event as any, '', eventId, elements, person ?? undefined)
     return { actionMatches, success: true }
 }
 
@@ -79,7 +80,7 @@ async function handleActionMatches(
     siteUrl: string,
     eventId?: number,
     elements?: Element[],
-    person?: Person
+    person?: CachedPersonData | Person
 ): Promise<Action[]> {
     let actionMatches: Action[] = []
 
