@@ -22,7 +22,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
                     icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
                     onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
                     type="secondary"
-                    compact
+                    size="small"
                 >
                     Refresh errors
                 </LemonButton>

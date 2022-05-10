@@ -9,7 +9,7 @@ export const worldMapLogic = kea<worldMapLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key],
     connect: {
-        values: [insightLogic, ['insight']],
+        values: [insightLogic, ['insight', 'filters']],
     },
     actions: {
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),
@@ -17,11 +17,11 @@ export const worldMapLogic = kea<worldMapLogicType>({
         updateTooltipCoordinates: (x: number, y: number) => ({ x, y }),
     },
     reducers: {
-        tooltipOpacity: [
-            0,
+        isTooltipShown: [
+            false,
             {
-                showTooltip: () => 1,
-                hideTooltip: () => 0,
+                showTooltip: () => true,
+                hideTooltip: () => false,
             },
         ],
         currentTooltip: [

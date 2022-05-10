@@ -121,7 +121,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, personsModalLogic],
     }),
 
     actions: () => ({
@@ -177,6 +177,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
         hideCorrelationAnalysisFeedback: true,
+        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
@@ -186,7 +187,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+        showTooltip: (coordinates: [number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => ({
+            coordinates,
+            stepIndex,
+            series,
+        }),
+        hideTooltip: true,
     }),
 
     loaders: ({ values }) => ({
@@ -421,6 +427,25 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             null as null | FunnelCorrelation,
             {
                 setFunnelCorrelationDetails: (_, { payload }) => payload,
+            },
+        ],
+        isTooltipShown: [
+            false,
+            {
+                showTooltip: () => true,
+                hideTooltip: () => false,
+            },
+        ],
+        currentTooltip: [
+            null as [number, FunnelStepWithConversionMetrics] | null,
+            {
+                showTooltip: (_, { stepIndex, series }) => [stepIndex, series],
+            },
+        ],
+        tooltipCoordinates: [
+            null as [number, number] | null,
+            {
+                showTooltip: (_, { coordinates }) => coordinates,
             },
         ],
     }),

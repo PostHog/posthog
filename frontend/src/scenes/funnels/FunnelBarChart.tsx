@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -14,6 +14,8 @@ import clsx from 'clsx'
 import { getSeriesColor } from './funnelUtils'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useFunnelTooltip } from './FunnelTooltip'
+import { FunnelStepMore } from './FunnelStepMore'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -28,8 +30,9 @@ function StepBarLabels(): JSX.Element {
         </div>
     )
 }
-interface StepBarsProps {
+interface StepBarProps {
     step: FunnelStepWithConversionMetrics
+    series: FunnelStepWithConversionMetrics
     stepIndex: number
 }
 interface StepBarCSSProperties extends React.CSSProperties {
@@ -37,38 +40,56 @@ interface StepBarCSSProperties extends React.CSSProperties {
     '--conversion-rate': string
 }
 
-function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
-    const { openPersonsModalForSeries } = useActions(funnelLogic)
+function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
+    const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
 
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    return (
+        <div
+            className="StepBar"
+            style={
+                {
+                    '--series-color': getSeriesColor(series.order, step.nested_breakdown?.length === 1),
+                    '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
+                } as StepBarCSSProperties
+            }
+            ref={ref}
+            onMouseEnter={() => {
+                if (ref.current) {
+                    const rect = ref.current.getBoundingClientRect()
+                    showTooltip([rect.x + rect.width, rect.y], stepIndex, series)
+                }
+            }}
+            onMouseLeave={() => hideTooltip()}
+        >
+            <div
+                className="StepBar__backdrop"
+                onClick={() => openPersonsModalForSeries({ step, series, converted: false })}
+            />
+            <div
+                className="StepBar__fill"
+                onClick={() => openPersonsModalForSeries({ step, series, converted: true })}
+            />
+        </div>
+    )
+}
+
+function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Element {
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
                 {Array(5)
                     .fill(null)
                     .map((_, i) => (
-                        <div key={i} className="StepBars__gridline StepBars__gridline--horizontal" />
+                        <div
+                            key={`gridline-${stepIndex}-${i}`}
+                            className="StepBars__gridline StepBars__gridline--horizontal"
+                        />
                     ))}
             </div>
-            {step?.nested_breakdown?.map((breakdown) => (
-                <div
-                    key={breakdown.order}
-                    className="StepBars__bar"
-                    style={
-                        {
-                            '--series-color': getSeriesColor(breakdown.order, step.nested_breakdown?.length === 1),
-                            '--conversion-rate': percentage(breakdown.conversionRates.fromBasisStep, 1, true),
-                        } as StepBarCSSProperties
-                    }
-                >
-                    <div
-                        className="StepBars__backdrop"
-                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: false })}
-                    />
-                    <div
-                        className="StepBars__fill"
-                        onClick={() => openPersonsModalForSeries({ step, series: breakdown, converted: true })}
-                    />
-                </div>
+            {step?.nested_breakdown?.map((series) => (
+                <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
             ))}
         </div>
     )
@@ -97,10 +118,18 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
 
     return (
         <div className="StepLegend">
-            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
+            <LemonRow
+                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+                sideIcon={<FunnelStepMore stepIndex={stepIndex} />}
+            >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>
-            <LemonRow icon={<IconTrendingFlat />} status="success" title="Users who converted in this step">
+            <LemonRow
+                icon={<IconTrendingFlat />}
+                status="success"
+                style={{ color: 'unset' }} // Prevent status color from affecting text
+                title="Users who converted in this step"
+            >
                 {showPersonsModal ? (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, converted: true })}
@@ -115,7 +144,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             <LemonRow
                 icon={<IconTrendingFlatDown />}
                 status="danger"
-                style={{ color: 'inherit' }}
+                style={{ color: 'unset' }} // Prevent status color from affecting text
                 title="Users who dropped of at this step"
             >
                 {showPersonsModal ? (
@@ -150,36 +179,46 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
+    const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
+    const barWidthPx =
+        seriesCount >= 60
+            ? 4
+            : seriesCount >= 20
+            ? 8
+            : seriesCount >= 12
+            ? 16
+            : seriesCount >= 10
+            ? 20
+            : seriesCount >= 8
+            ? 24
+            : seriesCount >= 6
+            ? 32
+            : seriesCount >= 5
+            ? 40
+            : seriesCount >= 4
+            ? 48
+            : seriesCount >= 3
+            ? 64
+            : seriesCount >= 2
+            ? 96
+            : 192
+
+    const vizRef = useFunnelTooltip(showPersonsModal, barWidthPx)
+
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
         const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
-        const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
-        const barWidth =
-            seriesCount >= 60
-                ? '0.25rem'
-                : seriesCount >= 20
-                ? '0.5rem'
-                : seriesCount >= 12
-                ? '1rem'
-                : seriesCount >= 10
-                ? '1.25rem'
-                : seriesCount >= 8
-                ? '1.5rem'
-                : seriesCount >= 6
-                ? '2rem'
-                : seriesCount >= 5
-                ? '2.5rem'
-                : seriesCount >= 4
-                ? '3rem'
-                : seriesCount >= 3
-                ? '4rem'
-                : seriesCount >= 2
-                ? '6rem'
-                : '12rem'
 
         return (
-            <table style={{ '--bar-width': barWidth, '--bar-row-height': barRowHeight } as FunnelBarChartCSSProperties}>
+            <table
+                style={
+                    {
+                        '--bar-width': `${barWidthPx}px`,
+                        '--bar-row-height': barRowHeight,
+                    } as FunnelBarChartCSSProperties
+                }
+            >
                 <colgroup>
                     {visibleStepsWithConversionMetrics.map((_, i) => (
                         <col key={i} width={0} />
@@ -216,7 +255,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
     }, [visibleStepsWithConversionMetrics, height])
 
     return (
-        <div className={clsx('FunnelBarChart', ...scrollableClassNames)} data-attr="funnel-bar-graph">
+        <div className={clsx('FunnelBarChart', ...scrollableClassNames)} ref={vizRef} data-attr="funnel-bar-graph">
             <div className="scrollable__inner" ref={scrollRef}>
                 {table}
             </div>

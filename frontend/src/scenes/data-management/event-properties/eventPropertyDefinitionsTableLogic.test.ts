@@ -70,7 +70,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             },
         })
         initKeaTests()
-        organizationLogic.mount()
         await expectLogic(organizationLogic)
             .toFinishAllListeners()
             .toDispatchActions(['loadCurrentOrganizationSuccess'])

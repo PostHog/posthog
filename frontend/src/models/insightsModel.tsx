@@ -13,6 +13,7 @@ import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
+    connect: [prompt({ key: 'rename-insight' })],
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -21,11 +22,17 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
             move,
         }),
+        moveToDashboard: (item: InsightModel, fromDashboard: number, toDashboard: number, toDashboardName: string) => ({
+            item,
+            fromDashboard,
+            toDashboard,
+            toDashboardName,
+        }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
-            prompt({ key: `rename-insight-${item.short_id}` }).actions.prompt({
+            prompt({ key: 'rename-insight' }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,
@@ -45,6 +52,43 @@ export const insightsModel = kea<insightsModelType>({
                     actions.renameInsightSuccess(updatedItem)
                 },
             })
+        },
+        moveToDashboard: async ({ item, fromDashboard, toDashboard, toDashboardName }) => {
+            if (!item) {
+                return
+            }
+
+            const originalDashboards = item.dashboards || []
+            const dashboards = [...originalDashboards.filter((d: number) => d !== fromDashboard), toDashboard]
+
+            const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
+                dashboards,
+            })
+            dashboardsModel.actions.updateDashboardItem(updatedItem)
+
+            lemonToast.success(
+                <>
+                    Insight moved to{' '}
+                    <b>
+                        <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </b>
+                </>,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: async () => {
+                            const restoredItem = await api.update(
+                                `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                                {
+                                    dashboards: originalDashboards,
+                                }
+                            )
+                            lemonToast.success('Panel move reverted')
+                            dashboardsModel.actions.updateDashboardItem(restoredItem)
+                        },
+                    },
+                }
+            )
         },
         duplicateInsight: async ({ item, dashboardId, move }) => {
             if (!item) {

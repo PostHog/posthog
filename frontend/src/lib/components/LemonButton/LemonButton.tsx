@@ -7,10 +7,12 @@ import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import './LemonButton.scss'
 
-export type LemonButtonPopup = Omit<PopupProps, 'children'>
+export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
+    closeOnClickInside?: boolean
+}
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     ref?: React.Ref<HTMLButtonElement>
-    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted' | 'primary-alt'
+    type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
     htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether the button should have transparent background in its base state (i.e. non-hover). */
     translucent?: boolean
@@ -41,7 +43,7 @@ function LemonButtonInternal(
         disabled,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<JSX.IntrinsicElements['button']>
+    ref: React.Ref<HTMLButtonElement>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
@@ -83,7 +85,7 @@ function LemonButtonInternal(
     }
     return workingButton
 }
-export const LemonButton = React.forwardRef(LemonButtonInternal) as typeof LemonButtonInternal
+export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
@@ -112,7 +114,7 @@ export function LemonButtonWithSideAction({
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton {...buttonProps} sideIcon={<div />}>
                 {children}
-                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 0 0 0.75rem' }} />}
+                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 -0.5rem 0 0.75rem' }} />}
             </LemonButton>
             <SideComponent
                 className="LemonButtonWithSideAction--side-button"
@@ -135,7 +137,7 @@ export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
  * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
  */
 export function LemonButtonWithPopup({
-    popup: { onClickOutside, onClickInside, ...popupProps },
+    popup: { onClickOutside, onClickInside, closeOnClickInside = true, ...popupProps },
     onClick,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
@@ -161,7 +163,7 @@ export function LemonButtonWithPopup({
                 onClickOutside?.(e)
             }}
             onClickInside={(e) => {
-                setPopupVisible(false)
+                closeOnClickInside && setPopupVisible(false)
                 onClickInside?.(e)
             }}
             {...popupProps}

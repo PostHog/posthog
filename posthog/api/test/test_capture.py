@@ -850,3 +850,24 @@ class TestCapture(BaseTest):
                 "attr": None,
             },
         )
+
+    def test_sentry_tracing_headers(self):
+        response = self.client.generic(
+            "OPTIONS",
+            "/e/?ip=1&_=1651741927805",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/decide/",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")

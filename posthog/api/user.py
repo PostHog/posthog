@@ -222,7 +222,9 @@ def redirect_to_site(request):
         params["userEmail"] = request.user.email
         params["distinctId"] = request.user.distinct_id
 
-    state = urllib.parse.quote(json.dumps(params))
+    # pass the empty string as the safe param so that `//` is encoded correctly.
+    # see https://github.com/PostHog/posthog/issues/9671
+    state = urllib.parse.quote(json.dumps(params), safe="")
 
     if use_new_toolbar:
         return redirect("{}#__posthog={}".format(app_url, state))

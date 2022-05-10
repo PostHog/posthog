@@ -1,4 +1,5 @@
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
@@ -306,3 +307,194 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
 ]
 
 export const personActivityResponseJson: ActivityLogItem[] = []
+
+export const insightsActivityResponseJson: ActivityLogItem[] = [
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738510',
+        detail: { changes: null, merge: null, name: null, short_id: '0GUplMDf' as InsightShortId },
+        created_at: '2022-05-03T16:28:38.470679Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738509',
+        detail: { changes: null, merge: null, name: null, short_id: 'kUUjoSL9' as InsightShortId },
+        created_at: '2022-05-03T16:28:29.544239Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738495',
+        detail: { changes: null, merge: null, name: null, short_id: 'sp1SXU36' as InsightShortId },
+        created_at: '2022-05-03T16:27:26.942756Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738494',
+        detail: { changes: null, merge: null, name: null, short_id: '3wfG32yd' as InsightShortId },
+        created_at: '2022-05-03T16:27:26.215581Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738493',
+        detail: { changes: null, merge: null, name: null, short_id: 'mFw8dLOL' as InsightShortId },
+        created_at: '2022-05-03T16:27:23.649287Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [{ type: 'Insight', action: 'changed', field: 'name', before: 'cool insight', after: '' }],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:29.072978Z',
+    },
+    {
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            name: 'DAU',
+            merge: null,
+            changes: [
+                {
+                    type: 'Insight',
+                    after: {
+                        events: [],
+                        actions: [
+                            {
+                                id: '8917',
+                                math: 'dau',
+                                name: 'Popup or Notification',
+                                type: 'actions',
+                                order: 0,
+                                properties: [],
+                                custom_name: 'Extension',
+                                math_property: null,
+                            },
+                            {
+                                id: '14430',
+                                math: 'dau',
+                                name: 'appOpen OR onboardingOpen',
+                                type: 'actions',
+                                order: 1,
+                                properties: [
+                                    {
+                                        key: 'nativeApplicationVersion',
+                                        type: 'event',
+                                        value: 'is_set',
+                                        operator: 'is_set',
+                                    },
+                                ],
+                                custom_name: 'Mobile',
+                            },
+                            {
+                                id: '13927',
+                                math: 'dau',
+                                name: 'Client Open',
+                                type: 'actions',
+                                order: 2,
+                                custom_name: 'Total',
+                            },
+                        ],
+                        date_to: null,
+                        display: 'ActionsLineGraph',
+                        insight: 'TRENDS',
+                        interval: 'day',
+                        date_from: '-90d',
+                        new_entity: [],
+                        properties: [],
+                        funnel_window_days: 14,
+                    },
+                    field: 'filters',
+                    action: 'changed',
+                    before: {
+                        events: [],
+                        actions: [
+                            {
+                                id: '8917',
+                                math: 'dau',
+                                name: 'Popup or Notification',
+                                type: 'actions',
+                                order: 0,
+                                properties: [],
+                                custom_name: 'Extension',
+                                math_property: null,
+                            },
+                            {
+                                id: '14430',
+                                math: 'dau',
+                                name: 'appOpen OR onboardingOpen',
+                                type: 'actions',
+                                order: 1,
+                                properties: [],
+                                custom_name: 'Mobile',
+                            },
+                            {
+                                id: '13927',
+                                math: 'dau',
+                                name: 'Client Open',
+                                type: 'actions',
+                                order: 2,
+                                custom_name: 'Total',
+                            },
+                        ],
+                        date_to: null,
+                        display: 'ActionsLineGraph',
+                        insight: 'TRENDS',
+                        interval: 'day',
+                        date_from: '-90d',
+                        new_entity: [],
+                        properties: [],
+                        funnel_window_days: 14,
+                    },
+                },
+            ],
+            short_id: 'eRY9-Frr' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:29.072978Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [{ type: 'Insight', action: 'changed', field: 'name', before: '', after: 'cool insight' }],
+            merge: null,
+            name: 'cool insight',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:20.265216Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: { changes: null, merge: null, name: 'Pageview count', short_id: 'iVXqSrre' as InsightShortId },
+        created_at: '2022-05-03T15:27:14.031192Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738027',
+        detail: { changes: null, merge: null, name: null, short_id: '4vIGUyy1' as InsightShortId },
+        created_at: '2022-05-03T15:24:03.779164Z',
+    },
+]

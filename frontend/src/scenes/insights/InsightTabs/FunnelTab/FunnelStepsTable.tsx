@@ -65,7 +65,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 )
                             }}
                             label="Breakdown"
-                            rowProps={{ compact: true, style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
+                            rowProps={{ size: 'small', style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
                         />
                     ),
                     dataIndex: 'breakdown_value',
@@ -83,7 +83,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
                                 rowProps={{
-                                    compact: true,
+                                    size: 'small',
                                     style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
                                     title: label,
                                 }}
@@ -104,7 +104,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                 <LemonRow
                     icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                     style={{ font: 'inherit', padding: 0 }}
-                    compact
+                    size="small"
                 >
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                 </LemonRow>
@@ -165,7 +165,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                       ]),
                 {
                     title: 'Conversion so far',
-                    render: function RenderRate(
+                    render: function RenderConversionSoFar(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
                     ): JSX.Element | string {
@@ -175,7 +175,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 className="significance-highlight"
                                 tooltip="Significantly different from other breakdown values"
                                 icon={<IconFlag />}
-                                compact
+                                size="small"
                             >
                                 {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)}
                             </LemonRow>
@@ -190,7 +190,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     : [
                           {
                               title: 'Conversion from previous',
-                              render: function RenderRate(
+                              render: function RenderConversionFromPrevious(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
                               ): JSX.Element | string {
@@ -201,7 +201,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                           className="significance-highlight"
                                           tooltip="Significantly different from other breakdown values"
                                           icon={<IconFlag />}
-                                          compact
+                                          size="small"
                                       >
                                           {percentage(
                                               breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
@@ -240,7 +240,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             columns={columnsGrouped}
             loading={insightLoading}
             rowKey="breakdownIndex"
-            rowStatus={(record) => (record.significant ? 'highlighted' : undefined)}
+            rowStatus={(record) => (record.significant ? 'highlighted' : null)}
             rowRibbonColor={(series) =>
                 getSeriesColor(
                     series?.breakdownIndex,

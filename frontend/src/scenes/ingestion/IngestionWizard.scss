@@ -1,7 +1,12 @@
 @import '~/vars';
 
-.background {
-    background-color: $bg_bridge;
+.IngestionContainer {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    flex-direction: column;
 }
 
 .platform-item {
