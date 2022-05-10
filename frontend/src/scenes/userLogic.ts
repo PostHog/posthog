@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { userLogicType } from './userLogicType'
 import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
@@ -26,13 +26,25 @@ export const userLogic = kea<userLogicType<UserDetailsFormType>>([
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     })),
+    reducers({
+        userDetails: [
+            {} as UserDetailsFormType,
+            {
+                loadUserSuccess: (_, { user }) =>
+                    ({
+                        first_name: user?.first_name,
+                    } as UserDetailsFormType),
+                updateUserSuccess: (_, { user }) =>
+                    ({
+                        first_name: user?.first_name,
+                    } as UserDetailsFormType),
+            },
+        ],
+    }),
     forms(({ actions, values }) => ({
         userDetails: {
-            defaults: {
-                first_name: values.user?.first_name,
-            } as UserDetailsFormType,
+            defaults: values.userDetails,
             errors: ({ first_name }) => {
-                console.log('Validating...')
                 return {
                     first_name: !first_name
                         ? 'You need to set a name'
@@ -42,7 +54,6 @@ export const userLogic = kea<userLogicType<UserDetailsFormType>>([
                 }
             },
             submit: (user) => {
-                console.log('Submitting...', user)
                 actions.updateUser(user)
             },
         },

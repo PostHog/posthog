@@ -3,17 +3,17 @@ import { Input } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
+import { VerticalForm } from 'lib/forms/VerticalForm'
 
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting } = useValues(userLogic)
 
     return (
-        <Form
+        <VerticalForm
             logic={userLogic}
             formKey="userDetails"
-            className="ant-form-vertical ant-form-hide-required-mark"
+            enableFormOnSubmit
             style={{
                 maxWidth: 400,
             }}
@@ -40,6 +40,6 @@ export function UserDetails(): JSX.Element {
             >
                 Update Details
             </LemonButton>
-        </Form>
+        </VerticalForm>
     )
 }

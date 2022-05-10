@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 export function ChangePassword(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
+
     const [form] = Form.useForm()
 
     const updateCompleted = (): void => {
