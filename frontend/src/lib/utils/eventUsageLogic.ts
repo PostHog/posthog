@@ -432,6 +432,7 @@ export const eventUsageLogic = kea<
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
+        reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1008,6 +1009,9 @@ export const eventUsageLogic = kea<
         },
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
+        },
+        reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
+            posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
     }),
 })
