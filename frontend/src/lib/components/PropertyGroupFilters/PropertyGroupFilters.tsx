@@ -86,13 +86,13 @@ export function PropertyGroupFilters({
                                                 />
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    type="alt"
+                                                    type="secondary"
                                                     onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="alt"
+                                                    type="secondary"
                                                     onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
