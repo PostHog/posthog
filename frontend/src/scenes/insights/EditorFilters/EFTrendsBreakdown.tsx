@@ -17,10 +17,7 @@ export function EFTrendsBreakdown({ filters, insightProps }: EditorFilterProps):
     return (
         <BreakdownFilter
             filters={filters}
-            setFilters={(x) => {
-                console.log({ x })
-                setFilters(x)
-            }}
+            setFilters={setFilters}
             buttonType="default"
             useMultiBreakdown={useMultiBreakdown}
         />
