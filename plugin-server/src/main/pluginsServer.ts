@@ -271,7 +271,8 @@ export async function startPluginsServer(
             try {
                 serverInstance.kafkaHealthcheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
             } catch (err) {
-                console.log(err)
+                // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
+                status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
             }
         }
 
