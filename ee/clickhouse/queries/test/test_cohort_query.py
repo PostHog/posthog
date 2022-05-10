@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta
 
-from ee.clickhouse.queries.cohort_query import CohortQuery
+from ee.clickhouse.queries.cohort_query import CohortQuery, check_negation_clause
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.property import Property, PropertyGroup
 from posthog.test.base import (
     BaseTest,
     _create_event,
@@ -1000,6 +1002,64 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
 
+    def test_negation_with_simplify_filters(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": True,
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                        },
+                        {
+                            "key": "$feature_flag_called",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                        },
+                    ],
+                }
+            },
+            team=self.team,
+        )
+
+        # shouldn't raise negation error, but it does right now
+        # because simplify converts each individual property to its own property group
+        CohortQuery(filter=filter, team=self.team).get_query()
+        # self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
+
     def test_negation_dynamic_time_bound_with_performed_event(self):
         # invalid dude because $pageview happened too early
         p1 = _create_person(
@@ -1236,13 +1296,77 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = Filter(
-            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},}
+            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},},
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_precalculated_cohort_filter(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
+                },
+            }
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            q, params = CohortQuery(filter=filter, team=self.team).get_query()
+            # Precalculated cohorts should not be used as is
+            # since we want cohort calculation with cohort properties to not be out of sync
+            self.assertTrue("cohortpeople" not in q)
+            res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_precalculated_cohort_filter_with_extra_filters(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test2"})
+        p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test3"})
+
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "precalculated-cohort"},
+                        {"key": "name", "value": "test2", "type": "person",},
+                    ],
+                },
+            }
+        )
+
+        # makes sure cohort is precalculated
+        cohort.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            q, params = CohortQuery(filter=filter, team=self.team).get_query()
+            self.assertTrue("cohortpeople" not in q)
+            res = sync_execute(q, params)
+
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_cohort_filter_with_extra(self):
@@ -1281,7 +1405,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                     ],
                 },
-            }
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1306,6 +1430,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 },
             },
+            team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1385,13 +1510,99 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                     ],
                 },
-            }
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_static_cohort_filter(self):
+
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+        flush_persons_and_events()
+        cohort.insert_users_by_list(["p1"])
+
+        filter = Filter(
+            data={
+                "properties": {"type": "OR", "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}],},
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_static_cohort_filter_with_extra(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+        cohort.insert_users_by_list(["p1", "p2"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            },
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p2.uuid], [r[0] for r in res])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "id", "value": cohort.pk, "type": "cohort"},
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+            },
+            team=self.team,
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_performed_event_sequence(self):
@@ -1732,3 +1943,161 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual(set([p1.uuid, p2.uuid]), set([r[0] for r in res]))
+
+
+class TestCohortNegationValidation(BaseTest):
+    def test_basic_valid_negation_tree(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(key="name", value="test", type="person",),
+                Property(key="email", value="xxx", type="person", negation=True,),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_valid_negation_tree_with_extra_layers(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR, values=[Property(key="email", value="xxx", type="person",),]
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_invalid_negation_tree_with_extra_layers(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, True)
+
+    def test_valid_negation_tree_with_extra_layers_recombining_at_top(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,  # top level AND protects the 2 negations from being invalid
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.OR, values=[Property(key="name", value="test", type="person",),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)
+
+    def test_invalid_negation_tree_no_positive_filter(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                PropertyGroup(
+                    type=PropertyOperatorType.OR,
+                    values=[Property(key="name", value="test", type="person", negation=True,),],
+                ),
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, False)
+
+    def test_empty_property_group(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[],  # type: ignore
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, False)
+
+    def test_basic_invalid_negation_tree(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(key="email", value="xxx", type="person", negation=True,),],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, True)
+        self.assertEqual(has_reg, False)
+
+    def test_basic_valid_negation_tree_with_no_negations(self):
+
+        property_group = PropertyGroup(
+            type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+        )
+
+        has_pending_neg, has_reg = check_negation_clause(property_group)
+        self.assertEqual(has_pending_neg, False)
+        self.assertEqual(has_reg, True)

@@ -16,6 +16,7 @@ import { CodeSnippet } from '../frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Link } from 'lib/components/Link'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -23,6 +24,11 @@ export function ThirdPartyPanel(): JSX.Element {
         useActions(ingestionLogic)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
+    const {
+        reportIngestionThirdPartyAboutClicked,
+        reportIngestionThirdPartyConfigureClicked,
+        reportIngestionThirdPartyPluginInstalled,
+    } = useActions(eventUsageLogic)
 
     return (
         <CardContainer
@@ -79,7 +85,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                     <LemonButton
                                         className="mr-05"
                                         type="secondary"
-                                        onClick={() =>
+                                        onClick={() => {
                                             window.open(
                                                 `https://posthog.com${
                                                     source.type === ThirdPartySourceType.Integration
@@ -87,7 +93,8 @@ export function ThirdPartyPanel(): JSX.Element {
                                                         : `/integrations/${source.pluginName}`
                                                 }`
                                             )
-                                        }
+                                            reportIngestionThirdPartyAboutClicked(source.name)
+                                        }}
                                     >
                                         About
                                     </LemonButton>
@@ -98,6 +105,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                             onClick={() => {
                                                 setThirdPartySource(idx)
                                                 setInstructionsModal(true)
+                                                reportIngestionThirdPartyConfigureClicked(source.name)
                                             }}
                                         >
                                             Configure
@@ -109,6 +117,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                                     type="primary"
                                                     onClick={() => {
                                                         openThirdPartyPluginModal(installedThirdPartyPlugin)
+                                                        reportIngestionThirdPartyConfigureClicked(source.name)
                                                     }}
                                                 >
                                                     Configure
@@ -125,6 +134,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                                         if (pluginUrl) {
                                                             installPlugin(pluginUrl, PluginInstallationType.Repository)
                                                         }
+                                                        reportIngestionThirdPartyPluginInstalled(source.name)
                                                     }}
                                                 >
                                                     Install
