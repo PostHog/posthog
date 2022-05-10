@@ -46,11 +46,7 @@ export const teamLogic = kea<teamLogicType>({
                         return null
                     }
                     try {
-                        const team = await api.get('api/projects/@current')
-                        if (team.ingested_event) {
-                            eventUsageLogic.actions.reportTeamHasIngestedEvents()
-                        }
-                        return team
+                        return await api.get('api/projects/@current')
                     } catch {
                         return null
                     }
@@ -133,6 +129,14 @@ export const teamLogic = kea<teamLogicType>({
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
         },
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam?.ingested_event) {
+                const builtEventUsageLogic = eventUsageLogic.build()
+                const unmount = eventUsageLogic.mount()
+                builtEventUsageLogic.actions.reportTeamHasIngestedEvents()
+                unmount()
+            }
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
@@ -141,12 +145,6 @@ export const teamLogic = kea<teamLogicType>({
             if (contextualTeam) {
                 // If app context is available (it should be practically always) we can immediately know currentTeam
                 actions.loadCurrentTeamSuccess(contextualTeam)
-                if (contextualTeam.ingested_event) {
-                    const builtEventUsageLogic = eventUsageLogic.build()
-                    const unmount = eventUsageLogic.mount()
-                    builtEventUsageLogic.actions.reportTeamHasIngestedEvents()
-                    unmount()
-                }
             } else {
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()
