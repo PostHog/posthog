@@ -201,7 +201,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "display": TRENDS_LINEAR,
                 "interval": "hour",
                 "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_to": "2021-05-06",
                 "funnel_window_days": 7,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -211,7 +211,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
-        self.assertEqual(len(results), 145)
+        self.assertEqual(len(results), 144)
 
     def test_day_interval(self):
         filter = Filter(
