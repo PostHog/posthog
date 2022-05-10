@@ -255,11 +255,9 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                if (
-                    subq_alias == self.PERSON_TABLE_ALIAS
-                    and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                    and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                ):
+                if subq_alias == self.PERSON_TABLE_ALIAS and "person" not in [
+                    prop.type for prop in getattr(self._outer_property_groups, "flat", [])
+                ]:
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = f"{subq_alias}.person_id"
                 else:
@@ -680,9 +678,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = (
-            self._column_optimizer.is_using_person_properties or self._column_optimizer.is_using_cohort_propertes
-        )
+        self._should_join_persons = self._column_optimizer.is_using_person_properties
 
     @cached_property
     def _should_join_behavioral_query(self) -> bool:
