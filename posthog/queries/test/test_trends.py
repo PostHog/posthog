@@ -542,12 +542,38 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "day 5")
             self.assertEqual(response[0]["data"][5], 1.0)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
 
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2019-12-21",
+                    "2019-12-22",
+                    "2019-12-23",
+                    "2019-12-24",
+                    "2019-12-25",
+                    "2019-12-26",
+                    "2019-12-27",
+                    "2019-12-28",
+                ],
+            )
             self.assertEqual(response[1]["label"], "sign up")
+            self.assertEqual(response[1]["labels"][3], "day 3")
+            self.assertEqual(response[1]["data"][3], 1.0)
             self.assertEqual(response[1]["labels"][4], "day 4")
-            self.assertEqual(response[1]["data"][4], 1.0)
-            self.assertEqual(response[1]["labels"][5], "day 5")
-            self.assertEqual(response[1]["data"][5], 0.0)
+            self.assertEqual(response[1]["data"][4], 0.0)
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 no_compare_response = trends().run(
