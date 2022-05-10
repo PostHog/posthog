@@ -149,7 +149,7 @@ CACHES = {
     }
 }
 
-if TEST:
-    CACHES["default"] = {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-    }
+# if TEST:
+#     CACHES["default"] = {
+#         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+#     }
