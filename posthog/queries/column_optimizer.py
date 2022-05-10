@@ -50,14 +50,6 @@ class ColumnOptimizer:
         return len(self._used_properties_with_type("person")) > 0
 
     @cached_property
-    def is_using_any_cohort_propertes(self) -> bool:
-        return (
-            len(self._used_properties_with_type("cohort")) > 0
-            or len(self._used_properties_with_type("static-cohort")) > 0
-            or len(self._used_properties_with_type("precalculated-cohort")) > 0
-        )
-
-    @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         return set()
 

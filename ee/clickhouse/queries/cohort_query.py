@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
+from ee.clickhouse.models.cohort import format_static_cohort_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -140,7 +141,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
         super().__init__(
-            filter=filter,
+            filter=CohortQuery.unwrap_cohort(filter, team.pk),
             team=team,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
@@ -157,6 +158,60 @@ class CohortQuery(EnterpriseEventQuery):
         property_groups = self._column_optimizer.property_optimizer.parse_property_groups(self._filter.property_groups)
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
+
+    @staticmethod
+    def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
+        def _unwrap(property_group: PropertyGroup) -> PropertyGroup:
+            if len(property_group.values):
+                if isinstance(property_group.values[0], PropertyGroup):
+                    # dealing with a list of property groups, so unwrap each one
+                    return PropertyGroup(
+                        type=property_group.type,
+                        values=[_unwrap(v) for v in cast(List[PropertyGroup], property_group.values)],
+                    )
+
+                elif isinstance(property_group.values[0], Property):
+                    # dealing with a list of properties
+                    # if any single one is a cohort property, unwrap it into a property group
+                    # which implies converting everything else in the list into a property group too
+                    has_cohort_property = False
+                    for prop in property_group.values:
+                        if prop.type in ["cohort", "precalculated-cohort"]:
+                            has_cohort_property = True
+
+                    if has_cohort_property:
+                        new_property_group_list: List[PropertyGroup] = []
+                        for prop in property_group.values:
+                            prop = cast(Property, prop)
+                            if prop.type in ["cohort", "precalculated-cohort"]:
+                                try:
+                                    prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                                    if prop_cohort.is_static:
+                                        new_property_group_list.append(
+                                            PropertyGroup(
+                                                type=PropertyOperatorType.AND,
+                                                values=[Property(type="static-cohort", key="id", value=prop_cohort.pk)],
+                                            )
+                                        )
+                                    else:
+                                        new_property_group_list.append(prop_cohort.properties)
+                                except Cohort.DoesNotExist:
+                                    new_property_group_list.append(
+                                        PropertyGroup(
+                                            type=PropertyOperatorType.AND,
+                                            values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                                        )
+                                    )
+                            else:
+                                new_property_group_list.append(
+                                    PropertyGroup(type=PropertyOperatorType.AND, values=[prop])
+                                )
+                        return PropertyGroup(type=property_group.type, values=new_property_group_list)
+
+            return property_group
+
+        new_props = _unwrap(filter.property_groups)
+        return filter.with_data({"properties": new_props.to_dict()})
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
@@ -211,10 +266,7 @@ class CohortQuery(EnterpriseEventQuery):
                 if (
                     subq_alias == self.PERSON_TABLE_ALIAS
                     and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                    and "cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
                     and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                    and "precalculated-cohort"
-                    not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
                 ):
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = f"{subq_alias}.person_id"
@@ -326,8 +378,10 @@ class CohortQuery(EnterpriseEventQuery):
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
-        elif prop.type in ["cohort", "static-cohort", "precalculated-cohort"]:
-            res, params = self.get_cohort_condition(prop, prepend, idx)
+        elif (
+            prop.type == "static-cohort"
+        ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
+            res, params = self.get_static_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
@@ -341,17 +395,11 @@ class CohortQuery(EnterpriseEventQuery):
         else:
             return "", {}
 
-    def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        try:
-            prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
-        except Cohort.DoesNotExist:
-            return "0 = 14", {}
-
+    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id", using_new_query=True)
-        return f"id IN ({person_id_query})", cohort_filter_params
+        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id")
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -635,7 +683,8 @@ class CohortQuery(EnterpriseEventQuery):
 
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = (
-            self._column_optimizer.is_using_person_properties or self._column_optimizer.is_using_any_cohort_propertes
+            self._column_optimizer.is_using_person_properties
+            or len(self._column_optimizer._used_properties_with_type("static-cohort")) > 0
         )
 
     @cached_property
