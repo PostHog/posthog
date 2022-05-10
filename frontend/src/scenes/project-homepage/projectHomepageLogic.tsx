@@ -1,30 +1,32 @@
-import { kea } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 
 import { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
+import { subscriptions } from 'kea-subscriptions'
+import { loaders } from 'kea-loaders'
 
-export const projectHomepageLogic = kea<projectHomepageLogicType>({
-    path: ['scenes', 'project-homepage', 'projectHomepageLogic'],
-    connect: {
+export const projectHomepageLogic = kea<projectHomepageLogicType>([
+    path(['scenes', 'project-homepage', 'projectHomepageLogic']),
+    connect({
         values: [teamLogic, ['currentTeamId']],
-    },
+    }),
 
-    selectors: {
+    selectors({
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
         dashboardLogic: [
             (s) => [s.primaryDashboardId],
             (primaryDashboardId): ReturnType<typeof dashboardLogic.build> | null =>
-                dashboardLogic.build(
-                    { id: primaryDashboardId ?? undefined, placement: DashboardPlacement.ProjectHomepage },
-                    false
-                ),
+                dashboardLogic({
+                    id: primaryDashboardId ?? undefined,
+                    placement: DashboardPlacement.ProjectHomepage,
+                }),
         ],
-    },
+    }),
 
-    loaders: ({ values }) => ({
+    loaders(({ values }) => ({
         recentInsights: [
             [] as InsightModel[],
             {
@@ -45,20 +47,18 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
                 },
             },
         ],
-    }),
+    })),
 
-    subscriptions: ({ cache }: projectHomepageLogicType) => ({
+    subscriptions(({ cache }: projectHomepageLogicType) => ({
         dashboardLogic: (logic: ReturnType<typeof dashboardLogic.build>) => {
             cache.unmount?.()
             cache.unmount = logic ? logic.mount() : null
         },
-    }),
+    })),
 
-    events: ({ cache, actions }) => ({
-        afterMount: () => {
-            cache.unmount?.()
-            actions.loadRecentInsights()
-            actions.loadPersons()
-        },
+    afterMount(({ cache, actions }) => {
+        cache.unmount?.()
+        actions.loadRecentInsights()
+        actions.loadPersons()
     }),
-})
+])

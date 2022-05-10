@@ -231,6 +231,7 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+    person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
 
@@ -347,6 +348,7 @@ export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+    History = 'history',
 }
 
 export enum ExperimentsTabs {
@@ -1013,6 +1015,28 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export type InsightEditorFilterGroup = {
+    title: string
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+    count?: number
+}
+
+export interface EditorFilterProps {
+    insight: Partial<InsightModel>
+    insightProps: InsightLogicProps
+    filters: Partial<FilterType>
+    value: any
+}
+
+export interface InsightEditorFilter {
+    key: string
+    label?: string
+    tooltip?: JSX.Element
+    valueSelector?: (insight: Partial<InsightModel>) => any
+    component?: (props: EditorFilterProps) => JSX.Element
+}
+
 export interface SystemStatusSubrows {
     columns: string[]
     rows: string[][]
@@ -1293,6 +1317,8 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    clickhouse: boolean
+    kafka: boolean
     /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
     /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */

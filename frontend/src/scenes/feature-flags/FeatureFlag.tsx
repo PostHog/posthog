@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { Group } from 'kea-forms'
-import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
+import { Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
@@ -23,11 +23,15 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -38,8 +42,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps: FeatureFlagLogicProps = { id: id && id !== 'new' ? parseInt(id) : 'new' }
     const {
+        props,
         featureFlag,
         multivariateEnabled,
         variants,
@@ -50,7 +54,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         aggregationTargetName,
         taxonomicGroupTypes,
         featureFlagLoading,
-    } = useValues(featureFlagLogic(logicProps))
+    } = useValues(featureFlagLogic)
     const {
         addConditionSet,
         updateConditionSet,
@@ -62,7 +66,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
-    } = useActions(featureFlagLogic(logicProps))
+    } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
@@ -77,16 +81,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm logic={featureFlagLogic} props={logicProps} formKey="featureFlag">
+                // TODO: kea-form should also use featureFlagLogic's bound props
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
                     <PageHeader
                         title="Feature Flag"
                         buttons={
                             <div className="flex-center">
                                 <Field name="active">
-                                    {({ value, onValueChange }) => (
+                                    {({ value, onChange }) => (
                                         <LemonSwitch
                                             checked={value}
-                                            onChange={onValueChange}
+                                            onChange={onChange}
                                             label={
                                                 value ? (
                                                     <span className="text-success">Enabled</span>
@@ -148,13 +153,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 }
                             >
                                 {({ value, onChange }) => (
-                                    <Input
+                                    <LemonInput
                                         value={value}
-                                        onChange={(e) => {
-                                            if (e.target.value !== value) {
+                                        onChange={(v) => {
+                                            if (v !== value) {
                                                 setHasKeyChanged(true)
                                             }
-                                            onChange(e)
+                                            onChange(v)
                                         }}
                                         data-attr="feature-flag-key"
                                         className="ph-ignore-input"
@@ -169,15 +174,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </Field>
 
                             <Field name="name" label="Description">
-                                {({ value, onChange }) => (
-                                    <Input.TextArea
-                                        value={value}
-                                        onChange={onChange}
-                                        className="ph-ignore-input"
-                                        data-attr="feature-flag-description"
-                                        placeholder="Adding a helpful description can ensure others know what this feature is for."
-                                    />
-                                )}
+                                <LemonTextArea
+                                    className="ph-ignore-input"
+                                    data-attr="feature-flag-description"
+                                    placeholder="Adding a helpful description can ensure others know what this feature is for."
+                                />
                             </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
@@ -314,7 +315,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <Row gutter={8}>
                                             <Col span={7}>
                                                 <Field name="key">
-                                                    <Input
+                                                    <LemonInput
                                                         data-attr="feature-flag-variant-key"
                                                         data-key-index={index.toString()}
                                                         className="ph-ignore-input"
@@ -328,7 +329,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                             <Col span={7}>
                                                 <Field name="name">
-                                                    <Input
+                                                    <LemonInput
                                                         data-attr="feature-flag-variant-name"
                                                         className="ph-ignore-input"
                                                         placeholder="Description"
@@ -337,18 +338,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                             <Col span={7}>
                                                 <Field name="rollout_percentage">
-                                                    {({ value, onValueChange }) => (
-                                                        <Slider
-                                                            tooltipPlacement="top"
-                                                            value={value}
-                                                            onChange={onValueChange}
-                                                        />
-                                                    )}
+                                                    <Slider tooltipPlacement="top" />
                                                 </Field>
                                             </Col>
                                             <Col span={2}>
                                                 <Field name="rollout_percentage">
-                                                    {({ value, onValueChange }) => (
+                                                    {({ value, onChange }) => (
                                                         <InputNumber
                                                             min={0}
                                                             max={100}
@@ -360,7 +355,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 ) {
                                                                     const valueInt = parseInt(changedValue.toString())
                                                                     if (!isNaN(valueInt)) {
-                                                                        onValueChange(valueInt)
+                                                                        onChange(valueInt)
                                                                     }
                                                                 }
                                                             }}
@@ -403,7 +398,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    compact
+                                    size="small"
                                     fullWidth
                                     center
                                 >
@@ -486,7 +481,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    compact
+                                                    size="small"
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
@@ -494,7 +489,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <LemonButton
                                                         icon={<IconDelete />}
-                                                        compact
+                                                        size="small"
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>

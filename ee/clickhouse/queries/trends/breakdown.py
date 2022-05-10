@@ -42,6 +42,8 @@ from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
+    DISTINCT_ID_TABLE_ALIAS = "pdi"
+
     def __init__(
         self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EnterpriseColumnOptimizer] = None
     ):
@@ -69,8 +71,11 @@ class ClickhouseTrendsBreakdown:
             property_group=outer_properties,
             table_name="e",
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-        aggregate_operation, _, math_params = process_math(self.entity, self.team, event_table_alias="e")
+        aggregate_operation, _, math_params = process_math(
+            self.entity, self.team, event_table_alias="e", person_id_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         action_query = ""
         action_params: Dict = {}
@@ -344,11 +349,11 @@ class ClickhouseTrendsBreakdown:
                 f"""
             {event_join}
             INNER JOIN ({query}) person
-            ON person.id = pdi.person_id
+            ON person.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """,
                 params,
             )
-        elif self.entity.math == "dau":
+        elif self.entity.math == "dau" or self.column_optimizer.is_using_cohort_propertes:
             # Only join distinct_ids
             return event_join, {}
         else:

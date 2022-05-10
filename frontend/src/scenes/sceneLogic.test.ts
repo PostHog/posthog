@@ -13,7 +13,6 @@ describe('sceneLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        teamLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.annotations())

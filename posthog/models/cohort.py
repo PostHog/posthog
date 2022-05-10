@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.property import Property, PropertyGroup
+from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
 
@@ -76,6 +76,7 @@ class Cohort(models.Model):
     description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -92,11 +93,11 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    # deprecated
+    # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
     @property
-    def properties(self) -> PropertyGroup:
+    def properties(self):
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -110,7 +111,7 @@ class Cohort(models.Model):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
                     try:
-                        count = int(group.get("count") or 0)
+                        count = max(0, int(group.get("count") or 0))
                     except ValueError:
                         count = 0
 
@@ -124,7 +125,7 @@ class Cohort(models.Model):
                                     value="performed_event_multiple" if count else "performed_event",
                                     event_type=event_type,
                                     time_interval="day",
-                                    time_value=group.get("days"),
+                                    time_value=group.get("days") or 365,
                                     operator=group.get("count_operator"),
                                     operator_value=count,
                                 ),
@@ -133,11 +134,28 @@ class Cohort(models.Model):
                     )
                 else:
                     # invalid state
-                    return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+                    return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
-        return PropertyGroup(PropertyOperatorType.OR, cast(List[Property], []))
+        if self.filters:
+            # Do not try simplifying properties at this stage. We'll let this happen at query time.
+            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+
+    @property
+    def has_complex_behavioral_filter(self) -> bool:
+        for prop in self.properties.flat:
+            if prop.type == "behavioral" and prop.value in [
+                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
+                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+            ]:
+                return True
+        return False
 
     def get_analytics_metadata(self):
         # TODO: add analytics for new cohort prop types
@@ -187,7 +205,7 @@ class Cohort(models.Model):
             raise err
 
     def calculate_people_ch(self, pending_version):
-        from ee.clickhouse.models.cohort import recalculate_cohortpeople, recalculate_cohortpeople_with_new_query
+        from ee.clickhouse.models.cohort import recalculate_cohortpeople
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
@@ -231,13 +249,6 @@ class Cohort(models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
-
-        try:
-            new_query_count = recalculate_cohortpeople_with_new_query(self)
-            if new_query_count != count:
-                raise ValueError("Count mismatch between new query and old query", new_query_count, count)
-        except Exception as exception:
-            capture_exception(exception)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """

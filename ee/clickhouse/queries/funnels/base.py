@@ -115,6 +115,7 @@ class ClickhouseFunnelBase(ABC):
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
+
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
 
@@ -355,14 +356,15 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False, extra_fields=[]
     ) -> str:
+        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
         entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(
             filter=self._filter,
             team=self._team,
-            extra_fields=self._extra_event_fields,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
@@ -406,6 +408,7 @@ class ClickhouseFunnelBase(ABC):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
+            extra_fields=parsed_extra_fields,
         )
 
     def _get_steps_conditions(self, length: int) -> str:

@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .pay-card {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
     padding: $default_spacing;
     border-radius: $radius;
     border: 1px solid $warning;

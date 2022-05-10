@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 from typing import Any, Dict, Optional, Type
 
 import structlog
@@ -47,6 +48,14 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import DashboardTile, Filter, Insight, Team
+from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -56,9 +65,20 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import (
+    format_query_params_absolute_url,
+    get_safe_cache,
+    relative_date_parse,
+    should_refresh,
+    str_to_bool,
+)
 
 logger = structlog.get_logger(__name__)
+
+
+def choose_insight_name(insight):
+    name_for_logged_activity = insight.name if insight.name else insight.derived_name
+    return name_for_logged_activity or "(empty string)"
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -80,7 +100,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "saved",
             "updated_at",
         ]
-        read_only_fields = ("short_id", "updated_at")
+        read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
@@ -93,7 +113,15 @@ class InsightBasicSerializer(serializers.ModelSerializer):
 
 class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     result = serializers.SerializerMethodField()
-    last_refresh = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+    The datetime this insight's results were generated.
+    If added to one or more dashboards the insight can be refreshed separately on each.
+    Returns the appropriate last_refresh datetime for the context the insight is viewed in
+    (see from_dashboard query parameter).
+    """,
+    )
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -148,12 +176,20 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "refreshing",
         )
+
+    @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
+        dashboard_tile: Optional[DashboardTile] = None
+        if dashboard:
+            dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+
+        return dashboard_tile
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
-        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         created_by = validated_data.pop("created_by", request.user)
@@ -167,14 +203,30 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+
+                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
                 insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
+
+        log_activity(
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=team.id,
+            user=self.context["request"].user,
+            item_id=insight.id,
+            scope="Insight",
+            activity="created",
+            detail=Detail(name=(choose_insight_name(insight)), short_id=insight.short_id),
+        )
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
+        try:
+            before_update = Insight.objects.get(pk=instance.id)
+        except Insight.DoesNotExist:
+            before_update = None
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
@@ -196,7 +248,23 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             if ids_to_remove:
                 DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
-        return super().update(instance, validated_data)
+        updated_insight = super().update(instance, validated_data)
+
+        changes = changes_between("Insight", previous=before_update, current=updated_insight)
+
+        log_activity(
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            item_id=updated_insight.id,
+            scope="Insight",
+            activity="updated",
+            detail=Detail(
+                name=(choose_insight_name(updated_insight)), changes=changes, short_id=updated_insight.short_id
+            ),
+        )
+
+        return updated_insight
 
     def get_result(self, insight: Insight):
         if not insight.filters:
@@ -209,9 +277,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         cache_key = insight.filters_hash
         if dashboard is not None:
-            dashboard_tile: Optional[DashboardTile] = (
-                DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
-            )
+            dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
             if dashboard_tile is not None:
                 cache_key = dashboard_tile.filters_hash
                 if cache_key is None:
@@ -233,13 +299,24 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if should_refresh(self.context["request"]):
             return now()
 
+        dashboard_tile = self.dashboard_tile_from_context(insight, self.context.get("dashboard", None))
+
         result = self.get_result(insight)
         if result is not None:
-            return insight.last_refresh
-        if insight.last_refresh is not None:
-            # Update last_refresh without updating "updated_at" (insight edit date)
-            insight.last_refresh = None
-            insight.save(update_fields=["last_refresh"])
+            if dashboard_tile:
+                return dashboard_tile.last_refresh
+            else:
+                return insight.last_refresh
+
+        if dashboard_tile is not None:
+            if dashboard_tile.last_refresh is not None:
+                dashboard_tile.last_refresh = None
+                dashboard_tile.save(update_fields=["last_refresh"])
+        else:
+            if insight.last_refresh is not None:
+                # Update last_refresh without updating "updated_at" (insight edit date)
+                insight.last_refresh = None
+                insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -415,7 +492,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["label"]}
+                line = {"series": item["action"].get("custom_name") or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
@@ -562,6 +639,60 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
         )
         return Response(status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        instance: Insight = self.get_object()
+        instance_id = instance.id
+        instance_short_id = instance.short_id
+
+        instance.delete()
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            item_id=instance_id,
+            scope="Insight",
+            activity="deleted",
+            detail=Detail(name=(choose_insight_name(instance)), short_id=instance_short_id),
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+        activity_page = load_activity(scope="Insight", team_id=self.team_id)
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
+        return Response(
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class LegacyInsightViewSet(InsightViewSet):

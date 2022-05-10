@@ -84,7 +84,9 @@ class TrendsEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._entity.math == "dau" and not self._aggregate_users_by_distinct_id:
+        if (
+            self._entity.math == "dau" and not self._aggregate_users_by_distinct_id
+        ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 
     def _get_date_filter(self) -> Tuple[str, Dict]:

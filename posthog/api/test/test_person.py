@@ -293,7 +293,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "scope": "Person",
                     "item_id": str(person.pk),
                     # don't store deleted person's name, so user primary key
-                    "detail": {"changes": None, "merge": None, "name": str(person.pk)},
+                    "detail": {"changes": None, "merge": None, "name": str(person.pk), "short_id": None},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -362,6 +362,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "changes": None,
                 "name": None,
                 "merge": {"type": "Person", "source": person_three_dict, "target": person_one_dict},
+                "short_id": None,
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }
@@ -375,6 +376,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "changes": None,
                 "name": None,
                 "merge": {"type": "Person", "source": [person_three_dict, person_two_dict], "target": person_one_dict},
+                "short_id": None,
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }
@@ -387,6 +389,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "changes": None,
                 "name": None,
                 "merge": {"type": "Person", "source": person_two_dict, "target": person_one_dict},
+                "short_id": None,
             },
             "created_at": "2021-08-25T22:09:14.252000Z",
         }
@@ -443,6 +446,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "name": None,
                         "merge": None,
+                        "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
@@ -593,6 +597,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "merge": None,
                         "name": None,
+                        "short_id": None,
                     },
                 }
             ],
@@ -638,6 +643,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(
+        self.assertCountEqual(
             activity, expected,
         )

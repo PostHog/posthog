@@ -57,7 +57,9 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
+// Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -114,7 +116,9 @@ export const FEATURE_FLAGS = {
     LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     ONBOARDING_1: 'onboarding-1', // owner: @liyiy
+    INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
+    INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

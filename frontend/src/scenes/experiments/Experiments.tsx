@@ -87,7 +87,12 @@ export function Experiments(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.experiment(`${experiment.id}`)}
+                                    size="small"
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
                                 <LemonDivider />

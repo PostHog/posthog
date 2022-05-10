@@ -145,17 +145,11 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
-
-    const properties = convertPropertyGroupToProperties(filters.properties)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
+export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     const localFilters = toLocalFilters(filters)
 
     return (
-        <div className="InsightDetails" ref={ref}>
+        <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
                 {filters.formula && (
@@ -193,10 +187,46 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     )}
                 </div>
             </section>
+        </>
+    )
+}
+
+export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const properties = convertPropertyGroupToProperties(filters.properties)
+
+    return (
+        <>
             <h5>Filters</h5>
             <section>
                 {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
             </section>
+        </>
+    )
+}
+
+export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return (
+        <div>
+            <h5>Breakdown by</h5>
+            <BreakdownFilter
+                filters={filters}
+                useMultiBreakdown={
+                    filters.insight === InsightType.FUNNELS &&
+                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                }
+            />
+        </div>
+    )
+}
+
+function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
+    const { filters, created_at, created_by } = insight
+
+    return (
+        <div className="InsightDetails" ref={ref}>
+            <QuerySummary filters={filters} />
+            <FiltersSummary filters={filters} />
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>
@@ -205,18 +235,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && (
-                    <div>
-                        <h5>Breakdown by</h5>
-                        <BreakdownFilter
-                            filters={filters}
-                            useMultiBreakdown={
-                                filters.insight === InsightType.FUNNELS &&
-                                !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                            }
-                        />
-                    </div>
-                )}
+                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             </div>
         </div>
     )
