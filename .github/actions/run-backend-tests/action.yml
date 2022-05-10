@@ -94,6 +94,7 @@ runs:
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
+                  --snapshot-update\
                   --durations=100 --durations-min=1.0
 
         - name: Run pytest.mark.ee tests
