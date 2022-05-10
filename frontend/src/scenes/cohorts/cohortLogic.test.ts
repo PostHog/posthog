@@ -268,10 +268,10 @@ describe('cohortLogic', () => {
                                 properties: {
                                     values: [
                                         {
-                                            id: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
                                             values: [
                                                 {
-                                                    value: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
                                                 },
                                                 {},
                                             ],
@@ -322,10 +322,10 @@ describe('cohortLogic', () => {
                                 properties: {
                                     values: [
                                         {
-                                            id: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
                                             values: [
                                                 {
-                                                    value: 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
                                                 },
                                             ],
                                         },
@@ -402,7 +402,7 @@ describe('cohortLogic', () => {
             })
         })
 
-        it('do not save on invalid lower and upper bound period values', async () => {
+        it('do not save on invalid lower and upper bound period values - perform event regularly', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({
@@ -445,11 +445,11 @@ describe('cohortLogic', () => {
                                     {
                                         values: [
                                             {
-                                                id: 'The lowerbound period value must not be greater than the upperbound value.',
+                                                id: 'The lower bound period value must not be greater than the upper bound value.',
                                                 min_periods:
-                                                    'The lowerbound period value must not be greater than the upperbound value.',
+                                                    'The lower bound period value must not be greater than the upper bound value.',
                                                 total_periods:
-                                                    'The lowerbound period value must not be greater than the upperbound value.',
+                                                    'The lower bound period value must not be greater than the upper bound value.',
                                             },
                                         ],
                                     },
@@ -461,7 +461,7 @@ describe('cohortLogic', () => {
             expect(api.update).toBeCalledTimes(0)
         })
 
-        it('do not save on invalid lower and upper bound period values', async () => {
+        it('do not save on invalid lower and upper bound period values - perform events in sequence', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({
@@ -502,11 +502,11 @@ describe('cohortLogic', () => {
                                     {
                                         values: [
                                             {
-                                                id: 'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                                id: 'The lower bound period sequential time value must not be greater than the upper bound time value.',
                                                 time_value:
-                                                    'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                                    'The lower bound period sequential time value must not be greater than the upper bound time value.',
                                                 seq_time_value:
-                                                    'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+                                                    'The lower bound period sequential time value must not be greater than the upper bound time value.',
                                             },
                                         ],
                                     },
