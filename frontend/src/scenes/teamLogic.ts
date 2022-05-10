@@ -7,7 +7,6 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -128,14 +127,6 @@ export const teamLogic = kea<teamLogicType>({
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
-        },
-        loadCurrentTeamSuccess: ({ currentTeam }) => {
-            if (currentTeam?.ingested_event) {
-                const builtEventUsageLogic = eventUsageLogic.build()
-                const unmount = eventUsageLogic.mount()
-                builtEventUsageLogic.actions.reportTeamHasIngestedEvents()
-                unmount()
-            }
         },
     }),
     events: ({ actions }) => ({
