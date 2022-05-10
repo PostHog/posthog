@@ -497,6 +497,65 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.count(), 0)
         self.assertEqual(mock_reload.call_count, 2)
 
+    def test_create_plugin_frontend_source(self, mock_get, mock_reload):
+        self.assertEqual(mock_reload.call_count, 0)
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"plugin_type": "source", "name": "myplugin", "source": "", "source_frontend": "export const scene = {}",},
+        )
+        self.assertEqual(response.status_code, 201)
+        id = response.json()["id"]
+        self.assertEqual(
+            response.json(),
+            {
+                "id": id,
+                "plugin_type": "source",
+                "name": "myplugin",
+                "description": None,
+                "url": None,
+                "config_schema": {},
+                "tag": None,
+                "source": "",
+                "source_frontend": "export const scene = {}",
+                "latest_tag": None,
+                "is_global": False,
+                "organization_id": response.json()["organization_id"],
+                "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
+                "metrics": {},
+                "public_jobs": {},
+            },
+        )
+        self.assertEqual(Plugin.objects.count(), 1)
+        self.assertEqual(mock_reload.call_count, 1)
+
+        response = self.client.get(f"/api/organizations/@current/plugins/{id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+
+        # The plugin will not have its frontend transpiled since we're not mocking the plugin server here.
+        plugin = Plugin.objects.get(pk=id)
+        self.assertEqual(plugin.transpiled_frontend, None)
+
+        # Simulate the plugin server
+        plugin.transpiled_frontend = "'random transpiled frontend'"
+        plugin.save()
+
+        # Can get the transpiled frontend
+        response = self.client.get(f"/api/organizations/@current/plugins/{id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"'random transpiled frontend'")
+
+        # Update the source frontend
+        response = self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/", {"source_frontend": "export const scene = { name: 'new' }",},
+        )
+
+        # It will clear the transpiled frontend
+        plugin = Plugin.objects.get(pk=id)
+        self.assertEqual(plugin.source_frontend, "export const scene = { name: 'new' }")
+        self.assertEqual(plugin.transpiled_frontend, None)
+
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")
         self.assertEqual(response.status_code, 200)

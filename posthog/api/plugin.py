@@ -162,7 +162,7 @@ class PluginSerializer(serializers.ModelSerializer):
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
         validated_data["updated_at"] = now()
-        validated_data["transpiled_source"] = None
+        validated_data["transpiled_frontend"] = None
         return super().update(plugin, validated_data)
 
 
