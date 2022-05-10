@@ -165,7 +165,10 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
-                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <p>
+                    Set the timezone for your project. All charts will be based on this timezone, including how PostHog
+                    buckets data in day/week/month intervals.
+                </p>
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
