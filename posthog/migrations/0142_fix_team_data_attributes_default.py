@@ -23,6 +23,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="team",
             name="timezone",
-            field=models.CharField(choices=posthog.models.team.timezone, default="UTC", max_length=240),
+            field=models.CharField(choices=posthog.models.team.TIMEZONES, default="UTC", max_length=240),
         ),
     ]
