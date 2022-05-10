@@ -132,13 +132,13 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             }
         )
-        # response = ClickhouseTrends().run(filter, self.team,)
+        response = ClickhouseTrends().run(filter, self.team,)
 
-        # self.assertEqual(len(response), 2)
-        # self.assertEqual(response[0]["breakdown_value"], "finance")
-        # self.assertEqual(response[0]["count"], 2)
-        # self.assertEqual(response[1]["breakdown_value"], "technology")
-        # self.assertEqual(response[1]["count"], 1)
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "finance")
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[1]["breakdown_value"], "technology")
+        self.assertEqual(response[1]["count"], 1)
 
         filter = filter.with_data(
             {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
