@@ -26,16 +26,14 @@ export function FunnelHistogram(): JSX.Element {
             ref={ref}
             data-attr="funnel-histogram"
         >
-            {!isViewedOnDashboard || width ? (
-                <Histogram
-                    key={key}
-                    data={histogramGraphData}
-                    width={width}
-                    isDashboardItem={isViewedOnDashboard}
-                    height={isViewedOnDashboard ? height : undefined}
-                    formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
-                />
-            ) : null}
+            <Histogram
+                key={key}
+                data={histogramGraphData}
+                width={width}
+                isDashboardItem={isViewedOnDashboard}
+                height={isViewedOnDashboard ? height : undefined}
+                formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
+            />
         </div>
     )
 }
