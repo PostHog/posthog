@@ -174,7 +174,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
-                "date_to": "2021-01-09",
+                "date_to": "2021-01-08",
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
@@ -187,7 +187,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
         _, results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        # self.assertEqual(results[0]["id"], p1.uuid)
-        # self.assertEqual(
-        #     results[0]["matched_recordings"], [],
-        # )
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"], [],
+        )

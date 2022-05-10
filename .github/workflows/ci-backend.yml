@@ -221,13 +221,7 @@ jobs:
                   # Default: '.'
                   add: 'ee/clickhouse'
 
-                  # The name of the user that will be displayed as the author of the commit.
-                  # Default: depends on the default_author input
-                  author_name: PostHog snapshot bot
-
-                  # The email of the user that will be displayed as the author of the commit.
-                  # Default: depends on the default_author input
-                  author_email: bot@posthog.com
+                  default_author: github_actions
 
                   # The message for the commit.
                   # Default: 'Commit from GitHub Actions (name of the workflow)'
