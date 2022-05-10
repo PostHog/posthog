@@ -5,8 +5,34 @@
         background-color: $bg_side;
         padding: $default_spacing / 2;
         border-radius: 4px;
-        margin-top: $default_spacing;
-        margin-bottom: $default_spacing;
+    }
+
+    .property-group-and-or-separator {
+        color: $primary_alt;
+        padding: $default_spacing / 2 0px;
+        font-size: 12px;
+        font-weight: 600;
+        position: relative;
+
+        &:before {
+            position: absolute;
+            left: 17px;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background-color: $border_light;
+            content: ' ';
+        }
+
+        > span {
+            position: relative;
+            display: inline-block;
+            z-index: 1;
+            background-color: var(--bg-light);
+            padding: $default_spacing / 4;
+            width: 35px;
+            text-align: center;
+        }
     }
 }
 
@@ -37,6 +63,7 @@
         background-color: $light-grey;
         color: $primary_alt;
         font-size: 12px;
+
         &.selected {
             background-color: $primary;
             color: white;

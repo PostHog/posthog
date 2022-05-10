@@ -241,6 +241,10 @@ def will_create_loops(cohort: Cohort, new_properties: PropertyGroup) -> bool:
     cohorts_queue = [property.value for property in new_properties.flat if property.type == "cohort"]
     while cohorts_queue:
         current_cohort_id = cohorts_queue.pop()
+
+        if current_cohort_id in cohorts_seen:
+            return True
+
         try:
             current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
         except Cohort.DoesNotExist:
