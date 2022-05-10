@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_overridden_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags, get_overridden_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
 from .utils import get_project_id
@@ -151,7 +151,10 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_overridden_feature_flags(team.pk, data["distinct_id"], data.get("groups", {}))
+            if request.user.is_authenticated:
+                feature_flags = get_overridden_feature_flags(team.pk, data["distinct_id"], data.get("groups", {}))
+            else:
+                feature_flags = get_active_feature_flags(team.pk, data["distinct_id"], data.get("groups", {}))
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
