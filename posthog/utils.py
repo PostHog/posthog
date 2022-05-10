@@ -268,7 +268,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
-                posthog_app_context["frontend_apps"] = get_active_plugins(team)
+                posthog_app_context["frontend_apps"] = get_active_plugins(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -304,17 +304,17 @@ def get_default_event_name():
     return "$pageview"
 
 
-def get_active_plugins(team: any) -> List[int]:
+def get_active_plugins(team_id: int) -> List[int]:
     from posthog.models import Plugin
 
     plugin_configs = (
-        Plugin.objects.filter(pluginconfig__team_id=team.pk, pluginconfig__enabled=True)
+        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
         .exclude(transpiled_frontend__isnull=True)
         .exclude(transpiled_frontend__exact="")
         .values("id")
         .all()
     )
-    return [p.get("id") for p in plugin_configs]
+    return [p["id"] for p in plugin_configs]
 
 
 def json_uuid_convert(o):

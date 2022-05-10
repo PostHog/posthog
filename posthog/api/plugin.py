@@ -79,7 +79,7 @@ class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
-        return smart_str(data, encoding=self.charset)
+        return smart_str(data, encoding=self.charset or "utf-8")
 
 
 class PluginsAccessLevelPermission(BasePermission):
@@ -215,7 +215,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"plugin": PluginSerializer(plugin).data})
 
     @action(methods=["GET"], detail=True)
-    @renderer_classes((PlainRenderer))
+    @renderer_classes((PlainRenderer,))
     def frontend(self, request: request.Request, **kwargs):
         plugin = self.get_object()
         content = plugin.transpiled_frontend or ""
