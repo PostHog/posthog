@@ -7,6 +7,7 @@ import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
+    IconApps,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -209,7 +210,11 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    <LemonDivider />
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <div className="SideBar__heading">Data</div>
+                    ) : (
+                        <LemonDivider />
+                    )}
                     <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
@@ -224,21 +229,41 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    <LemonDivider />
-                    {Object.values(frontendApps).map(({ id, title }) => (
-                        <PageButton
-                            key={id}
-                            icon={<IconComment />}
-                            title={title || `App #${id}`}
-                            identifier={
-                                currentLocation.pathname === urls.frontendApp(id) ? Scene.FrontendAppScene : 'nope'
-                            }
-                            to={urls.frontendApp(id)}
-                        />
-                    ))}
-                    {canViewPlugins(currentOrganization) && (
-                        <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <>
+                            <div className="SideBar__heading">Apps</div>
+                            {canViewPlugins(currentOrganization) && (
+                                <PageButton
+                                    title="Browse Apps"
+                                    icon={<IconApps />}
+                                    identifier={Scene.Plugins}
+                                    to={urls.plugins()}
+                                />
+                            )}{' '}
+                            {Object.values(frontendApps).map(({ id, title }) => (
+                                <PageButton
+                                    key={id}
+                                    icon={<IconComment />}
+                                    title={title || `App #${id}`}
+                                    identifier={
+                                        currentLocation.pathname === urls.frontendApp(id)
+                                            ? Scene.FrontendAppScene
+                                            : 'nope'
+                                    }
+                                    to={urls.frontendApp(id)}
+                                />
+                            ))}
+                            <div className="SideBar__heading">Data</div>
+                        </>
+                    ) : (
+                        <>
+                            <LemonDivider />
+                            {canViewPlugins(currentOrganization) && (
+                                <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                            )}
+                        </>
                     )}
+
                     <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
                     <PageButton
                         icon={<IconSettings />}
