@@ -200,6 +200,8 @@ jobs:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -212,8 +214,6 @@ jobs:
                   group: ${{ matrix.group }}
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
               with:
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
                   add: 'ee/clickhouse'
