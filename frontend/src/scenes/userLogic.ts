@@ -26,39 +26,20 @@ export const userLogic = kea<userLogicType<UserDetailsFormType>>([
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     })),
-    reducers({
-        userDetails: [
-            {} as UserDetailsFormType,
-            {
-                loadUserSuccess: (_, { user }) =>
-                    ({
-                        first_name: user?.first_name,
-                    } as UserDetailsFormType),
-                updateUserSuccess: (_, { user }) =>
-                    ({
-                        first_name: user?.first_name,
-                    } as UserDetailsFormType),
-            },
-        ],
-    }),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         userDetails: {
-            defaults: values.userDetails,
-            errors: ({ first_name }) => {
-                return {
-                    first_name: !first_name
-                        ? 'You need to set a name'
-                        : first_name.length > 150
-                        ? 'The name you have given is too long. Please pick something shorter.'
-                        : null,
-                }
-            },
+            errors: ({ first_name }) => ({
+                first_name: !first_name
+                    ? 'You need to set a name'
+                    : first_name.length > 150
+                    ? 'The name you have given is too long. Please pick something shorter.'
+                    : null,
+            }),
             submit: (user) => {
                 actions.updateUser(user)
             },
         },
     })),
-
     loaders(({ values, actions }) => ({
         user: [
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
@@ -89,6 +70,19 @@ export const userLogic = kea<userLogicType<UserDetailsFormType>>([
             },
         ],
     })),
+    reducers({
+        userDetails: [
+            {} as UserDetailsFormType,
+            {
+                loadUserSuccess: (_, { user }) => ({
+                    first_name: user?.first_name || '',
+                }),
+                updateUserSuccess: (_, { user }) => ({
+                    first_name: user?.first_name || '',
+                }),
+            },
+        ],
+    }),
     listeners(({ values }) => ({
         logout: () => {
             posthog.reset()
