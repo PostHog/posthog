@@ -1,0 +1,92 @@
+@import '~/vars';
+
+$lemon-counter-small: 1.2rem;
+$lemon-counter-font-small: 0.6rem;
+$sf-small: 0.8;
+$sf-large: 1.2;
+$position-offset: 0.5rem;
+
+.LemonBubble {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    background: var(--primary);
+    border: 2px solid var(--bg-light);
+    width: $lemon-counter-small;
+    height: $lemon-counter-small;
+    font-size: $lemon-counter-font-small;
+    line-height: $lemon-counter-small;
+    border-radius: 100%;
+    box-sizing: content-box;
+    user-select: none;
+    position: absolute;
+
+    &.LemonBubble--position-none {
+        position: relative;
+    }
+
+    &.LemonBubble--position-top-left {
+        top: -$position-offset;
+        left: -$position-offset;
+    }
+
+    &.LemonBubble--position-top-right {
+        top: -$position-offset;
+        right: -$position-offset;
+    }
+
+    &.LemonBubble--position-bottom-left {
+        top: -$position-offset;
+        right: -$position-offset;
+    }
+
+    &.LemonBubble--position-bottom-right {
+        top: -$position-offset;
+        right: -$position-offset;
+    }
+
+    &.LemonBubble--small {
+        width: $lemon-counter-small * $sf-small;
+        height: $lemon-counter-small * $sf-small;
+        font-size: $lemon-counter-font-small * $sf-small;
+        line-height: $lemon-counter-small * $sf-small;
+    }
+
+    &.LemonBubble--large {
+        width: $lemon-counter-small * $sf-large;
+        height: $lemon-counter-small * $sf-large;
+        font-size: $lemon-counter-font-small * $sf-large;
+        line-height: $lemon-counter-small * $sf-large;
+    }
+
+    &.LemonBubble--large {
+        width: $lemon-counter-small * $sf-large;
+        height: $lemon-counter-small * $sf-large;
+        font-size: $lemon-counter-font-small * $sf-large;
+        line-height: $lemon-counter-small * $sf-large;
+    }
+
+    &.anim--enter {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+
+    &.anim--enter-active {
+        transform: scale(1);
+        opacity: 1;
+        transition: all 250ms ease-out;
+    }
+
+    &.anim--exit {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    &.anim--exit-active {
+        transform: scale(0.5);
+        opacity: 0;
+        transition: all 250ms ease-in;
+    }
+}
