@@ -4,7 +4,6 @@ from itertools import accumulate
 from typing import Any, Callable, Dict, List, Tuple, Union, cast
 
 from django.db.models.query import Prefetch
-from django.utils import timezone
 
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
@@ -18,7 +17,6 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
-from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
