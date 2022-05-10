@@ -23,7 +23,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values
@@ -88,7 +88,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values
@@ -146,7 +146,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values
@@ -222,7 +222,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values
@@ -312,7 +312,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values
@@ -391,7 +391,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00')),
+                              toStartOfWeek(toDateTime('2020-06-07 23:59:59')),
                               toStartOfWeek(e.timestamp)
                           )
                       ] as breakdown_values

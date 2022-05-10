@@ -24,7 +24,14 @@ def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[s
     params = {}
     if filter.date_from:
         date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s)"
-        params.update({"date_from": format_ch_timestamp(filter.date_from, convert_to_timezone=team.timezone_for_charts if not filter.date_from_has_explicit_time else None)})
+        params.update(
+            {
+                "date_from": format_ch_timestamp(
+                    filter.date_from,
+                    convert_to_timezone=team.timezone_for_charts if not filter.date_from_has_explicit_time else None,
+                )
+            }
+        )
     else:
         try:
             earliest_date = get_earliest_timestamp(team.pk)
@@ -37,14 +44,21 @@ def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[s
     _date_to = filter.date_to
 
     date_to = f"AND {table}timestamp <= toDateTime(%(date_to)s)"
-    params.update({"date_to": format_ch_timestamp(_date_to, convert_to_timezone=team.timezone_for_charts if filter._date_to and not filter.date_to_has_explicit_time else None)})
+    params.update(
+        {
+            "date_to": format_ch_timestamp(
+                _date_to,
+                convert_to_timezone=team.timezone_for_charts
+                if filter._date_to and not filter.date_to_has_explicit_time
+                else None,
+            )
+        }
+    )
 
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(
-    timestamp: datetime, convert_to_timezone: Optional[str] = None
-):
+def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
     if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)

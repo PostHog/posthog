@@ -3,10 +3,10 @@ import json
 import re
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
-import pytz
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
@@ -280,7 +280,7 @@ class DateMixin(BaseParamMixin):
         """
         if not self._date_from:
             return False
-        return isinstance(self._date_from, datetime.datetime) or 'T' in self._date_from
+        return isinstance(self._date_from, datetime.datetime) or "T" in self._date_from
 
     @property
     def date_to_has_explicit_time(self) -> bool:
@@ -289,7 +289,7 @@ class DateMixin(BaseParamMixin):
         """
         if not self._date_to:
             return False
-        return isinstance(self._date_to, datetime.datetime) or 'T' in self._date_to
+        return isinstance(self._date_to, datetime.datetime) or "T" in self._date_to
 
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
@@ -313,7 +313,7 @@ class DateMixin(BaseParamMixin):
             else:
                 return self._date_to
         else:
-            if self.interval == 'hour': # type: ignore
+            if self.interval == "hour":  # type: ignore
                 return timezone.now()
             date = timezone.now()
 
