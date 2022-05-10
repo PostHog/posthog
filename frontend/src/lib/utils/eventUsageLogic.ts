@@ -442,6 +442,7 @@ export const eventUsageLogic = kea<
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
+        reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1057,6 +1058,9 @@ export const eventUsageLogic = kea<
             posthog.capture('report ingestion third party plugin installed', {
                 name: name,
             })
+        },
+        reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
+            posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
     }),
 })

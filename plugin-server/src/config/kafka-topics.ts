@@ -16,3 +16,4 @@ export const KAFKA_PLUGIN_LOG_ENTRIES = `plugin_log_entries${suffix}`
 export const KAFKA_EVENTS_DEAD_LETTER_QUEUE = `events_dead_letter_queue${suffix}`
 export const KAFKA_GROUPS = `clickhouse_groups${suffix}`
 export const KAFKA_BUFFER = `conversion_events_buffer${suffix}`
+export const KAFKA_HEALTHCHECK = `healthcheck${suffix}`

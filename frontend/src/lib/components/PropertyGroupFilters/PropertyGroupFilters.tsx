@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
@@ -11,7 +11,6 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { objectsEqual } from 'lib/utils'
 
 interface PropertyGroupFilters {
     value: PropertyGroupFilter
@@ -34,10 +33,9 @@ export function PropertyGroupFilters({
     filters,
     noTitle,
 }: PropertyGroupFilters): JSX.Element {
-    const logicProps = { propertyGroupFilter: value, onChange, pageKey }
+    const logicProps = { value, onChange, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
-        setFilters,
         addFilterGroup,
         removeFilterGroup,
         setOuterPropertyGroupsType,
@@ -47,12 +45,6 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
-
-    useEffect(() => {
-        if (!objectsEqual(value, propertyGroupFilter)) {
-            setFilters(value)
-        }
-    }, [JSON.stringify(value)])
 
     return (
         <>
@@ -94,13 +86,13 @@ export function PropertyGroupFilters({
                                                 />
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    type="alt"
+                                                    type="secondary"
                                                     onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="alt"
+                                                    type="secondary"
                                                     onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />

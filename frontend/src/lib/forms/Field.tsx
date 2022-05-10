@@ -7,7 +7,7 @@ export interface FieldProps extends KeaFieldProps {
     showOptional?: boolean
 }
 
-/** Compatible replacement for Form.Item */
+/** Compatible replacement for Form.Item. Passes `value` and `onChange(value: any)` to its children. */
 export const Field = ({ showOptional, name, ...keaFieldProps }: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
