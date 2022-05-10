@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
@@ -161,28 +161,45 @@ class CohortQuery(EnterpriseEventQuery):
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
-        # KLUDGE: unwraps cohort properties if filter has previously been simplified
-        # Assumes that each property is wrapped in a PropertyGroup
-        if not filter.is_simplified:
-            return filter
-
-        def _unwrap(property_group: PropertyGroup):
+        def _unwrap(property_group: PropertyGroup) -> PropertyGroup:
             if len(property_group.values):
                 if isinstance(property_group.values[0], PropertyGroup):
-                    return PropertyGroup(type=property_group.type, values=[_unwrap(v) for v in property_group.values])  # type: ignore
+                    # dealing with a list of property groups, so unwrap each one
+                    return PropertyGroup(
+                        type=property_group.type,
+                        values=[_unwrap(v) for v in cast(List[PropertyGroup], property_group.values)],
+                    )
 
-                elif isinstance(property_group.values[0], Property) and (
-                    property_group.values[0].type == "cohort" or property_group.values[0].type == "precalculated-cohort"
-                ):
-                    try:
-                        prop_cohort: Cohort = Cohort.objects.get(pk=property_group.values[0].value, team_id=team_id)
-                    except Cohort.DoesNotExist:
-                        return PropertyGroup(
-                            type=PropertyOperatorType.AND,
-                            values=[Property(key="fake_key_01r2ho", value=0, type="person")],
-                        )
+                elif isinstance(property_group.values[0], Property):
+                    # dealing with a list of properties
+                    # if any single one is a cohort property, unwrap it into a property group
+                    # which implies converting everything else in the list into a property group too
+                    has_cohort_property = False
+                    for prop in property_group.values:
+                        if prop.type in ["cohort", "precalculated-cohort"]:
+                            has_cohort_property = True
 
-                    return prop_cohort.properties
+                    if has_cohort_property:
+                        new_property_group_list: List[PropertyGroup] = []
+                        for prop in property_group.values:
+                            prop = cast(Property, prop)
+                            if prop.type in ["cohort", "precalculated-cohort"]:
+                                try:
+                                    prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                                    new_property_group_list.append(prop_cohort.properties)
+                                except Cohort.DoesNotExist:
+                                    new_property_group_list.append(
+                                        PropertyGroup(
+                                            type=PropertyOperatorType.AND,
+                                            values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                                        )
+                                    )
+                            else:
+                                new_property_group_list.append(
+                                    PropertyGroup(type=PropertyOperatorType.AND, values=[prop])
+                                )
+                        return PropertyGroup(type=property_group.type, values=new_property_group_list)
+
             return property_group
 
         new_props = _unwrap(filter.property_groups)

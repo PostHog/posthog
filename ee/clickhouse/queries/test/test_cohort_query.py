@@ -1237,7 +1237,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(
             data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},},
-            team=self.team,
+            # team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1283,7 +1283,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 },
             },
-            team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1389,7 +1388,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 },
             },
-            team=self.team,
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
