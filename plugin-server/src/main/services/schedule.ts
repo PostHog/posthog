@@ -19,6 +19,7 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
     if (!server.capabilities.pluginScheduledTasks) {
         return {
             stopSchedule: async () => {
+                cancelAllJobs()
                 await waitForTasksToFinish(server)
             },
             reloadSchedule: () => Promise.resolve(),
@@ -31,19 +32,19 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
 
-    const runEveryMinuteJob = schedule.scheduleJob('* * * * *', async () => {
+    schedule.scheduleJob('* * * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
             runScheduleDebounced(server!, piscina!, 'runEveryMinute')
     })
-    const runEveryHourJob = schedule.scheduleJob('0 * * * *', async () => {
+    schedule.scheduleJob('0 * * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
             runScheduleDebounced(server!, piscina!, 'runEveryHour')
     })
-    const runEveryDayJob = schedule.scheduleJob('0 0 * * *', async () => {
+    schedule.scheduleJob('0 0 * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
@@ -65,9 +66,7 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
 
     const stopSchedule = async () => {
         stopped = true
-        runEveryDayJob && schedule.cancelJob(runEveryDayJob)
-        runEveryHourJob && schedule.cancelJob(runEveryHourJob)
-        runEveryMinuteJob && schedule.cancelJob(runEveryMinuteJob)
+        cancelAllJobs()
 
         await unlock()
         await waitForTasksToFinish(server)
@@ -80,6 +79,12 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
     }
 
     return { stopSchedule, reloadSchedule }
+}
+
+function cancelAllJobs() {
+    Object.values(schedule.scheduledJobs).forEach((job) => {
+        job.cancel()
+    })
 }
 
 export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {

@@ -1,6 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Redis } from 'ioredis'
+import * as nodeSchedule from 'node-schedule'
 
 import {
     loadPluginSchedule,
@@ -30,6 +31,10 @@ function createEvent(index = 0): PluginEvent {
         event: 'default event',
         properties: { key: 'value', index },
     }
+}
+
+function numberOfScheduledJobs() {
+    return Object.keys(nodeSchedule.scheduledJobs).length
 }
 
 describe('schedule', () => {
@@ -181,17 +186,16 @@ describe('schedule', () => {
         })
 
         describe('loading the schedule', () => {
-            let schedule: ScheduleControl
-
-            beforeEach(async () => {
-                schedule = await startSchedule(hub, piscina)
-            })
+            let schedule: ScheduleControl | null = null
 
             afterEach(async () => {
-                await schedule.stopSchedule()
+                await schedule?.stopSchedule()
+                schedule = null
             })
 
             test('loads successfully', async () => {
+                schedule = await startSchedule(hub, piscina)
+
                 expect(hub.pluginSchedule).toEqual({
                     runEveryMinute: [39],
                     runEveryHour: [],
@@ -211,6 +215,27 @@ describe('schedule', () => {
                     runEveryHour: [],
                     runEveryDay: [],
                 })
+            })
+
+            test('node-schedule tasks are created and removed on stop', async () => {
+                expect(numberOfScheduledJobs()).toEqual(0)
+
+                const schedule = await startSchedule(hub, piscina)
+                expect(numberOfScheduledJobs()).toEqual(3)
+
+                nodeSchedule.scheduleJob('1 1 1 1 1', () => 1)
+                expect(numberOfScheduledJobs()).toEqual(4)
+
+                await schedule.stopSchedule()
+                expect(numberOfScheduledJobs()).toEqual(0)
+            })
+
+            test('no node-schedule tasks are created if insufficient capabilities', async () => {
+                hub.capabilities.pluginScheduledTasks = false
+
+                schedule = await startSchedule(hub, piscina)
+
+                expect(numberOfScheduledJobs()).toEqual(0)
             })
         })
     })
