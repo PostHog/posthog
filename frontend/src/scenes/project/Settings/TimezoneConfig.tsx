@@ -14,7 +14,7 @@ export function TimezoneConfig(): JSX.Element {
     if (!preflight?.available_timezones || !currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
     }
-    function onChange(val): void {
+    function onChange(val: string): void {
         Modal.confirm({
             title: `Do you want to change the timezone of this project?`,
             content:
