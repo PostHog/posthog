@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
+import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getFileFromArchive, pluginDigest } from '../../utils/utils'
 import { transpileFrontend } from './transpile'
@@ -74,16 +74,27 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 await processError(hub, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source') {
-            if (plugin.source_frontend && !plugin.transpiled_frontend) {
-                try {
-                    plugin.transpiled_frontend = transpileFrontend(plugin.source_frontend)
+            if (plugin.source_frontend && plugin.transpiled_frontend === null) {
+                async function getTranspilationLock(hub: Hub, plugin: Plugin): Promise<boolean> {
+                    const response = await hub.db.postgresQuery(
+                        'UPDATE posthog_plugin SET transpiled_frontend = $1 WHERE id = $2 AND transpiled_frontend IS NULL RETURNING transpiled_frontend',
+                        ["'transpiling'", plugin.id],
+                        'getPluginTranspiledFrontendLock'
+                    )
+                    return response.rowCount > 0
+                }
+                if (await getTranspilationLock(hub, plugin)) {
+                    try {
+                        plugin.transpiled_frontend = transpileFrontend(plugin.source_frontend)
+                    } catch (error: any) {
+                        plugin.transpiled_frontend = "'error'"
+                        await processError(hub, pluginConfig, error)
+                    }
                     await hub.db.postgresQuery(
                         'update posthog_plugin set transpiled_frontend = $1 where id = $2',
                         [plugin.transpiled_frontend, plugin.id],
                         'setPluginTranspiledFrontend'
                     )
-                } catch (error: any) {
-                    await processError(hub, pluginConfig, error)
                 }
             }
 
