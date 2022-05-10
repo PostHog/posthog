@@ -45,7 +45,7 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id, "timezone": team.timezones}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
