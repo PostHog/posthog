@@ -24,6 +24,8 @@
         <readonly>
             <readonly>1</readonly>
         </readonly>
+
+        <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
     </profiles>
 
     <!-- Users and ACL. -->
