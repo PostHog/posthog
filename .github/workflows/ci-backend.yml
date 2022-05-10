@@ -213,6 +213,7 @@ jobs:
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
+              if: ${{ matrix.clickhouse-server-image-version == '21.11.11.1' }}
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
