@@ -103,6 +103,10 @@
                 {
                     "name": "HISTORICAL_EXPORTS_ENABLED",
                     "value": "False"
+                },
+                {
+                    "name": "PERSON_INFO_TO_REDIS_TEAMS",
+                    "value": "7964"
                 }
             ],
             "secrets": [
