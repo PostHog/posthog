@@ -17,6 +17,7 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyType,
+    TimeUnitType,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1314,4 +1315,17 @@ export function isNumeric(x: any): boolean {
         return false
     }
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
+    if (timeUnit === TimeUnitType.Year) {
+        return timeValue * 365
+    }
+    if (timeUnit === TimeUnitType.Month) {
+        return timeValue * 30
+    }
+    if (timeUnit === TimeUnitType.Week) {
+        return timeValue * 7
+    }
+    return timeValue
 }

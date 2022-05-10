@@ -1,5 +1,6 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
 import {
+    AnyCohortCriteriaType,
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
@@ -59,6 +60,7 @@ export enum BehavioralFilterKey {
 
 export interface Field {
     fieldKey?: string
+    groupTypeFieldKey?: string
     defaultValue?: string | number | null
     type: FilterType
     hide?: boolean // If field is hidden, key is included in final payload but no component is rendered
@@ -86,8 +88,8 @@ export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
 }
 
 export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    groupTypeFieldKey?: keyof AnyCohortCriteriaType
     placeholder?: string
-    taxonomicGroupType?: TaxonomicFilterGroupType
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     fieldOptionGroupTypes: never
 }
@@ -114,10 +116,10 @@ export type CohortFieldProps =
     | CohortPersonPropertiesValuesFieldProps
 
 export enum CohortClientErrors {
-    NegationCriteriaMissingOther = 'Negation criteria are only supported after you have specified at least one positive matching criteria. Negation criteria can only be used when matching all criteria (AND).',
+    NegationCriteriaMissingOther = 'Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.',
     NegationCriteriaCancel = 'These criteria cancel each other out, and would result in no matching persons.',
-    RegularEventMismatch = 'The lowerbound period value must not be greater than the upperbound value.',
-    SequentialTimeMismatch = 'The lowerbound period sequential time value must not be greater than the upperbound time value.',
+    PeriodTimeMismatch = 'The lower bound period value must not be greater than the upper bound value.',
+    SequentialTimeMismatch = 'The lower bound period sequential time value must not be greater than the upper bound time value.',
     EmptyEventsAndActions = 'Event or action cannot be empty.',
     EmptyEventProperties = 'Event property cannot be empty.',
     EmptyPersonPropertyValues = 'Person property value cannot be empty',

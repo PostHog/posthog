@@ -42,6 +42,7 @@ export function CohortCriteriaRowBuilder({
                     fieldKey: _field.fieldKey,
                     criteria,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
+                    ...(!!_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
                 } as CohortFieldProps)}
             </Col>
@@ -104,7 +105,7 @@ export function CohortCriteriaRowBuilder({
                                         fieldKey: 'value',
                                         criteria,
                                         onChange: (newCriteria) => {
-                                            setCriteria(cleanCriteria(newCriteria), groupIndex, index)
+                                            setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
                                     })}

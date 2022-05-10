@@ -9,6 +9,7 @@ import {
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
+    TimeUnitType,
 } from '~/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import {
@@ -17,10 +18,10 @@ import {
     CohortClientErrors,
     FieldWithFieldKey,
 } from 'scenes/cohorts/CohortFilters/types'
-import { areObjectValuesEmpty, convertPropertyGroupToProperties, isNumeric } from 'lib/utils'
+import { areObjectValuesEmpty, calculateDays, convertPropertyGroupToProperties, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
-import { CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -212,12 +213,15 @@ export function validateGroup(
         // Negation criteria has at least one positive matching criteria
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
+        const errorMsg = `${negatedCriteria
+            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)].label}'`)
+            .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
+            CohortClientErrors.NegationCriteriaMissingOther
+        }`
         return {
-            id: CohortClientErrors.NegationCriteriaMissingOther,
+            id: errorMsg,
             values: criteria.map((c) => ({
-                value: negatedCriteriaIndices.has(c.index)
-                    ? CohortClientErrors.NegationCriteriaMissingOther
-                    : undefined,
+                value: negatedCriteriaIndices.has(c.index) ? errorMsg : undefined,
             })) as DeepPartialMap<CohortCriteriaType, ValidationErrorType>[],
         }
     }
@@ -263,9 +267,9 @@ export function validateGroup(
                 c.value === BehavioralLifecycleType.PerformEventRegularly
                     ? (c.min_periods ?? 0) > (c.total_periods ?? 0)
                         ? {
-                              id: CohortClientErrors.RegularEventMismatch,
-                              min_periods: CohortClientErrors.RegularEventMismatch,
-                              total_periods: CohortClientErrors.RegularEventMismatch,
+                              id: CohortClientErrors.PeriodTimeMismatch,
+                              min_periods: CohortClientErrors.PeriodTimeMismatch,
+                              total_periods: CohortClientErrors.PeriodTimeMismatch,
                           }
                         : {}
                     : {}
@@ -283,7 +287,13 @@ export function validateGroup(
     )
     if (
         sequentialTimeCriteria.length > 0 &&
-        sequentialTimeCriteria.every((c) => isNumeric(c.seq_time_value) && isNumeric(c.time_value))
+        sequentialTimeCriteria.every(
+            (c) =>
+                isNumeric(c.seq_time_value) &&
+                isNumeric(c.time_value) &&
+                c.time_interval !== undefined &&
+                c.seq_time_interval !== undefined
+        )
     ) {
         return {
             values: criteria.map((c) =>
@@ -292,7 +302,8 @@ export function validateGroup(
                     BehavioralLifecycleType.StopPerformEvent,
                     BehavioralEventType.PerformSequenceEvents,
                 ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
-                    ? (c.seq_time_value ?? 0) > (c.time_value ?? 0)
+                    ? calculateDays(Number(c.seq_time_value) ?? 0, c.seq_time_interval ?? TimeUnitType.Day) >=
+                      calculateDays(Number(c.time_value) ?? 0, c.time_interval ?? TimeUnitType.Day)
                         ? {
                               id: CohortClientErrors.SequentialTimeMismatch,
                               seq_time_value: CohortClientErrors.SequentialTimeMismatch,
@@ -449,18 +460,22 @@ export function applyAllNestedCriteria(
 }
 
 // Populate empty values with default values on changing type, pruning any extra variables
-export function cleanCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
+export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria = {}
     const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = criteria[key] ?? defaultValue
-        if (nextValue !== undefined && nextValue !== null) {
+        if (shouldPurge) {
+            populatedCriteria[key] = defaultValue
+        } else if (nextValue !== undefined && nextValue !== null) {
             populatedCriteria[key] = nextValue
         }
     })
     fields.forEach(({ fieldKey, defaultValue }) => {
         const nextValue = fieldKey ? criteria[fieldKey] ?? defaultValue : null
-        if (fieldKey && nextValue !== undefined && nextValue !== null) {
+        if (fieldKey && shouldPurge) {
+            populatedCriteria[fieldKey] = defaultValue
+        } else if (fieldKey && nextValue !== undefined && nextValue !== null) {
             populatedCriteria[fieldKey] = nextValue
         }
     })

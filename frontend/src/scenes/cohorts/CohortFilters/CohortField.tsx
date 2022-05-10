@@ -7,7 +7,6 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {
-    BehavioralFilterKey,
     CohortPersonPropertiesValuesFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -18,7 +17,6 @@ import {
 import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import { resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
-import { cohortsModel } from '~/models/cohortsModel'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyOperator } from '~/types'
 
@@ -101,9 +99,9 @@ export function CohortSelectorField({
 
 export function CohortTaxonomicField({
     fieldKey,
+    groupTypeFieldKey = 'event_type',
     cohortFilterLogicKey,
     criteria,
-    taxonomicGroupType = TaxonomicFilterGroupType.Events,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     placeholder = 'Choose event',
     onChange: _onChange,
@@ -115,22 +113,18 @@ export function CohortTaxonomicField({
         onChange: _onChange,
     })
 
-    const { value } = useValues(logic)
+    const { calculatedValue } = useValues(logic)
     const { onChange } = useActions(logic)
-    const { cohortsById } = useValues(cohortsModel)
-    const cohortOrOtherValue =
-        criteria.type === BehavioralFilterKey.Cohort && fieldKey === 'value_property' && typeof value === 'number'
-            ? cohortsById[value]?.name ?? `Cohort ${value}`
-            : value
+    const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
     return (
         <LemonTaxonomicPopup
             className="CohortField"
             type="secondary"
-            groupType={taxonomicGroupType}
-            value={cohortOrOtherValue as TaxonomicFilterValue}
+            groupType={groupType}
+            value={calculatedValue(groupType) as TaxonomicFilterValue}
             onChange={(v, g) => {
-                onChange({ [fieldKey]: v, event_type: g })
+                onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })
             }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}

@@ -1,4 +1,3 @@
-import './Cohort.scss'
 import React from 'react'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Field as KeaField, Group } from 'kea-forms'

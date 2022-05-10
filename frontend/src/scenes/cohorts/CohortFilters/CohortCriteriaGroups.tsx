@@ -1,3 +1,5 @@
+import './CohortCriteriaGroups.scss'
+import React from 'react'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
@@ -10,13 +12,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import React from 'react'
 
 export function CohortCriteriaGroups(): JSX.Element {
-    const { cohort } = useValues(cohortLogic)
+    const { cohort, id } = useValues(cohortLogic)
     const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(cohortLogic)
 
     return (
@@ -25,7 +26,7 @@ export function CohortCriteriaGroups(): JSX.Element {
                 isCohortCriteriaGroup(group) ? (
                     <Group key={groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
                         {groupIndex !== 0 && (
-                            <div className="cohort-detail__matching-group__logical-divider">{group.type}</div>
+                            <div className="CohortCriteriaGroups__matching-group__logical-divider">{group.type}</div>
                         )}
                         <KeaField
                             name="id"
@@ -33,8 +34,8 @@ export function CohortCriteriaGroups(): JSX.Element {
                                 return (
                                     <div
                                         className={clsx(
-                                            'cohort-detail__matching-group',
-                                            error && `cohort-detail__matching-group--error`
+                                            'CohortCriteriaGroups__matching-group',
+                                            error && `CohortCriteriaGroups__matching-group--error`
                                         )}
                                     >
                                         <Row align="middle" wrap={false} className="pl pr">
@@ -61,7 +62,7 @@ export function CohortCriteriaGroups(): JSX.Element {
                                         </Row>
                                         <LemonDivider large />
                                         {error && (
-                                            <Row className="cohort-detail__matching-group__error-row">
+                                            <Row className="CohortCriteriaGroups__matching-group__error-row">
                                                 <AlertMessage type="error" style={{ width: '100%' }}>
                                                     <>{error}</>
                                                 </AlertMessage>
@@ -76,14 +77,16 @@ export function CohortCriteriaGroups(): JSX.Element {
                                 {group.values.map((criteria, criteriaIndex) => {
                                     return isCohortCriteriaGroup(criteria) ? null : (
                                         <Group key={criteriaIndex} name={['values', criteriaIndex]}>
-                                            <CohortCriteriaRowBuilder
-                                                groupIndex={groupIndex}
-                                                index={criteriaIndex}
-                                                logicalOperator={group.type}
-                                                criteria={criteria}
-                                                type={criteriaToBehavioralFilterType(criteria)}
-                                                hideDeleteIcon={group.values.length <= 1}
-                                            />
+                                            <BindLogic logic={cohortLogic} props={{ id }}>
+                                                <CohortCriteriaRowBuilder
+                                                    groupIndex={groupIndex}
+                                                    index={criteriaIndex}
+                                                    logicalOperator={group.type}
+                                                    criteria={criteria}
+                                                    type={criteriaToBehavioralFilterType(criteria)}
+                                                    hideDeleteIcon={group.values.length <= 1}
+                                                />
+                                            </BindLogic>
                                             {criteriaIndex === group.values.length - 1 && (
                                                 <Row>
                                                     <LemonButton

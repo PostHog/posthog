@@ -254,6 +254,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
     })),
 
     selectors({
+        id: [() => [(_, props) => props.id], (id) => id],
         newCohortFiltersEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],

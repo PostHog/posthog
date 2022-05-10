@@ -303,6 +303,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -334,6 +335,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -365,6 +367,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -406,6 +409,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -434,7 +438,14 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'seq_event',
+                groupTypeFieldKey: 'seq_event_type',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                fieldKey: 'seq_event_type',
+                type: FilterType.EventType,
+                defaultValue: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
@@ -443,7 +454,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: '30',
+                defaultValue: '15',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -463,6 +474,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -491,7 +503,14 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 fieldKey: 'seq_event',
+                groupTypeFieldKey: 'seq_event_type',
                 type: FilterType.EventsAndActions,
+            },
+            {
+                fieldKey: 'seq_event_type',
+                type: FilterType.EventType,
+                defaultValue: TaxonomicFilterGroupType.Events,
+                hide: true,
             },
             {
                 type: FilterType.Text,
@@ -500,7 +519,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: '30',
+                defaultValue: '15',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -584,6 +603,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -615,6 +635,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -665,6 +686,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.Number,
                 defaultValue: 5,
             },
+            {
+                type: FilterType.Text,
+                defaultValue: 'periods',
+            },
         ],
     },
     [BehavioralLifecycleType.StopPerformEvent]: {
@@ -674,6 +699,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -689,7 +715,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: '30',
+                defaultValue: '15',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -723,6 +749,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
+                groupTypeFieldKey: 'event_type',
                 type: FilterType.EventsAndActions,
             },
             {
@@ -738,7 +765,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             {
                 fieldKey: 'seq_time_value',
                 type: FilterType.Number,
-                defaultValue: '30',
+                defaultValue: '15',
             },
             {
                 fieldKey: 'seq_time_interval',
@@ -921,4 +948,10 @@ export const NEW_COHORT: CohortType = {
             values: [NEW_CRITERIA_GROUP],
         },
     },
+}
+
+export const BEHAVIORAL_TYPE_TO_LABEL = {
+    ...FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
+    ...FIELD_VALUES[FieldOptionsType.CohortBehavioral].values,
+    ...FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
 }

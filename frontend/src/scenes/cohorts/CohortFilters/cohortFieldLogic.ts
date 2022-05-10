@@ -1,10 +1,13 @@
 import { kea } from 'kea'
-import { FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
+import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
 import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { actionsModel } from '~/models/actionsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -67,6 +70,23 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
                           value
                       ]
                     : null,
+        ],
+        calculatedValue: [
+            (s) => [s.value, (_, props) => props.criteria, (_, props) => props.fieldKey],
+            (value, criteria, fieldKey) => (taxonomicGroupType: TaxonomicFilterGroupType) => {
+                // Only used by taxonomic filter field to determine label name
+                if (
+                    criteria.type === BehavioralFilterKey.Cohort &&
+                    fieldKey === 'value_property' &&
+                    typeof value === 'number'
+                ) {
+                    return cohortsModel.findMounted()?.values?.cohortsById?.[value]?.name ?? `Cohort ${value}`
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.Actions && typeof value === 'number') {
+                    return actionsModel.findMounted()?.values?.actionsById?.[value]?.name ?? `Action ${value}`
+                }
+                return value
+            },
         ],
     },
     listeners: ({ props }) => ({
