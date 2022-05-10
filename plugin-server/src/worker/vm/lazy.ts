@@ -15,7 +15,7 @@ import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getVMPluginCapabilities } from '../plugins/capabilities'
+import { getVMPluginCapabilities } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
 export const VM_INIT_MAX_RETRIES = 5
