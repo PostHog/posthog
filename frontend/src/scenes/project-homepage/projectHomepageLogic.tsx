@@ -64,7 +64,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         actions.loadPersons()
         // For Onboarding 1's experiment, we are tracking whether a team has ingested events on the client side
         // because experiments doesn't support this yet in other libraries
-        if (values.currentTeam.ingested_event) {
+        if (values.currentTeam?.ingested_event) {
             actions.reportTeamHasIngestedEvents()
         }
     }),
