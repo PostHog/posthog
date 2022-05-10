@@ -1,6 +1,6 @@
 import { Hub, LogLevel, PluginCapabilities } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { getVMPluginCapabilities } from '../../../src/worker/plugins/capabilities'
+import { getVMPluginCapabilities } from '../../../src/worker/vm/capabilities'
 import { createPluginConfigVM } from '../../../src/worker/vm/vm'
 import { pluginConfig39 } from '../../helpers/plugins'
 
