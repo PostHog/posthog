@@ -229,14 +229,6 @@ describe('schedule', () => {
                 await schedule.stopSchedule()
                 expect(numberOfScheduledJobs()).toEqual(0)
             })
-
-            test('no node-schedule tasks are created if insufficient capabilities', async () => {
-                hub.capabilities.pluginScheduledTasks = false
-
-                schedule = await startSchedule(hub, piscina)
-
-                expect(numberOfScheduledJobs()).toEqual(0)
-            })
         })
     })
 })
