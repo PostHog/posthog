@@ -9,7 +9,7 @@ from rest_framework import serializers
 
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -108,10 +108,9 @@ def bulk_create_events(events: List[Dict[str, Any]]):
 
 
 def get_events_by_team(team_id: Union[str, int]):
-    from ee.clickhouse.system_status import query_with_columns
 
     events = query_with_columns(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
-    return events
+    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
 class ElementSerializer(serializers.ModelSerializer):

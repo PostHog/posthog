@@ -27,7 +27,7 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
 from posthog.models.action.util import format_action_filter
@@ -120,7 +120,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            next_url = self._build_next_url(request, query_result[limit - 1][3])
+            next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
         return response.Response({"next": next_url, "results": result})
 
@@ -137,7 +137,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _query_events_list(
         self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
-        from ee.clickhouse.system_status import query_with_columns
 
         limit += 1
         limit_sql = "LIMIT %(limit)s"
@@ -183,7 +182,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
     ) -> response.Response:
-        from ee.clickhouse.system_status import query_with_columns
 
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(

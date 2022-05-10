@@ -1,12 +1,12 @@
 import json
 from typing import Optional
 
+from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
-from ee.clickhouse.system_status import query_with_columns
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
@@ -31,7 +31,9 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
         params,
     )
 
-    return events
+    parsed_events = ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
+
+    return parsed_events
 
 
 def _filter_persons(filter: Filter, team: Team):
