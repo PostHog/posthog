@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_filter_query, get_count_operator, get_entity_query
+from ee.clickhouse.models.cohort import format_static_cohort_query, get_count_operator, get_entity_query
 from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import PropertyOperatorType
@@ -186,7 +186,15 @@ class CohortQuery(EnterpriseEventQuery):
                             if prop.type in ["cohort", "precalculated-cohort"]:
                                 try:
                                     prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
-                                    new_property_group_list.append(prop_cohort.properties)
+                                    if prop_cohort.is_static:
+                                        new_property_group_list.append(
+                                            PropertyGroup(
+                                                type=PropertyOperatorType.AND,
+                                                values=[Property(type="static-cohort", key="id", value=prop_cohort.pk)],
+                                            )
+                                        )
+                                    else:
+                                        new_property_group_list.append(prop_cohort.properties)
                                 except Cohort.DoesNotExist:
                                     new_property_group_list.append(
                                         PropertyGroup(
@@ -255,9 +263,11 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                if subq_alias == self.PERSON_TABLE_ALIAS and "person" not in [
-                    prop.type for prop in getattr(self._outer_property_groups, "flat", [])
-                ]:
+                if (
+                    subq_alias == self.PERSON_TABLE_ALIAS
+                    and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                    and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+                ):
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = f"{subq_alias}.person_id"
                 else:
@@ -371,7 +381,7 @@ class CohortQuery(EnterpriseEventQuery):
         elif (
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
-            res, params = self.get_cohort_condition(prop, prepend, idx)
+            res, params = self.get_static_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
@@ -385,17 +395,11 @@ class CohortQuery(EnterpriseEventQuery):
         else:
             return "", {}
 
-    def get_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        try:
-            prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
-        except Cohort.DoesNotExist:
-            return "0 = 14", {}
-
+    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id", using_new_query=True)
-        return f"id IN ({person_id_query})", cohort_filter_params
+        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id")
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -678,7 +682,10 @@ class CohortQuery(EnterpriseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = self._column_optimizer.is_using_person_properties
+        self._should_join_persons = (
+            self._column_optimizer.is_using_person_properties
+            or len(self._column_optimizer._used_properties_with_type("static-cohort")) > 0
+        )
 
     @cached_property
     def _should_join_behavioral_query(self) -> bool:
