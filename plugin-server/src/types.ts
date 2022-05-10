@@ -140,6 +140,8 @@ export interface PluginsServerConfig extends Record<string, any> {
 
 export interface Hub extends PluginsServerConfig {
     instanceId: UUID
+    // Capabilities for this hub
+    capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
     postgres: Pool
@@ -176,6 +178,12 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+}
+
+export interface PluginServerCapabilities {
+    ingestion?: boolean
+    scheduledTasks?: boolean
+    jobs?: boolean
 }
 
 export interface Pausable {
