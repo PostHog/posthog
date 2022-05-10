@@ -56,7 +56,7 @@ class MatrixManager:
     def run_on_team(cls, matrix: Matrix, team: Team, user: User, simulate_journeys: bool = True) -> Team:
         set_time = time.time()  # FIXME
         matrix.set_project_up(team, user)
-        print(f"[DEMO] Setting project up in {time.time() -set_time}")  # noqa: T001
+        print(f"[DEMO] Setting project up in {time.time() -set_time}")
         if simulate_journeys:
             persons_to_bulk_save: List[Person] = []
             person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
@@ -66,22 +66,19 @@ class MatrixManager:
                 for group_key, group in groups.items():
                     save_sim_group(team.id, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group)
             sim_persons = matrix.people
-            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")  # noqa: T001
+            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")
             individual_time = time.time()  # FIXME
             for sim_person in sim_persons:
                 sim_person_save_result = save_sim_person(team.id, sim_person)
                 if sim_person_save_result is not None:  # None is returned if the person wasn't ever seen
                     persons_to_bulk_save.append(sim_person_save_result[0])
-                    person_distinct_ids_to_bulk_save.append(sim_person_save_result[1])
-            print(
-                f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time}"
-            )  # noqa: T001
+                    for distinct_id in sim_person_save_result[1]:
+                        person_distinct_ids_to_bulk_save.append(distinct_id)
+            print(f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time}")
             bulk_time = time.time()  # FIXME
             Person.objects.bulk_create(persons_to_bulk_save)
             PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
-            print(
-                f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}"
-            )  # noqa: T001
+            print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}")
         team.save()
         for action in Action.objects.filter(team=team):
             action.calculate_events()
