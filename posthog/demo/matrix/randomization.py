@@ -33,11 +33,3 @@ class PropertiesProvider(mimesis.BaseProvider):
         browser_pool, browser_weights = self.BROWSER_WEIGHTED_POOLS[os]
         browser = self.random.choices(browser_pool, browser_weights)[0]
         return device_type, os, browser
-
-
-properties_provider = PropertiesProvider()
-person_provider = mimesis.Person()
-numeric_provider = mimesis.Numeric()
-address_provider = mimesis.Address()
-internet_provider = mimesis.Internet()
-datetime_provider = mimesis.Datetime()
