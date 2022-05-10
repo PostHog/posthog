@@ -50,12 +50,11 @@ export function IOSInstructions(): JSX.Element {
             <IOSInstallSnippet />
             <h3>Configure Swift</h3>
             <IOS_SWIFT_SetupSnippet />
-            <h3>Or Configure Objective-C</h3>
+            <h3>Or configure Objective-C</h3>
             <IOS_OBJ_C_SetupSnippet />
-            <h2>Send an Event</h2>
-            <h3>Swift</h3>
+            <h3>Send an event with swift</h3>
             <IOS_SWIFT_CaptureSnippet />
-            <h3>Objective-C</h3>
+            <h3>Send an event with Objective-C</h3>
             <IOS_OBJ_C_CaptureSnippet />
         </>
     )

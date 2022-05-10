@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
-import { getContext, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import {
     registerables,
     ActiveElement,
@@ -350,7 +349,7 @@ export function LineGraph_({
                             })
 
                             ReactDOM.render(
-                                <Provider store={getContext().store}>
+                                <>
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
@@ -367,7 +366,7 @@ export function LineGraph_({
                                         }
                                         {...tooltipConfig}
                                     />
-                                </Provider>,
+                                </>,
                                 tooltipEl
                             )
                         }

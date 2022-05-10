@@ -595,4 +595,11 @@ describe('convertPropertiesToPropertyGroup', () => {
             ],
         })
     })
+
+    it('converts properties to one AND operator property group', () => {
+        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [],
+        })
+    })
 })

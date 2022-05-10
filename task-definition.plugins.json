@@ -103,6 +103,10 @@
                 {
                     "name": "HISTORICAL_EXPORTS_ENABLED",
                     "value": "False"
+                },
+                {
+                    "name": "PERSON_INFO_TO_REDIS_TEAMS",
+                    "value": "7964"
                 }
             ],
             "secrets": [
@@ -172,8 +176,8 @@
             },
             "healthCheck": {
                 "retries": 10,
-                "command": ["CMD-SHELL", "curl -f http://localhost:6738/_ready || exit 1"],
-                "timeout": 10,
+                "command": ["CMD-SHELL", "curl -f http://localhost:6738/_health || exit 1"],
+                "timeout": 30,
                 "interval": 20,
                 "startPeriod": 60
             }
