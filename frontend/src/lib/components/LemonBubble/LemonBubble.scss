@@ -21,6 +21,7 @@ $position-offset: 0.5rem;
     border-radius: 100%;
     box-sizing: content-box;
     user-select: none;
+    pointer-events: none;
     position: absolute;
 
     &.LemonBubble--position-none {
