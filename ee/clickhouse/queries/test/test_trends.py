@@ -1,6 +1,7 @@
 from datetime import datetime
 from unittest.mock import patch
 
+from constance.test import override_config
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -110,12 +111,24 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         journey = {
             "person1": [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$group_0": "org:5"},},
-                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$group_0": "org:6"},},
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 12),
+                    "properties": {"$group_0": "org:5"},
+                    "group0_properties": {"industry": "finance"},
+                },
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$group_0": "org:6"},
+                    "group0_properties": {"industry": "technology"},
+                },
                 {
                     "event": "sign up",
                     "timestamp": datetime(2020, 1, 2, 15),
                     "properties": {"$group_0": "org:7", "$group_1": "company:10"},
+                    "group0_properties": {"industry": "finance"},
+                    "group1_properties": {"industry": "finance"},
                 },
             ],
         }
@@ -133,6 +146,11 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             }
         )
         response = ClickhouseTrends().run(filter, self.team,)
+
+        with override_config(ENABLE_ACTOR_ON_EVENTS_TEAMS=f"{self.team.pk}"):
+            new_response = ClickhouseTrends().run(filter, self.team)
+
+        self.assertEqual(response, new_response)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")

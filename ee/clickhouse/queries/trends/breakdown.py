@@ -33,6 +33,7 @@ from posthog.constants import (
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -54,6 +55,10 @@ class ClickhouseTrendsBreakdown:
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self.filter, self.team_id)
 
+    @cached_property
+    def _person_properties_mode(self) -> PersonPropertiesMode:
+        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+
     def get_query(self) -> Tuple[str, Dict, Callable]:
         interval_annotation = get_trunc_func_ch(self.filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
@@ -70,7 +75,7 @@ class ClickhouseTrendsBreakdown:
             team_id=self.team_id,
             property_group=outer_properties,
             table_name="e",
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=self._person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
         aggregate_operation, _, math_params = process_math(
@@ -123,9 +128,7 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        groups_join_condition, groups_join_params = GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer
-        ).get_join_query()
+        groups_join_condition, groups_join_params = self._groups_join_conditino()
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
@@ -216,11 +219,21 @@ class ClickhouseTrendsBreakdown:
             self.team,
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
+            person_properties_mode=self._person_properties_mode,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties
         assert isinstance(self.filter.breakdown, str)
+        breakdown_value = self._get_breakdown_value()
 
+        return (
+            {"values": values_arr},
+            BREAKDOWN_PROP_JOIN_SQL,
+            {"breakdown_value_expr": breakdown_value},
+            breakdown_value,
+        )
+
+    def _get_breakdown_value(self):
         if self.filter.breakdown_type == "person":
             breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
         elif self.filter.breakdown_type == "group":
@@ -229,12 +242,7 @@ class ClickhouseTrendsBreakdown:
         else:
             breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
 
-        return (
-            {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value},
-            breakdown_value,
-        )
+        return breakdown_value
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -358,3 +366,31 @@ class ClickhouseTrendsBreakdown:
             return event_join, {}
         else:
             return "", {}
+
+    def _groups_join_conditino(self) -> Tuple[str, Dict]:
+        return GroupsJoinQuery(self.filter, self.team_id, self.column_optimizer).get_join_query()
+
+
+class ClickhouseTrendsBreakdown_PersonsOnEvents(ClickhouseTrendsBreakdown):
+    @cached_property
+    def _person_properties_mode(self) -> PersonPropertiesMode:
+        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+
+    def _person_join_condition(self) -> Tuple[str, Dict]:
+        return "", {}
+
+    def _groups_join_conditino(self) -> Tuple[str, Dict]:
+        return "", {}
+
+    def _get_breakdown_value(self):
+        if self.filter.breakdown_type == "person":
+            breakdown_value, _ = get_property_string_expr(
+                "events", self.filter.breakdown, "%(key)s", "person_properties"
+            )
+        elif self.filter.breakdown_type == "group":
+            properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
+            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", properties_field)
+        else:
+            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
+
+        return breakdown_value
