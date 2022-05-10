@@ -33,7 +33,7 @@ export function PropertyGroupFilters({
     filters,
     noTitle,
 }: PropertyGroupFilters): JSX.Element {
-    const logicProps = { propertyGroupFilter: value, onChange, pageKey }
+    const logicProps = { value, onChange, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         addFilterGroup,
@@ -86,13 +86,13 @@ export function PropertyGroupFilters({
                                                 />
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    type="secondary"
+                                                    type="alt"
                                                     onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="secondary"
+                                                    type="alt"
                                                     onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
