@@ -2,10 +2,10 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { mocked } from 'ts-jest/utils'
 
 import { Hub, LogLevel, PluginTaskType } from '../src/types'
-import { clearError, processError } from '../src/utils/db/error'
+import { processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../src/utils/utils'
-import { loadPlugin } from '../src/worker/plugins/loadPlugin'
+import { getTranspilationLock, loadPlugin } from '../src/worker/plugins/loadPlugin'
 import { runProcessEvent } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
 import {
@@ -24,8 +24,11 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/status')
 jest.mock('../src/utils/db/error')
 jest.mock('../src/worker/plugins/loadPlugin', () => {
-    const { loadPlugin } = jest.requireActual('../src/worker/plugins/loadPlugin')
-    return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
+    const { loadPlugin, getTranspilationLock } = jest.requireActual('../src/worker/plugins/loadPlugin')
+    return {
+        loadPlugin: jest.fn().mockImplementation(loadPlugin),
+        getTranspilationLock: jest.fn().mockImplementation(getTranspilationLock),
+    }
 })
 
 describe('plugins', () => {
@@ -607,6 +610,47 @@ describe('plugins', () => {
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
 
         unlink()
+    })
+
+    test('plugin with frontend source transpiles it', async () => {
+        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
+        const source_frontend = `export const scene = {}`
+        getPluginRows.mockReturnValueOnce([{ ...mockPluginSourceCode(source), source_frontend }])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const plugin = hub.plugins.get(60)!
+        expect(plugin.transpiled_frontend).toEqual(`"use strict";
+export function getFrontendApp (require) { let exports = {}; "use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.scene = void 0;
+var scene = {};
+exports.scene = scene;; return exports; }`)
+    })
+
+    test('getTranspilationLock returns just once', async () => {
+        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
+        const source_frontend = `export const scene = {}`
+        getPluginRows.mockReturnValueOnce([{ ...mockPluginSourceCode(source), source_frontend }])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const plugin = hub.plugins.get(60)!
+
+        expect(await getTranspilationLock(hub, plugin)).toEqual(false)
+        expect(await getTranspilationLock(hub, plugin)).toEqual(false)
+
+        await hub.db.postgresQuery('update posthog_plugin set transpiled_frontend = NULL', [], '')
+
+        expect(await getTranspilationLock(hub, plugin)).toEqual(true)
+        expect(await getTranspilationLock(hub, plugin)).toEqual(false)
+
+        const results = await hub.db.postgresQuery('select transpiled_frontend from posthog_plugin', [], '')
+        expect(results.rows[0].transpiled_frontend).toEqual("'transpiling'")
     })
 
     test('plugin with source code loads capabilities', async () => {

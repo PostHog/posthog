@@ -74,15 +74,10 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 await processError(hub, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source') {
-            if (plugin.source_frontend && plugin.transpiled_frontend === null) {
-                async function getTranspilationLock(hub: Hub, plugin: Plugin): Promise<boolean> {
-                    const response = await hub.db.postgresQuery(
-                        'UPDATE posthog_plugin SET transpiled_frontend = $1 WHERE id = $2 AND transpiled_frontend IS NULL RETURNING transpiled_frontend',
-                        ["'transpiling'", plugin.id],
-                        'getPluginTranspiledFrontendLock'
-                    )
-                    return response.rowCount > 0
-                }
+            if (
+                plugin.source_frontend &&
+                (plugin.transpiled_frontend === null || plugin.transpiled_frontend === undefined)
+            ) {
                 if (await getTranspilationLock(hub, plugin)) {
                     try {
                         plugin.transpiled_frontend = transpileFrontend(plugin.source_frontend)
@@ -120,4 +115,15 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         await processError(hub, pluginConfig, error)
     }
     return false
+}
+
+export async function getTranspilationLock(hub: Hub, plugin: Plugin): Promise<boolean> {
+    // Only update `transpiled_frontend` if it equals NULL at the time of the update.
+    const response = await hub.db.postgresQuery(
+        'UPDATE posthog_plugin SET transpiled_frontend = $1 ' +
+            'WHERE id = $2 AND transpiled_frontend IS NULL RETURNING transpiled_frontend',
+        ["'transpiling'", plugin.id],
+        'getPluginTranspiledFrontendLock'
+    )
+    return response.rowCount > 0
 }
