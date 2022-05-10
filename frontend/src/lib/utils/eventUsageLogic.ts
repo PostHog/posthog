@@ -162,6 +162,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
+        filters,
         insight,
         display,
         interval,
