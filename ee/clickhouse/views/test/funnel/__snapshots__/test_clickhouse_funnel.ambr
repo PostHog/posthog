@@ -41,14 +41,14 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as aggregation_target,
+                           e."group_0" as "group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -97,15 +97,15 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as aggregation_target,
+                           e."group_0" as "group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
+                      AND ((NOT has([''], "group_0"))
+                           AND (NOT has([''], "group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -153,7 +153,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                           AND (has(['org:5'], "group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -162,14 +162,14 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as aggregation_target,
+                           e."group_0" as "group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -210,7 +210,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                           AND (has(['org:5'], "group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -219,15 +219,15 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as aggregation_target,
+                           e."group_0" as "group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
+                      AND ((NOT has([''], "group_0"))
+                           AND (NOT has([''], "group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -275,7 +275,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                           AND (has(['org:5'], "group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -285,7 +285,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as "group_0"
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -338,7 +338,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                           AND (has(['org:5'], "group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -348,7 +348,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."$group_0" as "$group_0"
+                           e."group_0" as "group_0"
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -432,7 +432,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -502,7 +502,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')

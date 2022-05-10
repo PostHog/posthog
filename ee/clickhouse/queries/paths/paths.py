@@ -13,7 +13,6 @@ from posthog.client import sync_execute
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import PropertyName
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -36,7 +35,6 @@ class ClickhousePaths:
     _funnel_filter: Optional[Filter]
     _team: Team
     _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
 
     def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
         self._filter = filter
@@ -51,10 +49,8 @@ class ClickhousePaths:
         self._funnel_filter = funnel_filter
 
         self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
-            self._extra_event_fields = ["uuid", "timestamp"]
-            self._extra_event_properties = ["$session_id", "$window_id"]
+            self._extra_event_fields = ["uuid", "timestamp", "session_id", "window_id"]
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
@@ -115,42 +111,31 @@ class ClickhousePaths:
 
         return funnel_cte + path_query
 
-    @property
-    def extra_event_fields_and_properties(self):
-        return self._extra_event_fields + self._extra_event_properties
-
     # Returns the set of clauses used to select the uuid, timestamp, session_id and window_id for the events in the query
     # These values are used to identify the recordings shown in the person modal
     def get_extra_event_clauses(self) -> ExtraEventClauses:
-        final_select_statements = " ".join(
-            [f"final_{field} as {field}," for field in self.extra_event_fields_and_properties]
-        )
+        final_select_statements = " ".join([f"final_{field} as {field}," for field in self._extra_event_fields])
         joined_path_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
                 f", joined_path_tuple.{index+4} as final_{field}"
-                for index, field in enumerate(self.extra_event_fields_and_properties)
+                for index, field in enumerate(self._extra_event_fields)
             ]
         )
         array_filter_select_statements = " ".join(
-            [
-                f", arrayFilter((x,y)->y, {field}, mapping) as {field}s"
-                for field in self.extra_event_fields_and_properties
-            ]
+            [f", arrayFilter((x,y)->y, {field}, mapping) as {field}s" for field in self._extra_event_fields]
         )
-        limited_path_tuple_elements = " ".join(
-            [f", limited_{field}s" for field in self.extra_event_fields_and_properties]
-        )
+        limited_path_tuple_elements = " ".join([f", limited_{field}s" for field in self._extra_event_fields])
         path_time_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
                 f", path_time_tuple.{index+4} as {field}"
-                for index, field in enumerate(self.extra_event_fields_and_properties)
+                for index, field in enumerate(self._extra_event_fields)
             ]
         )
-        paths_tuple_elements = " ".join([f", {field}s" for field in self.extra_event_fields_and_properties])
+        paths_tuple_elements = " ".join([f", {field}s" for field in self._extra_event_fields])
         group_array_select_statements = " ".join(
-            [f"groupArray({field}) as {field}s," for field in self.extra_event_fields_and_properties]
+            [f"groupArray({field}) as {field}s," for field in self._extra_event_fields]
         )
 
         return ExtraEventClauses(
@@ -165,10 +150,7 @@ class ClickhousePaths:
 
     def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=self._extra_event_fields,
-            extra_event_properties=self._extra_event_properties,
+            filter=self._filter, team=self._team, extra_fields=self._extra_event_fields,
         ).get_query()
         self.params.update(params)
 
@@ -312,7 +294,7 @@ class ClickhousePaths:
                         , if(end_target_index > 0, arrayResize(start_filtered_{field}s, end_target_index), start_filtered_{field}s) as filtered_{field}s
                         , if(length(filtered_{field}s) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_{field}s, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_{field}s[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_{field}s, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_{field}s) AS limited_{field}s
                     """
-                    for field in self.extra_event_fields_and_properties
+                    for field in self._extra_event_fields
                 ]
             )
 
@@ -340,7 +322,7 @@ class ClickhousePaths:
                         , if(target_index > 0, {compacting_function}({field}s, target_index), {field}s) as filtered_{field}s
                         , {filtered_path_ordering_clause[index+2]} as limited_{field}s
                     """
-                    for index, field in enumerate(self.extra_event_fields_and_properties)
+                    for index, field in enumerate(self._extra_event_fields)
                 ]
             )
 
@@ -357,7 +339,7 @@ class ClickhousePaths:
 
     def get_filtered_path_ordering(self) -> Tuple[str, ...]:
         fields_to_include = ["filtered_path", "filtered_timings"] + [
-            f"filtered_{field}s" for field in self.extra_event_fields_and_properties
+            f"filtered_{field}s" for field in self._extra_event_fields
         ]
 
         if self._filter.end_point:

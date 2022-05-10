@@ -40,12 +40,12 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 
 def materialize_session_and_window_id(database):
 
-    properties = ["$session_id", "$window_id"]
-    for property_name in properties:
+    property_names_with_column_names = [("$session_id", "session_id"), ("$window_id", "window_id")]
+    for property_name, new_column_name in property_names_with_column_names:
         materialized_columns = get_materialized_columns("events", use_cache=False)
         # If the column is not materialized, materialize it
         if property_name not in materialized_columns:
-            materialize("events", property_name, property_name)
+            materialize("events", property_name, new_column_name)
 
         # Now, we need to clean up any potentail inconsistencies with existing column names
         # Possible states are:
@@ -54,9 +54,9 @@ def materialize_session_and_window_id(database):
         # * Materialized column exists, but it's inconsistently named between events and sharded_events -> rename the incorrect table only
 
         # First, we create a list of possible column names that need to be cleaned up
-        # mat_{property_name} is the expected old name, so we explicitly add that one
-        # to handle cases where the column names are inconsistent, but it could
-        # technically also have a name like mat_{property_name}_{unique random string} if the
+        # mat_{property_name} OR mat__{propert_name[without dollar sign]} is the expected
+        # old name, so we explicitly add that one to handle cases where the column names are
+        # inconsistent, but it could technically also have a name like mat_{property_name}_{unique random string} if the
         # customer manually materialized the column and on cloud, it got manually renamed to
         # mat_session_id instead of mat_$session_id so we handle those cases by checking the
         # currently materialized column name in addition to the expected old name.
@@ -67,15 +67,15 @@ def materialize_session_and_window_id(database):
         # expected mat_{property_name}. However, that would only happen if the customer manually
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
-        possible_old_column_names = set(["mat_" + property_name])
+        possible_old_column_names = set(["mat_" + property_name, "mat_" + property_name.replace("$", "_")])
         current_materialized_column_name = materialized_columns.get(property_name, None)
-        if current_materialized_column_name != property_name:
+        if current_materialized_column_name and current_materialized_column_name != new_column_name:
             possible_old_column_names.add(current_materialized_column_name)
 
         for possible_old_column_name in possible_old_column_names:
             if clickhouse_is_replicated():
-                ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)
-            ensure_only_new_column_exists(database, "events", possible_old_column_name, property_name)
+                ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, new_column_name)
+            ensure_only_new_column_exists(database, "events", possible_old_column_name, new_column_name)
 
 
 operations = [migrations.RunPython(materialize_session_and_window_id)]

@@ -401,7 +401,7 @@ class FunnelCorrelation:
         # keeping it as-is for now
         aggregation_group_join = f"""
             JOIN funnel_actors AS actors
-                ON actors.actor_id = events.$group_{self._filter.aggregation_group_type_index}
+                ON actors.actor_id = events.group_{self._filter.aggregation_group_type_index}
             """
 
         return (

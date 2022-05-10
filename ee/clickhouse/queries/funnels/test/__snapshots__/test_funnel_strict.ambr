@@ -12,12 +12,12 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-       AND (NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0"))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -91,8 +91,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
+                           e."group_0" as aggregation_target,
+                           e."group_0" as "group_0",
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
@@ -101,11 +101,11 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
+                      AND (NOT has([''], "group_0")) ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -129,7 +129,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -223,7 +223,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
@@ -250,7 +250,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -337,7 +337,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
@@ -368,7 +368,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -455,7 +455,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
@@ -486,7 +486,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -573,7 +573,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
@@ -604,7 +604,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -691,7 +691,7 @@
                        FROM groups
                        WHERE team_id = 2
                          AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events

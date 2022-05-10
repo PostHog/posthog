@@ -26,7 +26,6 @@ from posthog.constants import (
 )
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.property import PropertyName
 from posthog.models.utils import PersonPropertiesMode
 from posthog.utils import relative_date_parse
 
@@ -37,7 +36,6 @@ class ClickhouseFunnelBase(ABC):
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
     _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
 
     def __init__(
         self,
@@ -77,10 +75,8 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({OFFSET: self._filter.offset})
 
         self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
-            self._extra_event_fields = ["uuid"]
-            self._extra_event_properties = ["$session_id", "$window_id"]
+            self._extra_event_fields = ["uuid", "session_id", "window_id"]
 
         self._update_filters()
 
@@ -105,10 +101,6 @@ class ClickhouseFunnelBase(ABC):
             "count": count,
             "type": step.type,
         }
-
-    @property
-    def extra_event_fields_and_properties(self):
-        return self._extra_event_fields + self._extra_event_properties
 
     def _update_filters(self):
         # format default dates
@@ -291,7 +283,7 @@ class ClickhouseFunnelBase(ABC):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
@@ -307,7 +299,7 @@ class ClickhouseFunnelBase(ABC):
                     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
 
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(
                         f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
                     )
@@ -361,10 +353,7 @@ class ClickhouseFunnelBase(ABC):
         entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=[*self._extra_event_fields, *extra_fields],
-            extra_event_properties=self._extra_event_properties,
+            filter=self._filter, team=self._team, extra_fields=[*self._extra_event_fields, *extra_fields],
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -429,7 +418,7 @@ class ClickhouseFunnelBase(ABC):
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
 
-        for field in self.extra_event_fields_and_properties:
+        for field in self._extra_event_fields:
             step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
 
         return step_cols
@@ -546,7 +535,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest"] + self._extra_event_fields
                 event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(event_clause)

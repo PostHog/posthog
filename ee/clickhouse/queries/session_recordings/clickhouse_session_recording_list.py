@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -155,9 +155,8 @@ class ClickhouseSessionRecordingList(EnterpriseEventQuery):
         return self._filter.entities and len(self._filter.entities) > 0
 
     def _get_properties_select_clause(self) -> str:
-        session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
         clause = f""",
-            {session_id_clause} as session_id
+            events.session_id as session_id
         """
         clause += (
             f", events.elements_chain as elements_chain"

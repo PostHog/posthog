@@ -12,7 +12,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -60,7 +60,7 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
@@ -105,7 +105,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -144,7 +144,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -206,7 +206,7 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
@@ -361,7 +361,7 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "group_0" == groups_0.group_key
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')

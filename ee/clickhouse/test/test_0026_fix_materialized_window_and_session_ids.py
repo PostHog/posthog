@@ -23,10 +23,10 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
         # Ideally, we would set this up by running the other migrations leading up
         # to this migrations, but it's very slow if we do that. So instead, we drop
         # the columns that this migration creates
-        sync_execute("ALTER TABLE events DROP COLUMN $session_id")
-        sync_execute("ALTER TABLE events DROP COLUMN $window_id")
-        sync_execute("ALTER TABLE sharded_events DROP COLUMN $session_id")
-        sync_execute("ALTER TABLE sharded_events DROP COLUMN $window_id")
+        sync_execute("ALTER TABLE events DROP COLUMN session_id")
+        sync_execute("ALTER TABLE events DROP COLUMN window_id")
+        sync_execute("ALTER TABLE sharded_events DROP COLUMN session_id")
+        sync_execute("ALTER TABLE sharded_events DROP COLUMN window_id")
 
     def tearDown(self):
         self.recreate_database()
@@ -38,10 +38,10 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
         create_clickhouse_tables(0)
 
     def assert_desired_state(self):
-        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "events", "$session_id"))
-        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "sharded_events", "$session_id"))
-        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "events", "$window_id"))
-        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "sharded_events", "$window_id"))
+        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "events", "session_id"))
+        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "sharded_events", "session_id"))
+        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "events", "window_id"))
+        self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "sharded_events", "window_id"))
 
         self.assertFalse(does_column_exist(CLICKHOUSE_DATABASE, "events", "mat_$session_id"))
         self.assertFalse(does_column_exist(CLICKHOUSE_DATABASE, "sharded_events", "mat_$session_id"))
@@ -63,7 +63,7 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
         materialize("events", "$session_id")
         materialize("events", "$window_id")
 
-        sync_execute("ALTER TABLE sharded_events RENAME COLUMN mat_$session_id TO $session_id")
+        sync_execute("ALTER TABLE sharded_events RENAME COLUMN mat__session_id TO session_id")
 
         materialize_session_and_window_id(CLICKHOUSE_DATABASE)
         self.assert_desired_state()
@@ -72,7 +72,7 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
         materialize("events", "$session_id")
         materialize("events", "$window_id")
 
-        sync_execute("ALTER TABLE events RENAME COLUMN mat_$session_id TO $session_id")
+        sync_execute("ALTER TABLE events RENAME COLUMN mat__session_id TO session_id")
 
         materialize_session_and_window_id(CLICKHOUSE_DATABASE)
         self.assert_desired_state()

@@ -18,7 +18,7 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest, _create_event
 
-EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
+EVENTS_TABLE_DEFAULT_MATERIALIZED_PROPERTIES = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
     "$window_id",
 ]
@@ -39,7 +39,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         create_clickhouse_tables(0)
 
     def test_get_columns_default(self):
-        self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
+        self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_PROPERTIES)
         self.assertCountEqual(get_materialized_columns("person"), [])
         self.assertEqual(
             get_materialized_columns("session_recording_events"), {"has_full_snapshot": "has_full_snapshot"}
@@ -53,7 +53,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
             self.assertCountEqual(
                 get_materialized_columns("events", use_cache=True).keys(),
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
+                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_PROPERTIES],
             )
             self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), ["$zeta"])
 
@@ -61,13 +61,13 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
             self.assertCountEqual(
                 get_materialized_columns("events", use_cache=True).keys(),
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
+                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_PROPERTIES],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
                 get_materialized_columns("events", use_cache=True).keys(),
-                ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
+                ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_PROPERTIES],
             )
 
     def test_materialized_column_naming(self):
@@ -80,9 +80,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertDictContainsSubset(
             {
-                "$foO();--sqlinject": "mat_$foO_____sqlinject",
-                "$foO();ääsqlinject": "mat_$foO_____sqlinject_yWAc",
-                "$foO_____sqlinject": "mat_$foO_____sqlinject_qGFz",
+                "$foO();--sqlinject": "mat__foO_____sqlinject",
+                "$foO();ääsqlinject": "mat__foO_____sqlinject_yWAc",
+                "$foO_____sqlinject": "mat__foO_____sqlinject_qGFz",
             },
             get_materialized_columns("events"),
         )

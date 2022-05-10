@@ -167,7 +167,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
@@ -175,7 +175,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(f'if({comparison}, NULL, "{field}_{i}") as "{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:

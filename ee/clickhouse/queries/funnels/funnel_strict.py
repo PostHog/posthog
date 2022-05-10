@@ -60,13 +60,13 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(f'"{field}_{i}"')
             else:
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
-                for field in self.extra_event_fields_and_properties:
+                for field in self._extra_event_fields:
                     cols.append(
                         f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
                     )

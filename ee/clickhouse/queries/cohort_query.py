@@ -8,7 +8,7 @@ from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -129,7 +129,6 @@ class CohortQuery(EnterpriseEventQuery):
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
@@ -146,7 +145,6 @@ class CohortQuery(EnterpriseEventQuery):
             should_join_distinct_ids=should_join_distinct_ids,
             should_join_persons=should_join_persons,
             extra_fields=extra_fields,
-            extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
             **kwargs,
