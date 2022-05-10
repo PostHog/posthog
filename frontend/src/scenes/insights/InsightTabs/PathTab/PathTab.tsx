@@ -402,7 +402,7 @@ export function PathTab(): JSX.Element {
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filter.properties ? (
                         <PropertyGroupFilters
-                            propertyFilters={convertPropertiesToPropertyGroup(filter.properties)}
+                            value={convertPropertiesToPropertyGroup(filter.properties)}
                             onChange={(properties: PropertyGroupFilter) => {
                                 setFilter({ properties })
                             }}

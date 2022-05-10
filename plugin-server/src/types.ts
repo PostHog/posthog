@@ -134,6 +134,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
+    KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
 }
 
@@ -515,6 +516,12 @@ export interface Event {
     distinct_id: string
     elements_hash: string
     created_at: string
+    person_properties: Record<string, any>
+    group0_properties: Record<string, any>
+    group1_properties: Record<string, any>
+    group2_properties: Record<string, any>
+    group3_properties: Record<string, any>
+    group4_properties: Record<string, any>
 }
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {

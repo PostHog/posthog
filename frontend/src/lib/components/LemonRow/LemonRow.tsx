@@ -36,7 +36,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     'data-attr'?: string
 }
 
-export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends LemonRowPropsBase<T> {
+export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
     sideIcon?: React.ReactElement | null
 }
 
@@ -44,7 +44,7 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends Le
  *
  * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
  */
-export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
+export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>(
     {
         children,
         icon,

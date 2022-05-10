@@ -46,6 +46,7 @@
         background: var(--bg-mid);
         font-size: 0.75rem;
         letter-spacing: 0.03125rem;
+        text-transform: uppercase;
         > tr {
             > th {
                 font-weight: 700;
@@ -91,29 +92,9 @@
                 }
             }
             &.LemonTable__tr--status-highlighted {
-                background: rgba($primary, 0.1);
+                background: var(--primary-bg-hover);
                 color: var(--text-default);
                 font-weight: 600;
-                .LemonTable__tr__icon {
-                    color: var(--primary);
-                }
-            }
-            &.LemonTable__tr--status-danger {
-                color: var(--danger);
-
-                .LemonTable__tr__icon {
-                    color: var(--danger);
-                }
-            }
-            &.LemonTable__tr--status-warning {
-                .LemonTable__tr__icon {
-                    color: var(--warning);
-                }
-            }
-            &.LemonTable__tr--status-success {
-                .LemonTable__tr__icon {
-                    color: var(--success);
-                }
             }
             > td {
                 padding-top: 0.5rem;

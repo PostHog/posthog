@@ -552,6 +552,24 @@ class TestUserAPI(APIBaseTest):
 
         self.user.refresh_from_db()
 
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_user_to_site_with_toolbar(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        locationHeader = response.headers.get("location", "not found")
+        self.assertIn(
+            "%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader,
+        )
+        self.maxDiff = None
+        self.assertEqual(
+            locationHeader,
+            "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
+        )
+
 
 class TestUserSlackWebhook(APIBaseTest):
     ENDPOINT: str = "/api/user/test_slack_webhook/"

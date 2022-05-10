@@ -1,10 +1,10 @@
 import React from 'react'
 import { Row } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
 import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
 import './panels/Panels.scss'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 
 export function CardContainer({
     index,
@@ -23,19 +23,17 @@ export function CardContainer({
 
     return (
         <div className="ingestion-card-container">
-            <div className="ingestion-card-container-top">
-                <Row align="middle" data-attr="wizard-step-counter" style={{ padding: '16px 0' }}>
-                    {index !== 0 && (
-                        <ArrowLeftOutlined
-                            className="button-border clickable"
-                            style={{ marginRight: 4 }}
-                            onClick={onBack}
-                        />
-                    )}
-                    <PanelHeader index={index} />
-                </Row>
-                {children}
-            </div>
+            <Row align="middle" data-attr="wizard-step-counter">
+                {index !== 0 && (
+                    <ArrowLeftOutlined
+                        className="button-border clickable"
+                        style={{ marginRight: 4 }}
+                        onClick={onBack}
+                    />
+                )}
+                <PanelHeader index={index} />
+            </Row>
+            {children}
             <div>
                 {showFooter &&
                     (onboarding1 ? (

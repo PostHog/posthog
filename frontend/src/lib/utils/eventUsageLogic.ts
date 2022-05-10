@@ -31,6 +31,7 @@ import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PlatformType, Framework } from 'scenes/ingestion/types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -432,6 +433,16 @@ export const eventUsageLogic = kea<
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
+        reportTeamHasIngestedEvents: true,
+        reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
+        reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
+        reportIngestionHelpClicked: (type: string) => ({ type }),
+        reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionContinueWithoutVerifying: true,
+        reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
+        reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -599,13 +610,13 @@ export const eventUsageLogic = kea<
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items.length,
+                item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
                 has_share_token: hasShareToken,
                 dashboard_id: id,
             }
 
-            for (const item of dashboard.items) {
+            for (const item of dashboard.items || []) {
                 const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
@@ -1008,6 +1019,48 @@ export const eventUsageLogic = kea<
         },
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
+        },
+        reportTeamHasIngestedEvents: () => {
+            posthog.capture('team has ingested events')
+        },
+        reportIngestionSelectPlatformType: ({ platform }) => {
+            posthog.capture('ingestion select platform type', {
+                platform: platform,
+            })
+        },
+        reportIngestionSelectFrameworkType: ({ framework }) => {
+            posthog.capture('ingestion select framework type', {
+                framework: framework,
+            })
+        },
+        reportIngestionHelpClicked: ({ type }) => {
+            posthog.capture('ingestion help clicked', {
+                type: type,
+            })
+        },
+        reportIngestionTryWithBookmarkletClicked: () => {
+            posthog.capture('ingestion try posthog with bookmarklet clicked')
+        },
+        reportIngestionContinueWithoutVerifying: () => {
+            posthog.capture('ingestion continue without verifying')
+        },
+        reportIngestionThirdPartyAboutClicked: ({ name }) => {
+            posthog.capture('ingestion third party about clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyConfigureClicked: ({ name }) => {
+            posthog.capture('ingestion third party configure clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyPluginInstalled: ({ name }) => {
+            posthog.capture('report ingestion third party plugin installed', {
+                name: name,
+            })
+        },
+        reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
+            posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
     }),
 })

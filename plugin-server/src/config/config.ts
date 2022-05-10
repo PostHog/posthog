@@ -94,6 +94,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         BUFFER_CONVERSION_SECONDS: 60,
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
+        KAFKA_HEALTHCHECK_SECONDS: 20,
         HISTORICAL_EXPORTS_ENABLED: true,
     }
 }

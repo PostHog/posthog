@@ -2,7 +2,6 @@ import '~/styles'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
 import { getContext } from 'kea'
 
 import { App } from 'scenes/App'
@@ -28,11 +27,9 @@ function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         ReactDOM.render(
-            <Provider store={getContext().store}>
-                <ErrorBoundary>
-                    <App />
-                </ErrorBoundary>
-            </Provider>,
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>,
             root
         )
     } else {
