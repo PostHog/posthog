@@ -5,6 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting } = useValues(userLogic)
@@ -19,7 +20,7 @@ export function UserDetails(): JSX.Element {
             }}
         >
             <Field name="first_name" label="Name">
-                <Input
+                <LemonInput
                     className="ph-ignore-input"
                     autoFocus
                     data-attr="settings-update-first-name"
