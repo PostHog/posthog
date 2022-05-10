@@ -8,7 +8,6 @@ import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
 import './Histogram.scss'
 import { useActions, useValues } from 'kea'
 import { histogramLogic } from 'scenes/insights/Histogram/histogramLogic'
-import clsx from 'clsx'
 
 export interface HistogramDatum {
     id: string | number
@@ -261,10 +260,5 @@ export function Histogram({
         [data, config]
     )
 
-    const container = <div className="histogram-container" ref={ref} />
-    return isDashboardItem ? (
-        <div className={clsx({ 'svg-dashboard-wrapper': isDashboardItem })}>{container}</div>
-    ) : (
-        container
-    )
+    return <div className="histogram-container" ref={ref} />
 }
