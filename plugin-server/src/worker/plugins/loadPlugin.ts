@@ -79,12 +79,22 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 (plugin.transpiled_frontend === null || plugin.transpiled_frontend === undefined)
             ) {
                 if (await getTranspilationLock(hub, plugin)) {
+                    const transpilationStartTimer = new Date()
                     try {
                         plugin.transpiled_frontend = transpileFrontend(plugin.source_frontend)
                     } catch (error: any) {
                         plugin.transpiled_frontend = "'error'"
                         await processError(hub, pluginConfig, error)
+                        hub.statsd?.increment(`transpile_frontend.ERROR`, {
+                            plugin: plugin.name ?? '?',
+                            pluginId: `${plugin.id ?? '?'}`,
+                        })
                     }
+                    hub.statsd?.timing(`transpile_frontend`, transpilationStartTimer, {
+                        plugin: plugin.name ?? '?',
+                        pluginId: `${plugin.id ?? '?'}`,
+                    })
+
                     await hub.db.postgresQuery(
                         'update posthog_plugin set transpiled_frontend = $1 where id = $2',
                         [plugin.transpiled_frontend, plugin.id],
