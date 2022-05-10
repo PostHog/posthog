@@ -58,6 +58,12 @@ export function PluginSource(): JSX.Element | null {
         return null
     }
 
+    function handleEditorWillMount(monaco: any): void {
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            jsx: 'react',
+        })
+    }
+
     useEffect(() => {
         if (editingPlugin) {
             const newPlugin = !editingPlugin.source && Object.keys(editingPlugin.config_schema).length === 0
@@ -135,7 +141,8 @@ export function PluginSource(): JSX.Element | null {
                             <MonacoEditor
                                 language="typescript"
                                 theme="vs-dark"
-                                height={400}
+                                beforeMount={handleEditorWillMount}
+                                height={700}
                                 options={{
                                     minimap: { enabled: false },
                                 }}
@@ -145,7 +152,8 @@ export function PluginSource(): JSX.Element | null {
                             <MonacoEditor
                                 language="typescript"
                                 theme="vs-dark"
-                                height={400}
+                                beforeMount={handleEditorWillMount}
+                                height={700}
                                 options={{
                                     minimap: { enabled: false },
                                 }}
