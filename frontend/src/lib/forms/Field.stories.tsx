@@ -1,14 +1,15 @@
 import React from 'react'
-import { kea, useAllValues } from 'kea'
+import { kea, path, useAllValues } from 'kea'
 import { ComponentMeta } from '@storybook/react'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field, FieldProps } from './Field'
 import type { formLogicType } from './Field.storiesType'
-import { Input } from 'antd'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { forms } from 'kea-forms'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export default {
-    title: 'Forms-Core/Field',
+    title: 'Forms/Field',
     component: Field,
     argTypes: {
         name: {
@@ -39,16 +40,16 @@ export default {
     },
 } as ComponentMeta<typeof Field>
 
-const formLogic = kea<formLogicType>({
-    path: ['lib', 'forms', 'Field', 'stories'],
-    forms: ({ actions }) => ({
+const formLogic = kea<formLogicType>([
+    path(['lib', 'forms', 'Field', 'stories']),
+    forms(({ actions }) => ({
         myForm: {
             defaults: {
                 name: '',
                 email: '',
                 pineappleOnPizza: false,
             },
-            validator: ({ name, email }) => ({
+            errors: ({ name, email }) => ({
                 name: !name ? 'Please enter your name' : null,
                 email: !email ? 'Please enter your email' : !email.includes('@') ? 'not a valid email' : null,
             }),
@@ -62,7 +63,7 @@ const formLogic = kea<formLogicType>({
             defaults: {
                 name: '',
             },
-            validator: ({ name }) => ({
+            errors: ({ name }) => ({
                 name: !name ? 'Please enter your name' : undefined,
             }),
             submit: async (_, breakpoint) => {
@@ -71,8 +72,8 @@ const formLogic = kea<formLogicType>({
                 actions.resetSimpleForm()
             },
         },
-    }),
-})
+    })),
+])
 
 function useSpecificFormValues(formKey: string): Record<string, any> {
     const allValues = useAllValues(formLogic)
@@ -85,13 +86,13 @@ export function Field_(props: FieldProps): JSX.Element {
     const formKey = 'myForm'
     const formValues = useSpecificFormValues(formKey)
     return (
-        <VerticalForm logic={formLogic} formKey={formKey}>
+        <VerticalForm logic={formLogic} formKey={formKey} enableFormOnSubmit>
             <Field {...props} name={props.name || 'name'} label={props.label || 'Name'}>
-                <input />
+                <LemonInput />
             </Field>
 
             <Field {...props} name={props.name || 'email'} label={props.label || 'Email'}>
-                <input />
+                <LemonInput />
             </Field>
 
             <Field
@@ -100,8 +101,8 @@ export function Field_(props: FieldProps): JSX.Element {
                 name={props.name || 'pineappleOnPizza'}
                 label={props.label || 'Pineapple on pizza preference'}
             >
-                {({ value, onValueChange }) => (
-                    <input type="checkbox" checked={value} onChange={(e) => onValueChange(e.target.checked)} />
+                {({ value, onChange }) => (
+                    <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
                 )}
             </Field>
             <input
@@ -120,9 +121,9 @@ export function TextField(props: FieldProps): JSX.Element {
     const formKey = 'simpleForm'
     const formValues = useSpecificFormValues(formKey)
     return (
-        <VerticalForm logic={formLogic} formKey={formKey}>
+        <VerticalForm logic={formLogic} formKey={formKey} enableFormOnSubmit>
             <Field {...props} name={props.name || 'name'} label={props.label || 'Name'}>
-                <Input />
+                <LemonInput />
             </Field>
             <input
                 type="submit"

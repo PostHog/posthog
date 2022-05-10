@@ -5,7 +5,7 @@ import { EditableField as EditableFieldComponent } from './EditableField'
 import { PageHeader } from '../PageHeader'
 
 export default {
-    title: 'Forms-Fields/Editable Field',
+    title: 'Forms/Editable Field',
     component: EditableFieldComponent,
 } as ComponentMeta<typeof EditableFieldComponent>
 
