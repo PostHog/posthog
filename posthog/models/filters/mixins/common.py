@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import pytz
 from dateutil.relativedelta import relativedelta
-from django.db.models.query_utils import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -314,33 +313,10 @@ class DateMixin(BaseParamMixin):
                 return self._date_to
         else:
             if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minute=1)
-            date = timezone.now() + relativedelta(minute=1)
+                return timezone.now() + relativedelta(minutes=1)
+            date = timezone.now()
 
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
-
-    @cached_property
-    def date_filter_Q(self) -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(timestamp__gte=date_from)
-        if self.date_to:
-            filter &= Q(timestamp__lte=self.date_to)
-        return filter
-
-    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{f"{field}__gte": date_from})
-        if self.date_to:
-            filter &= Q(**{f"{field}__lte": self.date_to})
-        return filter
 
     @include_dict
     def date_to_dict(self) -> Dict:
