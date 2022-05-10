@@ -8,7 +8,6 @@ from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.settings.data_stores import CLICKHOUSE_USER
 
-
 logger = structlog.get_logger(__name__)
 
 GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict"
@@ -21,41 +20,41 @@ SETTINGS allow_nondeterministic_mutations = {allow_nondeterministic_mutations}
 """
 
 GROUPS_DICTIONARY_SQL = f"""
-CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME} 
-ON CLUSTER '{CLICKHOUSE_CLUSTER}' 
-( 
-    group_key String, 
+CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME}
+ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+(
+    group_key String,
     group_properties String
-) 
-PRIMARY KEY group_key 
-SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
+)
+PRIMARY KEY group_key
+SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
 LAYOUT(complex_key_cache(size_in_cells 1000)) -- 1000000
 Lifetime(60000)
 """
 
 
 PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"""
-CREATE DICTIONARY IF NOT EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME} 
-ON CLUSTER '{CLICKHOUSE_CLUSTER}' 
+CREATE DICTIONARY IF NOT EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME}
+ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 (
-    distinct_id String, 
+    distinct_id String,
     person_id UUID
-) 
-PRIMARY KEY distinct_id 
-SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
+)
+PRIMARY KEY distinct_id
+SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default'))
 LAYOUT(complex_key_cache(size_in_cells 1000)) -- 50000000
 Lifetime(60000)
 """
 
 PERSONS_DICTIONARY_SQL = f"""
-CREATE DICTIONARY IF NOT EXISTS {PERSONS_DICT_TABLE_NAME} 
-ON CLUSTER '{CLICKHOUSE_CLUSTER}' 
+CREATE DICTIONARY IF NOT EXISTS {PERSONS_DICT_TABLE_NAME}
+ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 (
-    id UUID, 
+    id UUID,
     properties String
-) 
-PRIMARY KEY id 
-SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default')) 
+)
+PRIMARY KEY id
+SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default'))
 LAYOUT(complex_key_cache(size_in_cells 1000)) -- 5000000
 Lifetime(60000)
 """
@@ -66,9 +65,9 @@ DROP_PERSONS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSONS_DICT_TABLE_NA
 
 
 BACKFILL_BASE_SQL = f"""
-ALTER TABLE {EVENTS_DATA_TABLE()} 
+ALTER TABLE {EVENTS_DATA_TABLE()}
 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-UPDATE 
+UPDATE
     person_id=toUUID(dictGet('{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id)),
     person_properties=dictGetString('{PERSONS_DICT_TABLE_NAME}', 'properties', toUUID(dictGet('{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id))),
     group0_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_0),
@@ -139,4 +138,3 @@ class Command(BaseCommand):
             DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL, "DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run
         )
         print_and_execute_query(DROP_PERSONS_DICTIONARY_SQL, "DROP_PERSONS_DICTIONARY_SQL", dry_run)
-
