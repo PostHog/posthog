@@ -9,10 +9,17 @@ export default {
 } as ComponentMeta<typeof CohortSelectorField>
 
 const Template: ComponentStory<typeof CohortSelectorField> = (props: CohortSelectorFieldProps) => {
-    const [value, setValue] = useState<string | number | null>(
+    const [value, setValue] = useState<string | undefined>(
         Object.keys(props.fieldOptionGroupTypes?.[0] ?? {})?.[0] ?? null
     )
-    return <CohortSelectorField {...props} value={value} onChange={(key) => setValue(key)} />
+    return (
+        <CohortSelectorField
+            {...props}
+            fieldKey="key"
+            criteria={{ key: value }}
+            onChange={(newCriteria) => setValue(newCriteria.key)}
+        />
+    )
 }
 
 export const AggregationSelector = Template.bind({})
@@ -31,6 +38,7 @@ export const BehavioralSelector = Template.bind({})
 BehavioralSelector.args = {
     fieldOptionGroupTypes: [
         FieldOptionsType.EventBehavioral,
+        FieldOptionsType.PersonPropertyBehavioral,
         FieldOptionsType.CohortBehavioral,
         FieldOptionsType.LifecycleBehavioral,
     ],
