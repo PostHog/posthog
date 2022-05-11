@@ -474,7 +474,7 @@ export function slugify(text: string): string {
 
 /** Format number with space as the thousands separator. */
 export function humanFriendlyNumber(d: number, precision: number = 2): string {
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision }).replace(',', ' ') // Use space as thousands separator as it's more international
+    return d.toLocaleString('en-US', { maximumFractionDigits: precision }).replace(',', ' ') // Use space as thousands separator as it's more international
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
