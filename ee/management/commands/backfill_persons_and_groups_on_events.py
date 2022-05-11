@@ -6,18 +6,35 @@ from ee.clickhouse.sql.groups import GROUPS_TABLE
 from ee.clickhouse.sql.person import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.settings.data_stores import CLICKHOUSE_USER
+
+"""
+WARNING: This script is in Alpha! Make sure you know what you're doing before running it with --live-run set.
+
+Pre-requisites:
+
+- `allow_nondeterministic_mutations` should be set to 1 on the current user's profile
+
+Approach:
+
+1. Create dictionaries for groups, persons, and person distinct ID tables
+
+These dictionaries will source data from the target Replicated tables, so they are guaranteed to be consistent across nodes.
+We keep a small cache in memory of 1000 frequently accessed keys for each dictionary. We hit the source table for values not in the cache.
+
+2. Alter table to update values according to the dictionaries
+
+With the dictionaries in place, we run an ALTER TABLE backfill. Note that this will have to rewrite a lot of data.
+This backfill will look up values in the dictionaries and set the corresponding columns to them.
+Also note that minor inconsitencies can occur from distinct IDs and properties changing during the backfill.
+
+3. Drop the dictionaries
+"""
 
 logger = structlog.get_logger(__name__)
 
 GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict"
 PERSONS_DICT_TABLE_NAME = f"{PERSONS_TABLE}_dict"
 PERSON_DISTINCT_IDS_DICT_TABLE_NAME = f"{PERSON_DISTINCT_ID2_TABLE}_dict"
-
-ALTER_USER_SQL = """
-ALTER USER {clickhouse_user}
-SETTINGS allow_nondeterministic_mutations = {allow_nondeterministic_mutations}
-"""
 
 GROUPS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME}
@@ -28,7 +45,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY group_key
 SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000)) -- 1000000
+LAYOUT(cache(size_in_cells 1000))
 Lifetime(60000)
 """
 
@@ -42,7 +59,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY distinct_id
 SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000)) -- 50000000
+LAYOUT(cache(size_in_cells 1000))
 Lifetime(60000)
 """
 
@@ -55,14 +72,9 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY id
 SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000)) -- 5000000
+LAYOUT(cache(size_in_cells 1000))
 Lifetime(60000)
 """
-
-DROP_GROUPS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {GROUPS_DICT_TABLE_NAME}"
-DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME}"
-DROP_PERSONS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSONS_DICT_TABLE_NAME}"
-
 
 BACKFILL_BASE_SQL = f"""
 ALTER TABLE {EVENTS_DATA_TABLE()}
@@ -76,6 +88,10 @@ UPDATE
     group3_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_3),
     group4_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_4)
 """
+
+DROP_GROUPS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {GROUPS_DICT_TABLE_NAME}"
+DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME}"
+DROP_PERSONS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSONS_DICT_TABLE_NAME}"
 
 query_number = 0
 
@@ -115,24 +131,16 @@ class Command(BaseCommand):
             exit(1)
 
         BACKFILL_SQL = BACKFILL_BASE_SQL + " WHERE team_id = {team_id}".format(team_id=options["team_id"])
-        ALTER_USER_ALLOW_MUTATIONS_SQL = ALTER_USER_SQL.format(
-            clickhouse_user=CLICKHOUSE_USER, allow_nondeterministic_mutations=1
-        )
-        ALTER_USER_DISALLOW_MUTATIONS_SQL = ALTER_USER_SQL.format(
-            clickhouse_user=CLICKHOUSE_USER, allow_nondeterministic_mutations=0
-        )
 
         dry_run = not options["live_run"]
 
         if dry_run:
             print("Dry run. Queries to run:", end="\n\n")
 
-        # print_and_execute_query(ALTER_USER_ALLOW_MUTATIONS_SQL, "ALTER_USER_ALLOW_MUTATIONS_SQL", dry_run)
         print_and_execute_query(GROUPS_DICTIONARY_SQL, "GROUPS_DICTIONARY_SQL", dry_run)
         print_and_execute_query(PERSON_DISTINCT_IDS_DICTIONARY_SQL, "PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
         print_and_execute_query(PERSONS_DICTIONARY_SQL, "PERSONS_DICTIONARY_SQL", dry_run)
         print_and_execute_query(BACKFILL_SQL, "BACKFILL_SQL", dry_run, options["timeout"])
-        # print_and_execute_query(ALTER_USER_DISALLOW_MUTATIONS_SQL, "ALTER_USER_DISALLOW_MUTATIONS_SQL", dry_run)
         print_and_execute_query(DROP_GROUPS_DICTIONARY_SQL, "DROP_GROUPS_DICTIONARY_SQL", dry_run)
         print_and_execute_query(
             DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL, "DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run
