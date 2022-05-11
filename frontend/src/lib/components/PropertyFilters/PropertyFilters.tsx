@@ -61,7 +61,7 @@ export function PropertyFilters({
                 {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                     return (
                         <FilterRow
-                            key={JSON.stringify(item)}
+                            key={index}
                             item={item}
                             index={index}
                             totalCount={filtersWithNew.length - 1} // empty state
