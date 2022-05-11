@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Modal, Row, Form, Select } from 'antd'
+import { Button, Col, Input, Modal, Row, Form, Select } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'

@@ -61,7 +61,6 @@ export function EFFunnelsQuerySteps({ filters, insightProps }: EditorFilterProps
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                 ]}
-                rowClassName="action-filters-bordered"
             />
             <div className="mb-05" />
 
