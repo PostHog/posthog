@@ -1,4 +1,3 @@
-import { getChartColors } from 'lib/colors'
 import {
     MinimalPerformanceResourceTiming,
     ResourceTiming,
@@ -17,6 +16,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './WebPerformance.scss'
 import Text from 'antd/lib/typography/Text'
+import { getSeriesColor } from 'lib/colors'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -37,7 +37,6 @@ const toPositionStyle = (
 
     return { right, blockSides }
 }
-const colors = getChartColors('green')
 
 const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     const title = typeof resourceTiming.item == 'string' ? resourceTiming.item : resourceTiming.item.pathname
@@ -159,7 +158,7 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
                         key={name}
                         className={clsx('performance-block positioned', measure.reducedHeight && 'reduced-height')}
                         data-attr-name={name}
-                        style={{ ...style?.blockSides, backgroundColor: colors[index] }}
+                        style={{ ...style?.blockSides, backgroundColor: getSeriesColor(index) }}
                     />
                 )
             })
