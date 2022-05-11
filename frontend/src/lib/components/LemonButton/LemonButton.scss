@@ -16,6 +16,15 @@
     .LemonRow__icon {
         color: var(--primary);
     }
+    &.LemonRow--status-danger {
+        color: var(--danger);
+    }
+    &.LemonRow--status-warning {
+        color: var(--warning);
+    }
+    &.LemonRow--status-success {
+        color: var(--success);
+    }
 }
 
 .LemonButton--tertiary {
