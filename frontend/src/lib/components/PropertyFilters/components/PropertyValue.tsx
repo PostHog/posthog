@@ -88,6 +88,8 @@ export function PropertyValue({
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
+            } else {
+                setInput(toString(value))
             }
         }
     }, [value])
