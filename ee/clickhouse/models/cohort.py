@@ -88,10 +88,10 @@ def format_person_query(
 
 
 def format_static_cohort_query(
-    cohort_id: int, index: int, prepend: str, custom_match_field: str
+    cohort_id: int, index: int, prepend: str, custom_match_field: str, negate: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
     return (
-        f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
+        f"{custom_match_field} {'NOT' if negate else ''} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 

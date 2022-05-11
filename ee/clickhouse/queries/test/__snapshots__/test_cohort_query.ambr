@@ -558,3 +558,47 @@
           OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
+  '
+  
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT pdi.person_id AS person_id,
+            countIf(timestamp > now() - INTERVAL 7 day
+                    AND timestamp < now()
+                    AND event = '$new_view') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_0
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND event IN ['$new_view', '$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 7 day
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
+           AND (id NOT IN
+                  (SELECT person_id
+                   FROM person_static_cohort
+                   WHERE cohort_id = 2
+                     AND team_id = 2)))
+          OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS allow_experimental_window_functions = 1
+  '
+---

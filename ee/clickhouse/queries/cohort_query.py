@@ -166,6 +166,7 @@ class CohortQuery(EnterpriseEventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
+
         super().__init__(
             filter=CohortQuery.unwrap_cohort(filter, team.pk),
             team=team,
@@ -187,14 +188,22 @@ class CohortQuery(EnterpriseEventQuery):
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
-        def _unwrap(property_group: PropertyGroup) -> PropertyGroup:
+        def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
             if len(property_group.values):
                 if isinstance(property_group.values[0], PropertyGroup):
                     # dealing with a list of property groups, so unwrap each one
-                    return PropertyGroup(
-                        type=property_group.type,
-                        values=[_unwrap(v) for v in cast(List[PropertyGroup], property_group.values)],
-                    )
+                    if not negate_group:
+                        return PropertyGroup(
+                            type=property_group.type,
+                            values=[_unwrap(v) for v in cast(List[PropertyGroup], property_group.values)],
+                        )
+                    else:
+                        return PropertyGroup(
+                            type=PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR,
+                            values=[_unwrap(v, True) for v in cast(List[PropertyGroup], property_group.values)],
+                        )
 
                 elif isinstance(property_group.values[0], Property):
                     # dealing with a list of properties
@@ -209,6 +218,7 @@ class CohortQuery(EnterpriseEventQuery):
                         new_property_group_list: List[PropertyGroup] = []
                         for prop in property_group.values:
                             prop = cast(Property, prop)
+                            negation_value = not prop.negation if negate_group else prop.negation
                             if prop.type in ["cohort", "precalculated-cohort"]:
                                 try:
                                     prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
@@ -216,11 +226,18 @@ class CohortQuery(EnterpriseEventQuery):
                                         new_property_group_list.append(
                                             PropertyGroup(
                                                 type=PropertyOperatorType.AND,
-                                                values=[Property(type="static-cohort", key="id", value=prop_cohort.pk)],
+                                                values=[
+                                                    Property(
+                                                        type="static-cohort",
+                                                        key="id",
+                                                        value=prop_cohort.pk,
+                                                        negation=negation_value,
+                                                    )
+                                                ],
                                             )
                                         )
                                     else:
-                                        new_property_group_list.append(prop_cohort.properties)
+                                        new_property_group_list.append(_unwrap(prop_cohort.properties, negation_value))
                                 except Cohort.DoesNotExist:
                                     new_property_group_list.append(
                                         PropertyGroup(
@@ -229,10 +246,19 @@ class CohortQuery(EnterpriseEventQuery):
                                         )
                                     )
                             else:
+                                prop.negation = negation_value
                                 new_property_group_list.append(
                                     PropertyGroup(type=PropertyOperatorType.AND, values=[prop])
                                 )
-                        return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                        if not negate_group:
+                            return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                        else:
+                            return PropertyGroup(
+                                type=PropertyOperatorType.AND
+                                if property_group.type == PropertyOperatorType.OR
+                                else PropertyOperatorType.OR,
+                                values=new_property_group_list,
+                            )
 
             return property_group
 
@@ -425,7 +451,7 @@ class CohortQuery(EnterpriseEventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id")
+        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id", negate=prop.negation)
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
