@@ -14,7 +14,7 @@ import {
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
-import { maybeAddCommasToInteger } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -49,7 +49,9 @@ export function InsightTooltip({
             {value}
         </>
     ),
-    renderCount = (value: React.ReactNode) => <>{maybeAddCommasToInteger(value)}</>,
+    renderCount = (value: number | React.ReactNode) => (
+        <>{typeof value === 'number' ? humanFriendlyNumber(value) : value}</>
+    ),
     hideColorCol = false,
     hideInspectActorsSection = false,
     forceEntitiesAsColumns = false,
