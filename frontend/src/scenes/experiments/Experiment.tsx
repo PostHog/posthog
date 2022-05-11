@@ -506,7 +506,6 @@ export function Experiment(): JSX.Element {
                                                         TaxonomicFilterGroupType.Cohorts,
                                                         TaxonomicFilterGroupType.Elements,
                                                     ]}
-                                                    rowClassName="action-filters-bordered"
                                                 />
                                             )}
                                             {experimentInsightType === InsightType.TRENDS && (

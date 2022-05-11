@@ -55,7 +55,6 @@ export interface ActionFilterProps {
               index: number
               onClose: () => void
           }) => JSX.Element)
-    rowClassName?: string
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */
@@ -92,7 +91,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideFilter = false,
             hideRename = false,
             customRowSuffix,
-            rowClassName,
             entitiesLimit,
             showNestedArrow = false,
             actionsTaxonomicGroupTypes,
@@ -144,7 +142,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             seriesIndicatorType,
             mathAvailability,
             customRowSuffix,
-            rowClassName,
             hasBreakdown: !!filters.breakdown,
             actionsTaxonomicGroupTypes,
             propertiesTaxonomicGroupTypes,

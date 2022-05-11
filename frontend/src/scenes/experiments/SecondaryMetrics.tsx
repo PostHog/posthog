@@ -122,7 +122,6 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     TaxonomicFilterGroupType.Cohorts,
                                     TaxonomicFilterGroupType.Elements,
                                 ]}
-                                rowClassName="action-filters-bordered"
                             />
                         )}
                         {currentMetric.filters.insight === InsightType.TRENDS && (
@@ -179,65 +178,62 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     onClick={() => deleteMetric(idx)}
                                 />
                             </Row>
-                            <Card className="full-width" style={{ borderTop: 'none' }} bodyStyle={{ padding: 0 }}>
-                                {metric.filters.insight === InsightType.FUNNELS && (
-                                    <ActionFilter
-                                        filters={metric.filters}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...metric.filters,
-                                                insight: InsightType.FUNNELS,
-                                                ...payload,
-                                            }
-                                            updateMetricFilters(newFilters)
-                                            setFilters(newFilters)
-                                        }}
-                                        typeKey={`funnel-preview-${idx}`}
-                                        mathAvailability={MathAvailability.None}
-                                        hideDeleteBtn={filterSteps.length === 1}
-                                        buttonCopy="Add funnel step"
-                                        showSeriesIndicator={!isStepsEmpty}
-                                        seriesIndicatorType="numeric"
-                                        fullWidth
-                                        sortable
-                                        showNestedArrow={true}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        rowClassName="action-filters-bordered"
-                                        readOnly={true}
-                                    />
-                                )}
-                                {metric.filters.insight === InsightType.TRENDS && (
-                                    <ActionFilter
-                                        horizontalUI
-                                        filters={metric.filters}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...metric.filters,
-                                                insight: InsightType.TRENDS,
-                                                ...payload,
-                                            }
-                                            updateMetricFilters(newFilters)
-                                            setFilters(newFilters)
-                                        }}
-                                        typeKey={`trend-preview-${idx}`}
-                                        buttonCopy="Add graph series"
-                                        showSeriesIndicator
-                                        entitiesLimit={1}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        readOnly={true}
-                                    />
-                                )}
-                            </Card>
+                            {metric.filters.insight === InsightType.FUNNELS && (
+                                <ActionFilter
+                                    bordered
+                                    filters={metric.filters}
+                                    setFilters={(payload) => {
+                                        const newFilters = {
+                                            ...metric.filters,
+                                            insight: InsightType.FUNNELS,
+                                            ...payload,
+                                        }
+                                        updateMetricFilters(newFilters)
+                                        setFilters(newFilters)
+                                    }}
+                                    typeKey={`funnel-preview-${idx}`}
+                                    mathAvailability={MathAvailability.None}
+                                    hideDeleteBtn={filterSteps.length === 1}
+                                    buttonCopy="Add funnel step"
+                                    showSeriesIndicator={!isStepsEmpty}
+                                    seriesIndicatorType="numeric"
+                                    sortable
+                                    showNestedArrow={true}
+                                    propertiesTaxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    readOnly={true}
+                                />
+                            )}
+                            {metric.filters.insight === InsightType.TRENDS && (
+                                <ActionFilter
+                                    bordered
+                                    filters={metric.filters}
+                                    setFilters={(payload) => {
+                                        const newFilters = {
+                                            ...metric.filters,
+                                            insight: InsightType.TRENDS,
+                                            ...payload,
+                                        }
+                                        updateMetricFilters(newFilters)
+                                        setFilters(newFilters)
+                                    }}
+                                    typeKey={`trend-preview-${idx}`}
+                                    buttonCopy="Add graph series"
+                                    showSeriesIndicator
+                                    entitiesLimit={1}
+                                    propertiesTaxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    readOnly={true}
+                                />
+                            )}
                         </Row>
                     ))}
                     {metrics && !(metrics.length > 2) && (
