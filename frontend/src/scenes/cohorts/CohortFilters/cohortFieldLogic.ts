@@ -81,7 +81,6 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
             (s) => [s.value, (_, props) => props.criteria, (_, props) => props.fieldKey],
             (value, criteria, fieldKey) => (taxonomicGroupType: TaxonomicFilterGroupType) => {
                 // Only used by taxonomic filter field to determine label name
-                console.log('VALUE', value, criteria, fieldKey)
                 if (
                     criteria.type === BehavioralFilterKey.Cohort &&
                     fieldKey === 'value_property' &&
