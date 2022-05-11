@@ -375,7 +375,15 @@ class EntitiesMixin(BaseParamMixin):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
                 exclusion_list = json.loads(exclusion_list)
-            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list])
+
+            for entity in exclusion_list:
+                try:
+                    exclusion_entity = ExclusionEntity({**entity})
+                    _exclusions.append(exclusion_entity)
+                except KeyError:
+                    # empty object sent from front end... it can be ignored
+                    pass
+
         return _exclusions
 
     @include_dict
