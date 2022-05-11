@@ -475,8 +475,8 @@ export function slugify(text: string): string {
 }
 
 /** Format number with space as the thousands separator. */
-export function humanFriendlyNumber(d: number): string {
-    return d.toLocaleString('en-US').replace(',', ' ') // Use space as thousands separator as it's more international
+export function humanFriendlyNumber(d: number, precision: number = 2): string {
+    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -1099,15 +1099,6 @@ export function resolveWebhookService(webhookUrl: string): string {
         }
     }
     return 'your webhook service'
-}
-
-export function maybeAddCommasToInteger(value: any): any {
-    const isNumber = !isNaN(value)
-    if (!isNumber) {
-        return value
-    }
-    const internationalNumberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
-    return internationalNumberFormat.format(value)
 }
 
 function hexToRGB(hex: string): { r: number; g: number; b: number } {

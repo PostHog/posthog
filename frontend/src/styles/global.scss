@@ -415,6 +415,18 @@ code.code {
     }
 }
 
+.space-x-05 {
+    & > * + * {
+        @extend .ml-05;
+    }
+}
+
+.space-x {
+    & > * + * {
+        @extend .ml;
+    }
+}
+
 .full-width {
     width: 100%;
 }

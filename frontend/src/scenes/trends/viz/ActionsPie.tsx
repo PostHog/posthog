@@ -1,6 +1,6 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { maybeAddCommasToInteger } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
@@ -98,7 +98,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 </div>
                 <h1>
                     <span className="label">Total: </span>
-                    {maybeAddCommasToInteger(total)}
+                    {humanFriendlyNumber(total)}
                 </h1>
             </div>
         ) : (
