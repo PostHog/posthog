@@ -151,7 +151,7 @@ class Matrix(ABC):
         self.internet_provider = mimesis.Internet(seed=seed)
         self.datetime_provider = mimesis.Datetime(seed=seed)
         self.finance_provider = mimesis.Finance(seed=seed)
-        self.groups_mapping = defaultdict(lambda: defaultdict(dict))
+        self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [
             self.cluster_model(
                 index=i,
