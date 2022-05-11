@@ -45,6 +45,8 @@ OperatorType = Literal[
     "not_regex",
     "gt",
     "lt",
+    "gte",
+    "lte",
     "is_set",
     "is_not_set",
     "is_date_exact",
@@ -158,7 +160,7 @@ class Property:
     seq_event: Optional[Union[str, int]]
     total_periods: Optional[int]
     min_periods: Optional[int]
-    negation: bool = False
+    negation: Optional[bool] = False
     _data: Dict
 
     def __init__(
@@ -198,7 +200,7 @@ class Property:
         self.seq_event = seq_event
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
-        self.negation = str_to_bool(negation)
+        self.negation = None if negation is None else str_to_bool(negation)
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
             raise ValueError(f"Invalid property type: {self.type}")

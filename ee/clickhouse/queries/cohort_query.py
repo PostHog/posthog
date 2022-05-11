@@ -218,7 +218,8 @@ class CohortQuery(EnterpriseEventQuery):
                         new_property_group_list: List[PropertyGroup] = []
                         for prop in property_group.values:
                             prop = cast(Property, prop)
-                            negation_value = not prop.negation if negate_group else prop.negation
+                            current_negation = prop.negation or False
+                            negation_value = not current_negation if negate_group else current_negation
                             if prop.type in ["cohort", "precalculated-cohort"]:
                                 try:
                                     prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
@@ -451,7 +452,7 @@ class CohortQuery(EnterpriseEventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id", negate=prop.negation)
+        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id", negate=prop.negation or False)
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
