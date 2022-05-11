@@ -15,7 +15,7 @@ import { CloseSquareOutlined, DownOutlined } from '@ant-design/icons'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
-import './index.scss'
+import './ActionFilterRow.scss'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -26,7 +26,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
-import { IconCopy, IconDelete, IconEdit, IconFilter } from 'lib/components/icons'
+import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/components/icons'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -246,19 +246,20 @@ export function ActionFilterRow({
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <Button
-            type="link"
-            onClick={() => {
-                typeof filter.order === 'number' ? setEntityFilterVisibility(filter.order, !visible) : undefined
-            }}
-            className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
-            data-attr={`show-prop-filter-${index}`}
-            title="Show filters"
-            style={{ display: 'flex', alignItems: 'center' }}
-        >
-            <IconFilter fontSize={'1.25em'} />
-            {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
-        </Button>
+        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+            <Button
+                type="link"
+                onClick={() => {
+                    typeof filter.order === 'number' ? setEntityFilterVisibility(filter.order, !visible) : undefined
+                }}
+                className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
+                data-attr={`show-prop-filter-${index}`}
+                title="Show filters"
+                style={{ display: 'flex', alignItems: 'center' }}
+            >
+                <IconFilter fontSize={'1.25em'} />
+            </Button>
+        </IconWithCount>
     )
 
     const renameRowButton = (
@@ -319,7 +320,12 @@ export function ActionFilterRow({
                 </Row>
             )}
 
-            <Row gutter={8} align="middle" className={`${!horizontalUI ? 'mt' : ''} ${rowClassName}`} wrap={!fullWidth}>
+            <Row
+                gutter={8}
+                align="top"
+                className={`${!horizontalUI ? 'mt' : ''} ${rowClassName || ''}`}
+                wrap={!fullWidth}
+            >
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -333,103 +339,114 @@ export function ActionFilterRow({
                     })
                 ) : (
                     <>
-                        {!hideDeleteBtn && horizontalUI && !singleFilter && filterCount > 1 && (
-                            <Col>
-                                <Button
-                                    type="link"
-                                    onClick={onClose}
-                                    className="row-action-btn delete"
-                                    title="Remove graph series"
-                                    danger
-                                    icon={<CloseSquareOutlined />}
-                                />
-                            </Col>
-                        )}
-                        {showSeriesIndicator && <Col className="action-row-letter">{seriesIndicator}</Col>}
-                        {customRowPrefix !== undefined ? (
-                            <Col>{prefix}</Col>
-                        ) : (
-                            <>{horizontalUI && <Col>Showing</Col>}</>
-                        )}
-                        <Col
-                            className="column-filter"
-                            style={
-                                fullWidth
-                                    ? {}
-                                    : {
-                                          maxWidth: `calc(${
-                                              mathAvailability === MathAvailability.None ? '100' : '50'
-                                          }% - 16px)`,
-                                      }
-                            }
-                            flex={fullWidth ? 'auto' : undefined}
-                        >
-                            {filterElement}
-                        </Col>
-                        {customRowSuffix !== undefined && <Col className="column-row-suffix">{suffix}</Col>}
-                        {mathAvailability !== MathAvailability.None && (
-                            <>
-                                {horizontalUI && <Col>counted by</Col>}
-                                <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
-                                    <MathSelector
-                                        math={math}
-                                        mathGroupTypeIndex={mathGroupTypeIndex}
-                                        index={index}
-                                        onMathSelect={onMathSelect}
-                                        style={{ maxWidth: '100%', width: 'initial' }}
-                                        mathAvailability={mathAvailability}
+                        {/* left section fixed */}
+                        <div className="row-start">
+                            {!hideDeleteBtn && horizontalUI && !singleFilter && filterCount > 1 && (
+                                <Col>
+                                    <Button
+                                        type="link"
+                                        onClick={onClose}
+                                        className="row-action-btn delete"
+                                        title="Remove graph series"
+                                        danger
+                                        icon={<CloseSquareOutlined />}
                                     />
                                 </Col>
-                                {mathDefinitions[math || '']?.onProperty && (
-                                    <>
-                                        {horizontalUI && <Col>on property</Col>}
-                                        <Col
-                                            style={{
-                                                maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})`,
-                                            }}
-                                        >
-                                            <TaxonomicStringPopup
-                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                                value={mathProperty}
-                                                onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
-                                                eventNames={name ? [name] : []}
-                                                dataAttr="math-property-select"
-                                                renderValue={(currentValue) => (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                Calculate{' '}
-                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
-                                                                property <code>{currentValue}</code>. Note that only{' '}
-                                                                {name} occurences where <code>{currentValue}</code> is
-                                                                set with a numeric value will be taken into account.
-                                                            </>
-                                                        }
-                                                        placement="right"
-                                                    >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover={true}
-                                                            />
-                                                        </div>
-                                                    </Tooltip>
-                                                )}
-                                            />
-                                        </Col>
-                                    </>
-                                )}
-                            </>
-                        )}
-                        {(horizontalUI || fullWidth) && !hideFilter && !readOnly && <Col>{propertyFiltersButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideRename && !readOnly && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && !readOnly && (
-                            <Col>{duplicateRowButton}</Col>
-                        )}
-                        {!hideDeleteBtn && !horizontalUI && !singleFilter && !readOnly && (
-                            <Col className="column-delete-btn">{deleteButton}</Col>
-                        )}
-                        {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
+                            )}
+                            {showSeriesIndicator && <Col className="action-row-letter">{seriesIndicator}</Col>}
+                        </div>
+                        {/* central section flexible */}
+                        <div className="row-center">
+                            {customRowPrefix !== undefined ? (
+                                <Col>{prefix}</Col>
+                            ) : (
+                                <>{horizontalUI && <Col>Showing</Col>}</>
+                            )}
+                            <Col
+                                className="column-filter"
+                                style={
+                                    fullWidth
+                                        ? {}
+                                        : {
+                                              maxWidth: `calc(${
+                                                  mathAvailability === MathAvailability.None ? '100' : '50'
+                                              }% - 16px)`,
+                                          }
+                                }
+                                flex={fullWidth ? 'auto' : undefined}
+                            >
+                                {filterElement}
+                            </Col>
+                            {customRowSuffix !== undefined && <Col className="column-row-suffix">{suffix}</Col>}
+                            {mathAvailability !== MathAvailability.None && (
+                                <>
+                                    {horizontalUI && <Col>counted by</Col>}
+                                    <Col>
+                                        <MathSelector
+                                            math={math}
+                                            mathGroupTypeIndex={mathGroupTypeIndex}
+                                            index={index}
+                                            onMathSelect={onMathSelect}
+                                            style={{ maxWidth: '100%', width: 'initial' }}
+                                            mathAvailability={mathAvailability}
+                                        />
+                                    </Col>
+                                    {mathDefinitions[math || '']?.onProperty && (
+                                        <>
+                                            {horizontalUI && <Col>on property</Col>}
+                                            <Col>
+                                                <TaxonomicStringPopup
+                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                    value={mathProperty}
+                                                    onChange={(currentValue) =>
+                                                        onMathPropertySelect(index, currentValue)
+                                                    }
+                                                    eventNames={name ? [name] : []}
+                                                    dataAttr="math-property-select"
+                                                    renderValue={(currentValue) => (
+                                                        <Tooltip
+                                                            title={
+                                                                <>
+                                                                    Calculate{' '}
+                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
+                                                                    from property <code>{currentValue}</code>. Note that
+                                                                    only {name} occurences where{' '}
+                                                                    <code>{currentValue}</code> is set with a numeric
+                                                                    value will be taken into account.
+                                                                </>
+                                                            }
+                                                            placement="right"
+                                                        >
+                                                            <div /* <div> needed for <Tooltip /> to work */>
+                                                                <PropertyKeyInfo
+                                                                    value={currentValue}
+                                                                    disablePopover={true}
+                                                                />
+                                                            </div>
+                                                        </Tooltip>
+                                                    )}
+                                                />
+                                            </Col>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        {/* right section fixed */}
+                        <div className="row-end">
+                            {' '}
+                            {(horizontalUI || fullWidth) && !hideFilter && !readOnly && (
+                                <Col>{propertyFiltersButton}</Col>
+                            )}
+                            {(horizontalUI || fullWidth) && !hideRename && !readOnly && <Col>{renameRowButton}</Col>}
+                            {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && !readOnly && (
+                                <Col>{duplicateRowButton}</Col>
+                            )}
+                            {!hideDeleteBtn && !horizontalUI && !singleFilter && !readOnly && (
+                                <Col className="column-delete-btn">{deleteButton}</Col>
+                            )}
+                            {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
+                        </div>
                     </>
                 )}
             </Row>
