@@ -310,7 +310,7 @@ class DateMixin(BaseParamMixin):
                 except ValueError:
                     date = relative_date_parse(self._date_to)
             else:
-                return self._date_to
+                date = self._date_to
         else:
             if self.interval == "hour":  # type: ignore
                 return timezone.now() + relativedelta(minutes=1)
