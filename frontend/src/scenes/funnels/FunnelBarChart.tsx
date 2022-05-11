@@ -50,7 +50,7 @@ function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
             className="StepBar"
             style={
                 {
-                    '--series-color': getSeriesColor(series.order),
+                    '--series-color': getSeriesColor(series.order ?? 0),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }
