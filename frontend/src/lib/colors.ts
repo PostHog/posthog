@@ -44,7 +44,7 @@ function getColorVar(variable: string): string {
  * @param numSeries Number of series in the insight being visualized.
  * @param comparePrevious If true, wrapped colors ()
  */
-export function getSeriesColor(index: number, comparePrevious: boolean = false): string {
+export function getSeriesColor(index: number | undefined = 0, comparePrevious: boolean = false): string {
     const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
     const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
     const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
