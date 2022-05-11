@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -21,6 +21,8 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const id = useRef(Math.random())
+
     const [filters, setFilters] = useState<FilterType>({
         insight: InsightType.TRENDS,
         events: [
@@ -37,7 +39,7 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
         <ActionFilter
             filters={filters}
             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-            typeKey={`trends_${InsightType.TRENDS}`}
+            typeKey={`trends_${id}`}
             buttonCopy="Add graph series"
             buttonType="link"
             showSeriesIndicator
