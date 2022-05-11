@@ -26,7 +26,7 @@ export function LemonBubble({
     const hide = count === undefined || (count == 0 && !showZero)
 
     return (
-        <CSSTransition in={!hide} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+        <CSSTransition in={!hide} timeout={150} classNames="LemonBubble-" mountOnEnter unmountOnExit>
             <span
                 className={clsx('LemonBubble', `LemonBubble--${size}`, `LemonBubble--position-${position}`)}
                 title={String(count)}

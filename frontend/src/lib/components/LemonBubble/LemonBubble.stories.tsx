@@ -66,7 +66,7 @@ export const Positioning: ComponentStory<typeof LemonBubble> = () => {
 
 export const Sizes: ComponentStory<typeof LemonBubble> = () => {
     return (
-        <div className="flex space-x-05">
+        <div className="flex space-x-05 items-center">
             <span>small:</span>
             <LemonBubble count={4} size="small" />
             <span>medium:</span>
