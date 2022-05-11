@@ -8,7 +8,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { groupsModel } from '~/models/groupsModel'
-import { alphabet } from 'lib/utils'
+import { alphabet, uuid } from 'lib/utils'
 import { ComponentStory } from '@storybook/react'
 
 export default {
@@ -21,7 +21,7 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const id = useRef(Math.random())
+    const id = useRef(uuid())
 
     const [filters, setFilters] = useState<FilterType>({
         insight: InsightType.TRENDS,
@@ -31,15 +31,24 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
                 name: '$pageview',
                 order: 0,
                 type: 'events',
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'person',
+                    },
+                ],
             },
         ],
     })
+    console.log(id)
 
     return (
         <ActionFilter
             filters={filters}
             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-            typeKey={`trends_${id}`}
+            typeKey={`trends_${id.current}`}
             buttonCopy="Add graph series"
             buttonType="link"
             showSeriesIndicator
