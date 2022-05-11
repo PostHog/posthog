@@ -91,17 +91,16 @@ class Cluster(ABC):
         for distance_from_kernel in range(1, self.radius + 1):
             cursor_x_y = [self.radius - distance_from_kernel, self.radius - distance_from_kernel]
             for side in range(4):
-                for sub_index in range(distance_from_kernel * 2):
+                for index_within_side in range(distance_from_kernel * 2):
                     person = self.people_matrix[cursor_x_y[1]][cursor_x_y[0]]
                     person.simulate()
-                    person_spiral_index = (
-                        sub_index + side * distance_from_kernel * 2 + ((distance_from_kernel * 2 - 1) ** 2)
-                    )
                     step = 1 if side < 2 else -1  # Increment coordinate for sides 0 and 1, decrement for sides 2 and 3
                     cursor_x_y[
                         0 if side % 2 == 0 else 1
                     ] += step  # Move in X axis for sides 0 and 2, Y axis for sides 1 and 3
                     if settings.DEBUG:
+                        inner_population = (distance_from_kernel * 2 - 1) ** 2
+                        person_spiral_index = inner_population + index_within_side + side * distance_from_kernel * 2
                         self._print_simulation_update(person_spiral_index, person)
 
     def _print_simulation_update(self, person_spiral_index: int, person: SimPerson):
