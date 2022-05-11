@@ -381,9 +381,7 @@ export function ActionFilterRow({
                             {mathAvailability !== MathAvailability.None && (
                                 <>
                                     {horizontalUI && <Col>counted by</Col>}
-                                    <Col
-                                    // style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}
-                                    >
+                                    <Col>
                                         <MathSelector
                                             math={math}
                                             mathGroupTypeIndex={mathGroupTypeIndex}
@@ -396,13 +394,7 @@ export function ActionFilterRow({
                                     {mathDefinitions[math || '']?.onProperty && (
                                         <>
                                             {horizontalUI && <Col>on property</Col>}
-                                            <Col
-                                                style={
-                                                    {
-                                                        // maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})`,
-                                                    }
-                                                }
-                                            >
+                                            <Col>
                                                 <TaxonomicStringPopup
                                                     groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                     value={mathProperty}
