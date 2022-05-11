@@ -48,12 +48,12 @@ export const Field = ({ showOptional, name, className, ...keaFieldProps }: Field
                         <div className="ant-form-item-explain ant-form-item-explain-connected">
                             {error ? (
                                 <div role="alert" className="ant-form-item-explain-error">
-                                    Error: {error}
+                                    {error}
                                 </div>
                             ) : null}
                             {hint ? (
                                 <div role="alert" className="ant-form-item-explain-warning">
-                                    Hint: {hint}
+                                    {hint}
                                 </div>
                             ) : null}
                         </div>

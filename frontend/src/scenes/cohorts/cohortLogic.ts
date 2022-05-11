@@ -153,7 +153,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
         cohort: {
             defaults: NEW_COHORT,
             errors: ({ name, csv, is_static, groups, filters }) => ({
-                name: !name ? 'You need to set a name' : undefined,
+                name: !name ? 'Cohort name cannot be empty' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
                 ...(values.newCohortFiltersEnabled
                     ? {
