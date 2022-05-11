@@ -44,7 +44,7 @@ describe('e2e kafka processing timeout benchmark', () => {
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        queue = startResponse.queue
+        queue = startResponse.queue!
 
         posthog = createPosthog(hub, pluginConfig39)
     })

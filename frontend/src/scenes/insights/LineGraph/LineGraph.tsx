@@ -20,7 +20,7 @@ import {
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
-import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
@@ -204,10 +204,9 @@ export function LineGraph_({
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors('white', _datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
+            : getSeriesColor(dataset.id, isCompare)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
@@ -687,7 +686,6 @@ export function LineGraph_({
                         onClose={() => {
                             setAnnotationsFocused(false)
                         }}
-                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />
@@ -722,7 +720,6 @@ export function LineGraph_({
                         left={(focused ? holdLeft : left) - 12.5}
                         top={topExtent}
                         label="Add note"
-                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />

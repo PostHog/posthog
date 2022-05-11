@@ -1106,7 +1106,7 @@ export function maybeAddCommasToInteger(value: any): any {
     if (!isNumber) {
         return value
     }
-    const internationalNumberFormat = new Intl.NumberFormat('en-US')
+    const internationalNumberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
     return internationalNumberFormat.format(value)
 }
 
