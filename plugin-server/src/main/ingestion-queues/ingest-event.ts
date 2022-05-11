@@ -14,7 +14,6 @@ export async function ingestEvent(
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<void> {
     const eachEventStartTimer = new Date()
-    const isSnapshot = event.event === '$snapshot'
 
     checkAndPause?.()
 
