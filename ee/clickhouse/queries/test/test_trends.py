@@ -178,6 +178,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             properties={"$group_0": "org:5"},
             timestamp="2020-01-02T12:00:00Z",
+            person_properties={"key": "value"},
+            group0_properties={"industry": "finance"},
         )
         _create_event(
             event="sign up",
@@ -185,22 +187,28 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             properties={"$group_0": "org:6"},
             timestamp="2020-01-02T12:00:00Z",
+            person_properties={},
+            group0_properties={"industry": "technology"},
         )
 
-        response = ClickhouseTrends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "industry",
-                    "breakdown_type": "group",
-                    "breakdown_group_type_index": 0,
-                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                    "properties": [{"key": "key", "value": "value", "type": "person"}],
-                }
-            ),
-            self.team,
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                "properties": [{"key": "key", "value": "value", "type": "person"}],
+            }
         )
+
+        response = ClickhouseTrends().run(filter, self.team,)
+
+        with override_config(ENABLE_ACTOR_ON_EVENTS_TEAMS=f"{self.team.pk}"):
+            new_response = ClickhouseTrends().run(filter, self.team)
+
+        self.assertEqual(response, new_response)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")

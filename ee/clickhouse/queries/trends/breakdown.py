@@ -34,6 +34,7 @@ from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -59,6 +60,21 @@ class ClickhouseTrendsBreakdown:
     def _person_properties_mode(self) -> PersonPropertiesMode:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
+    @cached_property
+    def _props_to_filter(self) -> PropertyGroup:
+        props_to_filter = self.filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self.entity.property_groups
+        )
+
+        outer_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+        return parse_prop_grouped_clauses(
+            team_id=self.team_id,
+            property_group=outer_properties,
+            table_name="e",
+            person_properties_mode=self._person_properties_mode,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+        )
+
     def get_query(self) -> Tuple[str, Dict, Callable]:
         interval_annotation = get_trunc_func_ch(self.filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
@@ -66,18 +82,8 @@ class ClickhouseTrendsBreakdown:
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team=self.team)
 
-        props_to_filter = self.filter.property_groups.combine_property_group(
-            PropertyOperatorType.AND, self.entity.property_groups
-        )
+        prop_filters, prop_filter_params = self._props_to_filter
 
-        outer_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
-        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team_id,
-            property_group=outer_properties,
-            table_name="e",
-            person_properties_mode=self._person_properties_mode,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-        )
         aggregate_operation, _, math_params = process_math(
             self.entity, self.team, event_table_alias="e", person_id_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
@@ -104,7 +110,7 @@ class ClickhouseTrendsBreakdown:
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
-            "filters": prop_filters if props_to_filter.values else "",
+            "filters": prop_filters,
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -376,13 +382,27 @@ class ClickhouseTrendsBreakdown:
 class ClickhouseTrendsBreakdown_PersonsOnEvents(ClickhouseTrendsBreakdown):
     @cached_property
     def _person_properties_mode(self) -> PersonPropertiesMode:
-        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+        return PersonPropertiesMode.DIRECT_ON_EVENTS
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         return "", {}
 
     def _groups_join_conditino(self) -> Tuple[str, Dict]:
         return "", {}
+
+    @cached_property
+    def _props_to_filter(self) -> PropertyGroup:
+        props_to_filter = self.filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self.entity.property_groups
+        )
+
+        return parse_prop_grouped_clauses(
+            team_id=self.team_id,
+            property_group=props_to_filter,
+            table_name="e",
+            person_properties_mode=self._person_properties_mode,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+        )
 
     def _get_breakdown_value(self, breakdown: str):
         if self.filter.breakdown_type == "person":

@@ -486,7 +486,7 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None]
+    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None], column: str
 ):
     """
     When querying for breakdown properties:
@@ -501,8 +501,6 @@ def get_single_or_multi_property_string_expr(
         no alias will be appended.
 
     """
-
-    column = "properties" if table == "events" else "person_props"
 
     if isinstance(breakdown, str) or isinstance(breakdown, int):
         expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), column)

@@ -90,7 +90,12 @@ def get_breakdown_prop_values(
         person_properties_mode=person_properties_mode,
     )
 
-    value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
+    value_expression = _to_value_expression(
+        filter.breakdown_type,
+        filter.breakdown,
+        filter.breakdown_group_type_index,
+        direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+    )
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
@@ -125,19 +130,29 @@ def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
+    direct_on_events: bool = False,
 ) -> str:
     if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(breakdown, table="person", query_alias="value")
+        return get_single_or_multi_property_string_expr(
+            breakdown,
+            table="events" if direct_on_events else "person",
+            query_alias="value",
+            column="person_properties" if direct_on_events else "person_props",
+        )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
             table="groups",
             property_name=cast(str, breakdown),
             var="%(key)s",
-            column=f"group_properties_{breakdown_group_type_index}",
+            column=f"group{breakdown_group_type_index}_properties"
+            if direct_on_events
+            else f"group_properties_{breakdown_group_type_index}",
         )
         return f"{value_expression} AS value"
     else:
-        return get_single_or_multi_property_string_expr(breakdown, table="events", query_alias="value")
+        return get_single_or_multi_property_string_expr(
+            breakdown, table="events", query_alias="value", column="properties"
+        )
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
