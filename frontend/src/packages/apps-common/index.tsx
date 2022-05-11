@@ -12,4 +12,5 @@ export * from 'lib/components/LemonSelect'
 
 export * from 'scenes/insights/AdHocInsight'
 
-export * as api from 'lib/api'
+import api_ from 'lib/api'
+export const api = api_
