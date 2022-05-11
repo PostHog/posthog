@@ -408,6 +408,12 @@ code.code {
     }
 }
 
+.col {
+    position: relative;
+    max-width: 100%;
+    min-height: 1px;
+}
+
 .full-width {
     width: 100%;
 }
@@ -431,6 +437,10 @@ code.code {
 
 .flex {
     display: flex;
+}
+
+.flex-auto {
+    flex: auto;
 }
 
 .flex-center {

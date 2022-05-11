@@ -3,8 +3,6 @@ import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { Button } from 'antd'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import {
     ActionFilter as ActionFilterType,
     FilterType,
@@ -17,8 +15,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../teamLogic'
-import { ButtonType } from 'antd/lib/button'
 import clsx from 'clsx'
+import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
+import { IconPlusMini } from 'lib/components/icons'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -28,7 +27,7 @@ export interface ActionFilterProps {
     mathAvailability?: MathAvailability
     /** Text copy for the action button to add more events/actions (graph series) */
     buttonCopy: string
-    buttonType?: ButtonType
+    buttonType?: LemonButtonProps['type']
     /** Whether the full control is enabled or not */
     disabled?: boolean
     /** Bordered view */
@@ -100,8 +99,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             propertiesTaxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
-            buttonType = 'dashed',
+            buttonType = 'default',
             readOnly = false,
+            bordered = false,
         },
         ref
     ): JSX.Element => {
@@ -160,7 +160,12 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
 
         return (
-            <div ref={ref}>
+            <div
+                className={clsx('ActionFilter', {
+                    'ActionFilter--bordered': bordered,
+                })}
+                ref={ref}
+            >
                 {!hideRename && !readOnly && (
                     <BindLogic
                         logic={entityFilterLogic}
@@ -201,16 +206,13 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                     )
                 ) : null}
                 {!singleFilter && (
-                    <div
-                        className={clsx(buttonType !== 'link' ? 'mt' : 'mt-05')}
-                        style={{ display: 'flex', alignItems: 'center' }}
-                    >
+                    <div className="ActionFilter-add-button">
                         {!singleFilter && (
-                            <Button
+                            <LemonButton
                                 type={buttonType}
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
-                                icon={<PlusCircleOutlined />}
+                                icon={<IconPlusMini />}
                                 disabled={reachedLimit || disabled || readOnly}
                             >
                                 {!reachedLimit
@@ -218,7 +220,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     : `Reached limit of ${entitiesLimit} ${
                                           filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
                                       }`}
-                            </Button>
+                            </LemonButton>
                         )}
                     </div>
                 )}

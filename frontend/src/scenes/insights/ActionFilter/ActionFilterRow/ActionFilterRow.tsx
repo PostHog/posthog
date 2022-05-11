@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Col, Row, Select } from 'antd'
+import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -26,10 +26,10 @@ import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/components/icons'
-import clsx from 'clsx'
 
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -65,7 +65,6 @@ export interface ActionFilterRowProps {
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
-    rowClassName?: string
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -99,7 +98,6 @@ export function ActionFilterRow({
     filterCount,
     sortable,
     customRowSuffix,
-    rowClassName,
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
@@ -226,76 +224,58 @@ export function ActionFilterRow({
 
     const propertyFiltersButton = (
         <IconWithCount count={filter.properties?.length || 0} showZero={false}>
-            <Button
-                type="link"
+            <LemonButton
+                icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
+                type="alt"
+                title="Show filters"
+                data-attr={`show-prop-filter-${index}`}
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
-                className={clsx(`row-action-btn show-filters`, { visible: propertyFiltersVisible })}
-                data-attr={`show-prop-filter-${index}`}
-                title="Show filters"
-                style={{ display: 'flex', alignItems: 'center' }}
-            >
-                <IconFilter fontSize={'1.25em'} />
-            </Button>
+            />
         </IconWithCount>
     )
 
     const renameRowButton = (
-        <Button
-            type="link"
+        <LemonButton
+            icon={<IconEdit />}
+            type="alt"
+            title="Rename graph series"
+            data-attr={`show-prop-rename-${index}`}
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
             }}
-            className={`row-action-btn show-rename`}
-            data-attr={`show-prop-rename-${index}`}
-            title="Rename graph series"
-            style={{ display: 'flex', alignItems: 'center' }}
-        >
-            <IconEdit fontSize={'1.25em'} />
-        </Button>
+        />
     )
 
     const duplicateRowButton = (
-        <Button
-            type="link"
+        <LemonButton
+            icon={<IconCopy />}
+            type="alt"
+            title="Duplicate graph series"
+            data-attr={`show-prop-duplicate-${index}`}
             onClick={() => {
                 duplicateFilter(filter)
             }}
-            style={{ display: 'flex', alignItems: 'center' }}
-            className={'row-action-btn'}
-            data-attr={`show-prop-duplicate-${index}`}
-            title="Duplicate graph series"
-        >
-            <IconCopy fontSize={'1.25em'} />
-        </Button>
+        />
     )
 
     const deleteButton = (
-        <Button
-            type="link"
-            onClick={onClose}
-            style={{ display: 'flex', alignItems: 'center' }}
-            className="row-action-btn delete"
-            data-attr={`delete-prop-filter-${index}`}
+        <LemonButton
+            icon={<IconDelete />}
+            type="alt"
             title="Delete graph series"
-        >
-            <IconDelete fontSize={'1.25em'} />
-        </Button>
+            data-attr={`delete-prop-filter-${index}`}
+            onClick={onClose}
+        />
     )
 
     return (
         <div className={'ActionFilterRow'}>
-            {index > 0 && showOr && (
-                <Row align="middle" style={{ marginTop: 12 }}>
-                    {orLabel}
-                </Row>
-            )}
-
-            <Row gutter={8} align="top" className={rowClassName || ''}>
+            <div className="ActionFilterRow-content">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -310,18 +290,16 @@ export function ActionFilterRow({
                     <>
                         {/* left section fixed */}
                         <div className="row-start">
-                            {showSeriesIndicator && <Col className="action-row-letter">{seriesIndicator}</Col>}
+                            {sortable && filterCount > 1 ? <DragHandle /> : null}
+                            {showSeriesIndicator && <div className="col series-indicator">{seriesIndicator}</div>}
                         </div>
                         {/* central section flexible */}
                         <div className="row-center">
-                            <Col className="column-filter" flex={'auto'}>
-                                {filterElement}
-                            </Col>
-                            {customRowSuffix !== undefined && <Col className="column-row-suffix">{suffix}</Col>}
+                            <div className="col flex-auto">{filterElement}</div>
+                            {customRowSuffix !== undefined && <div className="col">{suffix}</div>}
                             {mathAvailability !== MathAvailability.None && (
                                 <>
-                                    <Col>
-                                        {/* {sortable ? <DragHandle /> : null} */}
+                                    <div className="col">
                                         <MathSelector
                                             math={math}
                                             mathGroupTypeIndex={mathGroupTypeIndex}
@@ -330,43 +308,38 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                         />
-                                    </Col>
+                                    </div>
                                     {mathDefinitions[math || '']?.onProperty && (
-                                        <>
-                                            <Col>
-                                                <TaxonomicStringPopup
-                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                                    value={mathProperty}
-                                                    onChange={(currentValue) =>
-                                                        onMathPropertySelect(index, currentValue)
-                                                    }
-                                                    eventNames={name ? [name] : []}
-                                                    dataAttr="math-property-select"
-                                                    renderValue={(currentValue) => (
-                                                        <Tooltip
-                                                            title={
-                                                                <>
-                                                                    Calculate{' '}
-                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                    from property <code>{currentValue}</code>. Note that
-                                                                    only {name} occurences where{' '}
-                                                                    <code>{currentValue}</code> is set with a numeric
-                                                                    value will be taken into account.
-                                                                </>
-                                                            }
-                                                            placement="right"
-                                                        >
-                                                            <div /* <div> needed for <Tooltip /> to work */>
-                                                                <PropertyKeyInfo
-                                                                    value={currentValue}
-                                                                    disablePopover={true}
-                                                                />
-                                                            </div>
-                                                        </Tooltip>
-                                                    )}
-                                                />
-                                            </Col>
-                                        </>
+                                        <div className="col">
+                                            <TaxonomicStringPopup
+                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                value={mathProperty}
+                                                onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
+                                                eventNames={name ? [name] : []}
+                                                dataAttr="math-property-select"
+                                                renderValue={(currentValue) => (
+                                                    <Tooltip
+                                                        title={
+                                                            <>
+                                                                Calculate{' '}
+                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
+                                                                property <code>{currentValue}</code>. Note that only{' '}
+                                                                {name} occurences where <code>{currentValue}</code> is
+                                                                set with a numeric value will be taken into account.
+                                                            </>
+                                                        }
+                                                        placement="right"
+                                                    >
+                                                        <div /* <div> needed for <Tooltip /> to work */>
+                                                            <PropertyKeyInfo
+                                                                value={currentValue}
+                                                                disablePopover={true}
+                                                            />
+                                                        </div>
+                                                    </Tooltip>
+                                                )}
+                                            />
+                                        </div>
                                     )}
                                 </>
                             )}
@@ -375,25 +348,25 @@ export function ActionFilterRow({
                         <div className="row-end">
                             {!readOnly ? (
                                 <>
-                                    {!hideFilter && <Col>{propertyFiltersButton}</Col>}
-                                    {!hideRename && <Col>{renameRowButton}</Col>}
-                                    {!singleFilter && <Col>{duplicateRowButton}</Col>}
-                                    {!hideDeleteBtn && <Col className="column-delete-btn">{deleteButton}</Col>}
+                                    {!hideFilter && propertyFiltersButton}
+                                    {!hideRename && renameRowButton}
+                                    {!singleFilter && duplicateRowButton}
+                                    {!hideDeleteBtn && deleteButton}
                                 </>
                             ) : null}
                             {filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
                         </div>
                     </>
                 )}
-            </Row>
+            </div>
 
             {propertyFiltersVisible && (
-                <div className={`mr property-filter-wrapper`}>
+                <div className={`ActionFilterRow-filters`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
-                        style={{ marginBottom: 0 }}
+                        style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
                         disablePopover
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}

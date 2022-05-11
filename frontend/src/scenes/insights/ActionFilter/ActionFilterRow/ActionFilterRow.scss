@@ -1,7 +1,18 @@
 @import '~/vars';
 
 .ActionFilterRow {
-    flex-basis: 100%;
+    .ActionFilterRow-content {
+        display: flex;
+        align-items: flex-start;
+
+        > * + * {
+            margin-left: $default_spacing / 2;
+        }
+    }
+
+    .ActionFilterRow-filters {
+        padding: 1em;
+    }
 
     .row-start,
     .row-center,
@@ -15,11 +26,22 @@
         flex: 0;
     }
 
+    .row-end {
+        padding-top: 5px;
+        > * + * {
+            margin-left: $default_spacing / 4;
+        }
+    }
+
     .row-center {
         flex: 1;
         overflow: hidden;
         flex-wrap: wrap;
-        row-gap: 4px;
+        gap: $default_spacing / 2;
+    }
+
+    .series-indicator {
+        padding-top: 5px;
     }
 
     .property-filter-button-label {
@@ -42,17 +64,13 @@
     }
 }
 
-.action-row-letter {
-    padding-right: 1px;
-    padding-top: 5px;
-}
-
 .ActionFilterRowDragHandle {
     cursor: move;
-    padding: 4px 2px 0 0;
     color: var(--text-default);
     font-size: 1.2em;
+    padding-right: 5px;
+
     svg {
-        transform: rotate(90deg);
+        transform: rotate(90deg) translateX(5px);
     }
 }

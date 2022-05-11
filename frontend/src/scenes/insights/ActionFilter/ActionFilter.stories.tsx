@@ -87,3 +87,10 @@ export const Sortable = Template.bind({})
 Sortable.args = {
     sortable: true,
 }
+
+export const FunnelLike = Template.bind({})
+FunnelLike.args = {
+    sortable: true,
+    bordered: true,
+    seriesIndicatorType: 'numeric',
+}
