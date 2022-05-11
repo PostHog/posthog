@@ -1332,3 +1332,23 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(
             activity, expected,
         )
+
+    def test_patch_api_as_form_data(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}/",
+            data={"active": False},
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(FeatureFlag.objects.get(pk=another_feature_flag.pk).name, "some feature")
+        self.assertEqual(
+            FeatureFlag.objects.get(pk=another_feature_flag.pk).filters,
+            {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+        )
