@@ -1,8 +1,9 @@
 import datetime as dt
 from typing import Literal, Optional
 
-from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
-from posthog.models import Dashboard, EventDefinition, FeatureFlag, Insight, PropertyDefinition
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_FUNNEL, TRENDS_LINEAR, TRENDS_WORLD_MAP
+from posthog.models import Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, PropertyDefinition
+from posthog.models.property_definition import PropertyType
 from posthog.models.utils import UUIDT
 
 from .matrix.matrix import Cluster, Matrix
@@ -14,7 +15,8 @@ PROJECT_NAME = "Hedgebox"
 EVENT_SIGNED_UP = "signed_up"
 EVENT_PAID_BILL = "paid_bill"
 
-# Experiment constants
+# Feature flag constants
+FILE_PREVIEWS_FLAG_KEY = "file-previews"
 NEW_SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
 NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT = 30
 
@@ -130,18 +132,21 @@ class HedgeboxMatrix(Matrix):
         PropertyDefinition.objects.create(team=team, name="$group_type")
         PropertyDefinition.objects.create(team=team, name="$group_key")
         PropertyDefinition.objects.create(team=team, name="$group_set")
-        PropertyDefinition.objects.create(team=team, name="$lib")
-        PropertyDefinition.objects.create(team=team, name="$device_type")
-        PropertyDefinition.objects.create(team=team, name="$os")
-        PropertyDefinition.objects.create(team=team, name="$browser")
-        PropertyDefinition.objects.create(team=team, name="$session_id")
-        PropertyDefinition.objects.create(team=team, name="$browser_id")
-        PropertyDefinition.objects.create(team=team, name="$current_url")
-        PropertyDefinition.objects.create(team=team, name="$host")
-        PropertyDefinition.objects.create(team=team, name="$pathname")
-        PropertyDefinition.objects.create(team=team, name="$referrer")
-        PropertyDefinition.objects.create(team=team, name="$referring_domain")
-        PropertyDefinition.objects.create(team=team, name="$timestamp")
+        PropertyDefinition.objects.create(team=team, name="$lib", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$device_type", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$os", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$browser", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$session_id", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$browser_id", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$current_url", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$host", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$pathname", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$referrer", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$referring_domain", property_type=PropertyType.String)
+        PropertyDefinition.objects.create(team=team, name="$timestamp", property_type=PropertyType.Datetime)
+
+        # Property definitions: custom
+        PropertyDefinition.objects.create(team=team, name="email", property_type=PropertyType.String)
 
         # Dashboards
         key_metrics_dashboard = Dashboard.objects.create(
@@ -177,11 +182,90 @@ class HedgeboxMatrix(Matrix):
             },
         )
 
+        # Cohorts
+        Cohort.objects.create(
+            team=team,
+            name="Signed-up users",
+            created_by=user,
+            groups=[{"properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}]}],
+        )
+        real_users_cohort = Cohort.objects.create(
+            team=team,
+            name="Real users",
+            description="People who don't belong to the Hedgebox team.",
+            created_by=user,
+            groups=[
+                {"properties": [{"key": "email", "type": "person", "value": "@hedgebox.net$", "operator": "not_regex"}]}
+            ],
+        )
+        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+
         # Feature flags
-        FeatureFlag.objects.create(
+        new_signup_page_flag = FeatureFlag.objects.create(
+            team=team,
+            key=FILE_PREVIEWS_FLAG_KEY,
+            name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": [
+                                    "mark.s@hedgebox.net",
+                                    "helly.r@hedgebox.net",
+                                    "irving.b@hedgebox.net",
+                                    "dylan.g@hedgebox.net",
+                                ],
+                                "operator": "exact",
+                            }
+                        ]
+                    }
+                ]
+            },
+            created_by=user,
+            # TODO: created_at
+        )
+
+        # Experiments
+        new_signup_page_flag = FeatureFlag.objects.create(
             team=team,
             key=NEW_SIGNUP_PAGE_FLAG_KEY,
-            name="New signup flow",
-            rollout_percentage=NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+            name="New sign-up flow",
+            filters={"groups": [{"properties": [], "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT}]},
             created_by=user,
+            # TODO: created_at
+        )
+        Experiment.objects.create(
+            team=team,
+            name="New sign-up flow",
+            description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
+            feature_flag=new_signup_page_flag,
+            created_by=user,
+            filters={
+                "events": [
+                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 1},
+                ],
+                "actions": [],
+                "date_from": "1970-01-01T00:00",
+                "date_to": "1971-01-01T00:00",
+                "display": TRENDS_FUNNEL,
+                "insight": INSIGHT_FUNNELS,
+                "interval": "day",
+                "funnel_viz_type": "steps",
+                "filter_test_accounts": False,
+            },
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                    {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                ],
+                "recommended_sample_size": 1274,
+                "recommended_running_time": None,
+                "minimum_detectable_effect": 1,
+            }
+            # TODO: created_at
+            # TODO: start_date
         )
