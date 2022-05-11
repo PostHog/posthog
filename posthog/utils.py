@@ -304,7 +304,7 @@ def get_default_event_name():
     return "$pageview"
 
 
-def get_frontend_apps(team_id: int) -> List[int]:
+def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     from posthog.models import Plugin
 
     plugin_configs = (
@@ -317,8 +317,8 @@ def get_frontend_apps(team_id: int) -> List[int]:
 
     frontend_apps = {}
     for p in plugin_configs:
-        config = p["pluginconfig__config"]
-        config_schema = p["config_schema"]
+        config = p["pluginconfig__config"] or {}
+        config_schema = p["config_schema"] or {}
         secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
         for key in secret_fields:
             if key in config:
