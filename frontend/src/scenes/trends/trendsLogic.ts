@@ -53,7 +53,7 @@ export const trendsLogic = kea<trendsLogicType>({
         targetAction: [
             {} as Record<string, any>,
             {
-                setTargetAction: (_, { action }) => action,
+                setTargetAction: (_, { action }) => action ?? {},
             },
         ],
         breakdownValuesLoading: [

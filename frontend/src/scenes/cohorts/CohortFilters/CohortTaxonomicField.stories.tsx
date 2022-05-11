@@ -16,10 +16,16 @@ export default {
 
 const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxonomicFieldProps) => {
     useMountedLogic(actionsModel)
-    const [value, setValue] = useState<string | null>(null)
-    return renderField[FilterType.EventsAndActions]({
+    const [value, setValue] = useState<string | undefined>('')
+    const type =
+        props.taxonomicGroupTypes === [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+            ? FilterType.EventsAndActions
+            : FilterType.EventProperties
+    return renderField[type]({
         ...props,
-        value,
+        criteria: {
+            key: value,
+        },
         onChange: (key) => setValue(String(key)),
     })
 }
@@ -30,8 +36,8 @@ EventsAndActions.args = {
     placeholder: 'Choose event or action',
 }
 
-export const EventProperties = Template.bind({})
-EventProperties.args = {
-    taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-    placeholder: 'Choose event property',
+export const PersonProperties = Template.bind({})
+PersonProperties.args = {
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+    placeholder: 'Choose person property',
 }

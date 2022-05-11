@@ -6,7 +6,6 @@ import {
     formatDisplayPercentage,
     getBreakdownStepValues,
     getReferenceStep,
-    getSeriesColor,
     humanizeOrder,
     humanizeStepCount,
 } from 'scenes/funnels/funnelUtils'
@@ -17,6 +16,7 @@ import { Popover } from 'antd'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { MetricRow } from 'scenes/funnels/FunnelBarGraph'
+import { getSeriesColor } from 'lib/colors'
 
 interface BreakdownBarGroupProps {
     currentStep: FunnelStepWithConversionMetrics
@@ -24,7 +24,6 @@ interface BreakdownBarGroupProps {
     showLabels: boolean
     onBarClick?: (breakdown_value: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>) => void
     disabled: boolean
-    isSingleSeries?: boolean
     aggregationTargetLabel: { singular: string; plural: string }
 }
 
@@ -34,7 +33,6 @@ export function BreakdownVerticalBarGroup({
     showLabels,
     onBarClick,
     disabled,
-    isSingleSeries = false,
     aggregationTargetLabel,
 }: BreakdownBarGroupProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
@@ -46,7 +44,7 @@ export function BreakdownVerticalBarGroup({
             {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
                 const currentBarHeight = clamp(height * breakdown.conversionRates.fromBasisStep, 0, height)
                 const previousBarHeight = clamp(currentBarHeight / breakdown.conversionRates.fromBasisStep, 0, height)
-                const color = getSeriesColor(breakdown.order, isSingleSeries)
+                const color = getSeriesColor(breakdown.order ?? 0)
                 const breakdownValues = getBreakdownStepValues(breakdown, breakdownIndex)
 
                 const popoverMetrics = [
@@ -163,12 +161,7 @@ export function BreakdownBarGroupWrapper({
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const {
-        visibleStepsWithConversionMetrics: steps,
-        isModalActive,
-        flattenedBreakdowns,
-        aggregationTargetLabel,
-    } = useValues(logic)
+    const { visibleStepsWithConversionMetrics: steps, isModalActive, aggregationTargetLabel } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
 
@@ -184,7 +177,6 @@ export function BreakdownBarGroupWrapper({
                     openPersonsModalForStep({ step: breakdown, converted: true })
                 }}
                 disabled={!isModalActive}
-                isSingleSeries={flattenedBreakdowns.length === 1}
                 aggregationTargetLabel={aggregationTargetLabel}
             />
             <div className="funnel-bar-empty-space" />
