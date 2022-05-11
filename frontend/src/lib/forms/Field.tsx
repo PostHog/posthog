@@ -5,10 +5,11 @@ import React from 'react'
 
 export interface FieldProps extends KeaFieldProps {
     showOptional?: boolean
+    className?: string
 }
 
 /** Compatible replacement for Form.Item. Passes `value` and `onChange(value: any)` to its children. */
-export const Field = ({ showOptional, name, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({ showOptional, name, className, ...keaFieldProps }: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
         return (
@@ -17,7 +18,8 @@ export const Field = ({ showOptional, name, ...keaFieldProps }: FieldProps): JSX
                     'ant-row',
                     'ant-form-item',
                     hint || error ? 'ant-form-item-with-help' : '',
-                    error ? `ant-form-item-has-error` : ''
+                    error ? `ant-form-item-has-error` : '',
+                    className
                 )}
             >
                 {label ? (
