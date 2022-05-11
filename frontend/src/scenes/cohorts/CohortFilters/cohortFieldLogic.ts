@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, kea, key, connect, propsChanged, listeners, path, props, reducers, selectors } from 'kea'
 import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
@@ -8,6 +8,7 @@ import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/coh
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -18,26 +19,31 @@ export interface CohortFieldLogicProps {
     fieldOptionGroupTypes?: FieldOptionsType[]
 }
 
-export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>({
-    path: ['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic'],
-    key: (props) => `${props.cohortFilterLogicKey}`,
-    props: {} as CohortFieldLogicProps,
-    connect: {
+export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>([
+    path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),
+    key((props) => `${props.cohortFilterLogicKey}`),
+    props({} as CohortFieldLogicProps),
+    connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-    },
-    actions: {
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.fieldKey && !objectsEqual(props.criteria, oldProps.criteria)) {
+            actions.onChange(props.criteria)
+        }
+    }),
+    actions({
         onChange: (newField: AnyCohortCriteriaType) => ({ newField }),
-    },
-    reducers: ({ props }) => ({
+    }),
+    reducers(({ props }) => ({
         value: [
             resolveCohortFieldValue(props.criteria, props.fieldKey),
             {
-                onChange: (state, { newField }) =>
-                    resolveCohortFieldValue({ ...props.criteria, ...newField }, props.fieldKey) ?? state,
+                onChange: (_, { newField }) =>
+                    resolveCohortFieldValue({ ...props.criteria, ...newField }, props.fieldKey),
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         fieldOptionGroups: [
             (s) => [(_, props) => props.fieldOptionGroupTypes, s.groupTypes, s.aggregationLabel],
             (fieldOptionGroupTypes, groupTypes, aggregationLabel): FieldValues[] => {
@@ -75,6 +81,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
             (s) => [s.value, (_, props) => props.criteria, (_, props) => props.fieldKey],
             (value, criteria, fieldKey) => (taxonomicGroupType: TaxonomicFilterGroupType) => {
                 // Only used by taxonomic filter field to determine label name
+                console.log('VALUE', value, criteria, fieldKey)
                 if (
                     criteria.type === BehavioralFilterKey.Cohort &&
                     fieldKey === 'value_property' &&
@@ -88,10 +95,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
                 return value
             },
         ],
-    },
-    listeners: ({ props }) => ({
+    }),
+    listeners(({ props }) => ({
         onChange: ({ newField }) => {
             props.onChange?.(cleanBehavioralTypeCriteria(newField))
         },
-    }),
-})
+    })),
+])

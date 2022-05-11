@@ -3,9 +3,9 @@ import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
-    CohortPersonPropertiesValuesFieldProps,
     CohortFieldProps,
     CohortNumberFieldProps,
+    CohortPersonPropertiesValuesFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
     FieldOptionsType,
@@ -29,8 +29,8 @@ import {
     ValueOptionType,
 } from '~/types'
 import {
-    CohortPersonPropertiesValuesField,
     CohortNumberField,
+    CohortPersonPropertiesValuesField,
     CohortSelectorField,
     CohortTaxonomicField,
     CohortTextField,
@@ -123,6 +123,12 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [BehavioralEventType.NotPerformSequenceEvents]: {
                 label: 'Did not complete a sequence of events',
             },
+        },
+    },
+    [FieldOptionsType.PersonPropertyBehavioral]: {
+        label: 'Person Properties',
+        type: FieldOptionsType.PersonPropertyBehavioral,
+        values: {
             [BehavioralEventType.HaveProperty]: {
                 label: 'Have the property',
             },
@@ -802,6 +808,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 {...p}
                 fieldOptionGroupTypes={[
                     FieldOptionsType.EventBehavioral,
+                    FieldOptionsType.PersonPropertyBehavioral,
                     FieldOptionsType.CohortBehavioral,
                     FieldOptionsType.LifecycleBehavioral,
                 ]}
@@ -952,6 +959,7 @@ export const NEW_COHORT: CohortType = {
 
 export const BEHAVIORAL_TYPE_TO_LABEL = {
     ...FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
+    ...FIELD_VALUES[FieldOptionsType.PersonPropertyBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.CohortBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
 }

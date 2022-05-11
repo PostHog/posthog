@@ -35,6 +35,7 @@ export enum FieldOptionsType {
     PropertyAggregation = 'propertyAggregation',
     Actors = 'actors',
     EventBehavioral = 'eventBehavioral',
+    PersonPropertyBehavioral = 'personPropertyBehavioral',
     CohortBehavioral = 'cohortBehavioral',
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',

@@ -38,6 +38,7 @@ export const BehavioralSelector = Template.bind({})
 BehavioralSelector.args = {
     fieldOptionGroupTypes: [
         FieldOptionsType.EventBehavioral,
+        FieldOptionsType.PersonPropertyBehavioral,
         FieldOptionsType.CohortBehavioral,
         FieldOptionsType.LifecycleBehavioral,
     ],

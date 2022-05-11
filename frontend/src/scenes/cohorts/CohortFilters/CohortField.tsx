@@ -1,6 +1,6 @@
 import './CohortField.scss'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import React, { useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -16,7 +16,6 @@ import {
 } from 'scenes/cohorts/CohortFilters/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
-import { resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyOperator } from '~/types'
 
@@ -27,17 +26,8 @@ const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<t
         () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
         [props.cohortFilterLogicKey]
     )
-    const logic = cohortFieldLogic({ ...props, cohortFilterLogicKey })
-    const { onChange } = useActions(logic)
-
-    useEffect(() => {
-        if (props.fieldKey) {
-            onChange(props.criteria)
-        }
-    }, [resolveCohortFieldValue(props.criteria, props.fieldKey)])
-
     return {
-        logic,
+        logic: cohortFieldLogic({ ...props, cohortFilterLogicKey }),
     }
 }
 

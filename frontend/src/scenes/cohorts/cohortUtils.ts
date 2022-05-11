@@ -469,6 +469,8 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
             populatedCriteria[key] = defaultValue
         } else if (nextValue !== undefined && nextValue !== null) {
             populatedCriteria[key] = nextValue
+        } else {
+            populatedCriteria[key] = undefined
         }
     })
     fields.forEach(({ fieldKey, defaultValue }) => {
@@ -477,6 +479,8 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
             populatedCriteria[fieldKey] = defaultValue
         } else if (fieldKey && nextValue !== undefined && nextValue !== null) {
             populatedCriteria[fieldKey] = nextValue
+        } else if (fieldKey) {
+            populatedCriteria[fieldKey] = undefined
         }
     })
     return {
