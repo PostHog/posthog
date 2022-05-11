@@ -5,14 +5,10 @@ import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-export interface FrontendAppSceneLogicProps {
-    /** Used as the logic's key */
-    id: number
-}
+import { FrontendAppSceneLogicProps, FrontendAppSceneProps } from 'scenes/apps/types'
 
 /** Logic responsible for loading the injected frontend scene */
-export const frontendAppSceneLogic = kea<frontendAppSceneLogicType<FrontendAppSceneLogicProps>>([
+export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     path(['scenes', 'plugins', 'Frontend']),
     connect({ values: [frontendAppsLogic, ['frontendApps', 'appConfigs']] }),
     props({} as FrontendAppSceneLogicProps),
@@ -29,7 +25,7 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType<FrontendAppSc
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
         logicProps: [
             (s) => [(_, props) => props.id, s.appConfig],
-            (id, appConfig) => ({ id, url: urls.frontendApp(id), config: appConfig }),
+            (id, appConfig): FrontendAppSceneProps => ({ id, url: urls.frontendApp(id), config: appConfig }),
         ],
         builtLogic: [(s) => [s.logic, s.logicProps], (logic: any, props: any) => logic?.(props)],
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
