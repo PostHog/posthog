@@ -4,27 +4,46 @@
     .ActionFilterRow {
         margin-bottom: $default_spacing;
     }
+
+    .ActionFilterRow-filters {
+        margin: 0;
+        padding: 1em;
+    }
+
     &.ActionFilter--bordered {
         border-radius: var(--radius);
         border: 1px solid var(--border);
 
         .ActionFilterRow {
             margin-bottom: 0;
+
+            .ActionFilterRow-content {
+                margin-bottom: 0px;
+                padding: $default_spacing $default_spacing/2;
+                border-bottom: 1px solid var(--border);
+            }
+
+            // &:last-child {
+            //     .ActionFilterRow-content {
+            //         border-bottom: none;
+            //     }
+
+            //     .ActionFilterRow-filters {
+            //         border-bottom: none;
+            //         border-radius: 0 0 var(--radius) var(--radius);
+            //     }
+            // }
         }
 
-        .ActionFilterRow-content {
-            margin-bottom: 0px;
-            padding: $default_spacing $default_spacing/2;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .ActionFilter-add-button {
+        .ActionFilter-footer {
             padding: $default_spacing / 2;
         }
 
         .ActionFilterRow-filters {
             background-color: var(--bg-side);
             border-bottom: 1px solid var(--border);
+            margin: 0;
+            padding: 1em;
         }
     }
 }

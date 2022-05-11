@@ -40,7 +40,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
             </div>
             <div className="flex-center">
                 <ActionFilter
-                    horizontalUI
                     entitiesLimit={1}
                     mathAvailability={MathAvailability.None}
                     hideFilter

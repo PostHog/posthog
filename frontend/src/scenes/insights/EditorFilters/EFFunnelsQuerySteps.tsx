@@ -2,7 +2,6 @@ import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
-import { Card } from 'antd'
 import { EditorFilterProps } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -41,31 +40,30 @@ export function EFFunnelsQuerySteps({ filters, insightProps }: EditorFilterProps
                     <ToggleButtonChartFilter simpleMode />
                 </div>
             </div>
-            <Card className="action-filters-bordered" bodyStyle={{ padding: 0 }}>
-                <ActionFilter
-                    filters={filters}
-                    setFilters={setFilters}
-                    typeKey={`EditFunnel-action`}
-                    mathAvailability={MathAvailability.None}
-                    hideDeleteBtn={filterSteps.length === 1}
-                    buttonCopy="Add step"
-                    buttonType="link"
-                    showSeriesIndicator={!isStepsEmpty}
-                    seriesIndicatorType="numeric"
-                    entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                    sortable
-                    showNestedArrow={true}
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                    rowClassName="action-filters-bordered"
-                />
-                <div className="mb-05" />
-            </Card>
+
+            <ActionFilter
+                bordered
+                filters={filters}
+                setFilters={setFilters}
+                typeKey={`EditFunnel-action`}
+                mathAvailability={MathAvailability.None}
+                hideDeleteBtn={filterSteps.length === 1}
+                buttonCopy="Add step"
+                showSeriesIndicator={!isStepsEmpty}
+                seriesIndicatorType="numeric"
+                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
+                sortable
+                showNestedArrow={true}
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]}
+                rowClassName="action-filters-bordered"
+            />
+            <div className="mb-05" />
 
             <div className="mt space-y">
                 {showGroupsOptions && (

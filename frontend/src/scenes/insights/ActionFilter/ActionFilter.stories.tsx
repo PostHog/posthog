@@ -94,3 +94,10 @@ FunnelLike.args = {
     bordered: true,
     seriesIndicatorType: 'numeric',
 }
+
+export const SingleFilter = Template.bind({})
+SingleFilter.args = {
+    sortable: true,
+    bordered: true,
+    entitiesLimit: 1,
+}

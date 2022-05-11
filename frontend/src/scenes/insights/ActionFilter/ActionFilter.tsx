@@ -206,7 +206,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                     )
                 ) : null}
                 {!singleFilter && (
-                    <div className="ActionFilter-add-button">
+                    <div className="ActionFilter-footer">
                         {!singleFilter && (
                             <LemonButton
                                 type={buttonType}
