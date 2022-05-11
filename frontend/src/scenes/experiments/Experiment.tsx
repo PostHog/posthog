@@ -28,9 +28,8 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
-import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
@@ -764,22 +763,12 @@ export function Experiment(): JSX.Element {
                                                                         key={idx}
                                                                         span={secondaryColumnSpan}
                                                                         style={{
-                                                                            color: `${
-                                                                                experimentInsightType ===
-                                                                                InsightType.FUNNELS
-                                                                                    ? getSeriesColor(
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.FUNNELS
-                                                                                          ) + 1
-                                                                                      ) // baseline takes 0th index
-                                                                                    : getChartColors('white')[
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.TRENDS
-                                                                                          )
-                                                                                      ]
-                                                                            }`,
+                                                                            color: getSeriesColor(
+                                                                                getIndexForVariant(
+                                                                                    variant.key,
+                                                                                    experimentInsightType
+                                                                                )
+                                                                            ),
                                                                         }}
                                                                     >
                                                                         <span className="text-default">
@@ -1038,16 +1027,9 @@ export function Experiment(): JSX.Element {
                                                         )}
                                                         size="small"
                                                         showInfo={false}
-                                                        strokeColor={
-                                                            experimentInsightType === InsightType.FUNNELS
-                                                                ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
-                                                                : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
-                                                        }
+                                                        strokeColor={getSeriesColor(
+                                                            getIndexForVariant(variant, experimentInsightType)
+                                                        )}
                                                     />
                                                     <div>
                                                         Probability that this variant is the best:{' '}

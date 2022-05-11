@@ -49,7 +49,6 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
             typeKey={`trends_${id.current}`}
             buttonCopy="Add graph series"
-            buttonType="link"
             showSeriesIndicator
             entitiesLimit={
                 filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap

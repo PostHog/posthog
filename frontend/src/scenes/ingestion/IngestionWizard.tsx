@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import './IngestionWizard.scss'
 import '../authentication/bridgePagesShared.scss'
 
@@ -24,6 +24,20 @@ export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
+    useEffect(() => {
+        if (!platform) {
+            reportIngestionLandingSeen()
+        }
+    }, [platform])
+
+    if (!platform) {
+        return (
+            <IngestionContainer>
+                <PlatformPanel />
+            </IngestionContainer>
+        )
+    }
+
     if (verify) {
         return (
             <IngestionContainer>
@@ -36,15 +50,6 @@ export function IngestionWizard(): JSX.Element {
         return (
             <IngestionContainer>
                 <InstructionsPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (!platform) {
-        reportIngestionLandingSeen(false)
-        return (
-            <IngestionContainer>
-                <PlatformPanel />
             </IngestionContainer>
         )
     }

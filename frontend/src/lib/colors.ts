@@ -1,21 +1,19 @@
-/* Used for graphs line or background color (as applicable) */
-export const lightColors = [
-    'navy',
-    'blue',
-    'cyan',
-    'orange',
-    'yellow',
-    'olive',
-    'green',
-    'lime',
-    'mint',
-    'maroon',
-    'brown',
-    'apricot',
-    'pink',
-    'salmon',
-    'indigo',
+/* Insight series colors. */
+const dataColorVars = [
+    'ultramarine',
     'purple',
+    'viridian',
+    'magenta',
+    'vermilion',
+    'brown',
+    'green',
+    'blue',
+    'pink',
+    'navy',
+    'turquoise',
+    'brick',
+    'yellow',
+    'lilac',
 ]
 
 export const tagColors = [
@@ -32,112 +30,31 @@ export const tagColors = [
     'geekblue',
 ]
 
-const getColorVar = (variable: string): string =>
-    getComputedStyle(document.body)
-        .getPropertyValue('--' + variable)
-        .trim()
-
-export const darkWhites = [
-    'rgba(255,255,255,0.6)',
-    'rgba(255,255,180,0.5)',
-    'rgba(180,255,255,0.4)',
-    'rgba(255,255,180,0.3)',
-    'rgba(180,255,255,0.2)',
-]
-
-const hueDiff = -10
-
-export function colorsForBackground(hue: number, saturation = 63, lightness = 40): string[] {
-    return [
-        `hsl(${hue + hueDiff}, ${saturation - 20}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness + 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-    ]
-}
-
-export const dashboardColorNames = {
-    white: 'White',
-    blue: 'Blue',
-    green: 'Green',
-    purple: 'Purple',
-    black: 'Black',
-}
-
-// update DashboardItems.scss with the color CSS variables
-export const dashboardColorHSL = {
-    white: [0, 0, 100],
-    blue: [212, 63, 40],
-    purple: [249, 46, 51],
-    green: [145, 60, 34],
-    black: [0, 0, 18],
-}
-
-export const cssHSLA = (h: number, s: number, l: number, a: number = 1): string =>
-    `hsla(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%, ${a})`
-
-export const dashboardColors: Record<string, string> = {}
-Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
-    dashboardColors[key] = cssHSLA(h, s, l)
-})
-
-export function getChartColors(
-    backgroundColor: string,
-    numSeries?: number,
-    injectLightColors: boolean = false
-): string[] {
-    const alpha = 80
-
-    if (backgroundColor === 'black') {
-        const colors = []
-        for (let i = 0; i < (numSeries ?? 20); i++) {
-            const h = ((40 + i * 160) % 360) + (i > 10 ? 40 : 0)
-            const s = i > 0 ? 30 : 10
-            const l = 90 - (i % 5) * 10 //  (i % 2 === 0 ? i : (10 - i)) * 7
-            colors.push(cssHSLA(h, s, l))
-            if (injectLightColors) {
-                colors.push(cssHSLA(h, s, l, alpha / 100))
-            }
-        }
-        return colors
+function getColorVar(variable: string): string {
+    const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
+    if (!colorValue) {
+        throw new Error(`Couldn't find color variable --${variable}`)
     }
-
-    if (backgroundColor === 'white' || !backgroundColor) {
-        const colors: string[] = []
-        for (let i = 0; i < (numSeries ?? 20); i++) {
-            const hex = getColorVar(lightColors[i % lightColors.length]).substring(0, 7)
-            colors.push(hex)
-            if (injectLightColors) {
-                colors.push(`${hex}${alpha}`)
-            }
-        }
-        return colors
-    }
-
-    const colors = dashboardColorHSL[backgroundColor as keyof typeof dashboardColorHSL]
-
-    if (colors) {
-        return colorsForBackground(colors[0], colors[1], colors[2])
-    }
-
-    return darkWhites
+    return colorValue.trim()
 }
 
+/** Return a series color value. Hexadecimal format as Chart.js doesn't work with CSS vars.
+ *
+ * @param index The index of the series color.
+ * @param numSeries Number of series in the insight being visualized.
+ * @param comparePrevious If true, wrapped colors ()
+ */
+export function getSeriesColor(index: number | undefined = 0, comparePrevious: boolean = false): string {
+    const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
+    const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
+    const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
+    return isPreviousPeriodSeries ? `${baseHex}80` : baseHex
+}
+
+/** Return hexadecimal color value for lifecycle status.
+ *
+ * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
+ */
 export function getBarColorFromStatus(status: string, hover?: boolean): string {
     switch (status) {
         case 'new':
@@ -146,20 +63,20 @@ export function getBarColorFromStatus(status: string, hover?: boolean): string {
         case 'dormant':
             return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
         default:
-            return 'black'
+            throw new Error(`Unknown lifecycle status: ${status}`)
     }
 }
 
-export function getGraphColors(isLightTheme: boolean = true): Record<string, string | null> {
+export function getGraphColors(): Record<string, string | null> {
     return {
-        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
-        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
-        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
+        axisLabel: '#333',
+        axisLine: '#ddd',
+        axis: '#999',
         crosshair: 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
-        annotationColor: isLightTheme ? null : 'white',
-        annotationAccessoryColor: isLightTheme ? null : 'black',
+        annotationColor: null,
+        annotationAccessoryColor: null,
     }
 }

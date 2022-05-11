@@ -1,8 +1,8 @@
 @import '~/vars';
 
 .LemonBubble {
-    --lemon-counter-small: 1.2rem;
-    --lemon-counter-font-small: 0.6rem;
+    --lemon-counter-size: 1.2rem;
+    --lemon-counter-font-size: 0.6rem;
     --scale-small: 0.8;
     --scale-large: 1.2;
     --position-offset: 0.5rem;
@@ -14,10 +14,10 @@
     color: var(--white);
     background: var(--primary);
     border: 2px solid var(--bg-light);
-    width: var(--lemon-counter-small);
-    height: var(--lemon-counter-small);
-    font-size: var(--lemon-counter-font-small);
-    line-height: var(--lemon-counter-small);
+    width: var(--lemon-counter-size);
+    height: var(--lemon-counter-size);
+    font-size: var(--lemon-counter-font-size);
+    line-height: var(--lemon-counter-size);
     border-radius: 100%;
     box-sizing: content-box;
     user-select: none;
@@ -50,24 +50,24 @@
     }
 
     &.LemonBubble--small {
-        width: calc(var(--lemon-counter-small) * var(--scale-small));
-        height: calc(var(--lemon-counter-small) * var(--scale-small));
-        font-size: calc(var(--lemon-counter-font-small) * var(--scale-small));
-        line-height: calc(var(--lemon-counter-small) * var(--scale-small));
+        width: calc(var(--lemon-counter-size) * var(--scale-small));
+        height: calc(var(--lemon-counter-size) * var(--scale-small));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-small));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-small));
     }
 
     &.LemonBubble--large {
-        width: calc(var(--lemon-counter-small) * var(--scale-large));
-        height: calc(var(--lemon-counter-small) * var(--scale-large));
-        font-size: calc(var(--lemon-counter-font-small) * var(--scale-large));
-        line-height: calc(var(--lemon-counter-small) * var(--scale-large));
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
     }
 
     &.LemonBubble--large {
-        width: calc(var(--lemon-counter-small) * var(--scale-large));
-        height: calc(var(--lemon-counter-small) * var(--scale-large));
-        font-size: calc(var(--lemon-counter-font-small) * var(--scale-large));
-        line-height: calc(var(--lemon-counter-small) * var(--scale-large));
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
     }
 
     &.LemonBubble--enter {
