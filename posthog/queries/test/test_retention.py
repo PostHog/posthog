@@ -6,6 +6,7 @@ import pytz
 from constance.test import override_config
 from rest_framework import status
 
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
@@ -983,6 +984,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     ],
                 )
 
+        @snapshot_clickhouse_queries
         @patch("posthoganalytics.feature_enabled", return_value=True)
         def test_timezones(self, patch_feature_enabled):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
