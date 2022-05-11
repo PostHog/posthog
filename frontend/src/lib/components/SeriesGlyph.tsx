@@ -1,4 +1,4 @@
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA } from 'lib/utils'
 import React from 'react'
 
@@ -25,8 +25,7 @@ interface SeriesLetterProps {
 }
 
 export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
-    const colorList = getChartColors('white')
-    const color = seriesColor || colorList[seriesIndex % colorList.length]
+    const color = seriesColor || getSeriesColor(seriesIndex)
 
     return (
         <SeriesGlyph

@@ -17,6 +17,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/components/lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
@@ -266,13 +267,21 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { created_at, id, ...flag } = updatedFlag
-                if (!updatedFlag.id) {
-                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
-                } else {
-                    return await api.update(
-                        `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
-                        flag
-                    )
+
+                try {
+                    if (!updatedFlag.id) {
+                        return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                    } else {
+                        return await api.update(
+                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            flag
+                        )
+                    }
+                } catch (error: any) {
+                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    }
+                    throw error
                 }
             },
         },

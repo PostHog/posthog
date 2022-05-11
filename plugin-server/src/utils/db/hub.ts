@@ -12,7 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, KafkaSecurityProtocol, PluginId, PluginsServerConfig } from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginId, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -33,7 +33,8 @@ const { version } = require('../../../package.json')
 
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
-    threadId: number | null = null
+    threadId: number | null = null,
+    capabilities: PluginServerCapabilities | null = null
 ): Promise<[Hub, () => Promise<void>]> {
     status.info('ℹ️', `Connecting to all services:`)
 
@@ -41,7 +42,9 @@ export async function createHub(
         ...defaultConfig,
         ...config,
     }
-
+    if (capabilities === null) {
+        capabilities = { ingestion: true, pluginScheduledTasks: true, processJobs: true }
+    }
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
@@ -225,6 +228,7 @@ export async function createHub(
     const hub: Omit<Hub, 'eventsProcessor'> = {
         ...serverConfig,
         instanceId,
+        capabilities,
         db,
         postgres,
         redisPool,
