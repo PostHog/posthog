@@ -46,7 +46,6 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                 ]}
-                customRowPrefix={undefined}
             />
         </>
     )

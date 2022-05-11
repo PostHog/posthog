@@ -504,7 +504,6 @@ export function Experiment(): JSX.Element {
                                                             buttonType="link"
                                                             showSeriesIndicator={!isStepsEmpty}
                                                             seriesIndicatorType="numeric"
-                                                            fullWidth
                                                             sortable
                                                             showNestedArrow={true}
                                                             propertiesTaxonomicGroupTypes={[
@@ -518,7 +517,6 @@ export function Experiment(): JSX.Element {
                                                     )}
                                                     {experimentInsightType === InsightType.TRENDS && (
                                                         <ActionFilter
-                                                            horizontalUI
                                                             filters={trendsFilters}
                                                             setFilters={(payload: Partial<FilterType>) => {
                                                                 setNewExperimentData({ filters: payload })
@@ -534,13 +532,6 @@ export function Experiment(): JSX.Element {
                                                                 TaxonomicFilterGroupType.Cohorts,
                                                                 TaxonomicFilterGroupType.Elements,
                                                             ]}
-                                                            customRowPrefix={
-                                                                trendsFilters.insight === InsightType.LIFECYCLE ? (
-                                                                    <>
-                                                                        Showing <b>Unique users</b> who did
-                                                                    </>
-                                                                ) : undefined
-                                                            }
                                                         />
                                                     )}
                                                 </Card>

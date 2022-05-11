@@ -53,7 +53,6 @@ export function EFFunnelsQuerySteps({ filters, insightProps }: EditorFilterProps
                     showSeriesIndicator={!isStepsEmpty}
                     seriesIndicatorType="numeric"
                     entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                    fullWidth
                     sortable
                     showNestedArrow={true}
                     propertiesTaxonomicGroupTypes={[

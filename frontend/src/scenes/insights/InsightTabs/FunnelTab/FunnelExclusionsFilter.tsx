@@ -158,7 +158,6 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             buttonType="default"
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
             mathAvailability={MathAvailability.None}
-            hidePropertySelector
             hideFilter
             hideRename
             hideDeleteBtn

@@ -79,7 +79,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>
@@ -144,7 +143,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table-returning"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>on any of the next {dateOptionPlurals[filters.period ?? 'Day']}</Col>

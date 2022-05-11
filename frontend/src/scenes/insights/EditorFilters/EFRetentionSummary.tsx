@@ -57,7 +57,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
                         }
                     }}
                     typeKey="retention-table"
-                    customRowPrefix={<span />}
                 />
                 <Select
                     value={filters.retention_type ? retentionOptions[filters.retention_type] : undefined}
@@ -114,7 +113,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
                         }
                     }}
                     typeKey="retention-table-returning"
-                    customRowPrefix={<span />}
                 />{' '}
                 on any of the next {dateOptionPlurals[filters.period ?? 'Day']}
             </div>

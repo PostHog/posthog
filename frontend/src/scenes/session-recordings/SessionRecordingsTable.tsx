@@ -136,10 +136,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                             mathAvailability={MathAvailability.None}
                             buttonCopy="Add filter"
-                            horizontalUI
-                            stripeActionRow={false}
-                            propertyFilterWrapperClassName="session-recording-action-property-filter"
-                            customRowPrefix=""
                             hideRename
                             showOr
                             renderRow={(props) => <FilterRow {...props} />}
