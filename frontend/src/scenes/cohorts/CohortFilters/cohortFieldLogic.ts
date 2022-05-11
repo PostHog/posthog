@@ -1,42 +1,49 @@
-import { kea } from 'kea'
-import { LemonSelectOption, LemonSelectOptions } from 'lib/components/LemonSelect'
-import { FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
+import { actions, kea, key, connect, propsChanged, listeners, path, props, reducers, selectors } from 'kea'
+import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType } from '~/types'
+import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
+import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { actionsModel } from '~/models/actionsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
-    value: string | number | null
+    fieldKey: keyof AnyCohortCriteriaType
+    criteria: AnyCohortCriteriaType
+    onChange?: (newField: AnyCohortCriteriaType) => void
+    /* Only used for selector fields */
     fieldOptionGroupTypes?: FieldOptionsType[]
-    onChange?: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => void
 }
 
-export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>({
-    path: ['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic'],
-    key: (props) => `${props.cohortFilterLogicKey}`,
-    props: {} as CohortFieldLogicProps,
-    connect: {
+export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>([
+    path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),
+    key((props) => `${props.cohortFilterLogicKey}`),
+    props({} as CohortFieldLogicProps),
+    connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-    },
-    actions: {
-        setValue: (value: string | number | null) => ({ value }),
-        onChange: (value: string | number | null, option?: LemonSelectOption, group?: LemonSelectOptions) => ({
-            value,
-            option,
-            group,
-        }),
-    },
-    reducers: {
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.fieldKey && !objectsEqual(props.criteria, oldProps.criteria)) {
+            actions.onChange(props.criteria)
+        }
+    }),
+    actions({
+        onChange: (newField: AnyCohortCriteriaType) => ({ newField }),
+    }),
+    reducers(({ props }) => ({
         value: [
-            null as string | number | null,
+            resolveCohortFieldValue(props.criteria, props.fieldKey),
             {
-                setValue: (_, { value }) => value,
+                onChange: (_, { newField }) =>
+                    resolveCohortFieldValue({ ...props.criteria, ...newField }, props.fieldKey),
             },
         ],
-    },
-    selectors: {
+    })),
+    selectors({
         fieldOptionGroups: [
             (s) => [(_, props) => props.fieldOptionGroupTypes, s.groupTypes, s.aggregationLabel],
             (fieldOptionGroupTypes, groupTypes, aggregationLabel): FieldValues[] => {
@@ -64,17 +71,33 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
         currentOption: [
             (s) => [s.fieldOptionGroups, s.value],
             (fieldOptionGroups, value) =>
-                value
+                value && typeof value === 'string'
                     ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
                           value
                       ]
                     : null,
         ],
-    },
-    listeners: ({ props, actions }) => ({
-        onChange: ({ value, option, group }) => {
-            actions.setValue(value)
-            props.onChange?.(value, option, group)
-        },
+        calculatedValue: [
+            (s) => [s.value, (_, props) => props.criteria, (_, props) => props.fieldKey],
+            (value, criteria, fieldKey) => (taxonomicGroupType: TaxonomicFilterGroupType) => {
+                // Only used by taxonomic filter field to determine label name
+                if (
+                    criteria.type === BehavioralFilterKey.Cohort &&
+                    fieldKey === 'value_property' &&
+                    typeof value === 'number'
+                ) {
+                    return cohortsModel.findMounted()?.values?.cohortsById?.[value]?.name ?? `Cohort ${value}`
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.Actions && typeof value === 'number') {
+                    return actionsModel.findMounted()?.values?.actionsById?.[value]?.name ?? `Action ${value}`
+                }
+                return value
+            },
+        ],
     }),
-})
+    listeners(({ props }) => ({
+        onChange: ({ newField }) => {
+            props.onChange?.(cleanBehavioralTypeCriteria(newField))
+        },
+    })),
+])

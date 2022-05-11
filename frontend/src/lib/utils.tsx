@@ -1,21 +1,23 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import {
-    EventType,
-    FilterType,
     ActionFilter,
-    IntervalType,
-    dateMappingOption,
-    GroupActorType,
-    ActorType,
     ActionType,
-    PropertyFilterValue,
-    PropertyType,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
+    ActorType,
     AnyPropertyFilter,
-    PropertyFilter,
     CohortType,
+    dateMappingOption,
+    EventType,
+    FilterLogicalOperator,
+    FilterType,
+    GroupActorType,
+    IntervalType,
+    PropertyFilter,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyType,
+    TimeUnitType,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1239,15 +1241,29 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
-    if (properties) {
-        return (
-            (properties as PropertyGroupFilter).type !== undefined &&
-            (properties as PropertyGroupFilter).values !== undefined
-        )
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
+}
+
+export function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {}
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
     }
-    return false
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
 }
 
 export function convertPropertiesToPropertyGroup(
@@ -1263,7 +1279,7 @@ export function convertPropertiesToPropertyGroup(
 }
 
 export function convertPropertyGroupToProperties(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+    properties?: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyFilter[] | undefined {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
@@ -1274,26 +1290,33 @@ export function convertPropertyGroupToProperties(
     return properties
 }
 
-export function flattenPropertyGroup(
-    flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
-): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {}
-    Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k]
-    })
-    if (isValidPropertyFilter(obj)) {
-        flattenedProperties.push(obj)
-    }
-    if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
-    }
-    return flattenedProperties
-}
-
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 
 /** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
 export const autoSorter = (a: any, b: any): number => {
     return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+}
+
+// https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
+export function isNumeric(x: any): boolean {
+    if (typeof x === 'number') {
+        return true
+    }
+    if (typeof x != 'string') {
+        return false
+    }
+    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
+    if (timeUnit === TimeUnitType.Year) {
+        return timeValue * 365
+    }
+    if (timeUnit === TimeUnitType.Month) {
+        return timeValue * 30
+    }
+    if (timeUnit === TimeUnitType.Week) {
+        return timeValue * 7
+    }
+    return timeValue
 }

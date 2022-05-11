@@ -38,6 +38,11 @@ export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
                 ]
             },
         ],
+        actionsById: [
+            (s) => [s.actions],
+            (actions): Partial<Record<string | number, ActionType>> =>
+                Object.fromEntries(actions.map((action) => [action.id, action])),
+        ],
     }),
 
     events: ({ actions }) => ({
