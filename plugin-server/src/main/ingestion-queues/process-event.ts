@@ -6,14 +6,11 @@ import { runInstrumentedFunction } from '../utils'
 export async function processEvent(
     server: Hub,
     workerMethods: WorkerMethods,
-    event: PluginEvent,
-    checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
+    event: PluginEvent
 ): Promise<PluginEvent | null> {
     const isSnapshot = event.event === '$snapshot'
 
     let processedEvent: PluginEvent | null = event
-
-    checkAndPause?.()
 
     // run processEvent on all events that are not $snapshot
     if (!isSnapshot) {
