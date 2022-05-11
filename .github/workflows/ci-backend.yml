@@ -172,7 +172,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
-                clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
+                clickhouse-server-image-version: ['21.11.11.1', '22.3']
                 ee: [true]
                 foss: [false]
                 name: ['']
@@ -185,7 +185,7 @@ jobs:
                       ee: false
                       foss: true
                       name: 'FOSS'
-                      clickhouse-server-image-version: '21.6.5'
+                      clickhouse-server-image-version: '22.3'
                       concurrency: 1
                       group: 1
                     - python-version: '3.8.12'
