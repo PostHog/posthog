@@ -225,11 +225,6 @@ export async function startPluginsServer(
             })
         }
 
-        // Send plugin metrics every 30 seconds
-        schedule.scheduleJob('*/30 * * * *', async () => {
-            await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
-        })
-
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
 
