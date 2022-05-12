@@ -533,20 +533,22 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
 
-        response = self.client.get(f"/api/organizations/@current/plugins/{id}/frontend")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"")
-
         # The plugin will not have its frontend transpiled since we're not mocking the plugin server here.
         plugin = Plugin.objects.get(pk=id)
         self.assertEqual(plugin.transpiled_frontend, None)
+
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
 
         # Simulate the plugin server
         plugin.transpiled_frontend = "'random transpiled frontend'"
         plugin.save()
 
         # Can get the transpiled frontend
-        response = self.client.get(f"/api/organizations/@current/plugins/{id}/frontend")
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"'random transpiled frontend'")
 
