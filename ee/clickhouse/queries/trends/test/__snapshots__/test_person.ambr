@@ -16,7 +16,7 @@
      WHERE team_id = 2
        AND event = 'pageview'
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
-       AND timestamp <= toDateTime('2021-01-22 00:00:00') )
+       AND timestamp <= toDateTime('2021-01-22 23:59:59') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -58,7 +58,7 @@
      WHERE team_id = 2
        AND event = 'pageview'
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
-       AND timestamp <= toDateTime('2021-01-22 00:00:00') )
+       AND timestamp <= toDateTime('2021-01-22 23:59:59') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
