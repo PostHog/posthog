@@ -23,7 +23,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         frontendApps: {
             loadFrontendApp: async ({ id, reload }) => {
                 try {
-                    const siteUrl = `http://localhost:8000`
+                    const siteUrl = location.origin
                     const exports = await import(
                         `${siteUrl}/api/plugin_config/${id}/frontend${reload ? '?_=' + new Date().valueOf() : ''}`
                     )
