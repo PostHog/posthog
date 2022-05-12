@@ -142,6 +142,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                     TaxonomicFilterGroupType.Cohorts,
                                 ]}
                                 propertyFilters={propertyFilters}
+                                useLemonButton
                                 onChange={(properties) => {
                                     reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
                                     setPropertyFilters(properties)

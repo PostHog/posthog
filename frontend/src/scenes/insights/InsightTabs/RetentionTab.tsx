@@ -62,7 +62,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>who performed event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter
@@ -126,7 +125,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>and then came back to perform event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter

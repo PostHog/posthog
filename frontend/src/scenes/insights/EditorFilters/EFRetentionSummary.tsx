@@ -95,7 +95,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
             <div>
                 and then came back to perform event or action{' '}
                 <ActionFilter
-                    horizontalUI
                     entitiesLimit={1}
                     mathAvailability={MathAvailability.None}
                     hideFilter

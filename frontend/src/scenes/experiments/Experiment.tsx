@@ -414,10 +414,10 @@ export function Experiment(): JSX.Element {
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                                <div className="mt">
+                                                <div className="mt mb-05">
                                                     <strong>Filters</strong>
                                                 </div>
-                                                <div className="mt mb">
+                                                <div className="mb">
                                                     <PropertyFilters
                                                         pageKey={'experiment-participants-property'}
                                                         propertyFilters={

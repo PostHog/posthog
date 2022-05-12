@@ -64,7 +64,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         </div>
                     ) : undefined}
                     <ActionFilter
-                        horizontalUI
                         filters={filters}
                         setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                         typeKey={`trends_${view}`}
