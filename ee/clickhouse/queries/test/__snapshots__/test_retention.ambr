@@ -12,8 +12,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -30,8 +30,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
@@ -77,8 +77,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -95,8 +95,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
@@ -135,8 +135,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_1")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -153,8 +153,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_1")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
@@ -211,8 +211,8 @@
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -243,8 +243,8 @@
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) SELECT DISTINCT breakdown_values,
                                                                                                                                      intervals_from_base,
                                                                                                                                      actor_id
@@ -301,8 +301,8 @@
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (JSONHas(group_properties_0, 'industry')) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -333,8 +333,8 @@
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (JSONHas(group_properties_0, 'industry')) ) SELECT DISTINCT breakdown_values,
                                                                           intervals_from_base,
                                                                           actor_id
@@ -380,8 +380,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
@@ -398,8 +398,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
           AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
@@ -445,8 +445,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ),
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00') ),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.uuid AS uuid,
@@ -469,10 +469,10 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00') ) SELECT DISTINCT breakdown_values,
+                                                                                             intervals_from_base,
+                                                                                             actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -519,8 +519,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ),
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 07:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 07:00:00') ),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
                         e.uuid AS uuid,
@@ -543,10 +543,10 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ) SELECT DISTINCT breakdown_values,
-                                                                                                           intervals_from_base,
-                                                                                                           actor_id
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 07:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 07:00:00') ) SELECT DISTINCT breakdown_values,
+                                                                                             intervals_from_base,
+                                                                                             actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
