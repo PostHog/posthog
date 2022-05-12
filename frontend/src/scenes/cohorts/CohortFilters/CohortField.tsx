@@ -17,7 +17,7 @@ import {
 import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -136,6 +136,7 @@ export function CohortPersonPropertiesValuesField({
         cohortFilterLogicKey,
         onChange: _onChange,
     })
+    const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
     return (
@@ -144,6 +145,7 @@ export function CohortPersonPropertiesValuesField({
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type="person"
+            value={value as PropertyFilterValue}
             onSet={(newValue: PropertyOperator) => {
                 onChange({ [fieldKey]: newValue })
             }}
@@ -178,6 +180,7 @@ export function CohortNumberField({
             onChange={(nextNumber) => {
                 onChange({ [fieldKey]: nextNumber })
             }}
+            min={1}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
     )

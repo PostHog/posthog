@@ -15,18 +15,18 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
     return (
         <>
             {filters.insight === InsightType.LIFECYCLE && (
-                <div>
+                <div className="mb-05">
                     Showing <b>Unique users</b> who did
                 </div>
             )}
             <ActionFilter
-                fullWidth
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={`trends_${InsightType.TRENDS}`}
                 buttonCopy="Add graph series"
-                buttonType="link"
+                propertyFiltersPopover
                 showSeriesIndicator
+                showNestedArrow
                 entitiesLimit={
                     filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
                         ? 1
@@ -46,7 +46,6 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                 ]}
-                customRowPrefix={undefined}
             />
         </>
     )

@@ -25,7 +25,7 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
     const { setFilters } = useActions(retentionTableLogic(insightProps))
 
     return (
-        <div data-attr="retention-summary">
+        <div className="space-y-05" data-attr="retention-summary">
             <div>
                 Show{' '}
                 {showGroupsOptions ? (
@@ -40,7 +40,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
             </div>
             <div className="flex-center">
                 <ActionFilter
-                    horizontalUI
                     entitiesLimit={1}
                     mathAvailability={MathAvailability.None}
                     hideFilter
@@ -57,7 +56,6 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
                         }
                     }}
                     typeKey="retention-table"
-                    customRowPrefix={<span />}
                 />
                 <Select
                     value={filters.retention_type ? retentionOptions[filters.retention_type] : undefined}
@@ -96,26 +94,26 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
             </div>
             <div>
                 and then came back to perform event or action{' '}
-                <ActionFilter
-                    horizontalUI
-                    entitiesLimit={1}
-                    mathAvailability={MathAvailability.None}
-                    hideFilter
-                    hideRename
-                    buttonCopy="Add graph series"
-                    filters={actionFilterReturningEntity as FilterType}
-                    setFilters={(newFilters: FilterType) => {
-                        if (newFilters.events && newFilters.events.length > 0) {
-                            setFilters({ returning_entity: newFilters.events[0] })
-                        } else if (newFilters.actions && newFilters.actions.length > 0) {
-                            setFilters({ returning_entity: newFilters.actions[0] })
-                        } else {
-                            setFilters({ returning_entity: undefined })
-                        }
-                    }}
-                    typeKey="retention-table-returning"
-                    customRowPrefix={<span />}
-                />{' '}
+                <div className="flex">
+                    <ActionFilter
+                        entitiesLimit={1}
+                        mathAvailability={MathAvailability.None}
+                        hideFilter
+                        hideRename
+                        buttonCopy="Add graph series"
+                        filters={actionFilterReturningEntity as FilterType}
+                        setFilters={(newFilters: FilterType) => {
+                            if (newFilters.events && newFilters.events.length > 0) {
+                                setFilters({ returning_entity: newFilters.events[0] })
+                            } else if (newFilters.actions && newFilters.actions.length > 0) {
+                                setFilters({ returning_entity: newFilters.actions[0] })
+                            } else {
+                                setFilters({ returning_entity: undefined })
+                            }
+                        }}
+                        typeKey="retention-table-returning"
+                    />
+                </div>
                 on any of the next {dateOptionPlurals[filters.period ?? 'Day']}
             </div>
 
