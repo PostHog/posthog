@@ -54,9 +54,9 @@ export function PropertyFilters({
     }, [propertyFilters])
 
     return (
-        <div className="property-filters" style={style}>
-            {showNestedArrow && !disablePopover && <div className="property-filters-prefix">{<>&#8627;</>}</div>}
-            <div className="property-filters-content">
+        <div className="PropertyFilters" style={style}>
+            {showNestedArrow && !disablePopover && <div className="PropertyFilters-prefix">{<>&#8627;</>}</div>}
+            <div className="PropertyFilters-content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                         return (

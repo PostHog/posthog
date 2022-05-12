@@ -1,17 +1,17 @@
 @import '~/vars';
 
-.property-filters {
+.PropertyFilters {
     display: flex;
     gap: 0.5rem;
 
-    .property-filters-content {
+    .PropertyFilters-content {
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;
         overflow: hidden;
     }
 
-    .property-filters-prefix {
+    .PropertyFilters-prefix {
         color: #c4c4c4;
         font-size: 18px;
         user-select: none;

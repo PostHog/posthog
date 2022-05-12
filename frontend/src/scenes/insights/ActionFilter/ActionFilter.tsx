@@ -178,7 +178,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                 )}
                 {localFilters ? (
                     sortable ? (
-                        <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
+                        <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5} useDragHandle>
                             {localFilters.map((filter, index) => (
                                 <SortableActionFilterRow
                                     key={index}
@@ -211,10 +211,12 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         {!singleFilter && (
                             <LemonButton
                                 type={buttonType}
+                                size="small"
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<IconPlusMini />}
                                 disabled={reachedLimit || disabled || readOnly}
+                                fullWidth
                             >
                                 {!reachedLimit
                                     ? buttonCopy || 'Action or event'
