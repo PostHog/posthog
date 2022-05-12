@@ -1,13 +1,11 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button } from 'antd'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
 import { userLogic } from 'scenes/userLogic'
 import { canGloballyManagePlugins } from '../access'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { pluginSourceLogic } from 'scenes/plugins/edit/pluginSourceLogic'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
@@ -20,20 +18,23 @@ interface PluginSourceProps {
 }
 
 export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Element | null {
+    const monaco = useMonaco()
     const { user } = useValues(userLogic)
-    const { submitPlugin } = useActions(pluginSourceLogic({ id }))
-    const { isPluginSubmitting, pluginChanged, plugin } = useValues(pluginSourceLogic({ id }))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { submitPlugin, setFile, setActiveFileValue } = useActions(pluginSourceLogic({ id }))
+    const { isPluginSubmitting, pluginChanged, plugin, files, activeFile } = useValues(pluginSourceLogic({ id }))
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            jsx: activeFile?.name.endsWith('.tsx') ? 'react' : 'preserve',
+        })
+    }, [monaco, activeFile?.name])
 
     if (!canGloballyManagePlugins(user?.organization)) {
         return null
     }
-
-    // function addReactSupport(monaco: any): void {
-    //     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-    //         jsx: 'react',
-    //     })
-    // }
 
     return (
         <Drawer
@@ -82,34 +83,29 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
                         <Field label="Name" name="name">
                             <LemonInput />
                         </Field>
-                        <Field label="Source Code" name="source">
-                            <MonacoEditor
-                                language="typescript"
-                                path="source.ts"
-                                theme="vs-dark"
-                                height={700}
-                                options={{
-                                    minimap: { enabled: false },
-                                }}
-                            />
-                        </Field>
-                        {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
-                            <Field label="Frontend TSX" name="source_frontend">
-                                <MonacoEditor
-                                    language="typescript"
-                                    path="frontend.tsx"
-                                    theme="vs-dark"
-                                    // beforeMount={addReactSupport}
-                                    height={700}
-                                    options={{
-                                        minimap: { enabled: false },
-                                    }}
-                                />
-                            </Field>
-                        ) : null}
-                        <Field label="Config Schema JSON" name="config_schema">
-                            <MonacoEditor path="config.json" language="json" theme="vs-dark" height={200} />
-                        </Field>
+
+                        {Object.values(files).map((file) => (
+                            <button
+                                key={file.name}
+                                disabled={activeFile?.name === file.name}
+                                onClick={() => setFile(file.name)}
+                                style={{ fontWeight: activeFile?.name === file.name ? 'bold' : 'normal' }}
+                            >
+                                {file.name}
+                            </button>
+                        ))}
+
+                        <MonacoEditor
+                            theme="vs-dark"
+                            path={activeFile.name}
+                            language={activeFile.language}
+                            value={activeFile.value}
+                            onChange={(v) => setActiveFileValue(v ?? '')}
+                            height={700}
+                            options={{
+                                minimap: { enabled: false },
+                            }}
+                        />
                     </>
                 ) : null}
             </VerticalForm>
