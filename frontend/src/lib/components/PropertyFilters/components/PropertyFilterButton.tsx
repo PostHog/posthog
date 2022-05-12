@@ -39,21 +39,21 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEventStack style={{ marginRight: '0.5em' }} width={'14'} height={'14'} />
+                    <UnverifiedEventStack width={'14'} height={'14'} />
                 </Tooltip>
             )
             break
         case 'person':
             iconElement = (
                 <Tooltip title={'Person property'}>
-                    <IconPerson style={{ marginRight: '0.5em' }} />
+                    <IconPerson />
                 </Tooltip>
             )
             break
         case 'cohort':
             iconElement = (
                 <Tooltip title={'Cohort filter'}>
-                    <IconCohort style={{ marginRight: '0.5em' }} />
+                    <IconCohort />
                 </Tooltip>
             )
             break
@@ -83,12 +83,10 @@ export function PropertyFilterButton({
             </span>
             {onClose && (
                 <CloseButton
-                    className={'ml-1'}
                     onClick={(e: MouseEvent) => {
                         e.stopPropagation()
                         onClose()
                     }}
-                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                 />
             )}
         </Button>

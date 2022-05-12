@@ -15,7 +15,7 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
     return (
         <>
             {filters.insight === InsightType.LIFECYCLE && (
-                <div>
+                <div className="mb-05">
                     Showing <b>Unique users</b> who did
                 </div>
             )}
@@ -26,6 +26,7 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
                 buttonCopy="Add graph series"
                 propertyFiltersPopover
                 showSeriesIndicator
+                showNestedArrow
                 entitiesLimit={
                     filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
                         ? 1
