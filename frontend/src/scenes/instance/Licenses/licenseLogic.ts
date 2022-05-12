@@ -33,9 +33,12 @@ export const licenseLogic = kea<licenseLogicType>({
                     try {
                         const license = await api.licenses.create(key)
                         lemonToast.success(
-                            `Activated license – you can now use all features of the ${license.plan} plan`
+                            `Activated license – you can now use all features of the ${license.plan} plan. Refreshing the page...`
                         )
                         actions.setError(null)
+                        setTimeout(() => {
+                            window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                        }, 4000)
                         return [license, ...values.licenses]
                     } catch (response) {
                         actions.setError(response as APIErrorType)
@@ -45,11 +48,11 @@ export const licenseLogic = kea<licenseLogicType>({
                 deleteLicense: async ({ id }: LicenseType) => {
                     try {
                         await api.licenses.delete(id)
-                        lemonToast.success(`Your license was deactivated.`)
+                        lemonToast.success(`Your license was deactivated. Refreshing the page...`)
                         actions.setError(null)
                         setTimeout(() => {
                             window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
-                        }, 5000)
+                        }, 4000)
                         return values.licenses.filter((license: LicenseType) => license.id != id)
                     } catch (response) {
                         lemonToast.error(
