@@ -1228,9 +1228,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             insightLogic(props).actions.setFilters(cleanedParams)
         },
         setEventExclusionFilters: ({ filters }) => {
+            const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((exclusion) => {
+                exclusion.funnel_from_step =
+                    exclusion.funnel_from_step || values.exclusionDefaultStepRange.funnel_from_step
+                exclusion.funnel_to_step = exclusion.funnel_to_step || values.exclusionDefaultStepRange.funnel_to_step
+                return exclusion
+            })
             actions.setFilters({
                 ...values.filters,
-                exclusions: filters.events as FunnelStepRangeEntityFilter[],
+                exclusions,
             })
         },
         setOneEventExclusionFilter: ({ eventFilter, index }) => {
