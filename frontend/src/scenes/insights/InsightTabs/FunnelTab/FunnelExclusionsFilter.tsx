@@ -161,7 +161,6 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             hideFilter
             hideRename
             hideDeleteBtn
-            fullWidth
             seriesIndicatorType="alpha"
             renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
             customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
