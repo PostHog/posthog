@@ -1,4 +1,5 @@
 import datetime as dt
+from functools import partial
 from typing import Literal, Optional
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_FUNNEL, TRENDS_LINEAR, TRENDS_WORLD_MAP
@@ -14,6 +15,7 @@ PROJECT_NAME = "Hedgebox"
 # Event name constants
 EVENT_SIGNED_UP = "signed_up"
 EVENT_PAID_BILL = "paid_bill"
+EVENT_UPLOADED_FILE = "uploaded_file"
 
 # Feature flag constants
 FILE_PREVIEWS_FLAG_KEY = "file-previews"
@@ -74,9 +76,13 @@ class HedgeboxPerson(SimPerson):
         return success
 
     def _consider_uploading_files(self):
-        pass
+        if self.satisfaction > 0.6:
+            self._affect_neighbors(partial(self._recommendation_effect, satisfaction_delta=0.2))
 
     def _consider_downloading_files(self):
+        pass
+
+    def _consider_deleting_files(self):
         pass
 
     def _share_file_link(self):
@@ -94,6 +100,13 @@ class HedgeboxPerson(SimPerson):
     def _recommend_product(self):
         pass
 
+    def _move_satisfaction(self, delta: float):
+        self.satisfaction = max(-1, min(1, self.satisfaction + delta))
+
+    @staticmethod
+    def _recommendation_effect(other: "HedgeboxPerson", satisfaction_delta: float):
+        other._move_satisfaction(satisfaction_delta)
+
 
 class HedgeboxCluster(Cluster):
     MIN_RADIUS: int = 1
@@ -108,7 +121,7 @@ class HedgeboxCluster(Cluster):
     def __str__(self) -> str:
         return self.company_name
 
-    def radius_distribution(self) -> int:
+    def _radius_distribution(self) -> int:
         return int(self.MIN_RADIUS + self.random.betavariate(1.5, 5) * (self.MAX_RADIUS - self.MIN_RADIUS))
 
 
@@ -265,7 +278,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": 1274,
                 "recommended_running_time": None,
                 "minimum_detectable_effect": 1,
-            }
-            # TODO: created_at
-            # TODO: start_date
+            },
+            start_date=self.start + dt.timedelta(seconds=self.random.uniform(90, 18_000)),
+            created_at=self.start,  # FIXME
         )

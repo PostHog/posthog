@@ -64,10 +64,12 @@ class Cluster(ABC):
         self.internet_provider = internet_provider
         self.datetime_provider = datetime_provider
         self.finance_provider = finance_provider
-        self.radius = self.radius_distribution()
+        self.radius = self._radius_distribution()
         self.people_matrix = [
             [
-                person_model(kernel=(x == self.radius and y == self.radius), cluster=self, update_group=update_group)
+                person_model(
+                    kernel=(x == self.radius and y == self.radius), x=x, y=y, cluster=self, update_group=update_group
+                )
                 for x in range(1 + self.radius * 2)
             ]
             for y in range(1 + self.radius * 2)
@@ -79,8 +81,22 @@ class Cluster(ABC):
         return str(self.index + 1)
 
     @abstractmethod
-    def radius_distribution(self) -> int:
+    def _radius_distribution(self) -> int:
         """Return a pseudo-random radius, based on a chosen statistical distribution."""
+
+    def _list_neighbors(self, x: int, y: int) -> List[SimPerson]:
+        """Return a list of neighbors of a person at (x, y)."""
+        neighbors = []
+        for neighbor_x in range(x - 1, x + 2):
+            for neighbor_y in range(y - 1, y + 2):
+                if (
+                    (neighbor_x == x and neighbor_y == y)
+                    or not (0 <= neighbor_x < 1 + self.radius * 2)
+                    or not (0 <= neighbor_y < 1 + self.radius * 2)
+                ):
+                    continue
+                neighbors.append(self.people_matrix[neighbor_y][neighbor_x])
+        return neighbors
 
     def simulate(self):
         person = self.people_matrix[self.radius][self.radius]

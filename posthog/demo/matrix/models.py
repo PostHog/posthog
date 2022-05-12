@@ -73,15 +73,27 @@ class SimPerson(ABC):
 
     kernel: bool  # Whether this person is the cluster kernel. Kernels are the most likely to become users
     cluster: "Cluster"
+    x: int
+    y: int
     update_group: Callable[[str, str, Dict[str, Any]], None]
 
-    def __init__(self, *, kernel: bool, cluster: "Cluster", update_group: Callable[[str, str, Dict[str, Any]], None]):
+    def __init__(
+        self,
+        *,
+        kernel: bool,
+        cluster: "Cluster",
+        x: int,
+        y: int,
+        update_group: Callable[[str, str, Dict[str, Any]], None],
+    ):
         self.first_seen_at = None
         self.distinct_ids = []
         self.properties = {}
         self.events = []
         self.kernel = kernel
         self.cluster = cluster
+        self.x = x
+        self.y = y
         self.update_group = update_group
 
     def __str__(self) -> str:
@@ -109,7 +121,8 @@ class SimPerson(ABC):
         """Simulation of a single session based on current agent state."""
 
     def _affect_neighbors(self, effect: Callable[[Self], None]):
-        pass
+        for neighbor in self.cluster._list_neighbors(self.x, self.y):
+            effect(neighbor)
 
     def _advance_timer(self, seconds: float):
         self.simulation_time += dt.timedelta(seconds=seconds)
