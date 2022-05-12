@@ -54,10 +54,6 @@ class MatrixManager:
 
     @classmethod
     def run_on_team(cls, matrix: Matrix, team: Team, user: User, simulate_journeys: bool = True) -> Team:
-        set_time = time.time()  # FIXME
-        matrix.set_project_up(team, user)
-        team.save()
-        print(f"[DEMO] Setting project up in {time.time() -set_time}")
         if simulate_journeys:
             persons_to_bulk_save: List[Person] = []
             person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
@@ -80,7 +76,10 @@ class MatrixManager:
             Person.objects.bulk_create(persons_to_bulk_save)
             PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
             print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}")
+        matrix.set_project_up(team, user)
+        set_time = time.time()  # FIXME
         team.save()
+        print(f"[DEMO] Setting project up in {time.time() -set_time}")
         for action in Action.objects.filter(team=team):
             action.calculate_events()
         return team

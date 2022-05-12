@@ -1,9 +1,8 @@
 import datetime as dt
-from functools import partial
 from typing import Literal, Optional
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_FUNNEL, TRENDS_LINEAR, TRENDS_WORLD_MAP
-from posthog.models import Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, PropertyDefinition
+from posthog.models import Cohort, Dashboard, Experiment, FeatureFlag, Insight
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import UUIDT
 
@@ -15,7 +14,10 @@ PROJECT_NAME = "Hedgebox"
 # Event name constants
 EVENT_SIGNED_UP = "signed_up"
 EVENT_PAID_BILL = "paid_bill"
+EVENT_DOWNLOADED_FILE = "downloaded_file"
 EVENT_UPLOADED_FILE = "uploaded_file"
+EVENT_DELETED_FILE = "deleted_file"
+EVENT_COPIED_LINK = "copied_link"
 
 # Feature flag constants
 FILE_PREVIEWS_FLAG_KEY = "file-previews"
@@ -45,51 +47,65 @@ class HedgeboxPerson(SimPerson):
         return f"{self.name} <{self.email}>"
 
     def _simulate_session(self):
-        self.active_client.start_session(
-            str(UUIDT(int(self.simulation_time.timestamp()), seeded_random=self.cluster.random))
+        self._active_client.start_session(
+            str(UUIDT(int(self._simulation_time.timestamp()), seeded_random=self.cluster.random))
         )
-        if self.plan is None and self.need > 0.5:
-            capture_pageleave = self._capture_pageview("https://hedgebox.net/")  # Homepage!
-            self._advance_timer(0.5 + self.cluster.random.betavariate(1.1, 1.5) * 80)  # Viewing the page
-            self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.2) * 0.15  # It's a nice page
+        if self.plan is None and self.need >= 0.5:
+            self._visit_homepage()
             if self.satisfaction > 0:
-                capture_pageleave()
                 self._consider_signing_up()
-        self.simulation_time += dt.timedelta(days=365 * 100)
+        self._simulation_time += dt.timedelta(days=365 * 100)
 
     # Individual flows
 
+    def _visit_homepage(self):
+        self._capture_pageview("https://hedgebox.net/")
+        self._advance_timer(0.5 + self.cluster.random.betavariate(1.1, 1.5) * 80)  # Viewing the page
+        self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.2) * 0.15  # It's a nice page
+
     def _consider_signing_up(self):
         """Go through sign-up flow and return True if the user signed up."""
-        capture_pageleave = self._capture_pageview("https://hedgebox.net/register/")  # Visiting the sign-up page
+        self._capture_pageview("https://hedgebox.net/register/")  # Visiting the sign-up page
         self._advance_timer(15 + self.cluster.random.betavariate(1.1, 2) * 70)  # Looking at things, filling out forms
-        success = self.cluster.random.random() < 0.7  # What's the outlook?
+        success = self.cluster.random.random() < 0.7394  # What's the outlook?
         if success:  # Let's do this!
             self._capture(EVENT_SIGNED_UP, current_url="https://hedgebox.net/register/")
             self._advance_timer(self.cluster.random.uniform(0.1, 0.2))
             self._identify(self.email)
-            self.has_signed_up = 0
+            self.plan = 0
             self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.5) * 0.2
+            self._capture_pageview("https://hedgebox.net/my_files/")
+            self._consider_uploading_files()
         else:  # Something didn't go right...
             self.satisfaction += (self.cluster.random.betavariate(1, 3) - 0.5) * 0.2
-        capture_pageleave()
         return success
 
     def _consider_uploading_files(self):
+        self._advance_timer(self.cluster.random.betavariate(2.5, 1.1) * 95)
+        file_count = self.cluster.random.randint(1, 13)
+        self.cluster.file_provider.extension()
+        for _ in range(file_count):
+            self._capture(
+                EVENT_UPLOADED_FILE,
+                current_url="https://hedgebox.net/my_files/",
+                properties={"file_extension": self.cluster.file_provider.extension(),},
+            )
+        self.satisfaction += self.cluster.random.uniform(-0.1, 0.1)
         if self.satisfaction > 0.6:
-            self._affect_neighbors(partial(self._recommendation_effect, satisfaction_delta=0.2))
+            self._affect_neighbors(self._make_recommendation_effect(0.3))
 
     def _consider_downloading_files(self):
-        pass
+        self._capture(EVENT_DOWNLOADED_FILE, current_url="https://hedgebox.net/my_files/")
 
     def _consider_deleting_files(self):
-        pass
+        self._capture(EVENT_DELETED_FILE, current_url="https://hedgebox.net/my_files/")
 
     def _share_file_link(self):
-        pass
+        self._capture(EVENT_COPIED_LINK, current_url="https://hedgebox.net/my_files/")
 
     def _receive_file_link(self):
-        pass
+        file_name = self.cluster.file_provider.file_name()
+        self._capture_pageview(f"https://hedgebox.net/my_files/{file_name}/")
 
     def _upgrade_plan(self):
         pass
@@ -103,9 +119,12 @@ class HedgeboxPerson(SimPerson):
     def _move_satisfaction(self, delta: float):
         self.satisfaction = max(-1, min(1, self.satisfaction + delta))
 
+    def _move_need(self, delta: float):
+        self.need = max(0, min(1, self.need + delta))
+
     @staticmethod
-    def _recommendation_effect(other: "HedgeboxPerson", satisfaction_delta: float):
-        other._move_satisfaction(satisfaction_delta)
+    def _make_recommendation_effect(satisfaction_delta: float):
+        return lambda other: other.move_need(satisfaction_delta)
 
 
 class HedgeboxCluster(Cluster):
@@ -129,42 +148,47 @@ class HedgeboxMatrix(Matrix):
     person_model = HedgeboxPerson
     cluster_model = HedgeboxCluster
 
+    event_definitions = [
+        EVENT_PAGEVIEW,
+        EVENT_PAGELEAVE,
+        EVENT_IDENTIFY,
+        EVENT_GROUP_IDENTIFY,
+        EVENT_SIGNED_UP,
+        EVENT_PAID_BILL,
+        EVENT_UPLOADED_FILE,
+        EVENT_DELETED_FILE,
+    ]
+    property_definitions = [
+        ("$distinct_id", None),
+        ("$set", None),
+        ("$set_once", None),
+        ("$group_type", None),
+        ("$group_key", None),
+        ("$group_set", None),
+        ("$lib", PropertyType.String),
+        ("$device_type", PropertyType.String),
+        ("$os", PropertyType.String),
+        ("$browser", PropertyType.String),
+        ("$session_id", PropertyType.String),
+        ("$browser_id", PropertyType.String),
+        ("$current_url", PropertyType.String),
+        ("$host", PropertyType.String),
+        ("$pathname", PropertyType.String),
+        ("$referrer", PropertyType.String),
+        ("$referring_domain", PropertyType.String),
+        ("$timestamp", PropertyType.Datetime),
+        ("email", PropertyType.String),
+    ]
+
     def set_project_up(self, team, user):
+        super().set_project_up(team, user)
         team.name = PROJECT_NAME
-
-        # Event definitions: built-ins
-        EventDefinition.objects.create(team=team, name=EVENT_PAGEVIEW)
-        EventDefinition.objects.create(team=team, name=EVENT_PAGELEAVE)
-        EventDefinition.objects.create(team=team, name=EVENT_IDENTIFY)
-        EventDefinition.objects.create(team=team, name=EVENT_GROUP_IDENTIFY)
-
-        # Property definitions: built-ins
-        PropertyDefinition.objects.create(team=team, name="$distinct_id")
-        PropertyDefinition.objects.create(team=team, name="$set")
-        PropertyDefinition.objects.create(team=team, name="$set_once")
-        PropertyDefinition.objects.create(team=team, name="$group_type")
-        PropertyDefinition.objects.create(team=team, name="$group_key")
-        PropertyDefinition.objects.create(team=team, name="$group_set")
-        PropertyDefinition.objects.create(team=team, name="$lib", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$device_type", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$os", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$browser", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$session_id", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$browser_id", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$current_url", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$host", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$pathname", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$referrer", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$referring_domain", property_type=PropertyType.String)
-        PropertyDefinition.objects.create(team=team, name="$timestamp", property_type=PropertyType.Datetime)
-
-        # Property definitions: custom
-        PropertyDefinition.objects.create(team=team, name="email", property_type=PropertyType.String)
 
         # Dashboards
         key_metrics_dashboard = Dashboard.objects.create(
-            team=team, name="Key metrics", description="Overview of company metrics.", pinned=True
+            team=team, name="🔑 Key metrics", description="Company overview.", pinned=True
         )
+        team.primary_dashboard = key_metrics_dashboard
 
         # Insights
         Insight.objects.create(

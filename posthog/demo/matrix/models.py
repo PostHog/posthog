@@ -63,8 +63,9 @@ class SimWebClient:
 class SimPerson(ABC):
     """A simulation agent, representing an individual person."""
 
-    simulation_time: dt.datetime  # Current simulation time, populated by running .simulate()
-    active_client: SimWebClient  # Client used by person, populated by running .simulate()
+    _simulation_time: dt.datetime  # Current simulation time, populated by running .simulate()
+    _active_client: SimWebClient  # Client used by person, populated by running .simulate()
+    _end_pageview: Optional[Callable[[], None]]
 
     first_seen_at: Optional[dt.datetime]
     distinct_ids: List[str]
@@ -103,18 +104,21 @@ class SimPerson(ABC):
     def simulate(self):
         if hasattr(self, "simulation_time"):
             raise Exception(f"Person {self} already has been simulated")
-        self.simulation_time = self.cluster.start
+        self._simulation_time = self.cluster.start
+        self._end_pageview = None
         device_type, os, browser = self.cluster.properties_provider.device_type_os_browser()
-        self.active_client = SimWebClient(
-            device_id=str(UUIDT(int(self.simulation_time.timestamp()), seeded_random=self.cluster.random)),
+        self._active_client = SimWebClient(
+            device_id=str(UUIDT(int(self._simulation_time.timestamp()), seeded_random=self.cluster.random)),
             anonymous_distinct_id=str(UUID(int=self.cluster.random.getrandbits(128))),
             device_type=device_type,
             os=os,
             browser=browser,
         )
-        self.distinct_ids.append(self.active_client.anonymous_distinct_id)
-        while self.simulation_time <= self.cluster.end:
+        self.distinct_ids.append(self._active_client.anonymous_distinct_id)
+        while self._simulation_time <= self.cluster.end:
             self._simulate_session()
+            if self._end_pageview is not None:
+                self._end_pageview()
 
     @abstractmethod
     def _simulate_session(self):
@@ -125,7 +129,7 @@ class SimPerson(ABC):
             effect(neighbor)
 
     def _advance_timer(self, seconds: float):
-        self.simulation_time += dt.timedelta(seconds=seconds)
+        self._simulation_time += dt.timedelta(seconds=seconds)
 
     def _capture(
         self,
@@ -137,12 +141,12 @@ class SimPerson(ABC):
     ):
         combined_properties: Dict[str, Any] = {
             "$lib": "web",
-            "$distinct_id": self.active_client.active_distinct_id,
-            "$device_type": self.active_client.device_type,
-            "$os": self.active_client.os,
-            "$browser": self.active_client.browser,
-            "$session_id": self.active_client.active_session_id,
-            "$device_id": self.active_client.device_id,
+            "$distinct_id": self._active_client.active_distinct_id,
+            "$device_type": self._active_client.device_type,
+            "$os": self._active_client.os,
+            "$browser": self._active_client.browser,
+            "$session_id": self._active_client.active_session_id,
+            "$device_id": self._active_client.device_id,
         }
         if current_url:
             parsed_current_url = urlparse(current_url)
@@ -156,32 +160,35 @@ class SimPerson(ABC):
         if properties:
             combined_properties.update(properties)
         if self.first_seen_at is None:
-            self.first_seen_at = self.simulation_time
+            self.first_seen_at = self._simulation_time
         if combined_properties.get("$set_once"):
             for key, value in combined_properties["$set_once"].items():
                 if key not in self.properties:
                     self.properties[key] = value
         if combined_properties.get("$set"):
             self.properties.update(combined_properties["$set"])
-        combined_properties["$timestamp"] = self.simulation_time.isoformat()
-        self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self.simulation_time))
+        combined_properties["$timestamp"] = self._simulation_time.isoformat()
+        self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
 
     def _capture_pageview(
         self, current_url: str, properties: Optional[Dict[str, Any]] = None, *, referrer: Optional[str] = None
-    ) -> Callable[[], None]:
+    ):
+        if self._end_pageview is not None:
+            self._end_pageview()
+        self._advance_timer(self.cluster.random.uniform(0.05, 0.3))  # A page doesn't load instantly
         self._capture(EVENT_PAGEVIEW, properties, current_url=current_url, referrer=referrer)
-        return lambda: self._capture(EVENT_PAGELEAVE, current_url=current_url, referrer=referrer)
+        self._end_pageview = lambda: self._capture(EVENT_PAGELEAVE, current_url=current_url, referrer=referrer)
 
     def _identify(self, distinct_id: str, set_properties: Optional[Dict[str, Any]] = None):
         if set_properties is None:
             set_properties = {}
-        self.active_client.active_distinct_id = distinct_id
+        self._active_client.active_distinct_id = distinct_id
         self._capture(EVENT_IDENTIFY, {"$set": set_properties})
         if distinct_id not in self.distinct_ids:
             self.distinct_ids.append(distinct_id)
 
     def _reset(self):
-        self.active_client.active_distinct_id = self.active_client.anonymous_distinct_id
+        self._active_client.active_distinct_id = self._active_client.anonymous_distinct_id
 
     def _group_identify(self, group_type: str, group_key: str, set_properties: Optional[Dict[str, Any]] = None):
         if set_properties is None:

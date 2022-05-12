@@ -1,7 +1,17 @@
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Any, Callable, DefaultDict, Dict, List, Optional, Type
+from typing import (
+    Any,
+    Callable,
+    DefaultDict,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+)
 
 import mimesis
 import mimesis.random
@@ -10,6 +20,8 @@ from django.conf import settings
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 from .models import SimPerson
 
@@ -33,6 +45,7 @@ class Cluster(ABC):
     internet_provider: mimesis.Internet
     datetime_provider: mimesis.Datetime
     finance_provider: mimesis.Finance
+    file_provider: mimesis.File
 
     update_group: Callable[[str, str, Dict[str, Any]], None]
 
@@ -51,6 +64,7 @@ class Cluster(ABC):
         internet_provider: mimesis.Internet,
         datetime_provider: mimesis.Datetime,
         finance_provider: mimesis.Finance,
+        file_provider: mimesis.File,
         update_group: Callable[[str, str, Dict[str, Any]], None],
     ) -> None:
         self.index = index
@@ -64,6 +78,7 @@ class Cluster(ABC):
         self.internet_provider = internet_provider
         self.datetime_provider = datetime_provider
         self.finance_provider = finance_provider
+        self.file_provider = file_provider
         self.radius = self._radius_distribution()
         self.people_matrix = [
             [
@@ -124,7 +139,7 @@ class Cluster(ABC):
             f"Simulated person {person_spiral_index + 1} in cluster {self} ({len(person.events)} event{'' if len(person.events) == 1 else 's'}):"
         )
         for person_row in self.people_matrix:
-            print(" ".join(("X" if hasattr(person, "simulation_time") else "-" for person in person_row)))
+            print(" ".join(("X" if hasattr(person, "_simulation_time") else "-" for person in person_row)))
 
     @property
     def people(self) -> List[SimPerson]:
@@ -134,6 +149,8 @@ class Cluster(ABC):
 class Matrix(ABC):
     person_model: Type[SimPerson]
     cluster_model: Type[Cluster] = Cluster
+    event_definitions: Sequence[str]
+    property_definitions: Sequence[Tuple[str, Optional[PropertyType]]]
 
     start: dt.datetime
     end: dt.datetime
@@ -149,6 +166,7 @@ class Matrix(ABC):
     internet_provider: mimesis.Internet
     datetime_provider: mimesis.Datetime
     finance_provider: mimesis.Finance
+    file_provider: mimesis.File
 
     def __init__(
         self, seed: Optional[str] = None, *, start: dt.datetime, end: dt.datetime, n_clusters: int,
@@ -166,6 +184,7 @@ class Matrix(ABC):
         self.internet_provider = mimesis.Internet(seed=seed)
         self.datetime_provider = mimesis.Datetime(seed=seed)
         self.finance_provider = mimesis.Finance(seed=seed)
+        self.file_provider = mimesis.File(seed=seed)
         self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [
             self.cluster_model(
@@ -181,6 +200,7 @@ class Matrix(ABC):
                 internet_provider=self.internet_provider,
                 datetime_provider=self.datetime_provider,
                 finance_provider=self.finance_provider,
+                file_provider=self.file_provider,
                 update_group=self.update_group,
             )
             for i in range(n_clusters)
@@ -189,6 +209,18 @@ class Matrix(ABC):
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
+        EventDefinition.objects.bulk_create(
+            (
+                EventDefinition(team=team, name=event_definition, created_at=self.start)
+                for event_definition in self.event_definitions
+            )
+        )
+        PropertyDefinition.objects.bulk_create(
+            (
+                PropertyDefinition(team=team, name=property_name, property_type=property_type,)
+                for (property_name, property_type) in self.property_definitions
+            )
+        )
 
     def simulate(self):
         for cluster in self.clusters:
