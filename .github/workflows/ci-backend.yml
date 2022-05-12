@@ -172,7 +172,12 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
-                clickhouse-server-image: ['yandex/clickhouse-server:21.6.5', 'clickhouse/clickhouse-server:21.11.11.1', 'clickhouse/clickhouse-server:22.3']
+                clickhouse-server-image:
+                    [
+                        'yandex/clickhouse-server:21.6.5',
+                        'clickhouse/clickhouse-server:21.11.11.1',
+                        'clickhouse/clickhouse-server:22.3',
+                    ]
                 ee: [true]
                 foss: [false]
                 name: ['']
