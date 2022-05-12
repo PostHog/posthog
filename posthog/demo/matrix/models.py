@@ -1,7 +1,16 @@
 import datetime as dt
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -71,6 +80,7 @@ class SimPerson(ABC):
     distinct_ids: List[str]
     properties: Dict[str, Any]
     events: List[SimEvent]
+    scheduled_effects: Deque[Tuple[dt.datetime, Callable[[Self], None]]]
 
     kernel: bool  # Whether this person is the cluster kernel. Kernels are the most likely to become users
     cluster: "Cluster"
@@ -91,6 +101,7 @@ class SimPerson(ABC):
         self.distinct_ids = []
         self.properties = {}
         self.events = []
+        self.scheduled_effects = Deque()
         self.kernel = kernel
         self.cluster = cluster
         self.x = x
@@ -119,14 +130,21 @@ class SimPerson(ABC):
             self._simulate_session()
             if self._end_pageview is not None:
                 self._end_pageview()
+                self._end_pageview = None
 
     @abstractmethod
     def _simulate_session(self):
         """Simulation of a single session based on current agent state."""
+        if self.scheduled_effects and self.scheduled_effects[-1][0] <= self._simulation_time:
+            _, effect = self.scheduled_effects.pop()
+            effect(self)
 
     def _affect_neighbors(self, effect: Callable[[Self], None]):
         for neighbor in self.cluster._list_neighbors(self.x, self.y):
-            effect(neighbor)
+            neighbor.schedule_effect(self._simulation_time, effect)
+
+    def schedule_effect(self, timestamp: dt.datetime, effect: Callable[[Self], None]):
+        self.scheduled_effects.append((timestamp, effect))
 
     def _advance_timer(self, seconds: float):
         self._simulation_time += dt.timedelta(seconds=seconds)

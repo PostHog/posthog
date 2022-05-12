@@ -36,7 +36,7 @@ class HedgeboxPerson(SimPerson):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.need = self.cluster.random.uniform(0.7 if self.kernel else 0, 1 if self.kernel else 0.08)
+        self.need = self.cluster.random.uniform(0.6 if self.kernel else 0, 1 if self.kernel else 0.3)
         self.satisfaction = 0.0
         self.usage_profile = self.cluster.random.betavariate(1, 2)  # Most users skew personal
         self.plan = None
@@ -47,14 +47,32 @@ class HedgeboxPerson(SimPerson):
         return f"{self.name} <{self.email}>"
 
     def _simulate_session(self):
+        super()._simulate_session()
+        # Make sure the time makes sense
+        self._simulation_time += dt.timedelta(seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * 36_000 + 24)
+        if self._simulation_time >= self.cluster.end:
+            return
+        if not 5 < self._simulation_time.hour < 23 and self.cluster.random.random() < 0.9:
+            return
+        if 9 < self._simulation_time.hour < 17 and self.cluster.random.random() < 0.7:
+            return
         self._active_client.start_session(
             str(UUIDT(int(self._simulation_time.timestamp()), seeded_random=self.cluster.random))
         )
-        if self.plan is None and self.need >= 0.5:
-            self._visit_homepage()
-            if self.satisfaction > 0:
-                self._consider_signing_up()
-        self._simulation_time += dt.timedelta(days=365 * 100)
+        if self.need >= 0.3:
+            if self.plan is None:
+                self._visit_homepage()
+                if self.satisfaction > 0:
+                    self._consider_signing_up()
+            else:
+                if self.cluster.random.random() < 0.2:
+                    self._visit_homepage()
+                else:
+                    self._capture_pageview("https://hedgebox.net/my_files/")
+                    if self.cluster.random.random() < 0.5:
+                        self._consider_uploading_files()
+                    elif self.cluster.random.random() < 0.5:
+                        self._consider_downloading_file()
 
     # Individual flows
 
@@ -90,14 +108,16 @@ class HedgeboxPerson(SimPerson):
                 current_url="https://hedgebox.net/my_files/",
                 properties={"file_extension": self.cluster.file_provider.extension(),},
             )
-        self.satisfaction += self.cluster.random.uniform(-0.1, 0.1)
-        if self.satisfaction > 0.6:
-            self._affect_neighbors(self._make_recommendation_effect(0.3))
+        self.satisfaction += self.cluster.random.uniform(-0.05, 0.2)
+        if self.satisfaction > 0.5:
+            self._affect_neighbors(lambda other: other._move_need(0.5))
 
-    def _consider_downloading_files(self):
+    def _consider_downloading_file(self):
         self._capture(EVENT_DOWNLOADED_FILE, current_url="https://hedgebox.net/my_files/")
+        if self.satisfaction > 0.5:
+            self._affect_neighbors(lambda other: other._move_need(0.5))
 
-    def _consider_deleting_files(self):
+    def _consider_deleting_file(self):
         self._capture(EVENT_DELETED_FILE, current_url="https://hedgebox.net/my_files/")
 
     def _share_file_link(self):
@@ -106,25 +126,25 @@ class HedgeboxPerson(SimPerson):
     def _receive_file_link(self):
         file_name = self.cluster.file_provider.file_name()
         self._capture_pageview(f"https://hedgebox.net/my_files/{file_name}/")
+        self._consider_downloading_file()
 
     def _upgrade_plan(self):
         pass
+        # TODO
 
     def _downgrade_plan(self):
         pass
+        # TODO
 
     def _recommend_product(self):
         pass
+        # TODO
 
     def _move_satisfaction(self, delta: float):
         self.satisfaction = max(-1, min(1, self.satisfaction + delta))
 
     def _move_need(self, delta: float):
         self.need = max(0, min(1, self.need + delta))
-
-    @staticmethod
-    def _make_recommendation_effect(satisfaction_delta: float):
-        return lambda other: other.move_need(satisfaction_delta)
 
 
 class HedgeboxCluster(Cluster):
