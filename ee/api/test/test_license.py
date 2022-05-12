@@ -9,6 +9,8 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 class TestLicenseAPI(APILicensedTest):
@@ -111,3 +113,20 @@ class TestLicenseAPI(APILicensedTest):
 
             self.assertIsInstance(first_valid, License)
             self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_can_cancel_license(self, patch_post):
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+        response = self.client.delete(f"/api/license/{self.license.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Team.objects.count(), 2)
+        self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
+        self.assertEqual(Organization.objects.count(), 1)

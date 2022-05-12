@@ -42,6 +42,23 @@ export const licenseLogic = kea<licenseLogicType>({
                         return values.licenses
                     }
                 },
+                deleteLicense: async ({ id }: LicenseType) => {
+                    try {
+                        await api.licenses.delete(id)
+                        lemonToast.success(`Your license was deactivated.`)
+                        actions.setError(null)
+                        setTimeout(() => {
+                            window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                        }, 5000)
+                        return values.licenses.filter((license: LicenseType) => license.id != id)
+                    } catch (response) {
+                        lemonToast.error(
+                            (response as APIErrorType).detail ||
+                                'We were unable to automatically cancel your license. Please contact sales@posthog.com for support.'
+                        )
+                        return values.licenses
+                    }
+                },
             },
         ],
     }),
