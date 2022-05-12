@@ -92,14 +92,15 @@ BACKFILL_SQL = f"""
 ALTER TABLE {EVENTS_DATA_TABLE()}
 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 UPDATE
-    person_id=toUUID(dictGet('{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id)),
-    person_properties=dictGetString('{PERSONS_DICT_TABLE_NAME}', 'properties', toUUID(dictGet('{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id))),
-    group0_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_0),
-    group1_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_1),
-    group2_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_2),
-    group3_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_3),
-    group4_properties=dictGetString('{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_4)
+    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id)),
+    person_properties=dictGetString('{CLICKHOUSE_DATABASE}.{PERSONS_DICT_TABLE_NAME}', 'properties', toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id))),
+    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_0),
+    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_1),
+    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_2),
+    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_3),
+    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_4)
 WHERE team_id = %(team_id)s
+SETTINGS mutations_sync=2
 """
 
 GET_QUERY_ID_SQL = f"""
@@ -135,6 +136,42 @@ def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, que
     return None
 
 
+def run_backfill(options):
+
+    if not options["team_id"]:
+        logger.error("You must specify --team-id to run this script")
+        exit(1)
+
+    dry_run = not options["live_run"]
+
+    if dry_run:
+        print("Dry run. Queries to run:", end="\n\n")
+
+    print_and_execute_query(GROUPS_DICTIONARY_SQL, "GROUPS_DICTIONARY_SQL", dry_run)
+    print_and_execute_query(PERSON_DISTINCT_IDS_DICTIONARY_SQL, "PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
+    print_and_execute_query(PERSONS_DICTIONARY_SQL, "PERSONS_DICTIONARY_SQL", dry_run)
+
+    client._request_information = {"kind": "backfill", "id": backfill_query_id}
+    print_and_execute_query(
+        BACKFILL_SQL, "BACKFILL_SQL", dry_run, 0, {"team_id": options["team_id"], "id": backfill_query_id}
+    )
+    client._request_information = None
+
+    print_and_execute_query(DROP_GROUPS_DICTIONARY_SQL, "DROP_GROUPS_DICTIONARY_SQL", dry_run)
+    print_and_execute_query(DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL, "DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
+    print_and_execute_query(DROP_PERSONS_DICTIONARY_SQL, "DROP_PERSONS_DICTIONARY_SQL", dry_run)
+
+    sleep(10)
+    query_id_res = print_and_execute_query(GET_QUERY_ID_SQL, "GET_QUERY_ID_SQL", dry_run)
+
+    if query_id_res:
+        query_id = query_id_res[0][0]
+        print()
+        print(
+            f"Backfill running. Cancel backfill by running:\n`KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id='{query_id}'`"
+        )
+
+
 class Command(BaseCommand):
     help = "Backfill persons and groups data on events for a given team"
 
@@ -147,39 +184,4 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-
-        if not options["team_id"]:
-            logger.error("You must specify --team-id to run this script")
-            exit(1)
-
-        dry_run = not options["live_run"]
-
-        if dry_run:
-            print("Dry run. Queries to run:", end="\n\n")
-
-        print_and_execute_query(GROUPS_DICTIONARY_SQL, "GROUPS_DICTIONARY_SQL", dry_run)
-        print_and_execute_query(PERSON_DISTINCT_IDS_DICTIONARY_SQL, "PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
-        print_and_execute_query(PERSONS_DICTIONARY_SQL, "PERSONS_DICTIONARY_SQL", dry_run)
-
-        client._request_information = {"kind": "backfill", "id": backfill_query_id}
-
-        print_and_execute_query(
-            BACKFILL_SQL, "BACKFILL_SQL", dry_run, 0, {"team_id": options["team_id"], "id": backfill_query_id}
-        )
-        client._request_information = None
-
-        print_and_execute_query(DROP_GROUPS_DICTIONARY_SQL, "DROP_GROUPS_DICTIONARY_SQL", dry_run)
-        print_and_execute_query(
-            DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL, "DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run
-        )
-        print_and_execute_query(DROP_PERSONS_DICTIONARY_SQL, "DROP_PERSONS_DICTIONARY_SQL", dry_run)
-
-        sleep(10)
-        query_id_res = print_and_execute_query(GET_QUERY_ID_SQL, "GET_QUERY_ID_SQL", dry_run)
-
-        if query_id_res:
-            query_id = query_id_res[0][0]
-            print()
-            print(
-                f"Backfill running. Cancel backfill by running:\n`KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id='{query_id}'`"
-            )
+        run_backfill(options)
