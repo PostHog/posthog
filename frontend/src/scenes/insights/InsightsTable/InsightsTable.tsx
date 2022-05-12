@@ -7,7 +7,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
-import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
+import { average, median, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
@@ -228,7 +228,7 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return maybeAddCommasToInteger(item.data[index])
+                    return humanFriendlyNumber(item.data[index])
                 },
                 key: `data[${index}]`,
                 sorter: (a, b) => a.data[index] - b.data[index],

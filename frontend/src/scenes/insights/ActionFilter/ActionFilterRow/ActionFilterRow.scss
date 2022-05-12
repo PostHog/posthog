@@ -71,6 +71,25 @@
     &.full-width {
         flex-basis: 100%;
     }
+
+    .row-start,
+    .row-center,
+    .row-end {
+        display: flex;
+        align-items: center;
+    }
+
+    .row-start,
+    .row-end {
+        flex: 0;
+    }
+
+    .row-center {
+        flex: 1;
+        overflow: hidden;
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
 }
 
 .draggable-action-filter.drag-handle-visible {
@@ -110,4 +129,5 @@
 
 .action-row-letter {
     padding-right: 1px;
+    padding-top: 5px;
 }
