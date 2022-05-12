@@ -27,29 +27,6 @@ interface SessionRecordingsTableProps {
     isPersonPage?: boolean
 }
 
-function FilterRow({
-    filter,
-    propertyFiltersButton,
-    deleteButton,
-}: {
-    seriesIndicator?: JSX.Element | string
-    suffix?: JSX.Element | string
-    filter?: JSX.Element | string
-    propertyFiltersButton?: JSX.Element | string
-    deleteButton?: JSX.Element | string
-    isVertical?: boolean
-}): JSX.Element {
-    return (
-        <Row className="entity-filter-row" wrap={false} align="middle">
-            <Col flex="1" className="mr">
-                <Row align="middle">{filter}</Row>
-            </Col>
-            <Col className="mr">{propertyFiltersButton}</Col>
-            <Col>{deleteButton}</Col>
-        </Row>
-    )
-}
-
 export function SessionRecordingsTable({ personUUID, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
     const {
@@ -127,7 +104,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             </Tooltip>
                         </Typography.Text>
                         <ActionFilter
-                            fullWidth={true}
+                            bordered
                             filters={entityFilters}
                             setFilters={(payload) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
@@ -137,8 +114,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             mathAvailability={MathAvailability.None}
                             buttonCopy="Add filter"
                             hideRename
-                            showOr
-                            renderRow={(props) => <FilterRow {...props} />}
+                            hideDuplicate
                             showNestedArrow={false}
                             actionsTaxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.Actions,

@@ -38,12 +38,12 @@ export interface ActionFilterProps {
     showSeriesIndicator?: boolean
     /** Series badge shows A, B, C | 1, 2, 3 */
     seriesIndicatorType?: 'alpha' | 'numeric'
-    /** Whether to show the "OR" label after each filter */
-    showOr?: boolean
     /** Hide local filtering (currently used for retention insight) */
     hideFilter?: boolean
     /** Hides the rename option */
     hideRename?: boolean
+    /** Hides the duplicate option */
+    hideDuplicate?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number
     /** Custom suffix element to show in each ActionFilterRow */
@@ -87,9 +87,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             sortable = false,
             showSeriesIndicator = false,
             seriesIndicatorType = 'alpha',
-            showOr = false,
             hideFilter = false,
             hideRename = false,
+            hideDuplicate = false,
             customRowSuffix,
             entitiesLimit,
             showNestedArrow = false,
@@ -150,6 +150,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             readOnly,
             renderRow,
             hideRename,
+            hideDuplicate,
             onRenameClick: showModal,
             sortable,
         }
@@ -193,7 +194,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 index={index}
                                 key={index}
                                 singleFilter={singleFilter}
-                                showOr={showOr}
                                 hideFilter={hideFilter || readOnly}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}

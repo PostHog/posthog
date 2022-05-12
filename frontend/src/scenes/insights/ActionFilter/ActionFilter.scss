@@ -7,7 +7,7 @@
 
     .ActionFilterRow-filters {
         margin: 0;
-        padding: 1em;
+        padding: 0.5em;
     }
 
     &.ActionFilter--bordered {
@@ -22,17 +22,6 @@
                 padding: $default_spacing $default_spacing/2;
                 border-bottom: 1px solid var(--border);
             }
-
-            // &:last-child {
-            //     .ActionFilterRow-content {
-            //         border-bottom: none;
-            //     }
-
-            //     .ActionFilterRow-filters {
-            //         border-bottom: none;
-            //         border-radius: 0 0 var(--radius) var(--radius);
-            //     }
-            // }
         }
 
         .ActionFilter-footer {
@@ -42,8 +31,6 @@
         .ActionFilterRow-filters {
             background-color: var(--bg-side);
             border-bottom: 1px solid var(--border);
-            margin: 0;
-            padding: 1em;
         }
     }
 }

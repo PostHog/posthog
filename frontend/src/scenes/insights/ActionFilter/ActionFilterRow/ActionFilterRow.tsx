@@ -49,9 +49,10 @@ export interface ActionFilterRowProps {
     index: number
     mathAvailability: MathAvailability
     singleFilter?: boolean
-    showOr?: boolean
     hideFilter?: boolean // Hides the local filter options
     hideRename?: boolean // Hides the rename option
+    hideDuplicate?: boolean // Hides the duplicate option
+    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
@@ -69,7 +70,6 @@ export interface ActionFilterRowProps {
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
-    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     readOnly?: boolean
     renderRow?: ({
@@ -89,9 +89,10 @@ export function ActionFilterRow({
     index,
     mathAvailability,
     singleFilter,
-    showOr,
     hideFilter,
     hideRename,
+    hideDuplicate = false,
+    hideDeleteBtn = false,
     onRenameClick = () => {},
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
@@ -100,7 +101,6 @@ export function ActionFilterRow({
     customRowSuffix,
     hasBreakdown,
     showNestedArrow = false,
-    hideDeleteBtn = false,
     actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     propertiesTaxonomicGroupTypes,
     disabled = false,
@@ -350,11 +350,10 @@ export function ActionFilterRow({
                                 <>
                                     {!hideFilter && propertyFiltersButton}
                                     {!hideRename && renameRowButton}
-                                    {!singleFilter && duplicateRowButton}
+                                    {!hideDuplicate && !singleFilter && duplicateRowButton}
                                     {!hideDeleteBtn && deleteButton}
                                 </>
                             ) : null}
-                            {filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
                         </div>
                     </>
                 )}
