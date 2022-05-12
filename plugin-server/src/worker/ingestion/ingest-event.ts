@@ -102,10 +102,6 @@ function shouldSendEventToBuffer(
     person: Person | undefined,
     teamId: TeamId
 ): boolean {
-    if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
-        return false
-    }
-
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
     const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds < hub.BUFFER_CONVERSION_SECONDS
@@ -114,6 +110,10 @@ function shouldSendEventToBuffer(
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.teamId.toString() })
+    }
+
+    if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
+        return false
     }
 
     return sendToBuffer
