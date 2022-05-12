@@ -155,14 +155,11 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             }}
             disabled={!areFiltersValid}
             buttonCopy="Add exclusion"
-            buttonType="default"
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
             mathAvailability={MathAvailability.None}
-            hidePropertySelector
             hideFilter
             hideRename
             hideDeleteBtn
-            fullWidth
             seriesIndicatorType="alpha"
             renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
             customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}

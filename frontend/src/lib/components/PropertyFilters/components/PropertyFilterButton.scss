@@ -1,0 +1,36 @@
+@import '~/vars';
+
+.PropertyFilterButton {
+    overflow: hidden;
+    color: #2d2d2d;
+    border-color: $dark-grey;
+    background: $dark-grey;
+
+    &:hover,
+    &:focus {
+        border-color: $dark-grey;
+        background: $dark-grey;
+        color: #2d2d2d;
+    }
+
+    text-shadow: none;
+    box-shadow: none;
+
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    > :not(.PropertyFilterButton-content) {
+        flex-shrink: 0;
+    }
+
+    .PropertyFilterButton-content {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .anticon-close {
+        color: #2d2d2d;
+    }
+}
