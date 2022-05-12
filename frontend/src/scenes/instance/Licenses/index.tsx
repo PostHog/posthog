@@ -75,7 +75,9 @@ export function Licenses(): JSX.Element {
         {
             width: 0,
             render: function renderActive(_, license: LicenseType) {
-                let projectsToDelete = currentOrganization.teams?.filter((team: TeamType) => !team.is_demo)
+                let projectsToDelete = ((currentOrganization.teams || []) as TeamType[])
+                    .filter((team) => !team.is_demo)
+                    .sort((a, b) => a.id - b.id)
                 projectsToDelete = projectsToDelete.slice(1, projectsToDelete.length)
 
                 return (
