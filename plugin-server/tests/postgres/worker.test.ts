@@ -163,7 +163,7 @@ describe('worker', () => {
             } catch {}
         })
 
-        it('pauses the queue if too many tasks', async () => {
+        it.skip('pauses the queue if too many tasks', async () => {
             const args = Object.values({
                 distinct_id: 'my-id',
                 ip: '127.0.0.1',
