@@ -87,7 +87,7 @@ export function PropertyValue({
     useEffect(() => {
         if (value == null) {
             setInput('')
-        } else if (value !== input) {
+        } else if (!Array.isArray(value) && toString(value) !== input) {
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
