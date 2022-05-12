@@ -255,7 +255,7 @@ class HedgeboxMatrix(Matrix):
                 "insight": INSIGHT_FUNNELS,
                 "interval": "day",
                 "funnel_viz_type": "steps",
-                "filter_test_accounts": False,
+                "filter_test_accounts": True,
             },
             parameters={
                 "feature_flag_variants": [

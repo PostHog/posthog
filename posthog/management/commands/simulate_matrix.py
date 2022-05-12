@@ -10,16 +10,19 @@ class Command(BaseCommand):
     help = "Rehearse demo data simulation"
 
     def add_arguments(self, parser):
-        parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
+        parser.add_argument("--seed", type=str, required=True, help="Simulation seed for deterministic output")
+        parser.add_argument(
+            "--start", type=lambda s: dt.datetime.strptime(s, "%Y-%m-%d"), required=True, help="Simulation start date"
+        )
+        parser.add_argument(
+            "--end", type=lambda s: dt.datetime.strptime(s, "%Y-%m-%d"), required=True, help="Simulation end date"
+        )
         parser.add_argument("--n-clusters", type=int, default=1, help="Number of clusters")
 
     def handle(self, *args, **options):
         timer = time()
         matrix = HedgeboxMatrix(
-            options["seed"],
-            start=dt.datetime(2022, 2, 1),
-            end=dt.datetime(2022, 5, 1),
-            n_clusters=options["n_clusters"],
+            options["seed"], start=options["start"], end=options["end"], n_clusters=options["n_clusters"],
         )
         matrix.simulate()
         duration = time() - timer
