@@ -3,6 +3,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
 import { Skeleton } from 'antd'
 import { frontendAppSceneLogic } from 'scenes/apps/frontendAppSceneLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function FrontendAppScene(): JSX.Element {
     const { Component, logicProps } = useValues(frontendAppSceneLogic)
@@ -11,9 +12,10 @@ export function FrontendAppScene(): JSX.Element {
         return <Component {...logicProps} />
     }
     return (
-        <div style={{ marginTop: 20 }}>
+        <>
+            <PageHeader title={logicProps.name} />
             <Skeleton />
-        </div>
+        </>
     )
 }
 
