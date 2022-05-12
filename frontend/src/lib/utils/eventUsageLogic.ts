@@ -706,6 +706,9 @@ export const eventUsageLogic = kea<
                 date_to: dateTo?.toString(),
             })
         },
+        reportDashboardPropertiesChanged: async () => {
+            posthog.capture(`dashboard properties changed`)
+        },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)
         },

@@ -15,6 +15,7 @@ import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/Dashboa
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 interface Props {
     id?: string
@@ -51,7 +52,7 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -119,6 +120,11 @@ function DashboardScene(): JSX.Element {
                                     justifyContent: 'flex-end',
                                 }}
                             >
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard.pk}
+                                    propertyFilters={dashboard.filters.properties}
+                                />
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
                                 <DateFilter
                                     defaultValue="Custom"
