@@ -1,8 +1,6 @@
 import React from 'react'
 import * as allKea from 'kea'
-import { AdHocInsight } from 'scenes/insights/AdHocInsight'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
+import * as appsCommon from 'packages/apps-common'
 
 /** Every `import` in a frontend app will be piped through here */
 export function frontendAppRequire(module: string): any {
@@ -11,7 +9,7 @@ export function frontendAppRequire(module: string): any {
     } else if (module === 'kea') {
         return allKea
     } else if (module === '@posthog/apps-common') {
-        return { AdHocInsight: AdHocInsight, LemonButton: LemonButton, LemonRow: LemonRow }
+        return appsCommon
     } else {
         throw new Error(`Can not import from unknown module "${module}"`)
     }

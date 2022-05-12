@@ -16,7 +16,7 @@ import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 type PluginForm = FormInstance
 
@@ -74,13 +74,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
-        editPluginSource: (values: {
-            id: number
-            name: string
-            source: string
-            source_frontend: string
-            configSchema: Record<string, any>
-        }) => values,
+
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
             checkAll,
             initialUpdateStatus,
@@ -138,17 +132,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
-                },
-                editPluginSource: async ({ id, name, source, source_frontend, configSchema }) => {
-                    const { plugins } = values
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {
-                        name,
-                        source,
-                        source_frontend,
-                        config_schema: configSchema,
-                    })
-                    capturePluginEvent(`plugin source edited`, response)
-                    return { ...plugins, [id]: response }
                 },
                 updatePlugin: async ({ id }) => {
                     const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
@@ -301,7 +284,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             false,
             {
                 setEditingSource: (_, { editingSource }) => editingSource,
-                editPluginSourceSuccess: () => false,
                 editPlugin: () => false,
             },
         ],
@@ -663,24 +645,20 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         toggleEnabledSuccess: ({ pluginConfigs, payload: { id, enabled } }) => {
             const pluginConfig = Object.values(pluginConfigs).find(({ id: _id }) => _id === id)
             if (pluginConfig) {
-                const { plugin } = pluginConfig
-                if (values.plugins[plugin]?.source_frontend) {
+                const plugin = values.plugins[pluginConfig.plugin]
+                if (plugin?.source_frontend) {
+                    frontendAppsLogic.findMounted()?.actions.setAppConfig(id, {
+                        id,
+                        config: pluginConfig.config,
+                        name: plugin.name,
+                        url: urls.frontendApp(id),
+                    })
                     if (enabled) {
-                        frontendAppsLogic.findMounted()?.actions.loadFrontendApp(plugin)
+                        frontendAppsLogic.findMounted()?.actions.loadFrontendApp(id)
                     } else {
-                        frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(plugin)
+                        frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(id)
                     }
                 }
-            }
-        },
-        editPluginSourceSuccess: ({ payload }) => {
-            const { source_frontend, id } = payload || {}
-            if (source_frontend && id && values.pluginConfigs[id]?.enabled) {
-                frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(id)
-                lemonToast.success(`Frontend Source saved! Reloading plugin in 5 seconds...`)
-                window.setTimeout(() => {
-                    frontendAppsLogic.findMounted()?.actions.loadFrontendApp(id, true)
-                }, 5000)
             }
         },
         checkForUpdates: async ({ checkAll }, breakpoint) => {

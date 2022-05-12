@@ -253,7 +253,7 @@ function Pages(): JSX.Element {
                                     to={urls.frontendApp(id)}
                                 />
                             ))}
-                            <div className="SideBar__heading">Data</div>
+                            <div className="SideBar__heading">Configuration</div>
                         </>
                     ) : (
                         <>

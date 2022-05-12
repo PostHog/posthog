@@ -214,13 +214,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
-    @action(methods=["GET"], detail=True)
-    @renderer_classes((PlainRenderer,))
-    def frontend(self, request: request.Request, **kwargs):
-        plugin = self.get_object()
-        content = plugin.transpiled_frontend or ""
-        return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
-
     @action(methods=["POST"], detail=True)
     def upgrade(self, request: request.Request, **kwargs):
         plugin: Plugin = self.get_object()
@@ -379,6 +372,13 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(status=200)
+
+    @action(methods=["GET"], detail=True)
+    @renderer_classes((PlainRenderer,))
+    def frontend(self, request: request.Request, **kwargs):
+        plugin_config = self.get_object()
+        content = plugin_config.plugin.transpiled_frontend or ""
+        return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
