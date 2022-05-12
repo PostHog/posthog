@@ -13,6 +13,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     actions({
         loadFrontendApp: (id: number, reload = false) => ({ id, reload }),
         unloadFrontendApp: (id: number) => ({ id }),
+        setAppConfig: (id: number, appConfig: FrontendAppConfig) => ({ id, appConfig }),
         setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
     }),
     defaults({
@@ -54,6 +55,10 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             {} as Record<string, FrontendAppConfig>,
             {
                 setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
+                setAppConfig: (state, { id, appConfig }) => ({
+                    ...state,
+                    [id]: { ...(state[id] ?? {}), ...appConfig },
+                }),
             },
         ],
     }),

@@ -17,6 +17,7 @@ import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 type PluginForm = FormInstance
 
@@ -662,8 +663,14 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         toggleEnabledSuccess: ({ pluginConfigs, payload: { id, enabled } }) => {
             const pluginConfig = Object.values(pluginConfigs).find(({ id: _id }) => _id === id)
             if (pluginConfig) {
-                const { plugin } = pluginConfig
-                if (values.plugins[plugin]?.source_frontend) {
+                const plugin = values.plugins[pluginConfig.plugin]
+                if (plugin?.source_frontend) {
+                    frontendAppsLogic.findMounted()?.actions.setAppConfig(id, {
+                        id,
+                        config: pluginConfig.config,
+                        name: plugin.name,
+                        url: urls.frontendApp(id),
+                    })
                     if (enabled) {
                         frontendAppsLogic.findMounted()?.actions.loadFrontendApp(id)
                     } else {
