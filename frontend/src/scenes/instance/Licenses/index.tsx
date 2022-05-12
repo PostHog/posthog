@@ -10,7 +10,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LicenseType, TeamType } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -27,7 +27,7 @@ export function Licenses(): JSX.Element {
 
     const { currentOrganization } = useValues(organizationLogic)
 
-    const columns = [
+    const columns: LemonTableColumns<LicenseType> = [
         {
             title: 'Active',
             render: function renderActive(_, license: LicenseType) {
