@@ -1,3 +1,4 @@
+import './PropertyFilterButton.scss'
 import { Button } from 'antd'
 import { useValues } from 'kea'
 import { formatPropertyLabel, midEllipsis } from 'lib/utils'
@@ -11,10 +12,11 @@ import { IconCohort, IconPerson, UnverifiedEventStack } from 'lib/components/ico
 import { Tooltip } from 'lib/components/Tooltip'
 
 export interface PropertyFilterButtonProps {
-    item: AnyPropertyFilter
     onClick?: () => void
     onClose?: () => void
     setRef?: (ref: HTMLElement) => void
+    children?: string | JSX.Element
+    item: AnyPropertyFilter
     style?: React.CSSProperties
 }
 
@@ -29,23 +31,6 @@ export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Ele
             )}
         </>
     )
-}
-
-export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
-    return (
-        <FilterButton {...props} item={item}>
-            <PropertyFilterText item={item} />
-        </FilterButton>
-    )
-}
-
-interface FilterRowProps {
-    onClick?: () => void
-    onClose?: () => void
-    setRef?: (ref: HTMLElement) => void
-    children: string | JSX.Element
-    item: AnyPropertyFilter
-    style?: React.CSSProperties
 }
 
 function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
@@ -76,41 +61,36 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return iconElement
 }
 
-export function FilterButton({ onClick, onClose, setRef, children, item, style }: FilterRowProps): JSX.Element {
+export function PropertyFilterButton({
+    onClick,
+    onClose,
+    setRef,
+    children,
+    item,
+    style,
+}: PropertyFilterButtonProps): JSX.Element {
     return (
         <Button
-            type="primary"
             shape="round"
-            style={{ overflow: 'hidden', ...style }}
+            style={{ ...style }}
             onClick={onClick}
             ref={setRef}
-            className={'property-filter'}
+            className="PropertyFilterButton ph-no-capture"
         >
-            <span
-                className="ph-no-capture property-filter-button-label"
-                style={{
-                    width: '100%',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    display: 'flex',
-                    alignItems: 'center',
-                }}
-            >
-                <PropertyFilterIcon item={item} />
-                {children}
-                {onClose && (
-                    <CloseButton
-                        className={'ml-1'}
-                        onClick={(e: MouseEvent) => {
-                            e.stopPropagation()
-                            onClose()
-                        }}
-                        style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                    />
-                )}
+            <PropertyFilterIcon item={item} />
+            <span className="PropertyFilterButton-content">
+                {children ? children : <PropertyFilterText item={item} />}
             </span>
+            {onClose && (
+                <CloseButton
+                    className={'ml-1'}
+                    onClick={(e: MouseEvent) => {
+                        e.stopPropagation()
+                        onClose()
+                    }}
+                    style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
+                />
+            )}
         </Button>
     )
 }
-
-export default PropertyFilterButton

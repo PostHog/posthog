@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
-import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
+import { PropertyFilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -120,14 +120,14 @@ export const FilterRow = React.memo(function FilterRow({
                                             setRef={setRef}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
-                                        <FilterButton
+                                        <PropertyFilterButton
                                             item={item}
                                             onClick={() => setOpen(!open)}
                                             onClose={() => onRemove(index)}
                                             setRef={setRef}
                                         >
                                             {`${item['alias']}::${item['regex']}`}
-                                        </FilterButton>
+                                        </PropertyFilterButton>
                                     ) : useLemonButton ? (
                                         <LemonButton
                                             ref={setRef}
@@ -135,6 +135,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
                                             type="secondary"
+                                            size="small"
                                             icon={<IconPlus style={{ color: 'var(--primary)' }} />}
                                         >
                                             {label}

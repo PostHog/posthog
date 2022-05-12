@@ -82,6 +82,11 @@ Bordered.args = {
     bordered: true,
 }
 
+export const PropertyFiltersWithPopover = Template.bind({})
+PropertyFiltersWithPopover.args = {
+    propertyFiltersPopover: true,
+}
+
 export const Sortable = Template.bind({})
 Sortable.args = {
     sortable: true,

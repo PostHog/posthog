@@ -44,6 +44,8 @@ export interface ActionFilterProps {
     hideRename?: boolean
     /** Hides the duplicate option */
     hideDuplicate?: boolean
+    /** Whether to show the nested PropertyFilters in popup mode or not */
+    propertyFiltersPopover?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number
     /** Custom suffix element to show in each ActionFilterRow */
@@ -90,6 +92,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideFilter = false,
             hideRename = false,
             hideDuplicate = false,
+            propertyFiltersPopover,
             customRowSuffix,
             entitiesLimit,
             showNestedArrow = false,
@@ -145,6 +148,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hasBreakdown: !!filters.breakdown,
             actionsTaxonomicGroupTypes,
             propertiesTaxonomicGroupTypes,
+            propertyFiltersPopover,
             hideDeleteBtn,
             disabled,
             readOnly,

@@ -22,7 +22,7 @@ const propertyFilters = [
         key: 'Browser',
         operator: PropertyOperator.Exact,
         type: 'event',
-        value: 'Chrome',
+        value: ['Chrome', 'Safari', 'Edge', 'Opera'],
     },
 ] as PropertyFilter[]
 

@@ -20,12 +20,11 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
                 </div>
             )}
             <ActionFilter
-                fullWidth
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={`trends_${InsightType.TRENDS}`}
                 buttonCopy="Add graph series"
-                buttonType="link"
+                propertyFiltersPopover
                 showSeriesIndicator
                 entitiesLimit={
                     filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap

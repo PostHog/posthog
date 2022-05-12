@@ -53,6 +53,7 @@ export interface ActionFilterRowProps {
     hideRename?: boolean // Hides the rename option
     hideDuplicate?: boolean // Hides the duplicate option
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
+    propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
@@ -93,6 +94,7 @@ export function ActionFilterRow({
     hideRename,
     hideDuplicate = false,
     hideDeleteBtn = false,
+    propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
@@ -367,8 +369,9 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
-                        disablePopover
+                        disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        useLemonButton
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
