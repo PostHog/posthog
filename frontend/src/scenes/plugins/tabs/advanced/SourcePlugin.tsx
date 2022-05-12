@@ -26,7 +26,7 @@ export function SourcePlugin(): JSX.Element {
                             value={sourcePluginName}
                             disabled={loading}
                             onChange={(e) => setSourcePluginName(e.target.value)}
-                            placeholder={`For example: "Hourly Weather Sync Plugin"`}
+                            placeholder={`For example: "Hourly Weather Sync App"`}
                         />
                     </Col>
                     <Col>

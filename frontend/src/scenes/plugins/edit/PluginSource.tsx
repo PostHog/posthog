@@ -88,14 +88,14 @@ export function PluginSource(): JSX.Element | null {
             visible={editingSource}
             onClose={() => {
                 if (form.getFieldValue('source') !== editingPlugin?.source) {
-                    confirm('You have unsaved changes in your plugin. Are you sure you want to exit?') &&
+                    confirm('You have unsaved changes in your app. Are you sure you want to exit?') &&
                         setEditingSource(false)
                 } else {
                     setEditingSource(false)
                 }
             }}
             width={'min(90vw, 64rem)'}
-            title={`Coding Plugin: ${editingPlugin?.name}`}
+            title={`Coding App: ${editingPlugin?.name}`}
             placement="left"
             footer={
                 <div style={{ textAlign: 'right' }}>
@@ -114,16 +114,16 @@ export function PluginSource(): JSX.Element | null {
                         <p>
                             Read our{' '}
                             <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
-                                plugin building overview in PostHog Docs
+                                app building overview in PostHog Docs
                             </a>{' '}
                             for a good grasp of possibilities.
                             <br />
-                            Once satisfied with your plugin, feel free to{' '}
+                            Once satisfied with your app, feel free to{' '}
                             <a
                                 href="https://posthog.com/docs/plugins/build/tutorial#submitting-your-plugin"
                                 target="_blank"
                             >
-                                submit it to the official Plugin Library
+                                submit it to the official App Library
                             </a>
                             .
                         </p>
