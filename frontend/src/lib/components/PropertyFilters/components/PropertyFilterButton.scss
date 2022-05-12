@@ -18,10 +18,16 @@
 
     display: flex;
     align-items: center;
-    gap: 0.5em;
+    gap: 0.5rem;
+
+    > :not(.PropertyFilterButton-content) {
+        flex-shrink: 0;
+    }
 
     .PropertyFilterButton-content {
         flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .anticon-close {
