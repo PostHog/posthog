@@ -417,27 +417,32 @@ export function Experiment(): JSX.Element {
                                                 <div className="mt">
                                                     <strong>Filters</strong>
                                                 </div>
-                                                <PropertyFilters
-                                                    pageKey={'experiment-participants-property'}
-                                                    propertyFilters={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? convertPropertyGroupToProperties(
-                                                                  funnelsFilters.properties
-                                                              )
-                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
-                                                    }
-                                                    onChange={(anyProperties) => {
-                                                        setNewExperimentData({
-                                                            filters: {
-                                                                properties: anyProperties as PropertyFilter[],
-                                                            },
-                                                        })
-                                                        setFilters({
-                                                            properties: anyProperties.filter(isValidPropertyFilter),
-                                                        })
-                                                    }}
-                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                />
+                                                <div className="mt mb">
+                                                    <PropertyFilters
+                                                        pageKey={'experiment-participants-property'}
+                                                        propertyFilters={
+                                                            experimentInsightType === InsightType.FUNNELS
+                                                                ? convertPropertyGroupToProperties(
+                                                                      funnelsFilters.properties
+                                                                  )
+                                                                : convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
+                                                        }
+                                                        onChange={(anyProperties) => {
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    properties: anyProperties as PropertyFilter[],
+                                                                },
+                                                            })
+                                                            setFilters({
+                                                                properties: anyProperties.filter(isValidPropertyFilter),
+                                                            })
+                                                        }}
+                                                        useLemonButton
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                    />
+                                                </div>
                                             </Col>
                                         </Row>
                                     </Col>

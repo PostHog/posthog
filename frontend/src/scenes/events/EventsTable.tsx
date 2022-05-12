@@ -360,7 +360,7 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                <div className="flex pt pb border-top">
+                <div className="flex pt pb border-top space-x">
                     {showEventFilter ? (
                         <LemonEventName
                             value={eventFilter}

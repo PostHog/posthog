@@ -2,12 +2,12 @@
 
 .ActionFilter {
     .ActionFilterRow {
-        margin-bottom: $default_spacing;
+        margin-bottom: $default_spacing / 2;
     }
 
     .ActionFilterRow-filters {
         margin: 0;
-        padding: 0.5em;
+        padding: 1em 0.5em;
     }
 
     &.ActionFilter--bordered {
