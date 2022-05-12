@@ -1,0 +1,20 @@
+@import '~/vars';
+
+.property-filters {
+    display: flex;
+    margin: 0.25rem 0 1rem;
+    gap: 0.5rem;
+
+    .property-filters-content {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .property-filters-prefix {
+        color: #c4c4c4;
+        font-size: 18px;
+        user-select: none;
+        padding: 0px 5px;
+    }
+}

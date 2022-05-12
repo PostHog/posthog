@@ -24,6 +24,12 @@ const propertyFilters = [
         type: 'event',
         value: ['Chrome', 'Safari', 'Edge', 'Opera'],
     },
+    {
+        key: 'OS',
+        operator: PropertyOperator.Exact,
+        type: 'event',
+        value: ['MacOS', 'Windows'],
+    },
 ] as PropertyFilter[]
 
 export function ComparingPropertyFilters(): JSX.Element {
@@ -36,6 +42,7 @@ export function ComparingPropertyFilters(): JSX.Element {
                 onChange={() => {}}
                 pageKey={'pageKey'}
                 style={{ marginBottom: 0 }}
+                showNestedArrow
                 eventNames={[]}
             />
             <hr />

@@ -25,7 +25,6 @@ interface FilterRowProps {
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
-    showNestedArrow?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
@@ -42,7 +41,6 @@ export const FilterRow = React.memo(function FilterRow({
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicPopoverPlacement = undefined,
-    showNestedArrow = false,
     filterComponent,
     label,
     onRemove,
@@ -107,11 +105,6 @@ export const FilterRow = React.memo(function FilterRow({
                         {({ setRef }) => {
                             return (
                                 <>
-                                    {showNestedArrow && (
-                                        <div className="property-filter-button-spacing">
-                                            {index === 0 ? <>&#8627;</> : ''}
-                                        </div>
-                                    )}
                                     {isValidPropertyFilter(item) ? (
                                         <PropertyFilterButton
                                             onClick={() => setOpen(!open)}
