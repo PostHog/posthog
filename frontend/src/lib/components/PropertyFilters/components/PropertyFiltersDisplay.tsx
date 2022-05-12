@@ -1,6 +1,6 @@
 import React, { CSSProperties } from 'react'
 import { AnyPropertyFilter } from '~/types'
-import PropertyFilterButton from './PropertyFilterButton'
+import { PropertyFilterButton } from './PropertyFilterButton'
 
 type Props = {
     filters: AnyPropertyFilter[]
