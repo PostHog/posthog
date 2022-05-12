@@ -316,6 +316,8 @@ class DateMixin(BaseParamMixin):
                 return timezone.now() + relativedelta(minutes=1)
             date = timezone.now()
 
+        if self.interval == "hour":  # type: ignore
+            return date
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @include_dict
