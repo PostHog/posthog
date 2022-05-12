@@ -2,7 +2,9 @@
 
 .ActionFilter {
     .ActionFilterRow {
-        margin-bottom: $default_spacing / 2;
+        &:not(:last-child) {
+            margin-bottom: $default_spacing / 2;
+        }
     }
 
     .ActionFilterRow-filters {

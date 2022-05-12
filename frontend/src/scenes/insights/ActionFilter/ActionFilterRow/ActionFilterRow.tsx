@@ -353,7 +353,7 @@ export function ActionFilterRow({
                                     {!hideFilter && propertyFiltersButton}
                                     {!hideRename && renameRowButton}
                                     {!hideDuplicate && !singleFilter && duplicateRowButton}
-                                    {!hideDeleteBtn && deleteButton}
+                                    {!hideDeleteBtn && !singleFilter && deleteButton}
                                 </>
                             ) : null}
                         </div>
