@@ -49,7 +49,7 @@ class HedgeboxPerson(SimPerson):
     def _simulate_session(self):
         super()._simulate_session()
         # Make sure the time makes sense
-        self._simulation_time += dt.timedelta(seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * 36_000 + 24)
+        self._simulation_time += dt.timedelta(seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * 72_000 + 24)
         if self._simulation_time >= self.cluster.end:
             return
         if not 5 < self._simulation_time.hour < 23 and self.cluster.random.random() < 0.9:

@@ -98,10 +98,10 @@ class SignupSerializer(serializers.Serializer):
             )
             demo_time = time.time()
             matrix = HedgeboxMatrix(
-                start=dt.datetime.now() - dt.timedelta(days=30), end=dt.datetime.now(), n_clusters=200,
+                start=dt.datetime.now() - dt.timedelta(days=30), end=dt.datetime.now(), n_clusters=20,
             )
             team = MatrixManager.create_team_and_run(matrix, organization, new_user)
-            print(f"[DEMO] Prepared in {time.time() - demo_time}!")  # noqa: T001
+            print(f"[DEMO] Prepared in {time.time() - demo_time:.2f} s!")  # noqa: T001
             self._organization, self._team, self._user = organization, team, new_user
         else:
             self._organization, self._team, self._user = existing_user.organization, existing_user.team, existing_user

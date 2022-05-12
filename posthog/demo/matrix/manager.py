@@ -57,13 +57,13 @@ class MatrixManager:
         if simulate_journeys:
             persons_to_bulk_save: List[Person] = []
             person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
-            matrix.simulate()
             simulation_time = time.time()  # FIXME
+            matrix.simulate()
             for group_type_index, groups in enumerate(matrix.groups.values()):
                 for group_key, group in groups.items():
                     save_sim_group(team.id, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group)
             sim_persons = matrix.people
-            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time}")
+            print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time:.2f} s")
             individual_time = time.time()  # FIXME
             for sim_person in sim_persons:
                 sim_person_save_result = save_sim_person(team.id, sim_person)
@@ -71,15 +71,15 @@ class MatrixManager:
                     persons_to_bulk_save.append(sim_person_save_result[0])
                     for distinct_id in sim_person_save_result[1]:
                         person_distinct_ids_to_bulk_save.append(distinct_id)
-            print(f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time}")
+            print(f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time:.2f} s")
             bulk_time = time.time()  # FIXME
             Person.objects.bulk_create(persons_to_bulk_save)
             PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
-            print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time}")
+            print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time:.2f} s")
         matrix.set_project_up(team, user)
         set_time = time.time()  # FIXME
         team.save()
-        print(f"[DEMO] Setting project up in {time.time() -set_time}")
+        print(f"[DEMO] Setting project up in {time.time() -set_time:.2f} s")
         for action in Action.objects.filter(team=team):
             action.calculate_events()
         return team
