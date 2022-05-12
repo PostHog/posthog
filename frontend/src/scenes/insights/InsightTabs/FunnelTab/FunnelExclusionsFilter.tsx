@@ -155,7 +155,6 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             }}
             disabled={!areFiltersValid}
             buttonCopy="Add exclusion"
-            buttonType="default"
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
             mathAvailability={MathAvailability.None}
             hideFilter
