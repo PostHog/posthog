@@ -311,7 +311,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
         .exclude(transpiled_frontend__isnull=True)
         .exclude(transpiled_frontend__exact="")
-        .values("id", "pluginconfig__config", "config_schema")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "name")
         .all()
     )
 
@@ -323,7 +323,12 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
-        frontend_apps[p["id"]] = config
+        frontend_apps[p["pluginconfig__id"]] = {
+            "id": p["pluginconfig__id"],
+            "name": p["name"],
+            "url": f"/app/{p['pluginconfig__id']}/",
+            "config": config,
+        }
 
     return frontend_apps
 

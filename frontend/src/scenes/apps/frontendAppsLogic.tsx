@@ -1,11 +1,11 @@
 import { actions, afterMount, defaults, kea, path, reducers } from 'kea'
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { loaders } from 'kea-loaders'
 import { FrontendApp } from '~/types'
 import { frontendAppRequire } from './frontendAppRequire'
 import { lemonToast } from 'lib/components/lemonToast'
+import { FrontendAppConfig } from 'scenes/apps/types'
 
 /** Load frontend apps when PostHog launches, data from `appContext.frontend_apps`. */
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
@@ -13,8 +13,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     actions({
         loadFrontendApp: (id: number, reload = false) => ({ id, reload }),
         unloadFrontendApp: (id: number) => ({ id }),
-        setAppConfigs: (appConfigs: Record<string, Record<string, any>>) => ({ appConfigs }),
-        setAppConfig: (id: number, appConfig: Record<string, any>) => ({ id, appConfig }),
+        setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
     }),
     defaults({
         frontendApps: {} as Record<string, FrontendApp>,
@@ -25,9 +24,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                 try {
                     const siteUrl = `http://localhost:8000`
                     const exports = await import(
-                        `${siteUrl}/api/organizations/${
-                            organizationLogic.values.currentOrganization?.id
-                        }/plugins/${id}/frontend${reload ? '?_=' + new Date().valueOf() : ''}`
+                        `${siteUrl}/api/plugin_config/${id}/frontend${reload ? '?_=' + new Date().valueOf() : ''}`
                     )
                     if ('getFrontendApp' in exports) {
                         const app = exports.getFrontendApp(frontendAppRequire)
@@ -54,10 +51,9 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             },
         },
         appConfigs: [
-            {} as Record<string, Record<string, any>>,
+            {} as Record<string, FrontendAppConfig>,
             {
                 setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
-                setAppConfig: (state, { id, appConfig }) => ({ ...state, [id]: appConfig }),
             },
         ],
     }),

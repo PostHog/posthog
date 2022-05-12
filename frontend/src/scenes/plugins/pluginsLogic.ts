@@ -665,9 +665,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 const { plugin } = pluginConfig
                 if (values.plugins[plugin]?.source_frontend) {
                     if (enabled) {
-                        frontendAppsLogic.findMounted()?.actions.loadFrontendApp(plugin)
+                        frontendAppsLogic.findMounted()?.actions.loadFrontendApp(id)
                     } else {
-                        frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(plugin)
+                        frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(id)
                     }
                 }
             }
