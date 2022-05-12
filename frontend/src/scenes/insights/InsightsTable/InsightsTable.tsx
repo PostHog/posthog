@@ -228,10 +228,10 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return humanFriendlyNumber(item.data[index])
+                    return humanFriendlyNumber(item.data[index] ?? 0)
                 },
-                key: `data[${index}]`,
-                sorter: (a, b) => a.data[index] - b.data[index],
+                key: `data-${index}`,
+                sorter: (a, b) => (a.data[index] ?? 0) - (b.data[index] ?? 0),
                 align: 'right',
             })
         )
