@@ -11,6 +11,8 @@ import { delay } from '../../src/utils/utils'
 import { runProcessEvent } from '../../src/worker/plugins/run'
 
 jest.setTimeout(60000) // 60 sec timeout
+jest.mock('../../src/main/ingestion-queues/kafka-queue')
+jest.mock('../../src/utils/status')
 
 function advanceOneTick() {
     return new Promise((resolve) => process.nextTick(resolve))
@@ -181,9 +183,6 @@ describe('queue', () => {
                 ingestion: expect.any(KafkaQueue),
                 auxiliary: expect.any(CeleryQueue),
             })
-
-            const kafkaQueues = queues.ingestion as KafkaQueue
-            await kafkaQueues.stop()
         })
 
         it('handles ingestion being turned off', async () => {
@@ -206,9 +205,6 @@ describe('queue', () => {
                 ingestion: expect.any(KafkaQueue),
                 auxiliary: null,
             })
-
-            const kafkaQueues = queues.ingestion as KafkaQueue
-            await kafkaQueues.stop()
         })
     })
 })
