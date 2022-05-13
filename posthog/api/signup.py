@@ -302,7 +302,7 @@ def finish_social_signup(request):
     """
     TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
-    if not get_can_create_org():
+    if not get_can_create_org(request.user):
         if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
             request.session.get("email")
         ):
