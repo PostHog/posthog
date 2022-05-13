@@ -10,11 +10,10 @@ from typing import (
     List,
     Optional,
     Tuple,
+    TypeVar,
 )
 from urllib.parse import urlparse
 from uuid import UUID
-
-from typing_extensions import Self
 
 from posthog.models.utils import UUIDT
 
@@ -29,6 +28,8 @@ EVENT_IDENTIFY = "$identify"
 EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 Properties = Dict[str, Any]
+SP = TypeVar("SP", bound="SimPerson")
+Effect = Callable[[SP], None]
 
 
 @dataclass
@@ -84,17 +85,14 @@ class SimPerson(ABC):
     properties: Properties
 
     events: List[SimEvent]
-    scheduled_effects: Deque[Tuple[dt.datetime, Callable[[Self], None]]]
+    scheduled_effects: Deque[Tuple[dt.datetime, Effect]]
 
     kernel: bool  # Whether this person is the cluster kernel. Kernels are the most likely to become users
     cluster: "Cluster"
     x: int
     y: int
-    update_group: Callable[[str, str, Properties], None]
 
-    def __init__(
-        self, *, kernel: bool, cluster: "Cluster", x: int, y: int, update_group: Callable[[str, str, Properties], None],
-    ):
+    def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
         self.distinct_ids = []
         self.properties = {}
         self.events = []
@@ -103,7 +101,6 @@ class SimPerson(ABC):
         self.cluster = cluster
         self.x = x
         self.y = y
-        self.update_group = update_group
 
     def __str__(self) -> str:
         """Return person ID. Overriding this is recommended but optional."""
@@ -128,7 +125,7 @@ class SimPerson(ABC):
         while self._simulation_time <= self.cluster.end:
             self._simulate_session()
             if self._end_pageview is not None:
-                self._end_pageview()
+                self._end_pageview()  # type: ignore
                 self._end_pageview = None
 
     @abstractmethod
@@ -138,7 +135,7 @@ class SimPerson(ABC):
             _, effect = self.scheduled_effects.popleft()
             effect(self)
 
-    def _affect_neighbors(self, effect: Callable[[Self], None]):
+    def _affect_neighbors(self, effect: Effect):
         """Schedule the provided effect for all neighbors.
 
         Because agents are currently simulated synchronously, the effect will only work on those who
@@ -147,7 +144,7 @@ class SimPerson(ABC):
         for neighbor in self.cluster._list_neighbors(self.x, self.y):
             neighbor.schedule_effect(self._simulation_time, effect)
 
-    def schedule_effect(self, timestamp: dt.datetime, effect: Callable[[Self], None]):
+    def schedule_effect(self, timestamp: dt.datetime, effect: Effect):
         self.scheduled_effects.append((timestamp, effect))
 
     def _advance_timer(self, seconds: float):
@@ -230,7 +227,7 @@ class SimPerson(ABC):
         if set_properties is None:
             set_properties = {}
         self._groups[group_type] = group_key
-        self.update_group(group_type, group_key, set_properties)
+        self.cluster.matrix.update_group(group_type, group_key, set_properties)
         self._capture(
             EVENT_GROUP_IDENTIFY, {"$group_type": group_type, "$group_key": group_key, "$group_set": set_properties}
         )

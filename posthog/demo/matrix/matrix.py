@@ -64,13 +64,7 @@ class Cluster(ABC):
         self.radius = self._radius_distribution()
         self.people_matrix = [
             [
-                matrix.person_model(
-                    kernel=(x == self.radius and y == self.radius),
-                    x=x,
-                    y=y,
-                    cluster=self,
-                    update_group=matrix.update_group,
-                )
+                matrix.person_model(kernel=(x == self.radius and y == self.radius), x=x, y=y, cluster=self,)
                 for x in range(1 + self.radius * 2)
             ]
             for y in range(1 + self.radius * 2)
@@ -137,7 +131,7 @@ class Cluster(ABC):
 
 class Matrix(ABC):
     person_model: Type[SimPerson]
-    cluster_model: Type[Cluster] = Cluster
+    cluster_model: Type[Cluster]
     event_definitions: Sequence[str]
     property_definitions: Sequence[Tuple[str, Optional[PropertyType]]]
 

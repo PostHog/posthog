@@ -1,7 +1,7 @@
 import time
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
-from posthog.models import Action, Group, Organization, Person, PersonDistinctId, Team, User
+from posthog.models import Group, Organization, Person, PersonDistinctId, Team, User
 from posthog.models.utils import UUIDT
 
 from .matrix import Matrix
@@ -10,7 +10,7 @@ from .models import SimPerson
 
 def save_sim_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, List[PersonDistinctId]]]:
     if not subject.events:
-        return  # Don't save a person who never participated
+        return None  # Don't save a person who never participated
     from ee.clickhouse.models.event import create_event
     from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
@@ -80,6 +80,4 @@ class MatrixManager:
         set_time = time.time()  # FIXME
         team.save()
         print(f"[DEMO] Setting project up in {time.time() -set_time:.2f} s")
-        for action in Action.objects.filter(team=team):
-            action.calculate_events()
         return team

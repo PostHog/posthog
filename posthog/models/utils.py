@@ -5,7 +5,16 @@ from collections import defaultdict, namedtuple
 from enum import Enum, auto
 from random import Random, choice
 from time import time
-from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Set,
+    Type,
+    TypeVar,
+    cast,
+)
 
 from django.db import IntegrityError, models, transaction
 from django.utils.text import slugify
@@ -61,11 +70,13 @@ class UUIDT(uuid.UUID):
             unix_time_ms = int(time() * 1000)
         time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE
         series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
-        relevant_randbytes = seeded_random.randbytes if seeded_random is not None else secrets.token_bytes
+        relevant_randbytes = cast(
+            Callable[[int], bytes], seeded_random.randbytes if seeded_random is not None else secrets.token_bytes
+        )
         random_component = relevant_randbytes(8)  # 64 bits for random gibberish
-        bytes = time_component + series_component + random_component
-        assert len(bytes) == 16
-        super().__init__(bytes=bytes)
+        input_bytes = time_component + series_component + random_component
+        assert len(input_bytes) == 16
+        super().__init__(bytes=input_bytes)
 
     @classmethod
     def get_series(cls, unix_time_ms: int) -> int:
