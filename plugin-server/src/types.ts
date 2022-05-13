@@ -833,7 +833,9 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
+export type IngestEventResponse =
+    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
+    | { success: false; error: string }
 
 export interface EventDefinitionType {
     id: string

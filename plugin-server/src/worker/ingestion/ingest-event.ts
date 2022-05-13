@@ -16,7 +16,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
     try {
         const { ip, site_url, team_id, now, sent_at, uuid } = event
         const distinctId = String(event.distinct_id)
-        const result = await hub.eventsProcessor.processEvent(
+        const preIngestionEvent = await hub.eventsProcessor.processEvent(
             distinctId,
             ip,
             event,
@@ -28,23 +28,23 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 
         let actionMatches: Action[] = []
 
-        if (result) {
+        if (preIngestionEvent) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
 
             // even if the buffer is disabled we want to get metrics on how many events would have gone to it
-            const sendEventToBuffer = shouldSendEventToBuffer(hub, result, person, team_id)
+            const sendEventToBuffer = shouldSendEventToBuffer(hub, preIngestionEvent, person, team_id)
 
             if (sendEventToBuffer) {
-                await hub.eventsProcessor.produceEventToBuffer(result)
+                await hub.eventsProcessor.produceEventToBuffer(preIngestionEvent)
             } else {
-                const [, eventId, elements] = await hub.eventsProcessor.createEvent(result)
+                const [, eventId, elements] = await hub.eventsProcessor.createEvent(preIngestionEvent)
                 actionMatches = await handleActionMatches(hub, event, site_url, eventId, elements, person)
             }
         }
 
         // We don't want to return the inserted DB entry that `processEvent` returns.
         // This response is passed to piscina and would be discarded anyway.
-        return { actionMatches, success: true }
+        return { actionMatches, preIngestionEvent, success: true }
     } catch (e) {
         status.info('🔔', e)
         Sentry.captureException(e, { extra: { event } })
@@ -59,7 +59,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
                 Sentry.captureException(e, { extra: { event } })
             }
         }
-        return { error: e.message }
+        return { success: false, error: e.message }
     } finally {
         clearTimeout(timeout)
     }
@@ -69,7 +69,7 @@ export async function ingestBufferEvent(hub: Hub, event: PreIngestionEvent): Pro
     const person = await hub.db.getPersonData(event.teamId, event.distinctId)
     const [, eventId, elements] = await hub.eventsProcessor.createEvent(event)
     const actionMatches = await handleActionMatches(hub, event as any, '', eventId, elements, person ?? undefined)
-    return { actionMatches, success: true }
+    return { success: true, actionMatches, preIngestionEvent: event }
 }
 
 async function handleActionMatches(
