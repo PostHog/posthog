@@ -84,7 +84,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
-            return self.instance.filters
+            # mypy cannot tell that self.instance is a FeatureFlag
+            return self.instance.filters  # type: ignore
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
