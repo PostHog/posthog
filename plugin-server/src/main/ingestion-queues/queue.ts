@@ -69,6 +69,11 @@ export async function startQueues(
             server.lastActivityType = 'ingestBufferEvent'
             return piscina.run({ task: 'ingestBufferEvent', args: { event } })
         },
+        runEventPipeline: (event: PluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'runEventPipeline'
+            return piscina.run({ task: 'runEventPipeline', args: { event } })
+        },
         ...workerMethods,
     }
 
