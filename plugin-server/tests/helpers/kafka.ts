@@ -88,13 +88,15 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
 async function createTopics(kafka: Kafka, topics: string[]) {
     const admin = kafka.admin()
     await admin.connect()
-    try {
+
+    const existingTopics = await admin.listTopics()
+    const topicsToCreate = topics.filter((topic) => !existingTopics.includes(topic)).map((topic) => ({ topic }))
+
+    if (topicsToCreate.length > 0) {
         await admin.createTopics({
             waitForLeaders: true,
-            topics: topics.map((topic) => ({ topic })),
+            topics: topicsToCreate,
         })
-    } catch (error) {
-        console.log("Error creating topics. Probably they're already created.\n", error)
     }
     await admin.disconnect()
 }
