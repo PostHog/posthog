@@ -9,12 +9,12 @@ from .models import SimPerson
 
 
 def save_sim_person(team_id: int, subject: SimPerson) -> Optional[Tuple[Person, List[PersonDistinctId]]]:
-    if subject.first_seen_at is None:
+    if not subject.events:
         return  # Don't save a person who never participated
     from ee.clickhouse.models.event import create_event
     from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
-    person_uuid_str = str(UUIDT(unix_time_ms=int(subject.first_seen_at.timestamp() * 1000)))
+    person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
     person = Person(team_id=team_id, properties=subject.properties, uuid=person_uuid_str)
     person_distinct_ids = [
         PersonDistinctId(team_id=team_id, person=person, distinct_id=distinct_id)
