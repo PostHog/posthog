@@ -1,8 +1,8 @@
 import datetime as dt
 from typing import Literal, Optional
 
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_FUNNEL, TRENDS_LINEAR, TRENDS_WORLD_MAP
-from posthog.models import Cohort, Dashboard, Experiment, FeatureFlag, Insight
+from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
+from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import UUIDT
 
@@ -11,7 +11,7 @@ from .matrix.models import EVENT_GROUP_IDENTIFY, EVENT_IDENTIFY, EVENT_PAGELEAVE
 
 PROJECT_NAME = "Hedgebox"
 
-# Event name constants
+# Event names
 EVENT_SIGNED_UP = "signed_up"
 EVENT_PAID_BILL = "paid_bill"
 EVENT_DOWNLOADED_FILE = "downloaded_file"
@@ -19,13 +19,21 @@ EVENT_UPLOADED_FILE = "uploaded_file"
 EVENT_DELETED_FILE = "deleted_file"
 EVENT_COPIED_LINK = "copied_link"
 
-# Feature flag constants
+# Group types
+GROUP_TYPE_ORGANIZATION = "organization"
+
+# Feature flags
 FILE_PREVIEWS_FLAG_KEY = "file-previews"
 NEW_SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
 NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT = 30
+PROPERTY_NEW_SIGNUP_PAGE_FLAG = f"$feature/{NEW_SIGNUP_PAGE_FLAG_KEY}"
+SIGNUP_SUCCESS_RATE_TEST = 0.5794
+SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
 
 
 class HedgeboxPerson(SimPerson):
+    cluster: "HedgeboxCluster"
+
     need: float  # 0 means no need, 1 means desperate
     satisfaction: float  # -1 means hate, 0 means neutrality, 1 means love
     usage_profile: float  # 0 means fully personal use intentions, 1 means fully professional
@@ -33,6 +41,7 @@ class HedgeboxPerson(SimPerson):
 
     name: str
     email: str
+    country_code: str
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -42,6 +51,9 @@ class HedgeboxPerson(SimPerson):
         self.plan = None
         self.name = self.cluster.person_provider.full_name()
         self.email = self.cluster.person_provider.email()
+        self.country_code = (
+            "US" if self.cluster.random.random() < 0.9532 else self.cluster.address_provider.country_code()
+        )
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
@@ -49,16 +61,41 @@ class HedgeboxPerson(SimPerson):
     def _simulate_session(self):
         super()._simulate_session()
         # Make sure the time makes sense
-        self._simulation_time += dt.timedelta(seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * 72_000 + 24)
+        self._simulation_time += dt.timedelta(
+            seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (36_000 if self.plan is not None else 172_800)
+            + 24
+        )
         if self._simulation_time >= self.cluster.end:
             return
         if not 5 < self._simulation_time.hour < 23 and self.cluster.random.random() < 0.9:
-            return
-        if 9 < self._simulation_time.hour < 17 and self.cluster.random.random() < 0.7:
-            return
+            return  # Not likely to be active at night
+        if (
+            self._simulation_time.weekday() < 5
+            and 9 < self._simulation_time.hour < 17
+            and self.cluster.random.random() < 0.5
+        ):
+            return  # Not very likely to be active during the work day
+
         self._active_client.start_session(
             str(UUIDT(int(self._simulation_time.timestamp()), seeded_random=self.cluster.random))
         )
+
+        if (
+            PROPERTY_NEW_SIGNUP_PAGE_FLAG not in self.properties
+            and self._simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
+        ):
+            self._identify(
+                None,
+                {
+                    PROPERTY_NEW_SIGNUP_PAGE_FLAG: "test"
+                    if self.cluster.random.random() < (NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT / 100)
+                    else "control"
+                },
+            )
+
+        self._register({"$geoip_country_code": self.country_code})
+        self._identify(None, {"$geoip_country_code": self.country_code})
+
         if self.need >= 0.3:
             if self.plan is None:
                 self._visit_homepage()
@@ -85,11 +122,18 @@ class HedgeboxPerson(SimPerson):
         """Go through sign-up flow and return True if the user signed up."""
         self._capture_pageview("https://hedgebox.net/register/")  # Visiting the sign-up page
         self._advance_timer(15 + self.cluster.random.betavariate(1.1, 2) * 70)  # Looking at things, filling out forms
-        success = self.cluster.random.random() < 0.7394  # What's the outlook?
+        # More likely to finish signing up with the new signup page
+        sucess_rate = (
+            SIGNUP_SUCCESS_RATE_TEST
+            if self.properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
+            else SIGNUP_SUCCESS_RATE_CONTROL
+        )
+        success = self.cluster.random.random() < sucess_rate  # What's the outlook?
         if success:  # Let's do this!
             self._capture(EVENT_SIGNED_UP, current_url="https://hedgebox.net/register/")
             self._advance_timer(self.cluster.random.uniform(0.1, 0.2))
             self._identify(self.email)
+            self._group_identify(GROUP_TYPE_ORGANIZATION, self.cluster.company_name)
             self.plan = 0
             self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.5) * 0.2
             self._capture_pageview("https://hedgebox.net/my_files/")
@@ -108,14 +152,14 @@ class HedgeboxPerson(SimPerson):
                 current_url="https://hedgebox.net/my_files/",
                 properties={"file_extension": self.cluster.file_provider.extension(),},
             )
-        self.satisfaction += self.cluster.random.uniform(-0.05, 0.2)
-        if self.satisfaction > 0.5:
-            self._affect_neighbors(lambda other: other._move_need(0.5))
+        self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
+        if self.satisfaction > 0.9:
+            self._affect_neighbors(lambda other: other._move_need(0.05))
 
     def _consider_downloading_file(self):
         self._capture(EVENT_DOWNLOADED_FILE, current_url="https://hedgebox.net/my_files/")
-        if self.satisfaction > 0.5:
-            self._affect_neighbors(lambda other: other._move_need(0.5))
+        if self.satisfaction > 0.9:
+            self._affect_neighbors(lambda other: other._move_need(0.05))
 
     def _consider_deleting_file(self):
         self._capture(EVENT_DELETED_FILE, current_url="https://hedgebox.net/my_files/")
@@ -148,6 +192,8 @@ class HedgeboxPerson(SimPerson):
 
 
 class HedgeboxCluster(Cluster):
+    matrix: "HedgeboxMatrix"
+
     MIN_RADIUS: int = 1
     MAX_RADIUS: int = 6
 
@@ -162,6 +208,9 @@ class HedgeboxCluster(Cluster):
 
     def _radius_distribution(self) -> int:
         return int(self.MIN_RADIUS + self.random.betavariate(1.5, 5) * (self.MAX_RADIUS - self.MIN_RADIUS))
+
+    def _initation_distribution(self) -> float:
+        return self.random.betavariate(1.8, 1)
 
 
 class HedgeboxMatrix(Matrix):
@@ -180,6 +229,7 @@ class HedgeboxMatrix(Matrix):
     ]
     property_definitions = [
         ("$distinct_id", None),
+        ("$user_id", None),
         ("$set", None),
         ("$set_once", None),
         ("$group_type", None),
@@ -197,8 +247,20 @@ class HedgeboxMatrix(Matrix):
         ("$referrer", PropertyType.String),
         ("$referring_domain", PropertyType.String),
         ("$timestamp", PropertyType.Datetime),
+        ("$time", PropertyType.Numeric),
+        ("$geoip_country_code", PropertyType.String),
+        (PROPERTY_NEW_SIGNUP_PAGE_FLAG, PropertyType.String),
         ("email", PropertyType.String),
     ]
+
+    new_signup_page_experiment_start: dt.datetime
+    new_signup_page_experiment_end: dt.datetime
+
+    def __init__(self, seed: Optional[str] = None, *, start: dt.datetime, end: dt.datetime, n_clusters: int):
+        super().__init__(seed, start=start, end=end, n_clusters=n_clusters)
+        # Start new signup page experiment roughly halfway through the simulation, end late into it
+        self.new_signup_page_experiment_end = self.end - dt.timedelta(days=2, hours=3, seconds=43)
+        self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
@@ -211,7 +273,7 @@ class HedgeboxMatrix(Matrix):
         team.primary_dashboard = key_metrics_dashboard
 
         # Insights
-        Insight.objects.create(
+        weekly_signups_insight = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
             order=0,
@@ -223,9 +285,19 @@ class HedgeboxMatrix(Matrix):
                 "display": TRENDS_LINEAR,
                 "insight": INSIGHT_TRENDS,
                 "interval": "week",
+                "date_from": "-1m",
             },
         )
-        Insight.objects.create(
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=weekly_signups_insight,
+            color="blue",
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+        signups_by_country_insight = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
             order=0,
@@ -236,6 +308,15 @@ class HedgeboxMatrix(Matrix):
                 "actions": [],
                 "display": TRENDS_WORLD_MAP,
                 "insight": INSIGHT_TRENDS,
+                "date_from": "-1m",
+            },
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=signups_by_country_insight,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
 
@@ -302,14 +383,26 @@ class HedgeboxMatrix(Matrix):
             created_by=user,
             filters={
                 "events": [
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 1},
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "https:\\/\\/hedgebox\\.net\\/register($|\\/)",
+                                "operator": "regex",
+                            }
+                        ],
+                    },
+                    {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
                 ],
+                "layout": "horizontal",
                 "actions": [],
-                "date_from": "1970-01-01T00:00",
-                "date_to": "1971-01-01T00:00",
-                "display": TRENDS_FUNNEL,
-                "insight": INSIGHT_FUNNELS,
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
                 "interval": "day",
                 "funnel_viz_type": "steps",
                 "filter_test_accounts": True,
@@ -323,6 +416,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_running_time": None,
                 "minimum_detectable_effect": 1,
             },
-            start_date=self.start + dt.timedelta(seconds=self.random.uniform(90, 18_000)),
-            created_at=self.start,  # FIXME
+            start_date=self.new_signup_page_experiment_start,
+            end_date=self.new_signup_page_experiment_end,
+            created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
         )

@@ -28,13 +28,15 @@ EVENT_AUTOCAPTURE = "$autocapture"
 EVENT_IDENTIFY = "$identify"
 EVENT_GROUP_IDENTIFY = "$groupidentify"
 
+Properties = Dict[str, Any]
+
 
 @dataclass
 class SimEvent:
     """A simulated event."""
 
     event: str
-    properties: Dict[str, Any]
+    properties: Properties
     timestamp: dt.datetime
 
     def __str__(self) -> str:
@@ -74,11 +76,13 @@ class SimPerson(ABC):
 
     _simulation_time: dt.datetime  # Current simulation time, populated by running .simulate()
     _active_client: SimWebClient  # Client used by person, populated by running .simulate()
+    _super_properties: Properties
     _end_pageview: Optional[Callable[[], None]]
+    _groups: Dict[str, str]
 
-    first_seen_at: Optional[dt.datetime]
     distinct_ids: List[str]
-    properties: Dict[str, Any]
+    properties: Properties
+
     events: List[SimEvent]
     scheduled_effects: Deque[Tuple[dt.datetime, Callable[[Self], None]]]
 
@@ -86,18 +90,11 @@ class SimPerson(ABC):
     cluster: "Cluster"
     x: int
     y: int
-    update_group: Callable[[str, str, Dict[str, Any]], None]
+    update_group: Callable[[str, str, Properties], None]
 
     def __init__(
-        self,
-        *,
-        kernel: bool,
-        cluster: "Cluster",
-        x: int,
-        y: int,
-        update_group: Callable[[str, str, Dict[str, Any]], None],
+        self, *, kernel: bool, cluster: "Cluster", x: int, y: int, update_group: Callable[[str, str, Properties], None],
     ):
-        self.first_seen_at = None
         self.distinct_ids = []
         self.properties = {}
         self.events = []
@@ -125,6 +122,8 @@ class SimPerson(ABC):
             os=os,
             browser=browser,
         )
+        self._groups = {}
+        self._super_properties = {}
         self.distinct_ids.append(self._active_client.anonymous_distinct_id)
         while self._simulation_time <= self.cluster.end:
             self._simulate_session()
@@ -135,11 +134,16 @@ class SimPerson(ABC):
     @abstractmethod
     def _simulate_session(self):
         """Simulation of a single session based on current agent state."""
-        if self.scheduled_effects and self.scheduled_effects[-1][0] <= self._simulation_time:
-            _, effect = self.scheduled_effects.pop()
+        if self.scheduled_effects and self.scheduled_effects[0][0] <= self._simulation_time:
+            _, effect = self.scheduled_effects.popleft()
             effect(self)
 
     def _affect_neighbors(self, effect: Callable[[Self], None]):
+        """Schedule the provided effect for all neighbors.
+
+        Because agents are currently simulated synchronously, the effect will only work on those who
+        haven't been simulated yet, but that's OK. The mechanism still has interesting results.
+        """
         for neighbor in self.cluster._list_neighbors(self.x, self.y):
             neighbor.schedule_effect(self._simulation_time, effect)
 
@@ -152,20 +156,28 @@ class SimPerson(ABC):
     def _capture(
         self,
         event: str,
-        properties: Optional[Dict[str, Any]] = None,
+        properties: Optional[Properties] = None,
         *,
         current_url: Optional[str] = None,
         referrer: Optional[str] = None,
     ):
-        combined_properties: Dict[str, Any] = {
-            "$lib": "web",
+        combined_properties: Properties = {
             "$distinct_id": self._active_client.active_distinct_id,
+            "$lib": "web",
             "$device_type": self._active_client.device_type,
             "$os": self._active_client.os,
             "$browser": self._active_client.browser,
             "$session_id": self._active_client.active_session_id,
             "$device_id": self._active_client.device_id,
+            "$groups": self._groups.copy(),
+            "$timestamp": self._simulation_time.isoformat(),
+            "$time": self._simulation_time.timestamp(),
         }
+        if self._super_properties:
+            combined_properties.update(self._super_properties)
+            if "$set" not in combined_properties:
+                combined_properties["$set"] = {}
+            combined_properties["$set"].update(self._super_properties)
         if current_url:
             parsed_current_url = urlparse(current_url)
             combined_properties["$current_url"] = current_url
@@ -175,21 +187,20 @@ class SimPerson(ABC):
             parsed_referrer = urlparse(referrer)
             combined_properties["$referrer"] = referrer
             combined_properties["$referring_domain"] = parsed_referrer.netloc
+        # Application of event
         if properties:
             combined_properties.update(properties)
-        if self.first_seen_at is None:
-            self.first_seen_at = self._simulation_time
         if combined_properties.get("$set_once"):
             for key, value in combined_properties["$set_once"].items():
                 if key not in self.properties:
                     self.properties[key] = value
         if combined_properties.get("$set"):
             self.properties.update(combined_properties["$set"])
-        combined_properties["$timestamp"] = self._simulation_time.isoformat()
+        # Saving
         self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
 
     def _capture_pageview(
-        self, current_url: str, properties: Optional[Dict[str, Any]] = None, *, referrer: Optional[str] = None
+        self, current_url: str, properties: Optional[Properties] = None, *, referrer: Optional[str] = None
     ):
         if self._end_pageview is not None:
             self._end_pageview()
@@ -197,20 +208,28 @@ class SimPerson(ABC):
         self._capture(EVENT_PAGEVIEW, properties, current_url=current_url, referrer=referrer)
         self._end_pageview = lambda: self._capture(EVENT_PAGELEAVE, current_url=current_url, referrer=referrer)
 
-    def _identify(self, distinct_id: str, set_properties: Optional[Dict[str, Any]] = None):
+    def _identify(self, distinct_id: Optional[str], set_properties: Optional[Properties] = None):
         if set_properties is None:
             set_properties = {}
-        self._active_client.active_distinct_id = distinct_id
-        self._capture(EVENT_IDENTIFY, {"$set": set_properties})
-        if distinct_id not in self.distinct_ids:
-            self.distinct_ids.append(distinct_id)
+        identify_properties = {"$distinct_id": self._active_client.active_distinct_id, "$set": set_properties}
+        if distinct_id:
+            self._active_client.active_distinct_id = distinct_id
+            identify_properties["$user_id"] = distinct_id
+            if distinct_id not in self.distinct_ids:
+                self.distinct_ids.append(distinct_id)
+        self._capture(EVENT_IDENTIFY, identify_properties)
 
     def _reset(self):
         self._active_client.active_distinct_id = self._active_client.anonymous_distinct_id
 
-    def _group_identify(self, group_type: str, group_key: str, set_properties: Optional[Dict[str, Any]] = None):
+    def _register(self, super_properties: Properties):
+        """Register super properties. Differently from posthog-js, these also are set on the person."""
+        self._super_properties.update(super_properties)
+
+    def _group_identify(self, group_type: str, group_key: str, set_properties: Optional[Properties] = None):
         if set_properties is None:
             set_properties = {}
+        self._groups[group_type] = group_key
         self.update_group(group_type, group_key, set_properties)
         self._capture(
             EVENT_GROUP_IDENTIFY, {"$group_type": group_type, "$group_key": group_key, "$group_set": set_properties}

@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import (
     Any,
-    Callable,
     DefaultDict,
     Dict,
     List,
@@ -30,6 +29,7 @@ class Cluster(ABC):
     """A cluster of people, e.g. a company, but perhaps a group of friends."""
 
     index: int  # Cluster index
+    matrix: "Matrix"  # Parent
     start: dt.datetime  # Start of the simulation
     end: dt.datetime  # End of the simulation
 
@@ -47,49 +47,34 @@ class Cluster(ABC):
     finance_provider: mimesis.Finance
     file_provider: mimesis.File
 
-    update_group: Callable[[str, str, Dict[str, Any]], None]
-
-    def __init__(
-        self,
-        *,
-        index: int,
-        start: dt.datetime,
-        end: dt.datetime,
-        person_model: Type[SimPerson],
-        random: mimesis.random.Random,
-        properties_provider: PropertiesProvider,
-        person_provider: mimesis.Person,
-        numeric_provider: mimesis.Numeric,
-        address_provider: mimesis.Address,
-        internet_provider: mimesis.Internet,
-        datetime_provider: mimesis.Datetime,
-        finance_provider: mimesis.Finance,
-        file_provider: mimesis.File,
-        update_group: Callable[[str, str, Dict[str, Any]], None],
-    ) -> None:
+    def __init__(self, *, index: int, matrix: "Matrix") -> None:
         self.index = index
-        self.start = start
-        self.end = end
-        self.random = random
-        self.properties_provider = properties_provider
-        self.person_provider = person_provider
-        self.numeric_provider = numeric_provider
-        self.address_provider = address_provider
-        self.internet_provider = internet_provider
-        self.datetime_provider = datetime_provider
-        self.finance_provider = finance_provider
-        self.file_provider = file_provider
+        self.matrix = matrix
+        self.random = matrix.random
+        self.properties_provider = matrix.properties_provider
+        self.person_provider = matrix.person_provider
+        self.numeric_provider = matrix.numeric_provider
+        self.address_provider = matrix.address_provider
+        self.internet_provider = matrix.internet_provider
+        self.datetime_provider = matrix.datetime_provider
+        self.finance_provider = matrix.finance_provider
+        self.file_provider = matrix.file_provider
+        self.start = matrix.start + (matrix.end - matrix.start) * self._initation_distribution()
+        self.end = matrix.end
         self.radius = self._radius_distribution()
         self.people_matrix = [
             [
-                person_model(
-                    kernel=(x == self.radius and y == self.radius), x=x, y=y, cluster=self, update_group=update_group
+                matrix.person_model(
+                    kernel=(x == self.radius and y == self.radius),
+                    x=x,
+                    y=y,
+                    cluster=self,
+                    update_group=matrix.update_group,
                 )
                 for x in range(1 + self.radius * 2)
             ]
             for y in range(1 + self.radius * 2)
         ]
-        self.update_group = update_group
 
     def __str__(self) -> str:
         """Return cluster ID. Overriding this is recommended but optional."""
@@ -98,6 +83,10 @@ class Cluster(ABC):
     @abstractmethod
     def _radius_distribution(self) -> int:
         """Return a pseudo-random radius, based on a chosen statistical distribution."""
+
+    @abstractmethod
+    def _initation_distribution(self) -> float:
+        """Return a pseudo-random value between 0 and 1 determining how far into the overall simulation should this cluster be initiated."""
 
     def _list_neighbors(self, x: int, y: int) -> List[SimPerson]:
         """Return a list of neighbors of a person at (x, y)."""
@@ -186,25 +175,7 @@ class Matrix(ABC):
         self.finance_provider = mimesis.Finance(seed=seed)
         self.file_provider = mimesis.File(seed=seed)
         self.groups = defaultdict(lambda: defaultdict(dict))
-        self.clusters = [
-            self.cluster_model(
-                index=i,
-                start=start,
-                end=end,
-                person_model=self.person_model,
-                random=self.random,
-                properties_provider=self.properties_provider,
-                person_provider=self.person_provider,
-                numeric_provider=self.numeric_provider,
-                address_provider=self.address_provider,
-                internet_provider=self.internet_provider,
-                datetime_provider=self.datetime_provider,
-                finance_provider=self.finance_provider,
-                file_provider=self.file_provider,
-                update_group=self.update_group,
-            )
-            for i in range(n_clusters)
-        ]
+        self.clusters = [self.cluster_model(index=i, matrix=self) for i in range(n_clusters)]
 
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
@@ -217,7 +188,12 @@ class Matrix(ABC):
         )
         PropertyDefinition.objects.bulk_create(
             (
-                PropertyDefinition(team=team, name=property_name, property_type=property_type,)
+                PropertyDefinition(
+                    team=team,
+                    name=property_name,
+                    property_type=property_type,
+                    is_numerical=property_type == PropertyType.Numeric,
+                )
                 for (property_name, property_type) in self.property_definitions
             )
         )
