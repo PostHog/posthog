@@ -11,6 +11,17 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import BaseTest
 
 
+def create_test_events(properties=""):
+    sync_execute(
+        f"""
+        INSERT INTO {EVENTS_DATA_TABLE()} (event, team_id, uuid, timestamp, distinct_id, properties)
+        VALUES
+            ('event1', 1, '{str(uuid4())}', now(), 'some_distinct_id', '{properties}')
+            ('event2', 1, '{str(uuid4())}', now(), 'some_distinct_id', '{properties}')
+        """
+    )
+
+
 @pytest.mark.ee
 class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
@@ -26,14 +37,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def test_person_backfill(self):
         self.recreate_database(create_tables=True)
 
-        sync_execute(
-            f"""
-            INSERT INTO {EVENTS_DATA_TABLE()} (event, team_id, uuid, timestamp, distinct_id)
-            VALUES
-                ('event1', 1, '{str(uuid4())}', now(), 'some_distinct_id')
-                ('event2', 1, '{str(uuid4())}', now(), 'some_distinct_id')
-            """
-        )
+        create_test_events()
 
         person_id = uuid4()
         person_props = '{ "foo": "bar" }'
@@ -53,13 +57,44 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             """
         )
 
-        events_before = sync_execute("select person_id, person_properties from events")
+        events_before = sync_execute("select event, person_id, person_properties from events")
         self.assertEqual(
             events_before,
-            [(UUID("00000000-0000-0000-0000-000000000000"), ""), (UUID("00000000-0000-0000-0000-000000000000"), "")],
+            [
+                ("event1", UUID("00000000-0000-0000-0000-000000000000"), ""),
+                ("event2", UUID("00000000-0000-0000-0000-000000000000"), ""),
+            ],
         )
 
         run_backfill({"team_id": 1, "live_run": True})
 
-        events_after = sync_execute("select person_id, person_properties from events")
-        self.assertEqual(events_after, [(person_id, '{ "foo": "bar" }'), (person_id, '{ "foo": "bar" }')])
+        events_after = sync_execute("select event, person_id, person_properties from events")
+        self.assertEqual(
+            events_after, [("event1", person_id, '{ "foo": "bar" }'), ("event2", person_id, '{ "foo": "bar" }')]
+        )
+
+    def test_groups_backfill(self):
+        self.recreate_database(create_tables=True)
+
+        create_test_events('{ "$group_0": "my_group" }')
+
+        group_props = '{ "foo": "bar" }'
+        sync_execute(
+            f"""
+            INSERT INTO groups (group_type_index, group_key, group_properties)
+            VALUES
+                (0, 'my_group', '{group_props}')
+            """
+        )
+
+        events_before = sync_execute("select event, $group_0, group0_properties from events")
+        self.assertEqual(
+            events_before, [("event1", "my_group", ""), ("event2", "my_group", "")],
+        )
+
+        run_backfill({"team_id": 1, "live_run": True})
+
+        events_after = sync_execute("select event, $group_0, group0_properties from events")
+        self.assertEqual(
+            events_after, [("event1", "my_group", group_props), ("event2", "my_group", group_props)],
+        )
