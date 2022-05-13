@@ -171,18 +171,6 @@ class HedgeboxPerson(SimPerson):
         self._capture_pageview(f"https://hedgebox.net/my_files/{file_name}/")
         self._consider_downloading_file()
 
-    def _upgrade_plan(self):
-        pass
-        # TODO
-
-    def _downgrade_plan(self):
-        pass
-        # TODO
-
-    def _recommend_product(self):
-        pass
-        # TODO
-
     def _move_satisfaction(self, delta: float):
         self.satisfaction = max(-1, min(1, self.satisfaction + delta))
 
