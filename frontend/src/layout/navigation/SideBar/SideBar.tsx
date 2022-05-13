@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
-import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
@@ -15,6 +14,7 @@ import {
     IconFlag,
     IconGauge,
     IconPerson,
+    IconPin,
     IconPlus,
     IconRecording,
     IconSettings,
@@ -41,6 +41,8 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonRow } from 'lib/components/LemonRow'
+
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -159,17 +161,18 @@ function Pages(): JSX.Element {
                                                 />
                                             ))
                                         ) : (
-                                            <div className="text-muted text-center" style={{ maxWidth: 220 }}>
-                                                <PushpinOutlined style={{ marginRight: 4 }} /> Pinned dashboards will
-                                                show here.{' '}
-                                                <Link
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboards()}
-                                                >
-                                                    Go to dashboards
-                                                </Link>
-                                                .
-                                            </div>
+                                            <LemonRow icon={<IconPin />} fullWidth>
+                                                <span>
+                                                    <Link
+                                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                                        to={urls.dashboards()}
+                                                    >
+                                                        Pin some dashboards
+                                                    </Link>
+                                                    <br />
+                                                    for them to show up here
+                                                </span>
+                                            </LemonRow>
                                         )}
                                     </div>
                                 ),
