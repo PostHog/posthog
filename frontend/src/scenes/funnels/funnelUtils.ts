@@ -330,6 +330,9 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepR
     return exclusions.length > 0 ? exclusions : undefined
 }
 
+const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
+    candidates.find((s) => typeof s === 'number')
+
 export const getClampedStepRangeFilter = ({
     stepRange,
     filters,
@@ -338,23 +341,22 @@ export const getClampedStepRangeFilter = ({
     filters: FilterType
 }): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    const incomingFunnelFromStep = stepRange?.funnel_from_step || filters.funnel_from_step
-    const incomingFunnelToStep = stepRange?.funnel_to_step || filters.funnel_to_step
 
-    const funnelFromStepIsSet = typeof incomingFunnelFromStep === 'number' && incomingFunnelFromStep !== 0
-    const funnelToStepIsSet = typeof incomingFunnelToStep === 'number' && incomingFunnelToStep !== maxStepIndex
+    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
+    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
 
-    if (funnelFromStepIsSet || funnelToStepIsSet) {
-        const funnel_from_step = clamp(incomingFunnelFromStep ?? 0, 0, maxStepIndex)
-        return {
-            ...(stepRange as FunnelStepRangeEntityFilter),
-            funnel_from_step,
-            funnel_to_step: clamp(incomingFunnelToStep ?? maxStepIndex, funnel_from_step + 1, maxStepIndex),
-        }
+    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
+    const funnelToStepIsSet = typeof funnel_to_step === 'number'
+
+    if (funnelFromStepIsSet && funnelToStepIsSet) {
+        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
+        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
     }
+
     return {
-        funnel_from_step: undefined,
-        funnel_to_step: undefined,
+        ...(stepRange || {}),
+        funnel_from_step,
+        funnel_to_step,
     }
 }
 
