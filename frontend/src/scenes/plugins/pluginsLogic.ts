@@ -668,6 +668,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             }
 
             actions.checkedForUpdates()
+            actions.toggleSectionOpen(PluginSection.Upgrade)
         },
         loadPluginsSuccess() {
             const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}
