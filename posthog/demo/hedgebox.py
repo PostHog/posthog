@@ -25,7 +25,7 @@ GROUP_TYPE_ORGANIZATION = "organization"
 # Feature flags
 FILE_PREVIEWS_FLAG_KEY = "file-previews"
 NEW_SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
-NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT = 30
+NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT = 50
 PROPERTY_NEW_SIGNUP_PAGE_FLAG = f"$feature/{NEW_SIGNUP_PAGE_FLAG_KEY}"
 SIGNUP_SUCCESS_RATE_TEST = 0.5794
 SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
@@ -370,7 +370,15 @@ class HedgeboxMatrix(Matrix):
             team=team,
             key=NEW_SIGNUP_PAGE_FLAG_KEY,
             name="New sign-up flow",
-            filters={"groups": [{"properties": [], "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT}]},
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                        {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                    ]
+                },
+            },
             created_by=user,
             # TODO: created_at
         )
@@ -411,7 +419,7 @@ class HedgeboxMatrix(Matrix):
                     {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
                     {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
                 ],
-                "recommended_sample_size": 1274,
+                "recommended_sample_size": int(len(self.clusters) * 0.43),
                 "recommended_running_time": None,
                 "minimum_detectable_effect": 1,
             },
