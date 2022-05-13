@@ -1,4 +1,3 @@
-from datetime import datetime
 from time import sleep
 from typing import Any
 from uuid import uuid4
@@ -42,12 +41,10 @@ logger = structlog.get_logger(__name__)
 
 backfill_query_id = str(uuid4())
 
-now = datetime.now()
-dict_suffix = now.strftime("%Y_%m_%d__%H_%M_%S")
 
-GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict_{dict_suffix}"
-PERSONS_DICT_TABLE_NAME = f"{PERSONS_TABLE}_dict_{dict_suffix}"
-PERSON_DISTINCT_IDS_DICT_TABLE_NAME = f"{PERSON_DISTINCT_ID2_TABLE}_dict_{dict_suffix}"
+GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict"
+PERSONS_DICT_TABLE_NAME = f"{PERSONS_TABLE}_dict"
+PERSON_DISTINCT_IDS_DICT_TABLE_NAME = f"{PERSON_DISTINCT_ID2_TABLE}_dict"
 
 GROUPS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME}
@@ -116,9 +113,6 @@ WHERE
 LIMIT 1
 """
 
-DROP_GROUPS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {GROUPS_DICT_TABLE_NAME}"
-DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSON_DISTINCT_IDS_DICT_TABLE_NAME}"
-DROP_PERSONS_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {PERSONS_DICT_TABLE_NAME}"
 
 query_number = 0
 
@@ -160,10 +154,6 @@ def run_backfill(options):
         BACKFILL_SQL, "BACKFILL_SQL", dry_run, 0, {"team_id": options["team_id"], "id": backfill_query_id}
     )
     client._request_information = None
-
-    print_and_execute_query(DROP_GROUPS_DICTIONARY_SQL, "DROP_GROUPS_DICTIONARY_SQL", dry_run)
-    print_and_execute_query(DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL, "DROP_PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
-    print_and_execute_query(DROP_PERSONS_DICTIONARY_SQL, "DROP_PERSONS_DICTIONARY_SQL", dry_run)
 
     sleep(10)
     query_id_res = print_and_execute_query(GET_QUERY_ID_SQL, "GET_QUERY_ID_SQL", dry_run)
