@@ -58,8 +58,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
         <>
             <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
                 <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
+                    {filters.insight === InsightType.LIFECYCLE ? (
+                        <div className="mb-05">
+                            Showing <b>Unique users</b> who did
+                        </div>
+                    ) : undefined}
                     <ActionFilter
-                        horizontalUI
                         filters={filters}
                         setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                         typeKey={`trends_${view}`}
@@ -84,13 +88,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
-                        customRowPrefix={
-                            filters.insight === InsightType.LIFECYCLE ? (
-                                <>
-                                    Showing <b>Unique users</b> who did
-                                </>
-                            ) : undefined
-                        }
                     />
                 </Col>
                 <Col

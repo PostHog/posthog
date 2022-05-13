@@ -359,70 +359,29 @@ export function EventsTable({
 
     return (
         <div data-attr="manage-events-table">
-            <div
-                className="events"
-                data-attr="events-table"
-                style={{
-                    paddingTop: '1rem',
-                    borderTop: '1px solid var(--border)',
-                }}
-            >
-                <div
-                    className="mb"
-                    style={{
-                        display: 'flex',
-                        gap: '1rem',
-                        flexWrap: 'wrap',
-                        justifyContent: 'space-between',
-                        alignItems: 'start',
-                    }}
-                >
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: '0.5rem',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            width: '100%',
-                        }}
-                    >
-                        <PropertyFilters
-                            propertyFilters={properties}
-                            onChange={setProperties}
-                            pageKey={pageKey}
-                            taxonomicPopoverPlacement="bottom-start"
-                            style={{ marginBottom: 0, marginTop: 0 }}
-                            eventNames={eventFilter ? [eventFilter] : []}
-                            useLemonButton
-                            prefixComponent={
-                                showEventFilter ? (
-                                    <LemonEventName
-                                        value={eventFilter}
-                                        onChange={(value: string) => {
-                                            setEventFilter(value || '')
-                                        }}
-                                    />
-                                ) : (
-                                    <></>
-                                )
-                            }
+            <div className="events" data-attr="events-table">
+                <div className="flex pt pb border-top space-x">
+                    {showEventFilter ? (
+                        <LemonEventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
+                            }}
                         />
-                    </div>
+                    ) : null}
+                    <PropertyFilters
+                        propertyFilters={properties}
+                        onChange={setProperties}
+                        pageKey={pageKey}
+                        taxonomicPopoverPlacement="bottom-start"
+                        style={{ marginBottom: 0, marginTop: 0 }}
+                        eventNames={eventFilter ? [eventFilter] : []}
+                        useLemonButton
+                    />
+                </div>
 
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: '1rem',
-                            borderTop:
-                                showAutoload || showCustomizeColumns || showExport ? '1px solid var(--border)' : 0,
-                            width: '100%',
-                            paddingTop: showAutoload || showCustomizeColumns || showExport ? '1rem' : 0,
-                        }}
-                    >
+                {showAutoload || showCustomizeColumns || showExport ? (
+                    <div className="space-between-items pt pb border-top">
                         {showAutoload && (
                             <LemonSwitch
                                 type="primary"
@@ -432,7 +391,7 @@ export function EventsTable({
                                 onChange={toggleAutomaticLoad}
                             />
                         )}
-                        <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
+                        <div className="flex space-x-05">
                             {showCustomizeColumns && (
                                 <LemonTableConfig
                                     immutableColumns={['event', 'person']}
@@ -452,7 +411,7 @@ export function EventsTable({
                             )}
                         </div>
                     </div>
-                </div>
+                ) : null}
 
                 <LemonTable
                     dataSource={eventsFormatted}

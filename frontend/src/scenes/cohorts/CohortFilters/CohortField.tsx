@@ -178,7 +178,7 @@ export function CohortNumberField({
             type="number"
             value={(value as string | number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange({ [fieldKey]: nextNumber })
+                onChange({ [fieldKey]: parseInt(nextNumber) })
             }}
             min={1}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}

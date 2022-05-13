@@ -62,6 +62,7 @@ export async function startPluginsServer(
     let piscina: Piscina | undefined
     let queue: Queue | undefined | null // ingestion queue
     let redisQueueForPluginJobs: Queue | undefined | null
+    let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
@@ -90,6 +91,7 @@ export async function startPluginsServer(
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
+        await healthCheckConsumer?.stop()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -264,12 +266,13 @@ export async function startPluginsServer(
         serverInstance.stop = closeJobs
 
         if (hub.kafka) {
-            serverInstance.kafkaHealthcheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+            healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+            serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
 
-            await serverInstance.kafkaHealthcheckConsumer.connect()
+            await healthCheckConsumer.connect()
 
             try {
-                serverInstance.kafkaHealthcheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+                healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
             } catch (err) {
                 // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
                 status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
