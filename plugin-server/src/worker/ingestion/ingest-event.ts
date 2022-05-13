@@ -39,7 +39,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
                 await hub.eventsProcessor.produceEventToBuffer(preIngestionEvent)
             } else {
                 const [, , elements] = await hub.eventsProcessor.createEvent(preIngestionEvent)
-                actionMatches = await handleActionMatches(hub, event, site_url, elements, person)
+                actionMatches = await handleActionMatches(hub, preIngestionEvent, elements, person)
             }
         }
 
@@ -69,21 +69,20 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 export async function ingestBufferEvent(hub: Hub, event: PreIngestionEvent): Promise<IngestEventResponse> {
     const person = await hub.db.getPersonData(event.teamId, event.distinctId)
     const [, , elements] = await hub.eventsProcessor.createEvent(event)
-    const actionMatches = await handleActionMatches(hub, event as any, '', elements, person ?? undefined)
+    const actionMatches = await handleActionMatches(hub, event, elements, person ?? undefined)
     return { success: true, actionMatches, preIngestionEvent: event }
 }
 
 async function handleActionMatches(
     hub: Hub,
-    event: PluginEvent,
-    siteUrl: string,
+    event: PreIngestionEvent,
     elements?: Element[],
     person?: CachedPersonData | Person
 ): Promise<Action[]> {
     let actionMatches: Action[] = []
 
     actionMatches = await hub.actionMatcher.match(event, person, elements)
-    await hub.hookCannon.findAndFireHooks(event, person, siteUrl, actionMatches)
+    await hub.hookCannon.findAndFireHooks(event, person, event.siteUrl, actionMatches)
 
     return actionMatches
 }

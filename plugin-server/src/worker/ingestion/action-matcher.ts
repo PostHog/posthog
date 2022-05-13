@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Properties } from '@posthog/plugin-scaffold/src/types'
+import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
@@ -16,6 +15,7 @@ import {
     EventPropertyFilter,
     Person,
     PersonPropertyFilter,
+    PreIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
@@ -109,12 +109,12 @@ export class ActionMatcher {
 
     /** Get all actions matched to the event. */
     public async match(
-        event: PluginEvent,
+        event: PreIngestionEvent,
         person?: CachedPersonData | Person,
         elements?: Element[]
     ): Promise<Action[]> {
         const matchingStart = new Date()
-        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.team_id))
+        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
             elements = rawElements ? extractElements(rawElements) : []
@@ -125,7 +125,7 @@ export class ActionMatcher {
                 const res = this.checkAction(event, elements, person, action)
                 this.statsd?.timing('checkAction', timer, {
                     event: String(event.event),
-                    teamId: String(event.team_id),
+                    teamId: String(event.teamId),
                     action: String(action.name),
                 })
                 return res
@@ -149,7 +149,7 @@ export class ActionMatcher {
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
     public async checkAction(
-        event: PluginEvent,
+        event: PreIngestionEvent,
         elements: Element[] | undefined,
         person: CachedPersonData | Person | undefined,
         action: Action
@@ -176,7 +176,7 @@ export class ActionMatcher {
      * The event is considered a match if no subcheck fails. Many subchecks are usually irrelevant and skipped.
      */
     private async checkStep(
-        event: PluginEvent,
+        event: PreIngestionEvent,
         elements: Element[] | undefined,
         person: CachedPersonData | Person | undefined,
         step: ActionStep
@@ -198,7 +198,7 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's "URL" constraint.
      * Step properties: `url_matching`, `url`.
      */
-    private checkStepUrl(event: PluginEvent, step: ActionStep): boolean {
+    private checkStepUrl(event: PreIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.url) {
             const eventUrl = event.properties?.$current_url
@@ -272,7 +272,7 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's event name constraint.
      * Step property: `event`.
      */
-    private checkStepEvent(event: PluginEvent, step: ActionStep): boolean {
+    private checkStepEvent(event: PreIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.event && event.event !== step.event) {
             return false // EVENT NAME IS A MISMATCH
@@ -287,7 +287,7 @@ export class ActionMatcher {
      * Step property: `properties`.
      */
     private async checkStepFilters(
-        event: PluginEvent,
+        event: PreIngestionEvent,
         elements: Element[],
         person: CachedPersonData | Person | undefined,
         step: ActionStep
@@ -308,7 +308,7 @@ export class ActionMatcher {
      * Sublevel 3 of action matching.
      */
     private async checkEventAgainstFilter(
-        event: PluginEvent,
+        event: PreIngestionEvent,
         elements: Element[],
         person: CachedPersonData | Person | undefined,
         filter: PropertyFilter
@@ -330,7 +330,7 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstEventFilter(event: PluginEvent, filter: EventPropertyFilter): boolean {
+    private checkEventAgainstEventFilter(event: PreIngestionEvent, filter: EventPropertyFilter): boolean {
         return this.checkPropertiesAgainstFilter(event.properties, filter)
     }
 
