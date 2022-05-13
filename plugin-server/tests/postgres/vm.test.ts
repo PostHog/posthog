@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
@@ -23,7 +23,9 @@ const defaultEvent = {
     site_url: 'http://localhost',
     team_id: 3,
     now: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     event: 'default event',
+    properties: {},
 }
 
 // since we introduced super lazy vms, setupPlugin does not run immediately with
@@ -372,7 +374,7 @@ describe('vm tests', () => {
             `
             await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'export',
             }
@@ -391,7 +393,7 @@ describe('vm tests', () => {
             `
             await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'default export',
             }
@@ -1071,7 +1073,7 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: PluginEvent = {
+        const event: ProcessedPluginEvent = {
             ...defaultEvent,
             event: 'onEvent',
         }
@@ -1087,7 +1089,7 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: PluginEvent = {
+        const event: ProcessedPluginEvent = {
             ...defaultEvent,
             event: '$snapshot',
         }
@@ -1158,7 +1160,7 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'exported',
             }
@@ -1267,7 +1269,7 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'exported',
             }
@@ -1301,13 +1303,13 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
-                site_url: 'http://localhost',
                 team_id: 3,
-                now: new Date().toISOString(),
+                timestamp: new Date().toISOString(),
                 event: 'exported',
+                properties: {},
             }
             for (let i = 0; i < 100; i++) {
                 await vm.methods.onEvent!(event)
@@ -1355,13 +1357,13 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
-                site_url: 'http://localhost',
                 team_id: 3,
-                now: new Date().toISOString(),
+                timestamp: new Date().toISOString(),
                 event: 'exported',
+                properties: {},
             }
             for (let i = 0; i < 100; i++) {
                 await vm.methods.onEvent!(event)
