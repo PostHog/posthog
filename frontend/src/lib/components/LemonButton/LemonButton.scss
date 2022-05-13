@@ -53,7 +53,7 @@
 
 .LemonButton--primary {
     background: var(--primary);
-    color: #fff;
+    color: #fff !important;
     &:not(:disabled):hover,
     &.LemonButton--active {
         background: var(--primary-hover);
@@ -61,9 +61,33 @@
     &:not(:disabled):active {
         background: var(--primary-active);
     }
+    &.LemonRow--status-danger {
+        background: var(--danger);
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--danger-hover);
+        }
+        &:not(:disabled):active {
+            background: var(--danger-active);
+        }
+    }
+    &.LemonRow--status-warning {
+        background: var(--warning);
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--warning-hover);
+        }
+        &:not(:disabled):active {
+            background: var(--warning-active);
+        }
+    }
+    &.LemonRow--status-success {
+        background: var(--success);
+        // TODO: Hover/active colors are not defined for success yet
+    }
     .LemonRow__icon,
     .spinner {
-        color: #fff;
+        color: #fff !important;
     }
 }
 

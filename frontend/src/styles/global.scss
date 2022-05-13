@@ -21,6 +21,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
+    --danger-hover: #{$danger_hover};
+    --danger-active: #{$danger_active};
     --warning: #{$warning};
     --warning-hover: #{$warning_hover};
     --warning-active: #{$warning_active};
