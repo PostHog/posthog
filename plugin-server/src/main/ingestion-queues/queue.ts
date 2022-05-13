@@ -1,5 +1,5 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import {
@@ -39,17 +39,17 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        onEvent: (event: PluginEvent) => {
+        onEvent: (event: ProcessedPluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onEvent'
             return piscina.run({ task: 'onEvent', args: { event } })
         },
-        onAction: (action: Action, event: PluginEvent) => {
+        onAction: (action: Action, event: ProcessedPluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onAction'
             return piscina.run({ task: 'onAction', args: { event, action } })
         },
-        onSnapshot: (event: PluginEvent) => {
+        onSnapshot: (event: ProcessedPluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onSnapshot'
             return piscina.run({ task: 'onSnapshot', args: { event } })
