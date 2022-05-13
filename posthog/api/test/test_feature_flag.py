@@ -1340,15 +1340,19 @@ class TestFeatureFlag(APIBaseTest):
             key="some-feature",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+            active=True,
         )
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}/",
-            data={"active": False},
+            data="active=False&name=replaced",
             content_type="application/x-www-form-urlencoded",
         )
+
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(FeatureFlag.objects.get(pk=another_feature_flag.pk).name, "some feature")
+        updated_flag = FeatureFlag.objects.get(pk=another_feature_flag.pk)
+        self.assertEqual(updated_flag.active, False)
+        self.assertEqual(updated_flag.name, "replaced")
         self.assertEqual(
-            FeatureFlag.objects.get(pk=another_feature_flag.pk).filters,
-            {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+            updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
         )
