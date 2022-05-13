@@ -206,20 +206,20 @@ function InsightMeta({
     const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    const foldedHeight = `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)`
+    const unfoldedHeight = `calc(${primaryHeight}px + ${
+        detailsHeight || 0
+    }px + 3.5rem /* margins */ + 3px /* border and spacer */)`
     const transitionStyles = primaryHeight
         ? {
               entering: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
               entered: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
-              exiting: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
-              exited: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
+              exiting: { height: foldedHeight },
+              exited: { height: foldedHeight },
           }
         : {}
 
