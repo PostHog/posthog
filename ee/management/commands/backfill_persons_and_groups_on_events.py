@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
@@ -57,7 +58,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY group_key
 SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(cache(size_in_cells 1000))
+LAYOUT(complex_key_cache(size_in_cells 1000))
 Lifetime(60000)
 """
 
@@ -71,7 +72,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY distinct_id
 SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(cache(size_in_cells 1000))
+LAYOUT(complex_key_cache(size_in_cells 1000))
 Lifetime(60000)
 """
 
@@ -84,9 +85,11 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY id
 SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(cache(size_in_cells 1000))
+LAYOUT(complex_key_cache(size_in_cells 1000))
 Lifetime(60000)
 """
+
+backfill_settings = "SETTINGS mutations_sync = 2" if settings.TEST else ""
 
 BACKFILL_SQL = f"""
 ALTER TABLE {EVENTS_DATA_TABLE()}
@@ -100,7 +103,7 @@ UPDATE
     group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_3),
     group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_4)
 WHERE team_id = %(team_id)s
-SETTINGS mutations_sync=2
+{backfill_settings}
 """
 
 GET_QUERY_ID_SQL = f"""
@@ -123,9 +126,10 @@ query_number = 0
 def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, query_args={}) -> Any:
     global query_number
 
-    print(f"> {query_number}. {name}", end="\n\n")
-    print(sql, end="\n")
-    print("---------------------------------", end="\n\n")
+    if not settings.TEST:
+        print(f"> {query_number}. {name}", end="\n\n")
+        print(sql, end="\n")
+        print("---------------------------------", end="\n\n")
 
     query_number = query_number + 1
 
