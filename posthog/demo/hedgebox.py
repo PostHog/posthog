@@ -81,11 +81,10 @@ class HedgeboxPerson(SimPerson):
         )
 
         if (
-            PROPERTY_NEW_SIGNUP_PAGE_FLAG not in self.properties
+            PROPERTY_NEW_SIGNUP_PAGE_FLAG not in self._super_properties
             and self._simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
         ):
-            self._identify(
-                None,
+            self._register(
                 {
                     PROPERTY_NEW_SIGNUP_PAGE_FLAG: "test"
                     if self.cluster.random.random() < (NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT / 100)
@@ -125,7 +124,7 @@ class HedgeboxPerson(SimPerson):
         # More likely to finish signing up with the new signup page
         sucess_rate = (
             SIGNUP_SUCCESS_RATE_TEST
-            if self.properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
+            if self._super_properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
             else SIGNUP_SUCCESS_RATE_CONTROL
         )
         success = self.cluster.random.random() < sucess_rate  # What's the outlook?
