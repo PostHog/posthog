@@ -93,14 +93,10 @@ async function createTopics(kafka: Kafka, topics: string[]) {
     const topicsToCreate = topics.filter((topic) => !existingTopics.includes(topic)).map((topic) => ({ topic }))
 
     if (topicsToCreate.length > 0) {
-        try {
-            await admin.createTopics({
-                waitForLeaders: true,
-                topics: topicsToCreate,
-            })
-        } catch (error) {
-            console.log("Error creating topics. Probably they're already created.\n", error)
-        }
+        await admin.createTopics({
+            waitForLeaders: true,
+            topics: topicsToCreate,
+        })
     }
     await admin.disconnect()
 }
