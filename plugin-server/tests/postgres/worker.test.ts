@@ -1,18 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import IORedis from 'ioredis'
 import { mocked } from 'ts-jest/utils'
 
-import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub, LogLevel } from '../../src/types'
-import { Client } from '../../src/utils/celery/client'
+import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
-import { makePiscina } from '../../src/worker/piscina'
 import { runPluginTask, runProcessEvent } from '../../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
@@ -122,46 +118,6 @@ describe('worker', () => {
         try {
             await piscina.destroy()
         } catch {}
-    })
-
-    describe('queue logic', () => {
-        let pluginsServer: ServerInstance
-        let redis: IORedis.Redis
-
-        beforeEach(async () => {
-            const testCode = `
-            async function processEvent (event) {
-                await new Promise(resolve => __jestSetTimeout(resolve, 1000))
-                return event
-            }
-        `
-            await resetTestDatabase(testCode)
-            pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 2,
-                    TASKS_PER_WORKER: 2,
-                    REDIS_POOL_MIN_SIZE: 3,
-                    REDIS_POOL_MAX_SIZE: 3,
-                    PLUGINS_CELERY_QUEUE: `test-plugins-celery-queue-${new UUIDT()}`,
-                    CELERY_DEFAULT_QUEUE: `test-celery-default-queue-${new UUIDT()}`,
-                    LOG_LEVEL: LogLevel.Debug,
-                },
-                makePiscina
-            )
-
-            redis = await pluginsServer.hub.redisPool.acquire()
-
-            await redis.del(pluginsServer.hub.PLUGINS_CELERY_QUEUE)
-            await redis.del(pluginsServer.hub.CELERY_DEFAULT_QUEUE)
-        })
-
-        afterEach(async () => {
-            // :TRICKY: Ignore errors when stopping workers.
-            try {
-                await pluginsServer.hub.redisPool.release(redis)
-                await pluginsServer.stop()
-            } catch {}
-        })
     })
 
     describe('createTaskRunner()', () => {
