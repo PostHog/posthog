@@ -1,5 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
-import { Meta, PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import {
+    Meta,
+    PluginAttachment,
+    PluginConfigSchema,
+    PluginEvent,
+    ProcessedPluginEvent,
+    Properties,
+} from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
@@ -313,7 +320,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -384,9 +391,9 @@ export type WorkerMethods = {
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
-    onEvent?: (event: PluginEvent) => Promise<void>
-    onAction?: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot?: (event: PluginEvent) => Promise<void>
+    onEvent?: (event: ProcessedPluginEvent) => Promise<void>
+    onAction?: (action: Action, event: ProcessedPluginEvent) => Promise<void>
+    onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
     handleAlert?: (alert: Alert) => Promise<void>
