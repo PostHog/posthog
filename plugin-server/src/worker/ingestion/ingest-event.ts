@@ -28,7 +28,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
 
         let actionMatches: Action[] = []
 
-        if (preIngestionEvent) {
+        if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
             const person = await hub.db.fetchPerson(team_id, distinctId)
 
             // even if the buffer is disabled we want to get metrics on how many events would have gone to it
