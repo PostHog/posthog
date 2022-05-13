@@ -23,7 +23,8 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             team_id,
             DateTime.fromISO(now),
             sent_at ? DateTime.fromISO(sent_at) : null,
-            uuid! // it will throw if it's undefined
+            uuid!, // it will throw if it's undefined,
+            site_url
         )
 
         let actionMatches: Action[] = []

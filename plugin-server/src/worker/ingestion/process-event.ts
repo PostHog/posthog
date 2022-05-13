@@ -106,7 +106,8 @@ export class EventsProcessor {
         teamId: number,
         now: DateTime,
         sentAt: DateTime | null,
-        eventUuid: string
+        eventUuid: string,
+        siteUrl: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -168,7 +169,8 @@ export class EventsProcessor {
                             properties['$snapshot_data'],
                             properties,
                             personUuid,
-                            ip
+                            ip,
+                            siteUrl
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
@@ -189,7 +191,8 @@ export class EventsProcessor {
                         data['event'],
                         distinctId,
                         properties,
-                        ts
+                        ts,
+                        siteUrl
                     )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
@@ -521,7 +524,8 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        siteUrl: string
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -573,6 +577,7 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
+            siteUrl,
         }
     }
 
@@ -708,7 +713,8 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         personUuid: string,
-        ip: string | null
+        ip: string | null,
+        siteUrl: string
     ): Promise<PreIngestionEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
@@ -760,6 +766,7 @@ export class EventsProcessor {
             timestamp: timestampString,
             elementsList: [],
             teamId: team_id,
+            siteUrl,
         }
     }
 
