@@ -3,7 +3,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 import pytz
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -130,3 +132,22 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
         self.assertEqual(Organization.objects.count(), 1)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_can_cancel_license_with_another_valid_license(self, patch_post):
+        # In this case we won't delete projects as there's another valid license
+        License.objects.create(valid_until=now() + relativedelta(years=1), plan="enterprise")
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+        response = self.client.delete(f"/api/license/{self.license.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Team.objects.count(), 4)
+        self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
+        self.assertEqual(Organization.objects.count(), 2)

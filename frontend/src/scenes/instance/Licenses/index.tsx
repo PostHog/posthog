@@ -1,7 +1,6 @@
-import React from 'react'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
+import React, { useState } from 'react'
 import { More } from 'lib/components/LemonButton/More'
-import { Alert, Form, Button, Input, Modal } from 'antd'
+import { Alert, Form, Button, Input } from 'antd'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -14,18 +13,93 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LicenseType, TeamType } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { LemonModal } from 'lib/components/LemonModal'
+import { dayjs } from 'lib/dayjs'
 
 export const scene: SceneExport = {
     component: Licenses,
     logic: licenseLogic,
 }
 
+function ConfirmCancel({
+    licenses,
+    onCancel,
+    onOk,
+}: {
+    licenses: LicenseType[]
+    onCancel: () => void
+    onOk: () => void
+}): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasAnotherValidLicense = licenses.filter((license) => dayjs().isBefore(license.valid_until)).length > 0
+
+    const nonDemoProjects = ((currentOrganization?.teams || []) as TeamType[])
+        .filter((team) => !team.is_demo)
+        .sort((a, b) => a.id - b.id)
+    const willDeleteProjects = !hasAnotherValidLicense && nonDemoProjects.slice(1, nonDemoProjects.length).length > 0
+
+    return (
+        <LemonModal
+            visible={true}
+            onCancel={onCancel}
+            title="Are you sure you want to cancel your license?"
+            footer={
+                <>
+                    <LemonButton
+                        form="new-dashboard-form"
+                        type="secondary"
+                        data-attr="cancel-license-cancel"
+                        style={{ marginRight: '0.5rem' }}
+                        onClick={onCancel}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton data-attr="cancel-license" status="danger" onClick={onOk}>
+                        {willDeleteProjects ? (
+                            <>Deactivate license & delete {nonDemoProjects.length} project(s)</>
+                        ) : (
+                            'Deactivate license'
+                        )}
+                    </LemonButton>
+                </>
+            }
+        >
+            <ul>
+                {!hasAnotherValidLicense ? (
+                    <li>
+                        You will <strong>IMMEDIATELY</strong> lose access to all premium features such as{' '}
+                        <strong>multiple projects</strong>, <strong>single sign on</strong>,{' '}
+                        <strong>group analytics</strong>, <strong>multivariate feature flags</strong> and many more.
+                    </li>
+                ) : (
+                    <li>
+                        You will <strong>keep</strong> all premium features available with your other valid license.
+                    </li>
+                )}
+                {willDeleteProjects && (
+                    <li>
+                        We will <strong style={{ color: 'var(--danger)' }}>DELETE</strong> the following projects:
+                        <ul>
+                            {nonDemoProjects.map((team: TeamType) => (
+                                <li key={team.id}>
+                                    <strong>{team.name}</strong>
+                                </li>
+                            ))}
+                        </ul>
+                        To keep one of these projects instead, remove all other projects first.
+                    </li>
+                )}
+                <li>You will immediately be billed for usage in the current period, if any.</li>
+            </ul>
+        </LemonModal>
+    )
+}
+
 export function Licenses(): JSX.Element {
     const [form] = Form.useForm()
     const { licenses, licensesLoading, error } = useValues(licenseLogic)
     const { createLicense, deleteLicense } = useActions(licenseLogic)
-
-    const { currentOrganization } = useValues(organizationLogic)
+    const [showConfirmCancel, setShowConfirmCancel] = useState(undefined as LicenseType | undefined)
 
     const columns: LemonTableColumns<LicenseType> = [
         {
@@ -75,11 +149,6 @@ export function Licenses(): JSX.Element {
         {
             width: 0,
             render: function renderActive(_, license: LicenseType) {
-                let projectsToDelete = ((currentOrganization?.teams || []) as TeamType[])
-                    .filter((team) => !team.is_demo)
-                    .sort((a, b) => a.id - b.id)
-                projectsToDelete = projectsToDelete.slice(1, projectsToDelete.length)
-
                 return (
                     <More
                         overlay={
@@ -87,59 +156,7 @@ export function Licenses(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
-                                    onClick={() => {
-                                        Modal.confirm({
-                                            centered: true,
-                                            title: `Cancel license?`,
-                                            content: (
-                                                <>
-                                                    Are you sure you want to cancel your license?
-                                                    <ul>
-                                                        <li>
-                                                            You will <strong>IMMEDIATELY</strong> lose access to all
-                                                            premium features such as <strong>multiple projects</strong>,{' '}
-                                                            <strong>single sign on</strong>,{' '}
-                                                            <strong>group analytics</strong>,{' '}
-                                                            <strong>multivariate feature flags</strong> and many more.
-                                                        </li>
-                                                        {projectsToDelete.length > 0 && (
-                                                            <li>
-                                                                We will{' '}
-                                                                <strong style={{ color: 'var(--danger)' }}>
-                                                                    DELETE
-                                                                </strong>{' '}
-                                                                the following projects:
-                                                                <ul>
-                                                                    {projectsToDelete.map((team: TeamType) => (
-                                                                        <li key={team.id}>
-                                                                            <strong>{team.name}</strong>
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </li>
-                                                        )}
-                                                        <li>
-                                                            You will immediately be billed for usage in the current
-                                                            period, if any.
-                                                        </li>
-                                                    </ul>
-                                                </>
-                                            ),
-                                            icon: <ExclamationCircleOutlined />,
-                                            okType: 'danger',
-                                            okText:
-                                                projectsToDelete.length > 0 ? (
-                                                    <>Cancel license & delete {projectsToDelete.length} project(s)</>
-                                                ) : (
-                                                    'Cancel license'
-                                                ),
-                                            onOk: async function () {
-                                                await deleteLicense(license)
-
-                                                return null
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => setShowConfirmCancel(license)}
                                     fullWidth
                                 >
                                     Cancel license
@@ -154,6 +171,13 @@ export function Licenses(): JSX.Element {
 
     return (
         <div>
+            {showConfirmCancel && (
+                <ConfirmCancel
+                    licenses={licenses}
+                    onCancel={() => setShowConfirmCancel(undefined)}
+                    onOk={() => deleteLicense(setShowConfirmCancel)}
+                />
+            )}
             <PageHeader
                 title="Licenses"
                 caption={
