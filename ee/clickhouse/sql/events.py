@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine_with_settings, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
@@ -77,7 +77,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
+    engine=kafka_engine_with_settings(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
     materialized_columns="",
 )
@@ -105,19 +105,10 @@ FROM {database}.kafka_events
     database=settings.CLICKHOUSE_DATABASE,
 )
 
-# we add the settings to prevent poison pills from stopping ingestion
-# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
-# the max block size to consume from kafka such that we skip _all_ broken messages
-# this is an added safety mechanism given we control payloads to this topic
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """
-    SETTINGS kafka_skip_broken_messages = 100
-"""
-).format(
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (EVENTS_TABLE_BASE_SQL).format(
     table_name="kafka_events_json",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    engine=kafka_engine_with_settings(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
     materialized_columns="",
 )

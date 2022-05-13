@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine_with_settings
 from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -42,7 +42,10 @@ PERSONS_TABLE_SQL = lambda: (
 )
 
 KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
+    table_name="kafka_" + PERSONS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine_with_settings(KAFKA_PERSON),
+    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -130,7 +133,7 @@ CREATE TABLE {table_name} ON CLUSTER '{cluster}'
 """.format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+    engine=kafka_engine_with_settings(KAFKA_PERSON_UNIQUE_ID),
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -185,7 +188,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
 KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+    engine=kafka_engine_with_settings(KAFKA_PERSON_DISTINCT_ID),
     extra_fields="",
 )
 

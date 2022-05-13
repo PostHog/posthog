@@ -29,7 +29,11 @@ KAFKA_COLUMNS = """
 """
 
 
-def kafka_engine(
+# we add the settings to prevent poison pills from stopping ingestion
+# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
+# the max block size to consume from kafka such that we skip _all_ broken messages
+# this is an added safety mechanism given we control payloads to this topic
+def kafka_engine_with_settings(
     topic: str,
     kafka_host=None,
     group="group1",
@@ -48,7 +52,10 @@ def kafka_engine(
             skip_broken_messages=skip_broken_messages,
         )
     else:
-        return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
+        return (
+            KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
+            + f" SETTINGS kafka_skip_broken_messages = {skip_broken_messages}"
+        )
 
 
 def ttl_period(field: str = "created_at", weeks: int = 3):

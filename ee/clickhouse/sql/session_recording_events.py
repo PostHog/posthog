@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine_with_settings, ttl_period
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
@@ -62,7 +62,7 @@ SETTINGS index_granularity=512
 KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
+    engine=kafka_engine_with_settings(topic=KAFKA_SESSION_RECORDING_EVENTS),
     materialized_columns="",
     extra_fields="",
 )

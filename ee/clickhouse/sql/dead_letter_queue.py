@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine_with_settings, ttl_period
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -49,12 +49,10 @@ SETTINGS index_granularity=512
 # skip up to 1000 messages per block. blocks can be as large as 65505
 # if a block has >1000 broken messages it probably means we're doing something wrong
 # so it should fail and require manual intervention
-KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
-    DEAD_LETTER_QUEUE_TABLE_BASE_SQL + " SETTINGS kafka_skip_broken_messages=1000"
-).format(
+KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (DEAD_LETTER_QUEUE_TABLE_BASE_SQL).format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
+    engine=kafka_engine_with_settings(topic=KAFKA_DEAD_LETTER_QUEUE, skip_broken_messages=1000),
     extra_fields="",
 )
 

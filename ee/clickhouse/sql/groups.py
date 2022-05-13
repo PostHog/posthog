@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine_with_settings
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -34,7 +34,10 @@ GROUPS_TABLE_SQL = lambda: (
 )
 
 KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields="",
+    table_name="kafka_" + GROUPS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine_with_settings(KAFKA_GROUPS),
+    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse
