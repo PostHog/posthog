@@ -535,6 +535,7 @@ export const keyMapping: KeyMappingInterface = {
         },
     },
 }
+keyMapping['$distinct_id'] = keyMapping['distinct_id']
 
 export const keyMappingKeys = Object.keys(keyMapping.event)
 
