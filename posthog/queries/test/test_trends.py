@@ -612,7 +612,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
                 interval="hour",
                 date_from="2020-11-01 12:00:00",
-                date_to="2020-11-01 18:00:00",
+                query_time="2020-11-01 23:00:00",
                 result=[
                     {
                         "action": {

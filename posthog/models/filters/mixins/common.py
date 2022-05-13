@@ -303,7 +303,11 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
-        if self._date_to:
+        if not self._date_to:
+            if self.interval == "hour":  # type: ignore
+                return timezone.now() + relativedelta(minutes=1)
+            date = timezone.now()
+        else:
             if isinstance(self._date_to, str):
                 try:
                     date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
@@ -311,13 +315,7 @@ class DateMixin(BaseParamMixin):
                     date = relative_date_parse(self._date_to)
             else:
                 date = self._date_to
-        else:
-            if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minutes=1)
-            date = timezone.now()
 
-        if self.interval == "hour":  # type: ignore
-            return date
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @include_dict
