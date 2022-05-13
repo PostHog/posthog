@@ -10,26 +10,19 @@ export async function runEventPipeline(server: Hub, event: PluginEvent): Promise
     const processedEvent = await processEvent(server, event)
 
     if (processedEvent) {
-        let actionMatches: Action[] = []
-        await Promise.all([
-            runInstrumentedFunction({
-                server,
-                event: processedEvent,
-                func: async (event) => {
-                    const result = await ingestEvent(server, event)
-                    actionMatches = result.actionMatches || []
-                },
-                statsKey: 'kafka_queue.single_ingestion',
-                timeoutMessage: 'After 30 seconds still ingesting event',
-            }),
-            onEvent(server, processedEvent),
-        ])
+        const ingestEventResult = await runInstrumentedFunction({
+            server,
+            event: processedEvent,
+            func: (event) => ingestEvent(server, event),
+            statsKey: 'kafka_queue.single_ingestion',
+            timeoutMessage: 'After 30 seconds still ingesting event',
+        })
 
         server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
 
-        if (actionMatches.length > 0) {
-            const promises = []
-            for (const actionMatch of actionMatches) {
+        if (ingestEventResult.success) {
+            const promises = [onEvent(server, processedEvent)]
+            for (const actionMatch of ingestEventResult.actionMatches) {
                 promises.push(
                     runInstrumentedFunction({
                         server,
@@ -40,6 +33,7 @@ export async function runEventPipeline(server: Hub, event: PluginEvent): Promise
                     })
                 )
             }
+
             await Promise.all(promises)
         }
     } else {
