@@ -70,7 +70,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         run_backfill({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
-        sleep(3)
+        sleep(10)
 
         events_after = sync_execute("select event, person_id, person_properties from events")
         self.assertEqual(
@@ -99,7 +99,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         run_backfill({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
-        sleep(3)
+        sleep(10)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
         self.assertEqual(
