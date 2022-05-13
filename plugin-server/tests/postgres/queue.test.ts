@@ -181,6 +181,9 @@ describe('queue', () => {
                 ingestion: expect.any(KafkaQueue),
                 auxiliary: expect.any(CeleryQueue),
             })
+
+            const kafkaQueues = queues.ingestion as KafkaQueue
+            await kafkaQueues.stop()
         })
 
         it('handles ingestion being turned off', async () => {
@@ -203,6 +206,9 @@ describe('queue', () => {
                 ingestion: expect.any(KafkaQueue),
                 auxiliary: null,
             })
+
+            const kafkaQueues = queues.ingestion as KafkaQueue
+            await kafkaQueues.stop()
         })
     })
 })
