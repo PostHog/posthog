@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, Kafka, Producer } from 'kafkajs'
@@ -11,7 +10,7 @@ import { delay } from '../utils/utils'
 
 class KafkaConsumerError extends Error {}
 
-export async function runInstrumentedFunction({
+export async function runInstrumentedFunction<T, EventType>({
     server,
     timeoutMessage,
     event,
@@ -19,11 +18,11 @@ export async function runInstrumentedFunction({
     statsKey,
 }: {
     server: Hub
-    event: PluginEvent
+    event: EventType
     timeoutMessage: string
     statsKey: string
-    func: (event: PluginEvent) => Promise<any>
-}): Promise<any> {
+    func: (event: EventType) => Promise<T>
+}): Promise<T> {
     const timeout = timeoutGuard(timeoutMessage, {
         event: JSON.stringify(event),
     })
