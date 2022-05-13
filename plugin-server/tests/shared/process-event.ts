@@ -2493,7 +2493,6 @@ export const createProcessEventTests = (
 
             const events = await hub.db.fetchEvents()
             const event = [...events].find((e: any) => e['event'] === 'test event')
-            console.log(event)
             expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
             expect(event?.group0_properties).toEqual({ foo: 'bar' })
             expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
