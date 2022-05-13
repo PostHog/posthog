@@ -13,6 +13,7 @@ import { resetTestDatabase } from '../helpers/sql'
 import { PluginConfig, PluginConfigVMResponse } from './../../src/types'
 import { plugin60 } from './../helpers/plugins'
 
+jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/celery/client')
 jest.mock('../../src/main/job-queues/job-queue-manager')
 jest.setTimeout(100000)
@@ -1318,21 +1319,21 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(15)
             expect((fetch as any).mock.calls).toEqual([
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=271&count=2'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=255&count=2'],
             ])
         })
 
@@ -1372,7 +1373,7 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(100)
             expect((fetch as any).mock.calls).toEqual(
-                Array.from(Array(100)).map(() => ['https://export.com/?length=136&count=1'])
+                Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
             )
         })
 
