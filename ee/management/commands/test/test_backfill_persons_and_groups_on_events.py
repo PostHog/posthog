@@ -1,3 +1,4 @@
+from time import sleep
 from uuid import UUID, uuid4
 
 import pytest
@@ -68,6 +69,9 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         run_backfill({"team_id": 1, "live_run": True})
 
+        # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
+        sleep(3)
+
         events_after = sync_execute("select event, person_id, person_properties from events")
         self.assertEqual(
             events_after, [("event1", person_id, '{ "foo": "bar" }'), ("event2", person_id, '{ "foo": "bar" }')]
@@ -93,6 +97,9 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
 
         run_backfill({"team_id": 1, "live_run": True})
+
+        # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
+        sleep(3)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
         self.assertEqual(
