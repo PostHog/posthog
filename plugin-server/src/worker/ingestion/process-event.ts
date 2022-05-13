@@ -565,6 +565,7 @@ export class EventsProcessor {
         return {
             eventUuid,
             event,
+            ip,
             distinctId,
             properties,
             timestamp,
