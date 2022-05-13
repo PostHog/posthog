@@ -1,5 +1,4 @@
 import { clamp, compactNumber, humanFriendlyDuration } from 'lib/utils'
-import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
 import {
     FilterType,
@@ -68,21 +67,6 @@ export function getLastFilledStep(steps: FunnelStep[], index?: number): FunnelSt
 
 export function humanizeOrder(order: number): number {
     return order + 1
-}
-
-export function getSeriesColor(
-    index?: number,
-    isSingleSeries: boolean = false,
-    fallbackColor?: string,
-    numSeries?: number
-): string {
-    if (isSingleSeries) {
-        return 'var(--primary)'
-    }
-    if (typeof index === 'number' && index >= 0) {
-        return getChartColors('white', Math.max(numSeries || 0, index + 1))[index]
-    }
-    return fallbackColor ?? getChartColors('white')[0]
 }
 
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {

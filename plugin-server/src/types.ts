@@ -140,6 +140,8 @@ export interface PluginsServerConfig extends Record<string, any> {
 
 export interface Hub extends PluginsServerConfig {
     instanceId: UUID
+    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+    capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
     postgres: Pool
@@ -176,6 +178,12 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+}
+
+export interface PluginServerCapabilities {
+    ingestion?: boolean
+    pluginScheduledTasks?: boolean
+    processJobs?: boolean
 }
 
 export interface Pausable {
@@ -518,6 +526,12 @@ export interface Event {
     distinct_id: string
     elements_hash: string
     created_at: string
+    person_properties: Record<string, any>
+    group0_properties: Record<string, any>
+    group1_properties: Record<string, any>
+    group2_properties: Record<string, any>
+    group3_properties: Record<string, any>
+    group4_properties: Record<string, any>
 }
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
@@ -810,7 +824,7 @@ export enum Database {
     Postgres = 'postgres',
 }
 
-export interface ScheduleControl {
+export interface PluginScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
 }

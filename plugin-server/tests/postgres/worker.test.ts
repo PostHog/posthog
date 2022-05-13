@@ -195,14 +195,14 @@ describe('worker', () => {
 
             expect(pluginsServer.piscina.queueSize).toBe(0)
             expect(pluginsServer.piscina.completed).toBe(baseCompleted)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
+            expect(pluginsServer.queue!.isPaused()).toBe(false)
 
             await delay(5000)
 
             expect(pluginsServer.piscina.queueSize).toBe(0)
             // tasksSentSoFar * (processEvent + onEvent + ingestEvent)
             expect(pluginsServer.piscina.completed).toBe(baseCompleted + tasksSentSoFar * 3)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
+            expect(pluginsServer.queue!.isPaused()).toBe(false)
 
             // 2 tasks * 2 threads = 4 active
             // 2 threads * 2 threads = 4 queue excess
@@ -217,7 +217,7 @@ describe('worker', () => {
                 await delay(50)
                 celerySize = await redis.llen(pluginsServer.hub.PLUGINS_CELERY_QUEUE)
 
-                if (pluginsServer.queue.isPaused()) {
+                if (pluginsServer.queue!.isPaused()) {
                     pausedTimes++
                     expect(pluginsServer.piscina.queueSize).toBeGreaterThan(0)
                 }
@@ -226,7 +226,7 @@ describe('worker', () => {
             await delay(3000)
 
             expect(pausedTimes).toBeGreaterThanOrEqual(10)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
+            expect(pluginsServer.queue!.isPaused()).toBe(false)
             expect(pluginsServer.piscina.queueSize).toBe(0)
 
             // tasksSentSoFar x (processEvent + onEvent + ingestEvent)

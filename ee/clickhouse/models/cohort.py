@@ -185,7 +185,7 @@ def get_count_operator(count_operator: Optional[str]) -> str:
         return ">="
     elif count_operator == "lte":
         return "<="
-    elif count_operator == "eq" or count_operator is None:
+    elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
         return "="
     else:
         raise ValidationError("count_operator must be gte, lte, eq, or None")

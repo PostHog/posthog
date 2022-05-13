@@ -2125,17 +2125,10 @@
   dependencies:
     regenerator-runtime "^0.13.4"
 
-"@babel/runtime@^7.17.9":
+"@babel/runtime@^7.17.9", "@babel/runtime@^7.9.2":
   version "7.17.9"
   resolved "https://registry.yarnpkg.com/@babel/runtime/-/runtime-7.17.9.tgz#d19fbf802d01a8cb6cf053a64e472d42c434ba72"
   integrity sha512-lSiBBvodq29uShpWGNbgFdKYNiFDo5/HIYsaCEY9ff4sb10x9jizo2+pRrSyF4jKZCXqgzuqBOQKbUm90gQwJg==
-  dependencies:
-    regenerator-runtime "^0.13.4"
-
-"@babel/runtime@^7.9.2":
-  version "7.17.7"
-  resolved "https://registry.yarnpkg.com/@babel/runtime/-/runtime-7.17.7.tgz#a5f3328dc41ff39d803f311cfe17703418cf9825"
-  integrity sha512-L6rvG9GDxaLgFjg41K+5Yv9OMrU98sWe+Ykmc6FDJW/+vYZMhdOMKkISgzptMaERHvS2Y2lw9MDRm2gHhlQQoA==
   dependencies:
     regenerator-runtime "^0.13.4"
 
@@ -11464,9 +11457,9 @@ kea-window-values@^3.0.0-alpha.1:
   integrity sha512-gKJtZqRBuDFm1Mdys+ZDx/h2tfKE/ujqCJ4IF3hJK9gkl8FXI+YcpXGcqj4modxadBfLuQRajW794GsxgfcsBQ==
 
 kea@^3.0.0-beta.5:
-  version "3.0.0-beta.5"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.5.tgz#af9a41e9e53a149d666ecefff2bbcc86778b6416"
-  integrity sha512-IvFcW+JdeI0zK+hBL30oX7Z3vATVHJB+FWiQvWiKeIN4O64u61gUQ1UNYIwGnuqvyfsiii8PjLSs2pfotfzARA==
+  version "3.0.0-beta.6"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-3.0.0-beta.6.tgz#5f283c84f959e437c78c74a7ddc24fc0d33d914e"
+  integrity sha512-SCDsTFeSRUJ2ula9stohykpYRVR8zK0LsOxnzIu2u3xW78gIs+grq+SVnr79yJDoZ6mZgXbGUQwIFOAiWzh8Qg==
   dependencies:
     redux "^4.2.0"
     reselect "^4.1.5"
@@ -13526,10 +13519,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.20.4:
-  version "1.20.4"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.20.4.tgz#6295b6b5b95a2ee31c16fae9b5b1fa6fcfd3030d"
-  integrity sha512-z4A7z+OXNmDaBy046SdQR3LlbG+ycFP4puLPArRsQsv5abN2nhDD+RKIO/jnhNaME9d4b59+proDUdCSaEg/tA==
+posthog-js@1.21.0:
+  version "1.21.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.21.0.tgz#f1eda08c0d6191f7f4b55e5875be1fac874b241b"
+  integrity sha512-zgu3tVbBDJNfzWELUo/rfXVSQmiUUCz2qSZ6d32EJbn76fevn+kAs3ukzCUCJO563ZXKWoo4nfKa6U6ylQggJA==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
@@ -14722,12 +14715,7 @@ regenerate@^1.4.0, regenerate@^1.4.2:
   resolved "https://registry.yarnpkg.com/regenerate/-/regenerate-1.4.2.tgz#b9346d8827e8f5a32f7ba29637d398b69014848a"
   integrity sha512-zrceR/XhGYU/d/opr2EKO7aRHUeiBI8qjtfHqADTwZd6Szfy16la6kqD0MIUs5z5hx6AaKa+PixpPrR289+I0A==
 
-regenerator-runtime@^0.13.4:
-  version "0.13.7"
-  resolved "https://registry.yarnpkg.com/regenerator-runtime/-/regenerator-runtime-0.13.7.tgz#cac2dacc8a1ea675feaabaeb8ae833898ae46f55"
-  integrity sha512-a54FxoJDIr27pgf7IgeQGxmqUNYrcV338lf/6gH456HZ/PhX+5BcwHXG9ajESmwe6WRO0tAzRUrRmNONWgkrew==
-
-regenerator-runtime@^0.13.7:
+regenerator-runtime@^0.13.4, regenerator-runtime@^0.13.7:
   version "0.13.9"
   resolved "https://registry.yarnpkg.com/regenerator-runtime/-/regenerator-runtime-0.13.9.tgz#8925742a98ffd90814988d7566ad30ca3b263b52"
   integrity sha512-p3VT+cOEgxFsRRA9X4lkI1E+k2/CtnKtU4gcxyaCUreilL/vqI6CdZ3wxVUx3UOUg+gnUOQQcRI7BmSI656MYA==

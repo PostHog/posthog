@@ -1,17 +1,18 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import './icons.scss'
+import { LemonBubble } from './LemonBubble/LemonBubble'
 
 interface IconWithCountProps {
     count: number
     showZero?: boolean
 }
 
-export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+export function IconWithCount({ count, children, showZero }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
+            <LemonBubble count={count} size="small" position="top-right" showZero={showZero} />
         </span>
     )
 }

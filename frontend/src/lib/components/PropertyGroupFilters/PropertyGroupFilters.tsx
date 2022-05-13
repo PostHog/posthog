@@ -33,7 +33,7 @@ export function PropertyGroupFilters({
     filters,
     noTitle,
 }: PropertyGroupFilters): JSX.Element {
-    const logicProps = { propertyGroupFilter: value, onChange, pageKey }
+    const logicProps = { value, onChange, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         addFilterGroup,
@@ -86,13 +86,13 @@ export function PropertyGroupFilters({
                                                 />
                                                 <LemonButton
                                                     icon={<IconCopy />}
-                                                    type="secondary"
+                                                    type="alt"
                                                     onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="secondary"
+                                                    type="alt"
                                                     onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                     size="small"
                                                 />
@@ -142,17 +142,25 @@ interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
     value: FilterLogicalOperator
     topLevelFilter?: boolean
+    prefix?: React.ReactNode
+    suffix?: React.ReactNode
 }
 
-export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilterSelectProps): JSX.Element {
+export function AndOrFilterSelect({
+    onChange,
+    value,
+    topLevelFilter,
+    prefix = 'Match',
+    suffix = 'filters in this group',
+}: AndOrFilterSelectProps): JSX.Element {
     return (
-        <Row align="middle" className="and-or-filter">
-            <span className="ml-05">Match</span>
+        <Row align="middle" wrap={false} className="and-or-filter">
+            <span className="ml-05">{prefix}</span>
             <Select
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={value || FilterLogicalOperator.And}
+                value={value}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
@@ -184,7 +192,7 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                     </Row>
                 </Select.Option>
             </Select>{' '}
-            filters in this group
+            {suffix}
         </Row>
     )
 }

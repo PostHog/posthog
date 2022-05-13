@@ -1,10 +1,17 @@
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { cohortLogicType } from './cohortLogicType'
-import { Breadcrumb, CohortGroupType, CohortType } from '~/types'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import {
+    AnyCohortCriteriaType,
+    AnyCohortGroupType,
+    Breadcrumb,
+    CohortCriteriaGroupFilter,
+    CohortGroupType,
+    CohortType,
+    FilterLogicalOperator,
+} from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
@@ -12,64 +19,17 @@ import { router } from 'kea-router'
 import { actionToUrl } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-
-function createCohortFormData(cohort: CohortType): FormData {
-    const rawCohort = {
-        ...(cohort.name ? { name: cohort.name } : {}),
-        ...(cohort.description ? { description: cohort.description } : {}),
-        ...(cohort.csv ? { csv: cohort.csv } : {}),
-        ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
-        groups: JSON.stringify(
-            cohort.is_static
-                ? []
-                : cohort.groups.map((group: CohortGroupType) => ({ ...group, id: undefined, matchType: undefined }))
-        ),
-    }
-    // Must use FormData to encode file binary in request
-    const cohortFormData = new FormData()
-    for (const [itemKey, value] of Object.entries(rawCohort)) {
-        cohortFormData.append(itemKey, value as string | Blob)
-    }
-    return cohortFormData
-}
-
-function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
-    const matchType = group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE
-
-    return {
-        matchType,
-        id: Math.random().toString().substr(2, 5),
-        ...group,
-    }
-}
-
-function processCohortOnSet(cohort: CohortType): CohortType {
-    if (cohort.groups) {
-        cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
-        cohort.groups = cohort.groups.map((group) => {
-            if (group.properties) {
-                return {
-                    ...group,
-                    properties: convertPropertyGroupToProperties(group.properties),
-                }
-            }
-            return group
-        })
-    }
-
-    return cohort
-}
-
-export const NEW_COHORT: CohortType = processCohortOnSet({
-    id: 'new',
-    groups: [
-        {
-            id: Math.random().toString().substr(2, 5),
-            matchType: PROPERTY_MATCH_TYPE,
-            properties: [],
-        },
-    ],
-})
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    applyAllCriteriaGroup,
+    applyAllNestedCriteria,
+    cleanCriteria,
+    createCohortFormData,
+    isCohortCriteriaGroup,
+    processCohortOnSet,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
+import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 
 export interface CohortLogicProps {
     id?: CohortType['id']
@@ -88,29 +48,97 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
+
+        setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
+        setInnerGroupType: (type: FilterLogicalOperator, groupIndex: number) => ({ type, groupIndex }),
+        duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
+        addFilter: (groupIndex?: number) => ({ groupIndex }),
+        removeFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
+        setCriteria: (newCriteria: AnyCohortCriteriaType, groupIndex: number, criteriaIndex: number) => ({
+            newCriteria,
+            groupIndex,
+            criteriaIndex,
+        }),
     }),
 
     reducers(() => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
-                onCriteriaChange: (state, { newGroup, id }) => {
-                    const cohort = { ...state }
-                    const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
-                    if (newGroup.matchType) {
-                        cohort.groups[index] = {
-                            id: cohort.groups[index].id,
-                            matchType: ENTITY_MATCH_TYPE,
-                            ...newGroup,
-                        }
-                    } else {
-                        cohort.groups[index] = {
-                            ...cohort.groups[index],
-                            ...newGroup,
-                        }
+                setOuterGroupsType: (state, { type }) => ({
+                    ...state,
+                    filters: {
+                        properties: {
+                            ...state.filters.properties,
+                            type,
+                        },
+                    },
+                }),
+                setInnerGroupType: (state, { type, groupIndex }) =>
+                    applyAllCriteriaGroup(
+                        state,
+                        (groupList) =>
+                            groupList.map((group, groupI) =>
+                                groupI === groupIndex ? { ...group, type } : group
+                            ) as CohortCriteriaGroupFilter[]
+                    ),
+                duplicateFilter: (state, { groupIndex, criteriaIndex }) => {
+                    if (criteriaIndex !== undefined) {
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [
+                                ...criteriaList.slice(0, criteriaIndex),
+                                criteriaList[criteriaIndex],
+                                ...criteriaList.slice(criteriaIndex),
+                            ],
+                            groupIndex
+                        )
                     }
-                    return processCohortOnSet(cohort)
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList.slice(0, groupIndex),
+                        groupList[groupIndex],
+                        ...groupList.slice(groupIndex),
+                    ])
                 },
+                addFilter: (state, { groupIndex }) => {
+                    if (groupIndex !== undefined) {
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [...criteriaList, NEW_CRITERIA],
+                            groupIndex
+                        )
+                    }
+                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
+                },
+                removeFilter: (state, { groupIndex, criteriaIndex }) => {
+                    if (criteriaIndex !== undefined) {
+                        return applyAllNestedCriteria(
+                            state,
+                            (criteriaList) => [
+                                ...criteriaList.slice(0, criteriaIndex),
+                                ...criteriaList.slice(criteriaIndex + 1),
+                            ],
+                            groupIndex
+                        )
+                    }
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList.slice(0, groupIndex),
+                        ...groupList.slice(groupIndex + 1),
+                    ])
+                },
+                setCriteria: (state, { newCriteria, groupIndex, criteriaIndex }) =>
+                    applyAllNestedCriteria(
+                        state,
+                        (criteriaList) =>
+                            criteriaList.map((oldCriteria, criteriaI) =>
+                                isCohortCriteriaGroup(oldCriteria)
+                                    ? oldCriteria
+                                    : criteriaI === criteriaIndex
+                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                    : oldCriteria
+                            ),
+                        groupIndex
+                    ),
             },
         ],
         pollTimeout: [
@@ -121,26 +149,34 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
         ],
     })),
 
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, csv, is_static, groups }) => ({
-                name: !name ? 'You need to set a name' : undefined,
+            errors: ({ name, csv, is_static, groups, filters }) => ({
+                name: !name ? 'Cohort name cannot be empty' : undefined,
                 csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
-                // Return type of validator[groups](...) must be the shape of groups. Returning the error message
-                // for groups as a value for id is a hacky stopgap.
-                groups: is_static
-                    ? undefined
-                    : !groups || groups.length < 1
-                    ? [{ id: 'You need at least one matching group' }]
-                    : groups?.map(({ matchType, properties, action_id, event_id }) => {
-                          if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
-                              return { id: 'Please select at least one property or remove this match group.' }
-                          }
-                          if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
-                              return { id: 'Please select an event or action.' }
-                          }
-                          return { id: undefined }
+                ...(values.newCohortFiltersEnabled
+                    ? {
+                          filters: {
+                              properties: {
+                                  values: filters.properties.values.map(validateGroup),
+                              },
+                          },
+                      }
+                    : {
+                          groups: is_static
+                              ? undefined
+                              : !groups || groups.length < 1
+                              ? [{ id: 'You need at least one matching group' }]
+                              : groups?.map(({ matchType, properties, action_id, event_id }) => {
+                                    if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
+                                        return { id: 'Please select at least one property or remove this match group.' }
+                                    }
+                                    if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
+                                        return { id: 'Please select an event or action.' }
+                                    }
+                                    return { id: undefined }
+                                }),
                       }),
             }),
             submit: (cohort) => {
@@ -154,7 +190,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
             NEW_COHORT as CohortType,
             {
                 setCohort: ({ cohort }) => {
-                    return processCohortOnSet(cohort)
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
                 fetchCohort: async ({ id }, breakpoint) => {
                     try {
@@ -162,7 +198,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
-                        return processCohortOnSet(cohort)
+                        return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
                         return values.cohort
@@ -170,8 +206,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     let cohort = { ...cohortParams }
-
-                    const cohortFormData = createCohortFormData(cohort)
+                    const cohortFormData = createCohortFormData(cohort, values.newCohortFiltersEnabled)
 
                     try {
                         if (cohort.id !== 'new') {
@@ -195,13 +230,35 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
-                    return cohort
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                },
+                onCriteriaChange: ({ newGroup, id }) => {
+                    const cohort = { ...values.cohort }
+                    const index = cohort.groups.findIndex((group: AnyCohortGroupType) => group.id === id)
+                    if (newGroup.matchType) {
+                        cohort.groups[index] = {
+                            id: cohort.groups[index].id,
+                            matchType: ENTITY_MATCH_TYPE,
+                            ...newGroup,
+                        }
+                    } else {
+                        cohort.groups[index] = {
+                            ...cohort.groups[index],
+                            ...newGroup,
+                        }
+                    }
+                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
                 },
             },
         ],
     })),
 
     selectors({
+        id: [() => [(_, props) => props.id], (id) => id],
+        newCohortFiltersEnabled: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],
+        ],
         breadcrumbs: [
             (s) => [s.cohort],
             (cohort): Breadcrumb[] => [
@@ -214,7 +271,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, key }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort(values.cohort)
             router.actions.push(urls.cohorts())
@@ -235,6 +292,14 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)
+                }
+                if ((cohort.errors_calculating ?? 0) > 0) {
+                    lemonToast.error(
+                        'Cohort error. There was an error calculating this cohort. Make sure the cohort filters are correct.',
+                        {
+                            toastId: `cohort-calculation-error-${key}`,
+                        }
+                    )
                 }
             }
         },

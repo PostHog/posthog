@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -14,6 +14,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { LemonRow } from 'lib/components/LemonRow'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/components/icons'
 
 export function FunnelStepsTable(): JSX.Element | null {
@@ -241,14 +242,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) =>
-                getSeriesColor(
-                    series?.breakdownIndex,
-                    flattenedBreakdowns.length === 1,
-                    undefined,
-                    flattenedBreakdowns.length
-                )
-            }
+            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
         />
     )
 }

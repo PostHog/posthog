@@ -21,6 +21,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -100,6 +101,21 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use group properties)")
 
+        for condition in filters["groups"]:
+            for property in condition.get("properties", []):
+                prop = Property(**property)
+                if prop.type == "cohort":
+                    try:
+                        cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            raise serializers.ValidationError(
+                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                code="behavioral_cohort_found",
+                            )
+                    except Cohort.DoesNotExist:
+                        raise serializers.ValidationError(
+                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                        )
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:

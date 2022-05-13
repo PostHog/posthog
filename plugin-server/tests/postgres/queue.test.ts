@@ -1,4 +1,8 @@
+import Piscina from '@posthog/piscina'
+
 import { setupPiscina } from '../../benchmarks/postgres/helpers/piscina'
+import { CeleryQueue } from '../../src/main/ingestion-queues/celery-queue'
+import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
@@ -72,7 +76,7 @@ describe('queue', () => {
 
         expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).not.toBe(6)
 
-        await queue.pause()
+        await queue!.pause()
 
         const pluginQueue = await redis.llen(hub.PLUGINS_CELERY_QUEUE)
 
@@ -86,13 +90,13 @@ describe('queue', () => {
 
         expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toBe(pluginQueue)
 
-        await queue.resume()
+        await queue!.resume()
 
         await delay(500)
 
         expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toBe(0)
 
-        await queue.stop()
+        await queue!.stop()
         await hub.redisPool.release(redis)
         await closeHub()
         await piscina.destroy()
@@ -131,7 +135,7 @@ describe('queue', () => {
 
         expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).not.toBe(6)
 
-        await queue.pause()
+        await queue!.pause()
 
         expect(fakePiscina.run).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -148,8 +152,57 @@ describe('queue', () => {
             })
         )
 
-        await queue.stop()
+        await queue!.stop()
         await hub.redisPool.release(redis)
         await closeHub()
+    })
+
+    describe('capabilities', () => {
+        let hub: Hub
+        let piscina: Piscina
+        let closeHub: () => Promise<void>
+
+        beforeEach(async () => {
+            ;[hub, closeHub] = await createHub({
+                LOG_LEVEL: LogLevel.Warn,
+                KAFKA_ENABLED: true,
+            })
+            piscina = { run: jest.fn() } as any
+        })
+
+        afterEach(async () => {
+            await closeHub()
+        })
+
+        it('starts ingestion and auxilary queues by default', async () => {
+            const queues = await startQueues(hub, piscina)
+
+            expect(queues).toEqual({
+                ingestion: expect.any(KafkaQueue),
+                auxiliary: expect.any(CeleryQueue),
+            })
+        })
+
+        it('handles ingestion being turned off', async () => {
+            hub.capabilities.ingestion = false
+
+            const queues = await startQueues(hub, piscina)
+
+            expect(queues).toEqual({
+                ingestion: null,
+                auxiliary: expect.any(CeleryQueue),
+            })
+        })
+
+        it('handles job processing being turned off', async () => {
+            hub.capabilities.processJobs = false
+
+            const queues = await startQueues(hub, piscina)
+
+            expect(queues).toEqual({
+                ingestion: expect.any(KafkaQueue),
+                auxiliary: null,
+            })
+        })
     })
 })
