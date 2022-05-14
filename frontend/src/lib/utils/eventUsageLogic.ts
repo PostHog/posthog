@@ -273,6 +273,7 @@ export const eventUsageLogic = kea<
             dateFrom,
             dateTo,
         }),
+        reportDashboardPropertiesChanged: true,
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,

@@ -681,7 +681,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         setProperties: () => {
             actions.updateAndRefreshDashboard()
-            eventUsageLogic.actions.reportDashboardPropertiesChanged(dateFrom, dateTo)
+            eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling

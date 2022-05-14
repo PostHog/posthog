@@ -122,8 +122,8 @@ function DashboardScene(): JSX.Element {
                             />
                             <PropertyFilters
                                 onChange={setProperties}
-                                pageKey={'dashboard_' + dashboard.pk}
-                                propertyFilters={dashboard.filters.properties}
+                                pageKey={'dashboard_' + dashboard?.id}
+                                propertyFilters={dashboard?.filters.properties}
                                 useLemonButton
                             />
                         </div>
