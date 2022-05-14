@@ -103,45 +103,38 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    <div className="dashboard-items-actions">
+                    {placement !== DashboardPlacement.Public && (
+                        <div className="flex pb space-x">
+                            <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
+                            <DateFilter
+                                defaultValue="Custom"
+                                showCustom
+                                dateFrom={dashboardFilters?.date_from ?? undefined}
+                                dateTo={dashboardFilters?.date_to ?? undefined}
+                                onChange={setDates}
+                                disabled={!canEditDashboard}
+                                makeLabel={(key) => (
+                                    <>
+                                        <CalendarOutlined />
+                                        <span className="hide-when-small"> {key}</span>
+                                    </>
+                                )}
+                            />
+                            <PropertyFilters
+                                onChange={setProperties}
+                                pageKey={'dashboard_' + dashboard.pk}
+                                propertyFilters={dashboard.filters.properties}
+                                useLemonButton
+                            />
+                        </div>
+                    )}
+                    <div className="flex pt pb border-top space-x dashoard-items-actions">
                         <div
                             className="left-item"
                             style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                         >
                             {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
-
-                        {placement !== DashboardPlacement.Public && (
-                            <div
-                                className="right-item"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                }}
-                            >
-                                <PropertyFilters
-                                    onChange={setProperties}
-                                    pageKey={'dashboard_' + dashboard.pk}
-                                    propertyFilters={dashboard.filters.properties}
-                                />
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from ?? undefined}
-                                    dateTo={dashboardFilters?.date_to ?? undefined}
-                                    onChange={setDates}
-                                    disabled={!canEditDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
-                                />
-                            </div>
-                        )}
                     </div>
                     <DashboardItems />
                 </div>
