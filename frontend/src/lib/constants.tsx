@@ -120,6 +120,7 @@ export const FEATURE_FLAGS = {
     MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
     INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
+    PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

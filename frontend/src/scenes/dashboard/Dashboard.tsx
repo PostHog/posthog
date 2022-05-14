@@ -16,6 +16,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
@@ -53,6 +55,7 @@ function DashboardScene(): JSX.Element {
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -104,31 +107,36 @@ function DashboardScene(): JSX.Element {
             ) : (
                 <div>
                     {placement !== DashboardPlacement.Public && (
-                        <div className="flex pb space-x">
-                            <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
-                            <DateFilter
-                                defaultValue="Custom"
-                                showCustom
-                                dateFrom={dashboardFilters?.date_from ?? undefined}
-                                dateTo={dashboardFilters?.date_to ?? undefined}
-                                onChange={setDates}
-                                disabled={!canEditDashboard}
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
-                            <PropertyFilters
-                                onChange={setProperties}
-                                pageKey={'dashboard_' + dashboard?.id}
-                                propertyFilters={dashboard?.filters.properties}
-                                useLemonButton
-                            />
+                        <div className="flex pb border-bottom space-x">
+                            <div className="flex-grow flex" style={{ height: 30 }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
+                                <DateFilter
+                                    defaultValue="Custom"
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from ?? undefined}
+                                    dateTo={dashboardFilters?.date_to ?? undefined}
+                                    onChange={setDates}
+                                    disabled={!canEditDashboard}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
+                            {(featureFlags[FEATURE_FLAGS.PROPERTY_FILTER_ON_DASHBOARD] ||
+                                dashboard?.filters.properties) && (
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard?.id}
+                                    propertyFilters={dashboard?.filters.properties}
+                                    useLemonButton
+                                />
+                            )}
                         </div>
                     )}
-                    <div className="flex pt pb border-top space-x dashoard-items-actions">
+                    <div className="flex pt pb space-x dashoard-items-actions">
                         <div
                             className="left-item"
                             style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
