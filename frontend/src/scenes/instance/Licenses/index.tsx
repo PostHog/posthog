@@ -175,7 +175,7 @@ export function Licenses(): JSX.Element {
                 <ConfirmCancel
                     licenses={licenses}
                     onCancel={() => setShowConfirmCancel(undefined)}
-                    onOk={() => deleteLicense(setShowConfirmCancel)}
+                    onOk={() => deleteLicense(showConfirmCancel)}
                 />
             )}
             <PageHeader
