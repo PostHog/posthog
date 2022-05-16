@@ -105,7 +105,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
-    PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
