@@ -430,7 +430,7 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
-        it('dashboardLogic', async () => {
+        it('loads from the dashboardLogic when in dashboard context', async () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
@@ -453,7 +453,27 @@ describe('insightLogic', () => {
                 })
         })
 
-        it('savedInsightLogic', async () => {
+        it('does not load from the dashboardLogic when not in that dashboard context', async () => {
+            // 1. the dashboard is mounted
+            const dashLogic = dashboardLogic({ id: 33 })
+            dashLogic.mount()
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+
+            // 2. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 1 })
+            logic.mount()
+
+            // 3. verify it did load from the AP
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        short_id: '42',
+                    }),
+                })
+        })
+
+        it('loads from the savedInsightLogic when not in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
             savedInsightsLogic.mount()
@@ -474,6 +494,28 @@ describe('insightLogic', () => {
                         id: 42,
                         result: ['result 42'],
                         filters: API_FILTERS,
+                    }),
+                })
+        })
+
+        it('does not load from the savedInsightLogic when in a dashboard context', async () => {
+            // 1. open saved insights
+            router.actions.push(urls.savedInsights(), {}, {})
+            savedInsightsLogic.mount()
+
+            // 2. the insights are loaded
+            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            // 3. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
+            logic.mount()
+
+            // 3. verify it did load from the AP
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        short_id: '42',
                     }),
                 })
         })
