@@ -1066,8 +1066,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        # shouldn't raise negation error, but it does right now
-        # because simplify converts each individual property to its own property group
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
         self.assertCountEqual([p3.uuid], [r[0] for r in res])
@@ -2264,12 +2262,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"},],  # p3 fits in here
-                },
-            },
+            data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"},],},},
             team=self.team,
         )
 
