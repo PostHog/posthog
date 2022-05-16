@@ -659,22 +659,22 @@ TEST_BREAKDOWN_PROCESSING = [
         "$browser",
         "events",
         "prop",
-        "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop",
         "properties",
+        "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop",
     ),
     (
         ["$browser"],
         "events",
         "value",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
         "properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
     ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
         "properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
     ),
 ]
 

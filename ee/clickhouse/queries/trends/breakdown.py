@@ -134,7 +134,7 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        groups_join_condition, groups_join_params = self._groups_join_conditino()
+        groups_join_condition, groups_join_params = self._groups_join_condition()
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
@@ -375,7 +375,7 @@ class ClickhouseTrendsBreakdown:
         else:
             return "", {}
 
-    def _groups_join_conditino(self) -> Tuple[str, Dict]:
+    def _groups_join_condition(self) -> Tuple[str, Dict]:
         return GroupsJoinQuery(self.filter, self.team_id, self.column_optimizer).get_join_query()
 
 
@@ -387,7 +387,7 @@ class ClickhouseTrendsBreakdown_PersonsOnEvents(ClickhouseTrendsBreakdown):
     def _person_join_condition(self) -> Tuple[str, Dict]:
         return "", {}
 
-    def _groups_join_conditino(self) -> Tuple[str, Dict]:
+    def _groups_join_condition(self) -> Tuple[str, Dict]:
         return "", {}
 
     @cached_property
