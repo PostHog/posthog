@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
@@ -16,7 +15,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
 from posthog.models.plugin import update_validated_data_from_url
@@ -354,13 +352,28 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
 
-        celery_app.send_task(
-            name="posthog.tasks.plugins.plugin_job",
-            queue=settings.PLUGINS_CELERY_QUEUE,
-            args=[self.team.pk, plugin_config_id, job_type, job_op, job_payload],
-        )
+        run_public_job(job_type, job_payload, job_op, plugin_config_id, self.team.pk)
 
         return Response(status=200)
+
+
+def run_public_job(job_type: str, job_payload: any, job_op: str, plugin_config_id: int, team_id: int):
+    from django.db import connection
+
+    payload_json = json.dumps(
+        {
+            "type": job_type,
+            "payload": job_payload | {"$operation": job_op},
+            "pluginConfigId": plugin_config_id,
+            "pluginConfigTeam": team_id,
+        }
+    )
+    sql = f"SELECT graphile_worker.add_job('pluginJob', '{payload_json}')"
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+    except Exception as e:
+        raise Exception(f"Failed to trigger public job, postgres sql={sql},\nexception={str(e)}")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
