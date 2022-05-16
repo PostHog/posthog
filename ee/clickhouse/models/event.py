@@ -21,7 +21,7 @@ from posthog.settings import TEST
 def create_event(
     event_uuid: uuid.UUID,
     event: str,
-    team: Union[Team, int],
+    team: Team,
     distinct_id: str,
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
@@ -46,7 +46,7 @@ def create_event(
         "event": event,
         "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "team_id": team if isinstance(team, int) else team.pk,
+        "team_id": team.pk,
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
