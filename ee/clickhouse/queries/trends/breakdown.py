@@ -34,7 +34,6 @@ from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -61,7 +60,7 @@ class ClickhouseTrendsBreakdown:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
     @cached_property
-    def _props_to_filter(self) -> PropertyGroup:
+    def _props_to_filter(self) -> Tuple[str, Dict]:
         props_to_filter = self.filter.property_groups.combine_property_group(
             PropertyOperatorType.AND, self.entity.property_groups
         )
@@ -391,7 +390,7 @@ class ClickhouseTrendsBreakdown_PersonsOnEvents(ClickhouseTrendsBreakdown):
         return "", {}
 
     @cached_property
-    def _props_to_filter(self) -> PropertyGroup:
+    def _props_to_filter(self) -> Tuple[str, Dict]:
         props_to_filter = self.filter.property_groups.combine_property_group(
             PropertyOperatorType.AND, self.entity.property_groups
         )

@@ -56,7 +56,7 @@ def create_event(
     return str(event_uuid)
 
 
-def bulk_create_events(events: List[Dict[str, Any]]):
+def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
     """
     TEST ONLY
     Insert events in bulk. List of dicts:
@@ -92,6 +92,18 @@ def bulk_create_events(events: List[Dict[str, Any]]):
                 i=index
             )
         )
+
+        #  use person properties mapping to populate person properties in given event
+        if person_mapping and person_mapping.get(event["distinct_id"]):
+            person_properties = person_mapping[event["distinct_id"]].properties
+            person_id = person_mapping[event["distinct_id"]].uuid
+
+            event = {
+                **event,
+                "person_properties": {**person_properties, **event.get("person_properties", {})},
+                "person_id": person_id,
+            }
+
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
