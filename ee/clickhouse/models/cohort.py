@@ -392,7 +392,7 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
     return None
 
 
-def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyGroup:
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=False) -> PropertyGroup:
     """
     'Simplifies' cohort property filters, removing team-specific context from properties.
     """
@@ -400,13 +400,15 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyG
 
     if cohort.is_static:
         return PropertyGroup(
-            type=PropertyOperatorType.AND, values=[Property(type="static-cohort", key="id", value=cohort.pk)]
+            type=PropertyOperatorType.AND,
+            values=[Property(type="static-cohort", key="id", value=cohort.pk, negation=is_negated)],
         )
 
     # Cohort has been precalculated
     if is_precalculated_query(cohort):
         return PropertyGroup(
-            type=PropertyOperatorType.AND, values=[Property(type="precalculated-cohort", key="id", value=cohort.pk)]
+            type=PropertyOperatorType.AND,
+            values=[Property(type="precalculated-cohort", key="id", value=cohort.pk, negation=is_negated)],
         )
 
     # Cohort can have multiple match groups.
@@ -420,7 +422,8 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> PropertyG
         if property.type == "behavioral":
             # TODO: Support behavioral property type in other insights
             return PropertyGroup(
-                type=PropertyOperatorType.AND, values=[Property(type="cohort", key="id", value=cohort.pk)]
+                type=PropertyOperatorType.AND,
+                values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
             )
 
         elif property.type == "cohort":

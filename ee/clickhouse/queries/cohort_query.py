@@ -210,57 +210,50 @@ class CohortQuery(EnterpriseEventQuery):
                     # dealing with a list of properties
                     # if any single one is a cohort property, unwrap it into a property group
                     # which implies converting everything else in the list into a property group too
-                    has_cohort_property = False
-                    for prop in property_group.values:
-                        if prop.type in ["cohort", "precalculated-cohort"]:
-                            has_cohort_property = True
 
-                    if has_cohort_property:
-                        new_property_group_list: List[PropertyGroup] = []
-                        for prop in property_group.values:
-                            prop = cast(Property, prop)
-                            current_negation = prop.negation or False
-                            negation_value = not current_negation if negate_group else current_negation
-                            if prop.type in ["cohort", "precalculated-cohort"]:
-                                try:
-                                    prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
-                                    if prop_cohort.is_static:
-                                        new_property_group_list.append(
-                                            PropertyGroup(
-                                                type=PropertyOperatorType.AND,
-                                                values=[
-                                                    Property(
-                                                        type="static-cohort",
-                                                        key="id",
-                                                        value=prop_cohort.pk,
-                                                        negation=negation_value,
-                                                    )
-                                                ],
-                                            )
-                                        )
-                                    else:
-                                        new_property_group_list.append(_unwrap(prop_cohort.properties, negation_value))
-                                except Cohort.DoesNotExist:
+                    new_property_group_list: List[PropertyGroup] = []
+                    for prop in property_group.values:
+                        prop = cast(Property, prop)
+                        current_negation = prop.negation or False
+                        negation_value = not current_negation if negate_group else current_negation
+                        if prop.type in ["cohort", "precalculated-cohort"]:
+                            try:
+                                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                                if prop_cohort.is_static:
                                     new_property_group_list.append(
                                         PropertyGroup(
                                             type=PropertyOperatorType.AND,
-                                            values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                                            values=[
+                                                Property(
+                                                    type="static-cohort",
+                                                    key="id",
+                                                    value=prop_cohort.pk,
+                                                    negation=negation_value,
+                                                )
+                                            ],
                                         )
                                     )
-                            else:
-                                prop.negation = negation_value
+                                else:
+                                    new_property_group_list.append(_unwrap(prop_cohort.properties, negation_value))
+                            except Cohort.DoesNotExist:
                                 new_property_group_list.append(
-                                    PropertyGroup(type=PropertyOperatorType.AND, values=[prop])
+                                    PropertyGroup(
+                                        type=PropertyOperatorType.AND,
+                                        values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                                    )
                                 )
-                        if not negate_group:
-                            return PropertyGroup(type=property_group.type, values=new_property_group_list)
                         else:
-                            return PropertyGroup(
-                                type=PropertyOperatorType.AND
-                                if property_group.type == PropertyOperatorType.OR
-                                else PropertyOperatorType.OR,
-                                values=new_property_group_list,
-                            )
+                            prop.negation = negation_value
+                            new_property_group_list.append(PropertyGroup(type=PropertyOperatorType.AND, values=[prop]))
+                    if not negate_group:
+                        return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                    else:
+                        return PropertyGroup(
+                            type=PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR,
+                            values=new_property_group_list,
+                        )
 
             return property_group
 
@@ -466,10 +459,10 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
         self._fields.append(field)
 
-        return column_name, {f"{date_param}": date_value, **entity_params}
+        return f"{'NOT' if prop.negation else ''} {column_name}", {f"{date_param}": date_value, **entity_params}
 
     def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -483,11 +476,11 @@ class CohortQuery(EnterpriseEventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"{'NOT' if prop.negation else ''} countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
         self._fields.append(field)
 
         return (
-            column_name,
+            f"{'NOT' if prop.negation else ''} {column_name}",
             {"operator_value": count, f"{date_param}": date_value, **entity_params},
         )
 
