@@ -352,28 +352,28 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
 
-        run_public_job(job_type, job_payload, job_op, plugin_config_id, self.team.pk)
+        payload_json = json.dumps(
+            {
+                "type": job_type,
+                "payload": job_payload | {"$operation": job_op},
+                "pluginConfigId": plugin_config_id,
+                "pluginConfigTeam": self.team.pk,
+            }
+        )
+        sql = f"SELECT graphile_worker.add_job('pluginJob', '{payload_json}')"
+        execute_postgres(sql)
 
         return Response(status=200)
 
 
-def run_public_job(job_type: str, job_payload: any, job_op: str, plugin_config_id: int, team_id: int):
+def execute_postgres(sql):
     from django.db import connection
 
-    payload_json = json.dumps(
-        {
-            "type": job_type,
-            "payload": job_payload | {"$operation": job_op},
-            "pluginConfigId": plugin_config_id,
-            "pluginConfigTeam": team_id,
-        }
-    )
-    sql = f"SELECT graphile_worker.add_job('pluginJob', '{payload_json}')"
     try:
         with connection.cursor() as cursor:
             cursor.execute(sql)
     except Exception as e:
-        raise Exception(f"Failed to trigger public job, postgres sql={sql},\nexception={str(e)}")
+        raise Exception(f"Failed to execute postgres sql={sql},\nexception={str(e)}")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:

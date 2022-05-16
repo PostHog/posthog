@@ -886,8 +886,8 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
     # TODO: change this test
-    @patch("posthog.api.plugin.celery_app.send_task")
-    def test_job_trigger(self, patch_trigger_plugin_job, mock_get, mock_reload):
+    @patch("posthog.api.plugin.execute_postgres")
+    def test_job_trigger(self, execute_postgres, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
         )
@@ -904,15 +904,11 @@ class TestPluginAPI(APIBaseTest):
             format="json",
         )
 
-        patch_trigger_plugin_job.assert_has_calls(
-            [
-                mock.call(
-                    name="posthog.tasks.plugins.plugin_job",
-                    queue="posthog-plugins",
-                    args=[self.team.pk, plugin_config_id, "myJob", "stop", {"a": 1}],
-                )
-            ]
-        )
+        self.assertEqual(execute_postgres.call_count, 1)
+        expected_sql = 'SELECT graphile_worker.add_job(\'pluginJob\', \'{"type": "myJob", "payload": {"a": 1, "$operation": "stop"}, '
+        expected_sql += f'"pluginConfigId": {plugin_config_id}, "pluginConfigTeam": {self.team.pk}'
+        expected_sql += "}')"
+        execute_postgres.assert_called_with(expected_sql)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
