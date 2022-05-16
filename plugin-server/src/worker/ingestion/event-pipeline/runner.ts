@@ -2,6 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { Hub } from '../../../types'
+import { status } from '../../../utils/status'
+import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import { determineShouldBufferStep } from './determineShouldBufferStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
@@ -35,15 +37,17 @@ export type StepResult =
     | NextStep<'createEventStep'>
     | NextStep<'runAsyncHandlersStep'>
 
-// :TODO: Timers for every function
-// :TODO: DLQ emit for failing on some steps
-const EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = ['prepareEventStep', 'determineShouldBufferStep', 'createEventStep']
+const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
+    'prepareEventStep',
+    'determineShouldBufferStep',
+    'createEventStep',
+]
 
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PluginEvent
+    originalEvent: PluginEvent | undefined
 
-    constructor(hub: Hub, originalEvent: PluginEvent) {
+    constructor(hub: Hub, originalEvent?: PluginEvent) {
         this.hub = hub
         this.originalEvent = originalEvent
     }
@@ -57,29 +61,53 @@ export class EventPipelineRunner {
 
         while (true) {
             const timer = new Date()
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            const stepResult = await EVENT_PIPELINE_STEPS[currentStepName](this, ...currentArgs)
+            try {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                const stepResult = await EVENT_PIPELINE_STEPS[currentStepName](this, ...currentArgs)
 
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
-            this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: currentStepName })
+                this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
+                this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: currentStepName })
 
-            if (stepResult) {
-                ;[currentStepName, currentArgs] = stepResult
-            } else {
-                this.hub.statsd?.increment('kafka_queue.event_pipeline.step.dropped', {
-                    step: currentStepName,
-                    team_id: String(this.originalEvent.team_id),
-                })
+                if (stepResult) {
+                    ;[currentStepName, currentArgs] = stepResult
+                } else {
+                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.dropped', {
+                        step: currentStepName,
+                        team_id: String(this.originalEvent?.team_id),
+                    })
+                    break
+                }
+            } catch (err) {
+                await this.handleError(err, currentStepName, currentArgs)
                 break
             }
         }
     }
 
-    nextStep<Step extends keyof EventPipelineStepsType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+    nextStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
         name: Step,
         ...args: ArgsType
     ): NextStep<Step> {
         return [name, args]
+    }
+
+    private async handleError(err: any, currentStepName: StepType, currentArgs: any) {
+        status.info('🔔', err)
+        Sentry.captureException(err, { extra: { currentStepName, currentArgs, originalEvent: this.originalEvent } })
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+
+        if (this.originalEvent && STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
+            try {
+                const message = generateEventDeadLetterQueueMessage(this.originalEvent, err)
+                await this.hub.db.kafkaProducer!.queueMessage(message)
+                this.hub.statsd?.increment('events_added_to_dead_letter_queue')
+            } catch (dlqError) {
+                status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
+                Sentry.captureException(dlqError, {
+                    extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
+                })
+            }
+        }
     }
 }
