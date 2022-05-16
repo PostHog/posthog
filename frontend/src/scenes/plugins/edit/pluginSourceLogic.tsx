@@ -38,7 +38,7 @@ export function setupPlugin (meta) {
 }
 
 // Runs every hour on the hour
-async function runEveryHour(meta) {
+export async function runEveryHour(meta) {
     const response = await fetch('https://palabras-aleatorias-public-api.herokuapp.com/random')
     const data = await response.json()
     const randomSpanishWord = data.body.Word
