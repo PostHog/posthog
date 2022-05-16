@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { Hub } from '../../../types'
@@ -40,9 +41,11 @@ const EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = ['prepareEventStep', 'determineS
 
 export class EventPipelineRunner {
     hub: Hub
+    originalEvent: PluginEvent
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, originalEvent: PluginEvent) {
         this.hub = hub
+        this.originalEvent = originalEvent
     }
 
     async runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
@@ -53,13 +56,21 @@ export class EventPipelineRunner {
         let currentArgs: any = args
 
         while (true) {
+            const timer = new Date()
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore
             const stepResult = await EVENT_PIPELINE_STEPS[currentStepName](this, ...currentArgs)
 
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
+            this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: currentStepName })
+
             if (stepResult) {
                 ;[currentStepName, currentArgs] = stepResult
             } else {
+                this.hub.statsd?.increment('kafka_queue.event_pipeline.step.dropped', {
+                    step: currentStepName,
+                    team_id: String(this.originalEvent.team_id),
+                })
                 break
             }
         }
