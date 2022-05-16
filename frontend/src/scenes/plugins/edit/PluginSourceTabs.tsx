@@ -2,18 +2,17 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginSourceLogic } from 'scenes/plugins/edit/pluginSourceLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
 
 export function PluginSourceTabs(): JSX.Element {
     const { setCurrentFile } = useActions(pluginSourceLogic)
     const { currentFile, fileNames, pluginSourceValidationErrors } = useValues(pluginSourceLogic)
 
     return (
-        <LemonRow style={{ padding: 0 }}>
+        <div className="flex-center mb-05" style={{ gap: '0.5rem' }}>
             {fileNames.map((fileName) => (
                 <LemonButton
                     key={fileName}
-                    type={currentFile === fileName ? 'secondary' : 'tertiary'}
+                    active={currentFile === fileName}
                     onClick={() => setCurrentFile(fileName)}
                     size="small"
                     status={pluginSourceValidationErrors[fileName] ? 'danger' : undefined}
@@ -21,6 +20,6 @@ export function PluginSourceTabs(): JSX.Element {
                     {fileName}
                 </LemonButton>
             ))}
-        </LemonRow>
+        </div>
     )
 }
