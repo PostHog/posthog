@@ -842,10 +842,7 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
                 if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId,
-                        router.values.hashParams.fromDashboard
-                    )
+                    const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
