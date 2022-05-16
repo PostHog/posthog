@@ -89,7 +89,7 @@ async function handleActionMatches(
 // TL;DR: events from a recently created non-anonymous person are sent to a buffer
 // because their person_id might change. We merge based on the person_id of the anonymous user
 // so ingestion is delayed for those events to increase our chances of getting person_id correctly
-function shouldSendEventToBuffer(
+export function shouldSendEventToBuffer(
     hub: Hub,
     event: PreIngestionEvent,
     person: Person | undefined,
