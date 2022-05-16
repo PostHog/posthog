@@ -69,7 +69,7 @@ class DataGenerator:
         from ee.clickhouse.models.session_recording_event import create_session_recording_event
 
         for event_data in self.events:
-            create_event(**event_data, team=self.team.id, event_uuid=uuid4())
+            create_event(**event_data, team=self.team, event_uuid=uuid4())
         for data in self.snapshots:
             create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
 
