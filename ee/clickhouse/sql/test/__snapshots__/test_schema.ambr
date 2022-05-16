@@ -81,7 +81,7 @@
       tags Array(VARCHAR)
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
-  
+   SETTINGS kafka_skip_broken_messages=1000
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
@@ -408,7 +408,7 @@
       tags Array(VARCHAR)
       
   ) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
-  
+   SETTINGS kafka_skip_broken_messages=1000
   '
 ---
 # name: test_create_table_query[kafka_groups]

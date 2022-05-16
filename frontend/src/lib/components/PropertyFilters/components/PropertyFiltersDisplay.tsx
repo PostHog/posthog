@@ -1,6 +1,6 @@
 import React, { CSSProperties } from 'react'
 import { AnyPropertyFilter } from '~/types'
-import PropertyFilterButton from './PropertyFilterButton'
+import { PropertyFilterButton } from './PropertyFilterButton'
 
 type Props = {
     filters: AnyPropertyFilter[]
@@ -9,7 +9,7 @@ type Props = {
 
 const PropertyFiltersDisplay: React.FunctionComponent<Props> = ({ filters, style }: Props) => {
     return (
-        <div className="property-filters mb" style={style}>
+        <div className="PropertyFilters mb" style={style}>
             {filters &&
                 filters.map((item) => {
                     return <PropertyFilterButton key={item.key} item={item} />

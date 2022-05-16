@@ -1,5 +1,6 @@
 import {
     AvailableFeature,
+    ChartDisplayType,
     FunnelVizType,
     InsightEditorFilter,
     InsightEditorFilterGroup,
@@ -54,12 +55,17 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
     const isFunnels = filters.insight === InsightType.FUNNELS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
-    const hasBreakdown = isTrends || (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
+    const hasBreakdown =
+        isTrends ||
+        (isRetention &&
+            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+            filters.display !== ChartDisplayType.ActionsLineGraph) ||
+        (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
 
-    const advancedOptionsExpanded = !!advancedOptionsUsedCount
-    const advancedOptionsCount = advancedOptionsUsedCount
+    const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
+    const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {
@@ -155,6 +161,39 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
             ]),
         },
         {
+            title: 'Breakdown',
+            count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
+            editorFilters: filterFalsy([
+                hasBreakdown
+                    ? {
+                          key: 'breakdown',
+                          label: 'Breakdown by',
+                          tooltip: (
+                              <>
+                                  Use breakdown to see the aggregation (total volume, active users, etc.) for each value
+                                  of that property. For example, breaking down by Current URL with total volume will
+                                  give you the event volume for each URL your users have visited.
+                              </>
+                          ),
+                          component: EFTrendsBreakdown,
+                      }
+                    : null,
+            ]),
+        },
+        {
+            title: 'Exclusions',
+            editorFilters: filterFalsy([
+                isPaths && {
+                    key: 'paths-exclusions',
+                    label: 'Exclusions',
+                    tooltip: (
+                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                    ),
+                    component: EFPathsExclusions,
+                },
+            ]),
+        },
+        {
             title: 'Advanced Options',
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
@@ -173,29 +212,6 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                           component: EFTrendsFormula,
                       }
                     : null,
-                hasBreakdown
-                    ? {
-                          key: 'breakdown',
-                          label: 'Breakdown by',
-                          tooltip: (
-                              <>
-                                  Use breakdown to see the aggregation (total volume, active users, etc.) for each value
-                                  of that property. For example, breaking down by Current URL with total volume will
-                                  give you the event volume for each URL your users have visited.
-                              </>
-                          ),
-                          component: EFTrendsBreakdown,
-                      }
-                    : null,
-                isPaths && {
-                    key: 'paths-exclusions',
-                    label: 'Exclusions',
-                    tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
-                    ),
-
-                    component: EFPathsExclusions,
-                },
                 isPaths &&
                     (!hasPathsAdvanced
                         ? {

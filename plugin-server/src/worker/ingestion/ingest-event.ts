@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { CachedPersonData } from 'utils/db/db'
 
-import { Element, Hub, IngestEventResponse, Person, PreIngestionEvent } from '../../types'
+import { Element, Hub, IngestEventResponse, Person, PreIngestionEvent, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
@@ -32,9 +32,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             const person = await hub.db.fetchPerson(team_id, distinctId)
 
             // even if the buffer is disabled we want to get metrics on how many events would have gone to it
-            const sendEventToBuffer =
-                shouldSendEventToBuffer(hub, result, person) &&
-                (hub.CONVERSION_BUFFER_ENABLED || hub.conversionBufferEnabledTeams.has(team_id))
+            const sendEventToBuffer = shouldSendEventToBuffer(hub, result, person, team_id)
 
             if (sendEventToBuffer) {
                 await hub.eventsProcessor.produceEventToBuffer(result)
@@ -98,7 +96,12 @@ async function handleActionMatches(
 // TL;DR: events from a recently created non-anonymous person are sent to a buffer
 // because their person_id might change. We merge based on the person_id of the anonymous user
 // so ingestion is delayed for those events to increase our chances of getting person_id correctly
-function shouldSendEventToBuffer(hub: Hub, event: PreIngestionEvent, person?: Person) {
+function shouldSendEventToBuffer(
+    hub: Hub,
+    event: PreIngestionEvent,
+    person: Person | undefined,
+    teamId: TeamId
+): boolean {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
     const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds < hub.BUFFER_CONVERSION_SECONDS
@@ -107,6 +110,10 @@ function shouldSendEventToBuffer(hub: Hub, event: PreIngestionEvent, person?: Pe
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.teamId.toString() })
+    }
+
+    if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
+        return false
     }
 
     return sendToBuffer

@@ -11,9 +11,9 @@ import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/compon
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './FunnelBarGraph'
 import clsx from 'clsx'
-import { getSeriesColor } from './funnelUtils'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { getSeriesColor } from 'lib/colors'
 import { useFunnelTooltip } from './FunnelTooltip'
 import { FunnelStepMore } from './FunnelStepMore'
 
@@ -50,7 +50,7 @@ function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
             className="StepBar"
             style={
                 {
-                    '--series-color': getSeriesColor(series.order, step.nested_breakdown?.length === 1),
+                    '--series-color': getSeriesColor(series.order ?? 0),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }

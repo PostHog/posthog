@@ -60,7 +60,7 @@ export function UpgradeSection(): JSX.Element {
                             {` Plugins to update (${filteredPluginsNeedingUpdates.length})`}
                         </>
                     }
-                    buttons={!rearranging && sectionsOpen.includes(PluginSection.Upgrade) && upgradeButton}
+                    buttons={!rearranging && upgradeButton}
                 />
             </div>
             {sectionsOpen.includes(PluginSection.Upgrade) ? (

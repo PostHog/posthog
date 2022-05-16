@@ -106,7 +106,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
-    PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
@@ -148,6 +147,8 @@ export interface PluginsServerConfig extends Record<string, any> {
 
 export interface Hub extends PluginsServerConfig {
     instanceId: UUID
+    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+    capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
     postgres: Pool
@@ -185,6 +186,12 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+}
+
+export interface PluginServerCapabilities {
+    ingestion?: boolean
+    pluginScheduledTasks?: boolean
+    processJobs?: boolean
 }
 
 export interface Pausable {
@@ -379,6 +386,7 @@ export type WorkerMethods = {
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
     ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -824,7 +832,7 @@ export enum Database {
     Postgres = 'postgres',
 }
 
-export interface ScheduleControl {
+export interface PluginScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
 }

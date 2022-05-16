@@ -49,7 +49,7 @@ export async function kafkaHealthcheck(
 ): Promise<[boolean, Error | null]> {
     try {
         await producer.send({
-            topic: 'healthcheck',
+            topic: KAFKA_HEALTHCHECK,
             messages: [
                 {
                     partition: 0,
