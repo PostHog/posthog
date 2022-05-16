@@ -230,6 +230,16 @@ export function FunnelStepsTable(): JSX.Element | null {
                               width: 0,
                               className: 'no-wrap',
                           },
+                          {
+                              title: 'Median. time',
+                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
+                                  breakdown.steps?.[step.order]?.median_conversion_time != undefined
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, 3)
+                                      : '–',
+                              align: 'right',
+                              width: 0,
+                              className: 'no-wrap',
+                          },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],
         })),
