@@ -274,13 +274,13 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         type: FieldOptionsType.EventsAndActionsMathOperators,
         values: {
             [PropertyOperator.Exact]: {
-                label: 'equals',
+                label: 'exactly',
             },
             [PropertyOperator.GreaterThanOrEqual]: {
-                label: 'greater than or equal to',
+                label: 'at least',
             },
             [PropertyOperator.LessThanOrEqual]: {
-                label: 'less than or equal to',
+                label: 'at most',
             },
         },
     },
