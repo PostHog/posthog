@@ -26,7 +26,9 @@ export function CohortCriteriaGroups(): JSX.Element {
                 isCohortCriteriaGroup(group) ? (
                     <Group key={groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
                         {groupIndex !== 0 && (
-                            <div className="CohortCriteriaGroups__matching-group__logical-divider">{group.type}</div>
+                            <div className="CohortCriteriaGroups__matching-group__logical-divider">
+                                {cohort.filters.properties.type}
+                            </div>
                         )}
                         <KeaField
                             name="id"
