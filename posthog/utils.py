@@ -438,10 +438,15 @@ def decompress(data: Any, compression: str):
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
+        original_error = RequestParsingError("Invalid JSON: %s" % (str(error_main)))
         if compression == "":
-            return decompress(data, "gzip")
+            try:
+                return decompress(data, "gzip")
+            except (RequestParsingError, json.JSONDecodeError, UnicodeDecodeError):
+                # re-trying with compression set didn't succeed, throw original error
+                raise original_error
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise original_error
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
