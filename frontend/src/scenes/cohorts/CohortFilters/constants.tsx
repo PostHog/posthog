@@ -277,10 +277,10 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
                 label: 'exactly',
             },
             [PropertyOperator.GreaterThanOrEqual]: {
-                label: 'greater than or equal to',
+                label: 'at least',
             },
             [PropertyOperator.LessThanOrEqual]: {
-                label: 'less than or equal to',
+                label: 'at most',
             },
         },
     },
