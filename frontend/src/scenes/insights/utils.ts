@@ -22,6 +22,7 @@ import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -88,11 +89,21 @@ export function findInsightFromMountedLogic(
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
     if (dashboardId) {
-        return (
-            dashboardLogic
-                .findMounted({ id: dashboardId })
-                ?.values.allItems?.items?.find((item) => item.short_id === insightShortId) || null
-        )
+        const insightOnDashboard = dashboardLogic
+            .findMounted({ id: dashboardId })
+            ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+        if (insightOnDashboard) {
+            return insightOnDashboard
+        } else {
+            const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
+            let foundOnModel: Partial<InsightModel> | undefined
+            for (const dashModelId of Object.keys(dashboards || {})) {
+                foundOnModel = dashboardLogic
+                    .findMounted({ id: parseInt(dashModelId) })
+                    ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+            }
+            return foundOnModel || null
+        }
     } else {
         return (
             savedInsightsLogic
