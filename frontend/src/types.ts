@@ -759,7 +759,16 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightModel {
+interface InsightVariesWithContext {
+    result: any | null
+    layouts: Record<string, any>
+    color: InsightColor | null
+    last_refresh: string | null
+    filters: Partial<FilterType>
+    filters_hash: string
+}
+
+export interface InsightModel extends InsightVariesWithContext {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -768,20 +777,14 @@ export interface InsightModel {
     derived_name?: string
     description?: string
     favorited?: boolean
-    filters: Partial<FilterType>
-    filters_hash: string
     order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    layouts: Record<string, any>
-    color: InsightColor | null
-    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
-    result: any | null
     updated_at: string
     tags?: string[]
     last_modified_at: string

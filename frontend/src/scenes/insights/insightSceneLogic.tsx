@@ -84,7 +84,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 unmount: () => void
             },
             {
-                setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
+                setInsightLogic: (_, { logic, unmount }) => {
+                    const isDashboardContextLogic = logic && logic.key.toString().indexOf('on-dashboard-') !== -1
+                    // don't allow the insight scene logic to use a dashboard context insightLogic
+                    return logic && unmount && !isDashboardContextLogic ? { logic, unmount } : null
+                },
             },
         ],
     },

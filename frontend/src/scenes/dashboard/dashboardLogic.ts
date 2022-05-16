@@ -159,12 +159,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         allItems: [
             null as DashboardType | null,
             {
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                    } as DashboardType
-                },
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
                     state?.items.forEach((item) => {
@@ -195,7 +189,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = item
+                            const original = { ...newItems[itemIndex] }
+                            const updatedInsight: InsightModel = { ...item }
+
+                            // don't update dashboard specific data from outside the dashboard
+                            updatedInsight.result = original.result || []
+                            updatedInsight.layouts = original.layouts || {}
+                            updatedInsight.color = original.color || null
+                            updatedInsight.last_refresh = original.last_refresh || null
+                            updatedInsight.filters = original.filters
+                            updatedInsight.filters_hash = original.filters_hash || ''
+
+                            newItems[itemIndex] = updatedInsight
                         } else {
                             newItems.push(item)
                         }
