@@ -396,45 +396,9 @@ def base64_decode(data):
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
-# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
-def load_data_from_request(request):
-    data = None
-    if request.method == "POST":
-        if request.content_type in ["", "text/plain", "application/json"]:
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-
+def load_data_from(data: Any, compression: str):
     if not data:
         return None
-
-    # add the data in sentry's scope in case there's an exception
-    request_origin = request.headers.get("origin", request.headers.get("remote_host", "unknown"))
-    with configure_scope() as scope:
-        scope.set_context("data", data)
-        scope.set_tag("origin", request_origin)
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
-        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
-
-    if request_origin == "https://app.leif.org" and compression == "":
-        # see https://sentry.io/organizations/posthog2/issues/3136510367
-        # one organization is causing a request parsing error by sending an encoded body
-        # but the empty string for the compression value
-        # this accounts for a large majority of our Sentry errors
-        from statshog.defaults.django import (  # importing this at file level causes the server to error every request  ¯\_(ツ)_/¯
-            statsd,
-        )
-
-        statsd.incr("leif_workaround.set_empty_compression_to_gzip-js")
-        compression = "gzip-js"
 
     if compression == "gzip" or compression == "gzip-js":
         if data == b"undefined":
@@ -474,10 +438,38 @@ def load_data_from_request(request):
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+        if compression == "":
+            return load_data_from(data, "gzip")
+        else:
+            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
+
+
+# Used by non-DRF endpoints from capture.py and decide.py (/decide, /batch, /capture, etc)
+def load_data_from_request(request):
+    if request.method == "POST":
+        if request.content_type in ["", "text/plain", "application/json"]:
+            data = request.body
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+
+    # add the data in sentry's scope in case there's an exception
+    with configure_scope() as scope:
+        scope.set_context("data", data)
+        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    ).lower()
+
+    return load_data_from(data, compression)
 
 
 class SingletonDecorator:

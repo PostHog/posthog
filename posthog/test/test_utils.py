@@ -189,20 +189,17 @@ class TestLoadDataFromRequest(TestCase):
             [call("origin", "unknown"), call("referer", "unknown"), call("library.version", "unknown")]
         )
 
-    def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
-        """
-        load_data_from_request assumes that any data
-        that has been received (and possibly decompressed) from the body
-        can be parsed as JSON
-        this test maintains the default (and possibly undesirable) behaviour for the uncompressed case
-        """
+    def test_raises_specific_error_for_the_literal_string_undefined_when_not_compressed(self):
         rf = RequestFactory()
         post_request = rf.post("/s/", "undefined", "text/plain")
 
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual("Invalid JSON: Expecting value: line 1 column 1 (char 0)", str(ctx.exception))
+        self.assertEqual(
+            "data being loaded from the request body for decompression is the literal string 'undefined'",
+            str(ctx.exception),
+        )
 
     def test_raises_specific_error_for_the_literal_string_undefined_when_compressed(self):
         rf = RequestFactory()
@@ -215,6 +212,22 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
+
+    @patch("posthog.utils.gzip")
+    def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
+        # see https://sentry.io/organizations/posthog2/issues/3136510367
+        # one organization is causing a request parsing error by sending an encoded body
+        # but the empty string for the compression value
+        # this accounts for a large majority of our Sentry errors
+
+        patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
+
+        rf = RequestFactory()
+        # a request with no compression set
+        post_request = rf.post("/s/", "the gzip compressed string", "text/plain")
+
+        data = load_data_from_request(post_request)
+        self.assertEqual({"what is it": "the decompressed value"}, data)
 
 
 class TestShouldRefresh(TestCase):
