@@ -1080,8 +1080,8 @@ export function Experiment(): JSX.Element {
                             >
                                 <div className="mt">
                                     <InsightContainer
-                                        disableHeader={experimentInsightType === InsightType.TRENDS}
-                                        disableTable={experimentInsightType === InsightType.FUNNELS}
+                                        disableHeader={true}
+                                        disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}
                                     />
                                 </div>
                             </BindLogic>
