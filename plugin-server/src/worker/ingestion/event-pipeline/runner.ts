@@ -10,7 +10,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
-type StepParameters<T extends (...args: any[]) => any> = T extends (
+export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
     ...args: infer P
 ) => any
@@ -25,9 +25,9 @@ const EVENT_PIPELINE_STEPS = {
     runAsyncHandlersStep,
 }
 
-type EventPipelineStepsType = typeof EVENT_PIPELINE_STEPS
-type StepType = keyof EventPipelineStepsType
-type NextStep<Step extends StepType> = [StepType, StepParameters<EventPipelineStepsType[Step]>]
+export type EventPipelineStepsType = typeof EVENT_PIPELINE_STEPS
+export type StepType = keyof EventPipelineStepsType
+export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPipelineStepsType[Step]>]
 
 export type StepResult =
     | null
@@ -54,17 +54,17 @@ export class EventPipelineRunner {
     }
 
     async runMainPipeline(event: PluginEvent): Promise<void> {
-        await this.runStep('prepareEventStep', event)
+        await this.runPipeline('pluginsProcessEventStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
     }
 
     async runBufferPipeline(event: PreIngestionEvent): Promise<void> {
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        await this.runStep('createEventStep', event, person)
-        this.hub.statsd?.increment('kafka_queue.buffer_envent.processed_and_ingested')
+        await this.runPipeline('createEventStep', event, person)
+        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
     }
 
-    async runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+    private async runPipeline<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
         name: Step,
         ...args: ArgsType
     ): Promise<void> {
@@ -74,9 +74,7 @@ export class EventPipelineRunner {
         while (true) {
             const timer = new Date()
             try {
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore
-                const stepResult = await EVENT_PIPELINE_STEPS[currentStepName](this, ...currentArgs)
+                const stepResult = await this.runStep(currentStepName, ...currentArgs)
 
                 this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
                 this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: currentStepName })
@@ -84,7 +82,7 @@ export class EventPipelineRunner {
                 if (stepResult) {
                     ;[currentStepName, currentArgs] = stepResult
                 } else {
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.dropped', {
+                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
                         step: currentStepName,
                         team_id: String(this.originalEvent?.team_id),
                     })
@@ -95,6 +93,16 @@ export class EventPipelineRunner {
                 break
             }
         }
+    }
+
+    protected runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+        name: Step,
+        ...args: ArgsType
+    ): Promise<StepResult> {
+        // :TODO: timeoutGuard per step
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        return EVENT_PIPELINE_STEPS[name](this, ...args)
     }
 
     nextStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
