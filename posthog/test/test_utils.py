@@ -189,17 +189,20 @@ class TestLoadDataFromRequest(TestCase):
             [call("origin", "unknown"), call("referer", "unknown"), call("library.version", "unknown")]
         )
 
-    def test_raises_specific_error_for_the_literal_string_undefined_when_not_compressed(self):
+    def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
+        """
+        load_data_from_request assumes that any data
+        that has been received (and possibly decompressed) from the body
+        can be parsed as JSON
+        this test maintains the default (and possibly undesirable) behaviour for the uncompressed case
+        """
         rf = RequestFactory()
         post_request = rf.post("/s/", "undefined", "text/plain")
 
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual(
-            "data being loaded from the request body for decompression is the literal string 'undefined'",
-            str(ctx.exception),
-        )
+        self.assertEqual("Invalid JSON: Expecting value: line 1 column 1 (char 0)", str(ctx.exception))
 
     def test_raises_specific_error_for_the_literal_string_undefined_when_compressed(self):
         rf = RequestFactory()
