@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { Hub } from '../../../types'
+import { Hub, PreIngestionEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -38,6 +38,7 @@ export type StepResult =
     | NextStep<'runAsyncHandlersStep'>
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
+    'pluginsProcessEventStep',
     'prepareEventStep',
     'determineShouldBufferStep',
     'createEventStep',
@@ -50,6 +51,17 @@ export class EventPipelineRunner {
     constructor(hub: Hub, originalEvent?: PluginEvent) {
         this.hub = hub
         this.originalEvent = originalEvent
+    }
+
+    async runMainPipeline(event: PluginEvent): Promise<void> {
+        await this.runStep('prepareEventStep', event)
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+    }
+
+    async runBufferPipeline(event: PreIngestionEvent): Promise<void> {
+        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
+        await this.runStep('createEventStep', event, person)
+        this.hub.statsd?.increment('kafka_queue.buffer_envent.processed_and_ingested')
     }
 
     async runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
