@@ -24,7 +24,7 @@ def create_test_events(properties=""):
 
 
 @pytest.mark.ee
-class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
+class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()
         super().tearDown()
@@ -52,7 +52,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         sync_execute(
             f"""
-            INSERT INTO person_distinct_id (person_id, distinct_id, team_id)
+            INSERT INTO person_distinct_id_2 (person_id, distinct_id, team_id)
             VALUES
                 ('{str(person_id)}', 'some_distinct_id', 1)
             """
