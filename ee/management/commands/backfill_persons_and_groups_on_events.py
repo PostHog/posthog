@@ -90,13 +90,13 @@ BACKFILL_SQL = f"""
 ALTER TABLE {EVENTS_DATA_TABLE()}
 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 UPDATE
-    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id)),
-    person_properties=dictGetString('{CLICKHOUSE_DATABASE}.{PERSONS_DICT_TABLE_NAME}', 'properties', toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', distinct_id))),
-    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_0),
-    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_1),
-    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_2),
-    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_3),
-    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', $group_4)
+    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))),
+    person_properties=dictGetString('{CLICKHOUSE_DATABASE}.{PERSONS_DICT_TABLE_NAME}', 'properties', tuple(toUUID(dictGet('{CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_IDS_DICT_TABLE_NAME}', 'person_id', tuple(distinct_id))))),
+    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_0)),
+    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_1)),
+    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_2)),
+    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_3)),
+    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.{GROUPS_DICT_TABLE_NAME}', 'group_properties', tuple($group_4))
 WHERE team_id = %(team_id)s
 {backfill_settings}
 """
