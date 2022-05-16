@@ -260,5 +260,5 @@ export function Histogram({
         [data, config]
     )
 
-    return <div className="histogram-container" ref={ref} />
+    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }
