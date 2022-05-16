@@ -43,8 +43,6 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             }
         }
 
-        // We don't want to return the inserted DB entry that `processEvent` returns.
-        // This response is passed to piscina and would be discarded anyway.
         return { actionMatches, preIngestionEvent, success: true }
     } catch (e) {
         status.info('🔔', e)

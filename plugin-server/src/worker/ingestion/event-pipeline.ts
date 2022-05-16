@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
-import { convertPreIngestionEvent } from '../../utils/event'
+import { convertToProcessedPluginEvent } from '../../utils/event'
 import { runOnAction, runOnEvent, runOnSnapshot, runProcessEvent } from '../plugins/run'
 import { ingestEvent } from './ingest-event'
 
@@ -21,7 +21,7 @@ export async function runEventPipeline(server: Hub, event: PluginEvent): Promise
         server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
 
         if (ingestEventResult.success && ingestEventResult.preIngestionEvent) {
-            const processedPluginEvent = convertPreIngestionEvent(ingestEventResult.preIngestionEvent)
+            const processedPluginEvent = convertToProcessedPluginEvent(ingestEventResult.preIngestionEvent)
             const promises = [onEvent(server, processedPluginEvent)]
             for (const actionMatch of ingestEventResult.actionMatches) {
                 promises.push(

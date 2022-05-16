@@ -2,7 +2,7 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent } from '../types'
 
-export function convertPreIngestionEvent(event: PreIngestionEvent): ProcessedPluginEvent {
+export function convertToProcessedPluginEvent(event: PreIngestionEvent): ProcessedPluginEvent {
     const timestamp = typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toUTC().toISO()
 
     return {
