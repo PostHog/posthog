@@ -52,7 +52,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
 
         sync_execute(
             f"""
-            INSERT INTO person_distinct_id_2 (person_id, distinct_id, team_id)
+            INSERT INTO person_distinct_id2 (person_id, distinct_id, team_id)
             VALUES
                 ('{str(person_id)}', 'some_distinct_id', 1)
             """
@@ -70,7 +70,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         run_backfill({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
-        sleep(60)
+        sleep(10)
 
         events_after = sync_execute("select event, person_id, person_properties from events")
         self.assertEqual(
@@ -99,7 +99,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         run_backfill({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
-        sleep(60)
+        sleep(10)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
         self.assertEqual(
