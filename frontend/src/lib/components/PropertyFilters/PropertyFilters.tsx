@@ -8,6 +8,7 @@ import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/type
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import './PropertyFilters.scss'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -25,7 +26,6 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     useLemonButton?: boolean
-    prefixComponent?: React.ReactNode
 }
 
 export function PropertyFilters({
@@ -43,7 +43,6 @@ export function PropertyFilters({
     orFiltering = false,
     propertyGroupType = null,
     useLemonButton = false,
-    prefixComponent,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -55,48 +54,49 @@ export function PropertyFilters({
     }, [propertyFilters])
 
     return (
-        <div className="property-filters" style={style}>
-            {prefixComponent}
-            <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
-                    return (
-                        <FilterRow
-                            key={index}
-                            item={item}
-                            index={index}
-                            totalCount={filtersWithNew.length - 1} // empty state
-                            filters={filtersWithNew}
-                            pageKey={pageKey}
-                            showConditionBadge={showConditionBadge}
-                            disablePopover={disablePopover || orFiltering}
-                            popoverPlacement={popoverPlacement}
-                            taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                            showNestedArrow={showNestedArrow}
-                            label={'Add filter'}
-                            onRemove={remove}
-                            useLemonButton={useLemonButton}
-                            orFiltering={orFiltering}
-                            filterComponent={(onComplete) => (
-                                <TaxonomicPropertyFilter
-                                    key={index}
-                                    pageKey={pageKey}
-                                    index={index}
-                                    onComplete={onComplete}
-                                    orFiltering={orFiltering}
-                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                    eventNames={eventNames}
-                                    propertyGroupType={propertyGroupType}
-                                    disablePopover={disablePopover || orFiltering}
-                                    selectProps={{
-                                        delayBeforeAutoOpen: 150,
-                                        placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                    }}
-                                />
-                            )}
-                        />
-                    )
-                })}
-            </BindLogic>
+        <div className="PropertyFilters" style={style}>
+            {showNestedArrow && !disablePopover && <div className="PropertyFilters-prefix">{<>&#8627;</>}</div>}
+            <div className="PropertyFilters-content">
+                <BindLogic logic={propertyFilterLogic} props={logicProps}>
+                    {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
+                        return (
+                            <FilterRow
+                                key={index}
+                                item={item}
+                                index={index}
+                                totalCount={filtersWithNew.length - 1} // empty state
+                                filters={filtersWithNew}
+                                pageKey={pageKey}
+                                showConditionBadge={showConditionBadge}
+                                disablePopover={disablePopover || orFiltering}
+                                popoverPlacement={popoverPlacement}
+                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
+                                label={'Add filter'}
+                                onRemove={remove}
+                                useLemonButton={useLemonButton}
+                                orFiltering={orFiltering}
+                                filterComponent={(onComplete) => (
+                                    <TaxonomicPropertyFilter
+                                        key={index}
+                                        pageKey={pageKey}
+                                        index={index}
+                                        onComplete={onComplete}
+                                        orFiltering={orFiltering}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        eventNames={eventNames}
+                                        propertyGroupType={propertyGroupType}
+                                        disablePopover={disablePopover || orFiltering}
+                                        selectProps={{
+                                            delayBeforeAutoOpen: 150,
+                                            placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                        }}
+                                    />
+                                )}
+                            />
+                        )
+                    })}
+                </BindLogic>
+            </div>
         </div>
     )
 }

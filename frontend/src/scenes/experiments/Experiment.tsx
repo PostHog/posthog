@@ -28,9 +28,8 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
-import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
@@ -415,30 +414,35 @@ export function Experiment(): JSX.Element {
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                                <div className="mt">
+                                                <div className="mt mb-05">
                                                     <strong>Filters</strong>
                                                 </div>
-                                                <PropertyFilters
-                                                    pageKey={'experiment-participants-property'}
-                                                    propertyFilters={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? convertPropertyGroupToProperties(
-                                                                  funnelsFilters.properties
-                                                              )
-                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
-                                                    }
-                                                    onChange={(anyProperties) => {
-                                                        setNewExperimentData({
-                                                            filters: {
-                                                                properties: anyProperties as PropertyFilter[],
-                                                            },
-                                                        })
-                                                        setFilters({
-                                                            properties: anyProperties.filter(isValidPropertyFilter),
-                                                        })
-                                                    }}
-                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                />
+                                                <div className="mb">
+                                                    <PropertyFilters
+                                                        pageKey={'experiment-participants-property'}
+                                                        propertyFilters={
+                                                            experimentInsightType === InsightType.FUNNELS
+                                                                ? convertPropertyGroupToProperties(
+                                                                      funnelsFilters.properties
+                                                                  )
+                                                                : convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
+                                                        }
+                                                        onChange={(anyProperties) => {
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    properties: anyProperties as PropertyFilter[],
+                                                                },
+                                                            })
+                                                            setFilters({
+                                                                properties: anyProperties.filter(isValidPropertyFilter),
+                                                            })
+                                                        }}
+                                                        useLemonButton
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                    />
+                                                </div>
                                             </Col>
                                         </Row>
                                     </Col>
@@ -484,67 +488,51 @@ export function Experiment(): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
-                                            <Row>
-                                                <Card
-                                                    className="action-filters-bordered"
-                                                    style={{ width: '100%', marginRight: 8 }}
-                                                    bodyStyle={{ padding: 0 }}
-                                                >
-                                                    {experimentInsightType === InsightType.FUNNELS && (
-                                                        <ActionFilter
-                                                            filters={funnelsFilters}
-                                                            setFilters={(payload) => {
-                                                                setNewExperimentData({ filters: payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`EditFunnel-action`}
-                                                            mathAvailability={MathAvailability.None}
-                                                            hideDeleteBtn={filterSteps.length === 1}
-                                                            buttonCopy="Add funnel step"
-                                                            buttonType="link"
-                                                            showSeriesIndicator={!isStepsEmpty}
-                                                            seriesIndicatorType="numeric"
-                                                            fullWidth
-                                                            sortable
-                                                            showNestedArrow={true}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            rowClassName="action-filters-bordered"
-                                                        />
-                                                    )}
-                                                    {experimentInsightType === InsightType.TRENDS && (
-                                                        <ActionFilter
-                                                            horizontalUI
-                                                            filters={trendsFilters}
-                                                            setFilters={(payload: Partial<FilterType>) => {
-                                                                setNewExperimentData({ filters: payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`experiment-trends`}
-                                                            buttonCopy="Add graph series"
-                                                            showSeriesIndicator
-                                                            entitiesLimit={1}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            customRowPrefix={
-                                                                trendsFilters.insight === InsightType.LIFECYCLE ? (
-                                                                    <>
-                                                                        Showing <b>Unique users</b> who did
-                                                                    </>
-                                                                ) : undefined
-                                                            }
-                                                        />
-                                                    )}
-                                                </Card>
-                                            </Row>
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <ActionFilter
+                                                    bordered
+                                                    filters={funnelsFilters}
+                                                    setFilters={(payload) => {
+                                                        setNewExperimentData({ filters: payload })
+                                                        setFilters(payload)
+                                                    }}
+                                                    typeKey={`EditFunnel-action`}
+                                                    mathAvailability={MathAvailability.None}
+                                                    hideDeleteBtn={filterSteps.length === 1}
+                                                    buttonCopy="Add funnel step"
+                                                    showSeriesIndicator={!isStepsEmpty}
+                                                    seriesIndicatorType="numeric"
+                                                    sortable
+                                                    showNestedArrow={true}
+                                                    propertiesTaxonomicGroupTypes={[
+                                                        TaxonomicFilterGroupType.EventProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.Cohorts,
+                                                        TaxonomicFilterGroupType.Elements,
+                                                    ]}
+                                                />
+                                            )}
+                                            {experimentInsightType === InsightType.TRENDS && (
+                                                <ActionFilter
+                                                    bordered
+                                                    filters={trendsFilters}
+                                                    setFilters={(payload: Partial<FilterType>) => {
+                                                        setNewExperimentData({ filters: payload })
+                                                        setFilters(payload)
+                                                    }}
+                                                    typeKey={`experiment-trends`}
+                                                    buttonCopy="Add graph series"
+                                                    showSeriesIndicator
+                                                    entitiesLimit={1}
+                                                    hideDeleteBtn
+                                                    propertiesTaxonomicGroupTypes={[
+                                                        TaxonomicFilterGroupType.EventProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.Cohorts,
+                                                        TaxonomicFilterGroupType.Elements,
+                                                    ]}
+                                                />
+                                            )}
                                             {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
                                                 <Col className="secondary-metrics">
                                                     <div>
@@ -780,22 +768,12 @@ export function Experiment(): JSX.Element {
                                                                         key={idx}
                                                                         span={secondaryColumnSpan}
                                                                         style={{
-                                                                            color: `${
-                                                                                experimentInsightType ===
-                                                                                InsightType.FUNNELS
-                                                                                    ? getSeriesColor(
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.FUNNELS
-                                                                                          ) + 1
-                                                                                      ) // baseline takes 0th index
-                                                                                    : getChartColors('white')[
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.TRENDS
-                                                                                          )
-                                                                                      ]
-                                                                            }`,
+                                                                            color: getSeriesColor(
+                                                                                getIndexForVariant(
+                                                                                    variant.key,
+                                                                                    experimentInsightType
+                                                                                )
+                                                                            ),
                                                                         }}
                                                                     >
                                                                         <span className="text-default">
@@ -1054,16 +1032,9 @@ export function Experiment(): JSX.Element {
                                                         )}
                                                         size="small"
                                                         showInfo={false}
-                                                        strokeColor={
-                                                            experimentInsightType === InsightType.FUNNELS
-                                                                ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
-                                                                : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
-                                                        }
+                                                        strokeColor={getSeriesColor(
+                                                            getIndexForVariant(variant, experimentInsightType)
+                                                        )}
                                                     />
                                                     <div>
                                                         Probability that this variant is the best:{' '}

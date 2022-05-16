@@ -6,7 +6,7 @@ import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import { FilterButton } from './components/PropertyFilterButton'
+import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -65,7 +65,9 @@ export function PathItemFilters({
                                         </Button>
                                     ) : (
                                         <Row align="middle">
-                                            <FilterButton item={filter}>{filter.value as string}</FilterButton>
+                                            <PropertyFilterButton item={filter}>
+                                                {filter.value as string}
+                                            </PropertyFilterButton>
                                             {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {

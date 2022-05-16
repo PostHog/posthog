@@ -13,40 +13,40 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <ActionFilter
-            fullWidth
-            filters={filters}
-            setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-            typeKey={`trends_${InsightType.TRENDS}`}
-            buttonCopy="Add graph series"
-            buttonType="link"
-            showSeriesIndicator
-            entitiesLimit={
-                filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
-                    ? 1
-                    : alphabet.length
-            }
-            mathAvailability={
-                filters.insight === InsightType.LIFECYCLE
-                    ? MathAvailability.None
-                    : filters.insight === InsightType.STICKINESS
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.All
-            }
-            propertiesTaxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                ...groupsTaxonomicTypes,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-            ]}
-            customRowPrefix={
-                filters.insight === InsightType.LIFECYCLE ? (
-                    <>
-                        Showing <b>Unique users</b> who did
-                    </>
-                ) : undefined
-            }
-        />
+        <>
+            {filters.insight === InsightType.LIFECYCLE && (
+                <div className="mb-05">
+                    Showing <b>Unique users</b> who did
+                </div>
+            )}
+            <ActionFilter
+                filters={filters}
+                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+                typeKey={`trends_${InsightType.TRENDS}`}
+                buttonCopy="Add graph series"
+                propertyFiltersPopover
+                showSeriesIndicator
+                showNestedArrow
+                entitiesLimit={
+                    filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
+                        ? 1
+                        : alphabet.length
+                }
+                mathAvailability={
+                    filters.insight === InsightType.LIFECYCLE
+                        ? MathAvailability.None
+                        : filters.insight === InsightType.STICKINESS
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.All
+                }
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]}
+            />
+        </>
     )
 }

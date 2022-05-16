@@ -4,10 +4,10 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
-import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
+import { average, median, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
@@ -82,7 +82,6 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     const handleEditClick = (item: IndexedTrendResult): void => {
@@ -127,7 +126,7 @@ export function InsightsTable({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
-                        color={colorList[item.id]}
+                        color={getSeriesColor(item.id, !!filters.compare)}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={!canCheckUncheckSeries}
@@ -144,7 +143,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={colorList[item.id]}
+                        seriesColor={getSeriesColor(item.id, !!filters.compare)}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -229,10 +228,10 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return maybeAddCommasToInteger(item.data[index])
+                    return humanFriendlyNumber(item.data[index] ?? NaN)
                 },
-                key: `data[${index}]`,
-                sorter: (a, b) => a.data[index] - b.data[index],
+                key: `data-${index}`,
+                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
                 align: 'right',
             })
         )

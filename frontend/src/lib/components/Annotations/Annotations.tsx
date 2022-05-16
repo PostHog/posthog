@@ -12,7 +12,6 @@ interface AnnotationsProps {
     topExtent: number
     insightNumericId?: number
     color: string | null
-    graphColor: string
     accessoryColor: string | null
     currentDateMarker?: string | null
     onClick: () => void
@@ -29,7 +28,6 @@ export function Annotations({
     color,
     accessoryColor,
     onClose,
-    graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element {
     const logic = annotationsLogic({ insightNumericId })
@@ -70,7 +68,6 @@ export function Annotations({
             onClick={onClick}
             onClose={onClose}
             color={color}
-            graphColor={graphColor}
             accessoryColor={accessoryColor}
             currentDateMarker={currentDateMarker}
             index={index}

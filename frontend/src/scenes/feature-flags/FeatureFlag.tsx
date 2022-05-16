@@ -498,16 +498,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </div>
 
                                     <LemonDivider large />
-                                    <PropertyFilters
-                                        style={{ marginLeft: 15 }}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
-                                        propertyFilters={group?.properties}
-                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        showConditionBadge
-                                    />
+                                    <div className="ml">
+                                        <PropertyFilters
+                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                                featureFlag.filters.groups.length
+                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                            propertyFilters={group?.properties}
+                                            onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            showConditionBadge
+                                            useLemonButton
+                                        />
+                                    </div>
+
                                     <LemonDivider large />
 
                                     <div className="feature-flag-form-row">

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Col, Row, Select } from 'antd'
+import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -11,32 +11,31 @@ import {
     PropertyFilterValue,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { CloseSquareOutlined, DownOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { getEventNamesForAction, pluralize } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
-import './index.scss'
+import './ActionFilterRow.scss'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
-import { IconCopy, IconDelete, IconEdit, IconFilter } from 'lib/components/icons'
+import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/components/icons'
 
-const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
-    if (visible) {
-        return 'Hide filters'
-    }
-    if (filter.properties && Object.keys(filter.properties).length > 0) {
-        return pluralize(filter.properties?.length, 'filter')
-    }
-    return 'Add filters'
-}
+import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
+import { SortableDragIcon } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+
+const DragHandle = sortableHandle(() => (
+    <span className="ActionFilterRowDragHandle">
+        <SortableDragIcon />
+    </span>
+))
 
 export enum MathAvailability {
     All,
@@ -49,25 +48,17 @@ export interface ActionFilterRowProps {
     filter: ActionFilter
     index: number
     mathAvailability: MathAvailability
-    hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
-    showOr?: boolean
     hideFilter?: boolean // Hides the local filter options
     hideRename?: boolean // Hides the rename option
+    hideDuplicate?: boolean // Hides the duplicate option
+    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
+    propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
-    horizontalUI?: boolean
-    fullWidth?: boolean
     filterCount: number
-    customRowPrefix?:
-        | string
-        | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelStepRangeEntityFilter
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom prefix element to show in each row
+    sortable: boolean
     customRowSuffix?:
         | string
         | JSX.Element
@@ -76,19 +67,14 @@ export interface ActionFilterRowProps {
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
-    rowClassName?: string
-    propertyFilterWrapperClassName?: string
-    stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
-    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
-        prefix,
         filter,
         suffix,
         propertyFiltersButton,
@@ -103,25 +89,20 @@ export function ActionFilterRow({
     filter,
     index,
     mathAvailability,
-    hidePropertySelector,
     singleFilter,
-    showOr,
     hideFilter,
     hideRename,
+    hideDuplicate = false,
+    hideDeleteBtn = false,
+    propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
-    horizontalUI = false,
-    fullWidth = false,
     filterCount,
-    customRowPrefix,
+    sortable,
     customRowSuffix,
-    rowClassName,
-    propertyFilterWrapperClassName,
-    stripeActionRow = true,
     hasBreakdown,
     showNestedArrow = false,
-    hideDeleteBtn = false,
     actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     propertiesTaxonomicGroupTypes,
     disabled = false,
@@ -141,7 +122,7 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
-    const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let entity: BareEntity, name: string | null | undefined, value: PropertyFilterValue
     const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
@@ -195,8 +176,6 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
 
-    const prefix = typeof customRowPrefix === 'function' ? customRowPrefix({ filter, index, onClose }) : customRowPrefix
-
     const filterElement = (
         <Popup
             overlay={
@@ -224,7 +203,7 @@ export function ActionFilterRow({
                 <Button
                     data-attr={'trend-element-subject-' + index}
                     onClick={onClick}
-                    block={fullWidth}
+                    block
                     ref={setRef}
                     disabled={disabled || readOnly}
                     style={{
@@ -246,84 +225,62 @@ export function ActionFilterRow({
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <Button
-            type="link"
-            onClick={() => {
-                typeof filter.order === 'number' ? setEntityFilterVisibility(filter.order, !visible) : undefined
-            }}
-            className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
-            data-attr={`show-prop-filter-${index}`}
-            title="Show filters"
-            style={{ display: 'flex', alignItems: 'center' }}
-        >
-            <IconFilter fontSize={'1.25em'} />
-            {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
-        </Button>
+        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+            <LemonButton
+                icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
+                type="alt"
+                title="Show filters"
+                data-attr={`show-prop-filter-${index}`}
+                onClick={() => {
+                    typeof filter.order === 'number'
+                        ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
+                        : undefined
+                }}
+            />
+        </IconWithCount>
     )
 
     const renameRowButton = (
-        <Button
-            type="link"
+        <LemonButton
+            icon={<IconEdit />}
+            type="alt"
+            title="Rename graph series"
+            data-attr={`show-prop-rename-${index}`}
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
             }}
-            className={`row-action-btn show-rename`}
-            data-attr={`show-prop-rename-${index}`}
-            title="Rename graph series"
-            style={{ display: 'flex', alignItems: 'center' }}
-        >
-            <IconEdit fontSize={'1.25em'} />
-        </Button>
+        />
     )
 
     const duplicateRowButton = (
-        <Button
-            type="link"
+        <LemonButton
+            icon={<IconCopy />}
+            type="alt"
+            title="Duplicate graph series"
+            data-attr={`show-prop-duplicate-${index}`}
             onClick={() => {
                 duplicateFilter(filter)
             }}
-            style={{ display: 'flex', alignItems: 'center' }}
-            className={'row-action-btn'}
-            data-attr={`show-prop-duplicate-${index}`}
-            title="Duplicate graph series"
-        >
-            <IconCopy fontSize={'1.25em'} />
-        </Button>
+        />
     )
 
     const deleteButton = (
-        <Button
-            type="link"
-            onClick={onClose}
-            style={{ display: 'flex', alignItems: 'center' }}
-            className="row-action-btn delete"
-            data-attr={`delete-prop-filter-${index}`}
+        <LemonButton
+            icon={<IconDelete />}
+            type="alt"
             title="Delete graph series"
-        >
-            <IconDelete fontSize={'1.25em'} />
-        </Button>
+            data-attr={`delete-prop-filter-${index}`}
+            onClick={onClose}
+        />
     )
 
     return (
-        <div
-            className={clsx({
-                'action-row-striped': horizontalUI && stripeActionRow,
-                'action-row': !horizontalUI || !stripeActionRow,
-                'full-width': fullWidth,
-            })}
-        >
-            {!horizontalUI && index > 0 && showOr && (
-                <Row align="middle" style={{ marginTop: 12 }}>
-                    {orLabel}
-                </Row>
-            )}
-
-            <Row gutter={8} align="middle" className={`${!horizontalUI ? 'mt' : ''} ${rowClassName}`} wrap={!fullWidth}>
+        <div className={'ActionFilterRow'}>
+            <div className="ActionFilterRow-content">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
-                        prefix,
                         filter: filterElement,
                         suffix,
                         propertyFiltersButton: propertyFiltersButton,
@@ -333,61 +290,29 @@ export function ActionFilterRow({
                     })
                 ) : (
                     <>
-                        {!hideDeleteBtn && horizontalUI && !singleFilter && filterCount > 1 && (
-                            <Col>
-                                <Button
-                                    type="link"
-                                    onClick={onClose}
-                                    className="row-action-btn delete"
-                                    title="Remove graph series"
-                                    danger
-                                    icon={<CloseSquareOutlined />}
-                                />
-                            </Col>
-                        )}
-                        {showSeriesIndicator && <Col className="action-row-letter">{seriesIndicator}</Col>}
-                        {customRowPrefix !== undefined ? (
-                            <Col>{prefix}</Col>
-                        ) : (
-                            <>{horizontalUI && <Col>Showing</Col>}</>
-                        )}
-                        <Col
-                            className="column-filter"
-                            style={
-                                fullWidth
-                                    ? {}
-                                    : {
-                                          maxWidth: `calc(${
-                                              mathAvailability === MathAvailability.None ? '100' : '50'
-                                          }% - 16px)`,
-                                      }
-                            }
-                            flex={fullWidth ? 'auto' : undefined}
-                        >
-                            {filterElement}
-                        </Col>
-                        {customRowSuffix !== undefined && <Col className="column-row-suffix">{suffix}</Col>}
-                        {mathAvailability !== MathAvailability.None && (
-                            <>
-                                {horizontalUI && <Col>counted by</Col>}
-                                <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
-                                    <MathSelector
-                                        math={math}
-                                        mathGroupTypeIndex={mathGroupTypeIndex}
-                                        index={index}
-                                        onMathSelect={onMathSelect}
-                                        style={{ maxWidth: '100%', width: 'initial' }}
-                                        mathAvailability={mathAvailability}
-                                    />
-                                </Col>
-                                {mathDefinitions[math || '']?.onProperty && (
-                                    <>
-                                        {horizontalUI && <Col>on property</Col>}
-                                        <Col
-                                            style={{
-                                                maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})`,
-                                            }}
-                                        >
+                        {/* left section fixed */}
+                        <div className="row-start">
+                            {sortable && filterCount > 1 ? <DragHandle /> : null}
+                            {showSeriesIndicator && <div className="col series-indicator">{seriesIndicator}</div>}
+                        </div>
+                        {/* central section flexible */}
+                        <div className="row-center">
+                            <div className="col flex-auto">{filterElement}</div>
+                            {customRowSuffix !== undefined && <div className="col">{suffix}</div>}
+                            {mathAvailability !== MathAvailability.None && (
+                                <>
+                                    <div className="col">
+                                        <MathSelector
+                                            math={math}
+                                            mathGroupTypeIndex={mathGroupTypeIndex}
+                                            index={index}
+                                            onMathSelect={onMathSelect}
+                                            style={{ maxWidth: '100%', width: 'initial' }}
+                                            mathAvailability={mathAvailability}
+                                        />
+                                    </div>
+                                    {mathDefinitions[math || '']?.onProperty && (
+                                        <div className="col">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 value={mathProperty}
@@ -416,52 +341,37 @@ export function ActionFilterRow({
                                                     </Tooltip>
                                                 )}
                                             />
-                                        </Col>
-                                    </>
-                                )}
-                            </>
-                        )}
-                        {(horizontalUI || fullWidth) && !hideFilter && !readOnly && <Col>{propertyFiltersButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideRename && !readOnly && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && !readOnly && (
-                            <Col>{duplicateRowButton}</Col>
-                        )}
-                        {!hideDeleteBtn && !horizontalUI && !singleFilter && !readOnly && (
-                            <Col className="column-delete-btn">{deleteButton}</Col>
-                        )}
-                        {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        {/* right section fixed */}
+                        <div className="row-end">
+                            {!readOnly ? (
+                                <>
+                                    {!hideFilter && propertyFiltersButton}
+                                    {!hideRename && renameRowButton}
+                                    {!hideDuplicate && !singleFilter && duplicateRowButton}
+                                    {!hideDeleteBtn && !singleFilter && deleteButton}
+                                </>
+                            ) : null}
+                        </div>
                     </>
                 )}
-            </Row>
-            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) &&
-                !horizontalUI &&
-                !fullWidth && (
-                    <div style={{ paddingTop: 6 }}>
-                        <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
-                        <Button
-                            className="ant-btn-md"
-                            onClick={() =>
-                                typeof filter.order === 'number'
-                                    ? setEntityFilterVisibility(filter.order, !visible)
-                                    : undefined
-                            }
-                            data-attr={'show-prop-filter-' + index}
-                        >
-                            {determineFilterLabel(visible, filter)}
-                        </Button>
-                    </div>
-                )}
+            </div>
 
-            {visible && (
-                <div className={`mr property-filter-wrapper ${propertyFilterWrapperClassName}`}>
+            {propertyFiltersVisible && (
+                <div className={`ActionFilterRow-filters`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
-                        disablePopover={horizontalUI}
-                        style={{ marginBottom: 0 }}
+                        style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
+                        disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        useLemonButton
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
