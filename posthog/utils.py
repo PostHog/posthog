@@ -396,7 +396,7 @@ def base64_decode(data):
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
-def load_data_from(data: Any, compression: str):
+def decompress(data: Any, compression: str):
     if not data:
         return None
 
