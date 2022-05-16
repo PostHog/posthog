@@ -885,6 +885,7 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
+    # TODO: change this test
     @patch("posthog.api.plugin.celery_app.send_task")
     def test_job_trigger(self, patch_trigger_plugin_job, mock_get, mock_reload):
         response = self.client.post(

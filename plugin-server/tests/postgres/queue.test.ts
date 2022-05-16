@@ -70,6 +70,7 @@ describe('queue', () => {
 
         await queue!.pause()
 
+        // TODO: fix test
         expect(fakePiscina.run).toHaveBeenCalledWith(
             expect.objectContaining({
                 task: 'enqueueJob',
