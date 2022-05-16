@@ -431,19 +431,16 @@ describe('insightLogic', () => {
 
     describe('takes data from other logics if available', () => {
         it('dashboardLogic', async () => {
-            // 1. the URL must have the dashboard and insight IDs
-            router.actions.push(urls.insightView(Insight42), {}, { fromDashboard: 33 })
-
-            // 2. the dashboard is mounted
+            // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
             await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
 
-            // 3. mount the insight
-            logic = insightLogic({ dashboardItemId: Insight42 })
+            // 2. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
             logic.mount()
 
-            // 4. verify it didn't make any API calls
+            // 3. verify it didn't make any API calls
             await expectLogic(logic)
                 .toDispatchActions(['setInsight'])
                 .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
