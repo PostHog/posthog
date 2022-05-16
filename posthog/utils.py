@@ -439,7 +439,7 @@ def decompress(data: Any, compression: str):
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
-            return load_data_from(data, "gzip")
+            return decompress(data, "gzip")
         else:
             raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
