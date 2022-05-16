@@ -340,3 +340,26 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 @receiver([post_save, post_delete], sender=PluginAttachment)
 def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
+
+
+class PluginSource(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
+        ]
+
+    class Status(models.TextChoices):
+        READY = "READY", "ready"
+        SKIPPED = "SKIPPED", "skipped"
+        LOCKED = "LOCKED", "locked"
+        TRANSPILED = "TRANSPILED", "transpiled"
+        ERROR = "ERROR", "error"
+
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    filename: models.CharField = models.CharField(max_length=200, blank=False)
+    source: models.TextField = models.TextField(blank=True, null=True)
+    transpiled: models.TextField = models.TextField(blank=True, null=True)
+    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, default=Status.READY)
+    error: models.TextField = models.TextField(blank=True, null=True)
+
+    __repr__ = sane_repr("plugin_id", "filename", "source", "transpiled", "status")
