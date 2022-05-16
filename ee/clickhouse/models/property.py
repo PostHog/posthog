@@ -21,6 +21,7 @@ from ee.clickhouse.models.cohort import (
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
+    get_count_operator,
 )
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
@@ -446,14 +447,7 @@ def prop_filter_json_extract(
             {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator in ["gt", "lt", "gte", "lte"]:
-        if operator == "gt":
-            count_operator = ">"
-        elif operator == "lt":
-            count_operator = "<"
-        elif operator == "gte":
-            count_operator = ">="
-        else:
-            count_operator = "<="
+        count_operator = get_count_operator(operator)
 
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
