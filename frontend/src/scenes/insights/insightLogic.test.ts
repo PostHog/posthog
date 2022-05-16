@@ -5,6 +5,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     FilterLogicalOperator,
+    InsightModel,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -430,6 +431,26 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
+        const verifyItLoadsFromALogic = async (
+            logicUnderTest: ReturnType<typeof insightLogic.build>,
+            partialExpectedInsight: Partial<InsightModel>
+        ): Promise<void> =>
+            expectLogic(logicUnderTest)
+                .toDispatchActions(['setInsight'])
+                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
+                .toMatchValues({
+                    insight: partial(partialExpectedInsight),
+                })
+
+        const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>
+            expectLogic(logicUnderTest)
+                .toDispatchActions(['loadInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        short_id: '42',
+                    }),
+                })
+
         it('loads from the dashboardLogic when in dashboard context', async () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
@@ -441,16 +462,11 @@ describe('insightLogic', () => {
             logic.mount()
 
             // 3. verify it didn't make any API calls
-            await expectLogic(logic)
-                .toDispatchActions(['setInsight'])
-                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        id: 42,
-                        result: 'result!',
-                        filters: { insight: InsightType.TRENDS, interval: 'month' },
-                    }),
-                })
+            await verifyItLoadsFromALogic(logic, {
+                id: 42,
+                result: 'result!',
+                filters: { insight: InsightType.TRENDS, interval: 'month' },
+            })
         })
 
         it('does not load from the dashboardLogic when not in that dashboard context', async () => {
@@ -463,14 +479,7 @@ describe('insightLogic', () => {
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 1 })
             logic.mount()
 
-            // 3. verify it did load from the AP
-            await expectLogic(logic)
-                .toDispatchActions(['loadInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        short_id: '42',
-                    }),
-                })
+            await verifyItLoadsFromTheAPI(logic)
         })
 
         it('loads from the savedInsightLogic when not in a dashboard context', async () => {
@@ -485,17 +494,9 @@ describe('insightLogic', () => {
             logic = insightLogic({ dashboardItemId: Insight42 })
             logic.mount()
 
-            // 4. verify it didn't make any API calls
-            await expectLogic(logic)
-                .toDispatchActions(['setInsight'])
-                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        id: 42,
-                        result: ['result 42'],
-                        filters: API_FILTERS,
-                    }),
-                })
+            await verifyItLoadsFromALogic(logic, {
+                short_id: '42' as InsightShortId,
+            })
         })
 
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
@@ -510,14 +511,7 @@ describe('insightLogic', () => {
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
             logic.mount()
 
-            // 3. verify it did load from the AP
-            await expectLogic(logic)
-                .toDispatchActions(['loadInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        short_id: '42',
-                    }),
-                })
+            await verifyItLoadsFromTheAPI(logic)
         })
     })
 
