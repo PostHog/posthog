@@ -221,7 +221,6 @@ export interface JobQueue {
 export enum JobQueueType {
     FS = 'fs',
     Graphile = 'graphile',
-    S3 = 's3',
 }
 
 export enum JobQueuePersistence {
@@ -229,8 +228,6 @@ export enum JobQueuePersistence {
     Local = 'local',
     /** Remote persistent job queues that can be read from concurrently */
     Concurrent = 'concurrent',
-    /** Remote persistent job queues that must be read from one redlocked server at a time */
-    Redlocked = 'redlocked',
 }
 
 export type JobQueueExport = {
