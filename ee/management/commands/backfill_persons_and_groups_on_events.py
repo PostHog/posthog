@@ -55,7 +55,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY group_key
 SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000))
+LAYOUT(complex_key_cache(size_in_cells 10000))
 Lifetime(60000)
 """
 
@@ -69,8 +69,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY distinct_id
 SOURCE(CLICKHOUSE(TABLE person_distinct_id DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000))
-Lifetime(60000)
+LAYOUT(complex_key_direct())
 """
 
 PERSONS_DICTIONARY_SQL = f"""
@@ -82,8 +81,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 )
 PRIMARY KEY id
 SOURCE(CLICKHOUSE(TABLE person DB '{CLICKHOUSE_DATABASE}' USER 'default'))
-LAYOUT(complex_key_cache(size_in_cells 1000))
-Lifetime(60000)
+LAYOUT(complex_key_direct())
 """
 
 backfill_settings = "SETTINGS mutations_sync = 2" if settings.TEST else ""
@@ -158,7 +156,7 @@ def run_backfill(options):
     sleep(10)
     query_id_res = print_and_execute_query(GET_QUERY_ID_SQL, "GET_QUERY_ID_SQL", dry_run)
 
-    if query_id_res:
+    if query_id_res and not settings.TEST:
         query_id = query_id_res[0][0]
         print()
         print(
