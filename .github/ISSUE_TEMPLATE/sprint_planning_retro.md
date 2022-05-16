@@ -60,6 +60,10 @@ Team ___
 
 -
 
+### Bugs
+
+-
+
 ### Low priority / side quests
 
 -
