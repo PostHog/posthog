@@ -103,7 +103,7 @@ export function CohortTaxonomicField({
         onChange: _onChange,
     })
 
-    const { calculatedValue } = useValues(logic)
+    const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
@@ -112,6 +112,7 @@ export function CohortTaxonomicField({
             className="CohortField"
             type="secondary"
             groupType={groupType}
+            loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })

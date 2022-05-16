@@ -77,22 +77,56 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
                       ]
                     : null,
         ],
+        calculatedValueLoading: [
+            (s) => [
+                s.value,
+                (_, props) => props.criteria,
+                (_, props) => props.fieldKey,
+                cohortsModel.selectors.cohortsLoading,
+                actionsModel.selectors.actionsLoading,
+            ],
+            (value, criteria, fieldKey, cohortsModelLoading, actionsModelLoading) =>
+                (taxonomicGroupType: TaxonomicFilterGroupType) => {
+                    return (
+                        (criteria.type === BehavioralFilterKey.Cohort &&
+                            fieldKey === 'value_property' &&
+                            typeof value === 'number' &&
+                            cohortsModelLoading) ||
+                        (taxonomicGroupType === TaxonomicFilterGroupType.Actions &&
+                            typeof value === 'number' &&
+                            actionsModelLoading)
+                    )
+                },
+        ],
         calculatedValue: [
-            (s) => [s.value, (_, props) => props.criteria, (_, props) => props.fieldKey],
-            (value, criteria, fieldKey) => (taxonomicGroupType: TaxonomicFilterGroupType) => {
-                // Only used by taxonomic filter field to determine label name
-                if (
-                    criteria.type === BehavioralFilterKey.Cohort &&
-                    fieldKey === 'value_property' &&
-                    typeof value === 'number'
-                ) {
-                    return cohortsModel.findMounted()?.values?.cohortsById?.[value]?.name ?? `Cohort ${value}`
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.Actions && typeof value === 'number') {
-                    return actionsModel.findMounted()?.values?.actionsById?.[value]?.name ?? `Action ${value}`
-                }
-                return value
-            },
+            (s) => [
+                s.value,
+                (_, props) => props.criteria,
+                (_, props) => props.fieldKey,
+                cohortsModel.selectors.cohortsLoading,
+                actionsModel.selectors.actionsLoading,
+            ],
+            (value, criteria, fieldKey, cohortsModelLoading, actionsModelLoading) =>
+                (taxonomicGroupType: TaxonomicFilterGroupType) => {
+                    // Only used by taxonomic filter field to determine label name
+                    if (
+                        criteria.type === BehavioralFilterKey.Cohort &&
+                        fieldKey === 'value_property' &&
+                        typeof value === 'number'
+                    ) {
+                        if (cohortsModelLoading) {
+                            return 'Loading...'
+                        }
+                        return cohortsModel.findMounted()?.values?.cohortsById?.[value]?.name ?? `Cohort ${value}`
+                    }
+                    if (taxonomicGroupType === TaxonomicFilterGroupType.Actions && typeof value === 'number') {
+                        if (actionsModelLoading) {
+                            return 'Loading...'
+                        }
+                        return actionsModel.findMounted()?.values?.actionsById?.[value]?.name ?? `Action ${value}`
+                    }
+                    return value
+                },
         ],
     }),
     listeners(({ props }) => ({
