@@ -469,7 +469,7 @@ def load_data_from_request(request):
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
     ).lower()
 
-    return load_data_from(data, compression)
+    return decompress(data, compression)
 
 
 class SingletonDecorator:
