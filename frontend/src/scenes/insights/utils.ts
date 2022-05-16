@@ -1,12 +1,12 @@
 import {
-    EntityFilter,
     ActionFilter,
+    EntityFilter,
     FilterType,
+    FunnelVizType,
     InsightModel,
     InsightShortId,
     InsightType,
     PathType,
-    FunnelVizType,
     StepOrderValue,
 } from '~/types'
 import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
@@ -22,7 +22,6 @@ import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -89,32 +88,18 @@ export function findInsightFromMountedLogic(
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
     if (dashboardId) {
-        const insight = dashboardLogic
-            .findMounted({ id: dashboardId })
-            ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
-        if (insight) {
-            return insight
-        }
+        return (
+            dashboardLogic
+                .findMounted({ id: dashboardId })
+                ?.values.allItems?.items?.find((item) => item.short_id === insightShortId) || null
+        )
     } else {
-        const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
-        for (const dashModelId of Object.keys(dashboards || {})) {
-            const insight = dashboardLogic
-                .findMounted({ id: parseInt(dashModelId) })
-                ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
-            if (insight) {
-                return insight
-            }
-        }
+        return (
+            savedInsightsLogic
+                .findMounted()
+                ?.values.insights?.results?.find((item) => item.short_id === insightShortId) || null
+        )
     }
-
-    const insight2 = savedInsightsLogic
-        .findMounted()
-        ?.values.insights?.results?.find((item) => item.short_id === insightShortId)
-    if (insight2) {
-        return insight2
-    }
-
-    return null
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
