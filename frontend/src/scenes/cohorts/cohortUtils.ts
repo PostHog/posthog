@@ -165,7 +165,7 @@ export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled:
                       /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
                       properties: applyAllNestedCriteria(cohort, (criteriaList) =>
                           criteriaList.map((c) =>
-                              !c.type && !('value_property' in c)
+                              c.type && !('value_property' in c)
                                   ? {
                                         ...c,
                                         value_property: c.value,
