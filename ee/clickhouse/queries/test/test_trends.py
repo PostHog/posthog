@@ -1500,7 +1500,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             Filter(
                 data={
                     "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
+                    "date_to": "2020-01-03 23:59:59",
                     "interval": "hour",
                     "events": [{"id": "sign up", "name": "sign up"},],
                 },
@@ -1509,6 +1509,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(response[0]["data"][17], 1)
+        self.assertEqual(len(response[0]["data"]), 24)
 
         # Custom date range, single day, dayly interval
         response = ClickhouseTrends().run(

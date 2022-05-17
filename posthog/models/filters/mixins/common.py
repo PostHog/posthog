@@ -312,12 +312,13 @@ class DateMixin(BaseParamMixin):
                 try:
                     date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
                 except ValueError:
-                    date = relative_date_parse(self._date_to)
+                    try:
+                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+                    except ValueError:
+                        date = relative_date_parse(self._date_to)
             else:
                 date = self._date_to
 
-        if self.interval == "hour":  # type: ignore
-            return date
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @include_dict
