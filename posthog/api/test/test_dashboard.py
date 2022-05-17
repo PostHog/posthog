@@ -355,9 +355,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/",
             data={"filters": {"date_from": "-24h", "properties": [{"key": "prop", "value": "val"}]}},
-        )
+        ).json()
 
-        self.assertEqual(response.json()["filters"]["properties"], [{"key": "prop", "value": "val"}])
+        self.assertEqual(response["filters"]["properties"], [{"key": "prop", "value": "val"}])
 
         insight_id, _ = self._create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
