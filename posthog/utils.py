@@ -396,32 +396,9 @@ def base64_decode(data):
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
-# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
-def load_data_from_request(request):
-    data = None
-    if request.method == "POST":
-        if request.content_type in ["", "text/plain", "application/json"]:
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-
+def decompress(data: Any, compression: str):
     if not data:
         return None
-
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
-        scope.set_context("data", data)
-        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
-        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
         if data == b"undefined":
@@ -461,10 +438,42 @@ def load_data_from_request(request):
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+        if compression == "":
+            try:
+                return decompress(data, "gzip")
+            except Exception as inner:
+                # re-trying with compression set didn't succeed, throw original error
+                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+        else:
+            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
+
+
+# Used by non-DRF endpoints from capture.py and decide.py (/decide, /batch, /capture, etc)
+def load_data_from_request(request):
+    if request.method == "POST":
+        if request.content_type in ["", "text/plain", "application/json"]:
+            data = request.body
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+
+    # add the data in sentry's scope in case there's an exception
+    with configure_scope() as scope:
+        scope.set_context("data", data)
+        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    ).lower()
+
+    return decompress(data, compression)
 
 
 class SingletonDecorator:

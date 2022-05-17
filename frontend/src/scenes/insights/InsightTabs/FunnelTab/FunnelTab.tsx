@@ -3,7 +3,7 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 import clsx from 'clsx'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Card, Col, Row, Tag } from 'antd'
+import { Button, Col, Row, Tag } from 'antd'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -76,32 +76,27 @@ export function FunnelTab(): JSX.Element {
                                 </div>
                             }
                         </Row>
-                        <Card className="action-filters-bordered" bodyStyle={{ padding: 0 }}>
-                            <ActionFilter
-                                filters={filters}
-                                setFilters={setFilters}
-                                typeKey={`EditFunnel-action`}
-                                mathAvailability={MathAvailability.None}
-                                hideDeleteBtn={filterSteps.length === 1}
-                                buttonCopy="Add step"
-                                buttonType="link"
-                                showSeriesIndicator={!isStepsEmpty}
-                                seriesIndicatorType="numeric"
-                                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                                fullWidth
-                                sortable
-                                showNestedArrow={true}
-                                propertiesTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                rowClassName="action-filters-bordered"
-                            />
-                            <div className="mb-05" />
-                        </Card>
+                        <ActionFilter
+                            bordered
+                            filters={filters}
+                            setFilters={setFilters}
+                            typeKey={`EditFunnel-action`}
+                            mathAvailability={MathAvailability.None}
+                            hideDeleteBtn={filterSteps.length === 1}
+                            buttonCopy="Add step"
+                            showSeriesIndicator={!isStepsEmpty}
+                            seriesIndicatorType="numeric"
+                            entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
+                            sortable
+                            showNestedArrow={true}
+                            propertiesTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                        />
                     </form>
                 </div>
                 {showGroupsOptions && (

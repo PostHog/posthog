@@ -10,6 +10,7 @@ import { router } from 'kea-router'
 import { Link } from 'lib/components/Link'
 import { billingSubscribedLogic, SubscriptionStatus } from './billingSubscribedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { dayjs } from 'lib/dayjs'
 
 export const scene: SceneExport = {
     component: BillingSubscribed,
@@ -63,8 +64,8 @@ function SubscriptionSuccess(): JSX.Element {
             </p>
             {billing?.plan?.key === 'standard' && (
                 <p className="text-muted-alt">
-                    You will be billed within the <b>first 3 days of each month</b>. If you ingest less than 1M events,
-                    you will not be billed.
+                    You will be billed on each month on the <strong>{dayjs().format('D')}</strong>. If you ingest less
+                    than 1M events, you will not be billed.
                 </p>
             )}
             <p>

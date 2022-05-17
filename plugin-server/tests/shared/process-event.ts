@@ -138,7 +138,16 @@ export const createProcessEventTests = (
         sentAt: DateTime | null,
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
-        const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
+        const response = await eventsProcessor.processEvent(
+            distinctId,
+            ip,
+            data,
+            teamId,
+            now,
+            sentAt,
+            eventUuid,
+            'http://example.com'
+        )
         if (response) {
             await eventsProcessor.createEvent(response)
         }
@@ -1211,7 +1220,8 @@ export const createProcessEventTests = (
             team.id,
             now,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            'http://example.com'
         )
         await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1233,7 +1243,8 @@ export const createProcessEventTests = (
             team.id,
             now,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            'http://example.com'
         )
         await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1260,7 +1271,8 @@ export const createProcessEventTests = (
             team.id,
             now,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            'http://example.com'
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons())
 
@@ -2481,7 +2493,6 @@ export const createProcessEventTests = (
 
             const events = await hub.db.fetchEvents()
             const event = [...events].find((e: any) => e['event'] === 'test event')
-            console.log(event)
             expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
             expect(event?.group0_properties).toEqual({ foo: 'bar' })
             expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
