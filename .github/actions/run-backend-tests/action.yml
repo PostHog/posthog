@@ -83,13 +83,16 @@ runs:
 
         - name: Get value for person on event querying
           id: person-on-events
+          shell: bash
           run: |
-              if ${{ inputs.person-on-events == 'true' }}
+              if [$REF == 'true']
               then
                 echo "::set-output name=enabled::all"
               else
                 echo "::set-output name=enabled::none"
               fi
+          env:
+              REF: ${{ inputs.person-on-events }}
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
