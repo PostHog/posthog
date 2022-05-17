@@ -57,14 +57,9 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
                 s.hasBehavioralCohortFiltering,
             ],
             (fieldOptionGroupTypes, groupTypes, aggregationLabel, hasBehavioralCohortFiltering): FieldValues[] => {
-                let fieldOptions = FIELD_VALUES
-
-                if (hasBehavioralCohortFiltering) {
-                    fieldOptions = {
-                        ...fieldOptions,
-                        ...SCALE_FIELD_VALUES,
-                    }
-                }
+                const fieldOptions = hasBehavioralCohortFiltering
+                    ? { ...FIELD_VALUES, ...SCALE_FIELD_VALUES }
+                    : FIELD_VALUES
 
                 const allGroups = {
                     ...fieldOptions,
