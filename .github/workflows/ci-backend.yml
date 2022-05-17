@@ -165,7 +165,7 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }}, PersonEvents ${{matrix.person-on-events}} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
@@ -181,10 +181,10 @@ jobs:
                 ee: [true]
                 foss: [false]
                 name: ['']
+                person-on-events: [false]
                 # :NOTE: Keep concurrency and group's in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
-                person-on-events: [false]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.8.12'
@@ -208,15 +208,13 @@ jobs:
                       clickhouse-server-image: 'yandex/clickhouse-server:21.6.5'
                       concurrency: 1
                       group: 1
-                    # :TRICKY: Run person-on-events tests only for one instance
+                    # :TRICKY: Run person-on-events tests only for one CH instance
                     - python-version: '3.8.12'
                       ee: true
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
-                      concurrency: 1
-                      group: 1
 
         steps:
             - uses: actions/checkout@v2
@@ -232,12 +230,12 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}
-                  clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
 
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
-              if: ${{ matrix.clickhouse-server-image-version == '21.11.11.1' }}
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:21.11.11.1' }}
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
