@@ -1,0 +1,12 @@
+.Cohort__Name {
+    &.ant-form-item-has-error {
+        .ant-form-item-explain-error {
+            font-weight: 500;
+            margin: 0.25rem 0;
+        }
+
+        .LemonInput {
+            border: 1px solid var(--danger);
+        }
+    }
+}

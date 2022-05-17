@@ -10,7 +10,7 @@ import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTabl
 import { cohortsModel } from '~/models/cohortsModel'
 import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { formatDisplayPercentage, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
 import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
@@ -28,6 +28,7 @@ import {
 import './FunnelStepTable.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { getSeriesColor } from 'lib/colors'
 
 export function FunnelStepTable(): JSX.Element | null {
     const { insightProps, isViewedOnDashboard } = useValues(insightLogic)
@@ -63,7 +64,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                     getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
                                 ]
                         )
-                        const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
+                        const color = getSeriesColor(breakdown?.breakdownIndex ?? 0)
 
                         return renderGraphAndHeader(
                             rowIndex,
@@ -123,7 +124,7 @@ export function FunnelStepTable(): JSX.Element | null {
 
                 _columns.push({
                     render: function RenderLabel({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
-                        const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
+                        const color = getSeriesColor(breakdown?.breakdownIndex ?? 0)
 
                         return renderGraphAndHeader(
                             rowIndex,
@@ -381,7 +382,7 @@ export function FunnelStepTable(): JSX.Element | null {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
-                    const color = getSeriesColor(step?.breakdownIndex, flattenedBreakdowns.length === 1)
+                    const color = getSeriesColor(step?.breakdownIndex ?? 0)
 
                     // Breakdown parent
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {

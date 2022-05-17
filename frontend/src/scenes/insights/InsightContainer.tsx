@@ -43,9 +43,14 @@ const VIEW_MAP = {
 }
 
 export function InsightContainer(
-    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+    {
+        disableHeader,
+        disableTable,
+        disableCorrelationTable,
+    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
         disableHeader: false,
         disableTable: false,
+        disableCorrelationTable: false,
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -217,7 +222,7 @@ export function InsightContainer(
                 </div>
             </Card>
             {renderTable()}
-            {!disableTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )}
         </>
