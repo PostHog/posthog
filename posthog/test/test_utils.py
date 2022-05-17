@@ -216,6 +216,22 @@ class TestLoadDataFromRequest(TestCase):
             str(ctx.exception),
         )
 
+    @patch("posthog.utils.gzip")
+    def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
+        # see https://sentry.io/organizations/posthog2/issues/3136510367
+        # one organization is causing a request parsing error by sending an encoded body
+        # but the empty string for the compression value
+        # this accounts for a large majority of our Sentry errors
+
+        patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
+
+        rf = RequestFactory()
+        # a request with no compression set
+        post_request = rf.post("/s/", "the gzip compressed string", "text/plain")
+
+        data = load_data_from_request(post_request)
+        self.assertEqual({"what is it": "the decompressed value"}, data)
+
 
 class TestShouldRefresh(TestCase):
     def test_should_refresh_with_refresh_true(self):

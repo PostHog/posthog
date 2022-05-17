@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Button, Col, Row, Typography } from 'antd'
+import { Button, Row, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
@@ -25,29 +25,6 @@ import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/A
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
-}
-
-function FilterRow({
-    filter,
-    propertyFiltersButton,
-    deleteButton,
-}: {
-    seriesIndicator?: JSX.Element | string
-    suffix?: JSX.Element | string
-    filter?: JSX.Element | string
-    propertyFiltersButton?: JSX.Element | string
-    deleteButton?: JSX.Element | string
-    isVertical?: boolean
-}): JSX.Element {
-    return (
-        <Row className="entity-filter-row" wrap={false} align="middle">
-            <Col flex="1" className="mr">
-                <Row align="middle">{filter}</Row>
-            </Col>
-            <Col className="mr">{propertyFiltersButton}</Col>
-            <Col>{deleteButton}</Col>
-        </Row>
-    )
 }
 
 export function SessionRecordingsTable({ personUUID, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
@@ -119,7 +96,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         <div className="session-recordings-table" data-attr="session-recordings-table">
             <Row className="filter-row">
                 <div className="filter-container" style={{ display: showFilters ? undefined : 'none' }}>
-                    <div>
+                    <div className="space-y-05">
                         <Typography.Text strong>
                             {`Filter by events and actions `}
                             <Tooltip title="Show recordings where all of the events or actions listed below happen.">
@@ -127,7 +104,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             </Tooltip>
                         </Typography.Text>
                         <ActionFilter
-                            fullWidth={true}
+                            bordered
                             filters={entityFilters}
                             setFilters={(payload) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
@@ -136,13 +113,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                             mathAvailability={MathAvailability.None}
                             buttonCopy="Add filter"
-                            horizontalUI
-                            stripeActionRow={false}
-                            propertyFilterWrapperClassName="session-recording-action-property-filter"
-                            customRowPrefix=""
                             hideRename
-                            showOr
-                            renderRow={(props) => <FilterRow {...props} />}
+                            hideDuplicate
                             showNestedArrow={false}
                             actionsTaxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.Actions,
@@ -155,7 +127,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         />
                     </div>
                     {!isPersonPage && (
-                        <div className="mt-2">
+                        <div className="mt-2 space-y-05">
                             <Typography.Text strong>
                                 {`Filter by persons and cohorts `}
                                 <Tooltip title="Show recordings by persons who match the set criteria">
@@ -170,6 +142,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                     TaxonomicFilterGroupType.Cohorts,
                                 ]}
                                 propertyFilters={propertyFilters}
+                                useLemonButton
                                 onChange={(properties) => {
                                     reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
                                     setPropertyFilters(properties)

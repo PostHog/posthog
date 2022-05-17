@@ -17,7 +17,7 @@ import {
 import { LemonDivider } from 'lib/components/LemonDivider'
 import clsx from 'clsx'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -56,6 +56,7 @@ export function CohortSelectorField({
             className="CohortField"
             sideIcon={undefined}
             popup={{
+                className: 'Popup__CohortField',
                 placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
@@ -103,7 +104,7 @@ export function CohortTaxonomicField({
         onChange: _onChange,
     })
 
-    const { calculatedValue } = useValues(logic)
+    const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
@@ -112,6 +113,7 @@ export function CohortTaxonomicField({
             className="CohortField"
             type="secondary"
             groupType={groupType}
+            loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })
@@ -136,6 +138,7 @@ export function CohortPersonPropertiesValuesField({
         cohortFilterLogicKey,
         onChange: _onChange,
     })
+    const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
     return (
@@ -144,6 +147,7 @@ export function CohortPersonPropertiesValuesField({
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type="person"
+            value={value as PropertyFilterValue}
             onSet={(newValue: PropertyOperator) => {
                 onChange({ [fieldKey]: newValue })
             }}
@@ -176,8 +180,9 @@ export function CohortNumberField({
             type="number"
             value={(value as string | number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange({ [fieldKey]: nextNumber })
+                onChange({ [fieldKey]: parseInt(nextNumber) })
             }}
+            min={1}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
     )

@@ -1,11 +1,11 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { Alert, Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
+import { Alert, Hub, PluginConfig, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
 
-export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void> {
+export async function runOnEvent(server: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -31,7 +31,7 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
     )
 }
 
-export async function runOnAction(server: Hub, action: Action, event: PluginEvent): Promise<void> {
+export async function runOnAction(server: Hub, action: Action, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -57,7 +57,7 @@ export async function runOnAction(server: Hub, action: Action, event: PluginEven
     )
 }
 
-export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<void> {
+export async function runOnSnapshot(server: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(

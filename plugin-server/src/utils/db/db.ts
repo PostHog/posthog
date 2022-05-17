@@ -1516,15 +1516,6 @@ export class DB {
         return result.rows
     }
 
-    public async registerActionMatch(eventId: Event['id'], actions: Action[]): Promise<void> {
-        const valuesClause = actions.map((action, index) => `($1, $${index + 2})`).join(', ')
-        await this.postgresQuery(
-            `INSERT INTO posthog_action_events (event_id, action_id) VALUES ${valuesClause}`,
-            [eventId, ...actions.map((action) => action.id)],
-            'registerActionMatch'
-        )
-    }
-
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {

@@ -1,3 +1,4 @@
+import './Cohort.scss'
 import React from 'react'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Field as KeaField, Group } from 'kea-forms'
@@ -81,7 +82,8 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-cohort"
                                 htmlType="submit"
-                                loading={cohortLoading}
+                                loading={cohortLoading || cohort.is_calculating}
+                                disabled={cohortLoading || cohort.is_calculating}
                             >
                                 Save
                             </LemonButton>
@@ -91,7 +93,7 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                 <Divider />
                 <Row gutter={[16, 24]} style={{ maxWidth: 640 }}>
                     <Col xs={24} sm={12}>
-                        <Field name="name" label="Name">
+                        <Field name="name" label="Name" className="Cohort__Name">
                             <LemonInput data-attr="cohort-name" />
                         </Field>
                     </Col>

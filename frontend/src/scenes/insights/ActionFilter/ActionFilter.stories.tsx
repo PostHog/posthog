@@ -42,7 +42,6 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             },
         ],
     })
-    console.log(id)
 
     return (
         <ActionFilter
@@ -50,7 +49,6 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
             typeKey={`trends_${id.current}`}
             buttonCopy="Add graph series"
-            buttonType="link"
             showSeriesIndicator
             entitiesLimit={
                 filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
@@ -71,7 +69,6 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,
             ]}
-            customRowPrefix={undefined}
             {...props}
         />
     )
@@ -80,12 +77,29 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
 export const Standard = Template.bind({})
 Standard.args = {}
 
-export const FullWidth = Template.bind({})
-FullWidth.args = {
-    fullWidth: true,
+export const Bordered = Template.bind({})
+Bordered.args = {
+    bordered: true,
 }
 
-export const HorizontalUI = Template.bind({})
-HorizontalUI.args = {
-    horizontalUI: true,
+export const PropertyFiltersWithPopover = Template.bind({})
+PropertyFiltersWithPopover.args = {
+    propertyFiltersPopover: true,
+}
+
+export const Sortable = Template.bind({})
+Sortable.args = {
+    sortable: true,
+}
+
+export const FunnelLike = Template.bind({})
+FunnelLike.args = {
+    sortable: true,
+    bordered: true,
+    seriesIndicatorType: 'numeric',
+}
+
+export const SingleFilter = Template.bind({})
+SingleFilter.args = {
+    entitiesLimit: 1,
 }

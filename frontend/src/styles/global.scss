@@ -21,6 +21,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
+    --danger-hover: #{$danger_hover};
+    --danger-active: #{$danger_active};
     --warning: #{$warning};
     --warning-hover: #{$warning_hover};
     --warning-active: #{$warning_active};
@@ -427,6 +429,12 @@ code.code {
     }
 }
 
+.col {
+    position: relative;
+    max-width: 100%;
+    min-height: 1px;
+}
+
 .full-width {
     width: 100%;
 }
@@ -450,6 +458,10 @@ code.code {
 
 .flex {
     display: flex;
+}
+
+.flex-auto {
+    flex: auto;
 }
 
 .flex-center {
