@@ -7,6 +7,7 @@
     justify-content: center;
     padding: 2rem;
     flex-direction: column;
+    width: 100%;
 }
 
 .platform-item {
@@ -26,4 +27,31 @@
 .selectable-item:hover {
     background-color: gainsboro;
     cursor: pointer;
+}
+
+.ingestion-current-nav-step {
+    color: black;
+    display: flex;
+
+    .step-indicator {
+        width: 3px;
+        height: 20px;
+        background-color: var(--blue-light);
+        margin-right: $default_spacing / 2;
+    }
+}
+
+.sidebar-bottom {
+    margin: auto 2rem 3rem 2rem;
+}
+
+.sidebar-help {
+    display: flex;
+    flex-direction: column;
+    font-weight: 500;
+    color: $primary;
+    border-top: 3px dashed $border;
+    padding-left: $default_spacing / 2;
+    padding-top: $default_spacing * 1.5;
+    margin-top: $default_spacing;
 }

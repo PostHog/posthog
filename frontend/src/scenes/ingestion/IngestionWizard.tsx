@@ -14,6 +14,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import posthogLogo from 'public/posthog-logo.png'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
+import { Sidebar } from './Sidebar'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -83,11 +84,14 @@ export function IngestionWizard(): JSX.Element {
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div className="bridge-page IngestionContainer">
-            <div className="mb">
-                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+        <div style={{ display: 'flex', height: '100%' }}>
+            <Sidebar />
+            <div className="bridge-page IngestionContainer">
+                <div className="mb">
+                    <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                </div>
+                {children}
             </div>
-            {children}
         </div>
     )
 }

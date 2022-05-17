@@ -94,7 +94,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     )
 }
 
-function InviteMembersButton(): JSX.Element {
+export function InviteMembersButton(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
