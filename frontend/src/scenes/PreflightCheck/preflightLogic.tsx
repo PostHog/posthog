@@ -139,6 +139,14 @@ export const preflightLogic = kea<
                                 ? 'Not required for experimentation mode'
                                 : 'Set up before ingesting real user data',
                     },
+                    {
+                        id: 'object_storage',
+                        name: 'Object Storage',
+                        status: preflight?.object_storage ? 'validated' : 'warning',
+                        caption: !preflight?.object_storage
+                            ? 'Some features will not work without object storage'
+                            : undefined,
+                    },
                 ] as PreflightItemInterface[]
             },
         ],

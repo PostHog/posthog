@@ -1383,6 +1383,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    object_storage: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
