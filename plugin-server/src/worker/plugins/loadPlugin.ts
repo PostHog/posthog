@@ -16,38 +16,49 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
     try {
         if (plugin.url?.startsWith('file:')) {
             const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
-            const configPath = path.resolve(pluginPath, 'plugin.json')
 
+            const readFile = (file: string): string | null => {
+                const fullPath = path.resolve(pluginPath, file)
+                return fs.existsSync(fullPath) ? fs.readFileSync(fullPath).toString() : null
+            }
+
+            const configJson: string | null = readFile('plugin.json')
             let config: PluginJsonConfig = {}
-            if (fs.existsSync(configPath)) {
+
+            if (configJson) {
                 try {
-                    const jsonBuffer = fs.readFileSync(configPath)
-                    config = JSON.parse(jsonBuffer.toString())
+                    config = JSON.parse(configJson)
                 } catch (e) {
                     pluginConfig.vm?.failInitialization!()
                     await processError(
                         server,
                         pluginConfig,
-                        `Could not load posthog config at "${configPath}" for ${pluginDigest(plugin)}`
+                        `Could not load app config from "plugin.json" for ${pluginDigest(plugin)}`
                     )
                     return false
                 }
             }
 
-            if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
+            let pluginSource: string | null = null
+            if (config['main']) {
+                pluginSource = readFile(config['main'])
+            } else {
+                pluginSource = readFile('index.ts') || readFile('index.js')
+            }
+
+            if (!pluginSource) {
                 pluginConfig.vm?.failInitialization!()
                 await processError(
                     server,
                     pluginConfig,
-                    `No "main" config key or "index.js" file found for ${pluginDigest(plugin)}`
+                    `Could not load source from for ${pluginDigest(plugin)}. Tried: ${
+                        config['main'] || 'index.ts and index.js'
+                    }`
                 )
                 return false
             }
 
-            const jsPath = path.resolve(pluginPath, config['main'] || 'index.js')
-            const indexJs = fs.readFileSync(jsPath).toString()
-
-            void pluginConfig.vm?.initialize!(indexJs, `local ${pluginDigest(plugin)} from "${pluginPath}"!`)
+            void pluginConfig.vm?.initialize!(pluginSource, `local ${pluginDigest(plugin)} from "${pluginPath}"!`)
             return true
         } else if (plugin.archive) {
             let config: PluginJsonConfig = {}
@@ -63,10 +74,16 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 }
             }
 
-            const indexJs = await getFileFromArchive(archive, config['main'] || 'index.js')
+            let pluginSource: string | null = null
+            if (config['main']) {
+                pluginSource = await getFileFromArchive(archive, config['main'])
+            } else {
+                pluginSource =
+                    (await getFileFromArchive(archive, 'index.ts')) || (await getFileFromArchive(archive, 'index.js'))
+            }
 
-            if (indexJs) {
-                void pluginConfig.vm?.initialize!(indexJs, pluginDigest(plugin))
+            if (pluginSource) {
+                void pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
                 return true
             } else {
                 pluginConfig.vm?.failInitialization!()
