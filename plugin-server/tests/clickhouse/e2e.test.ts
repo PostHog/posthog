@@ -200,7 +200,6 @@ describe('e2e', () => {
             const args = Object.values(kwargs)
 
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            // TODO: fix and search for plugin_job in other tests
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
             await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
