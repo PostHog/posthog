@@ -25,6 +25,9 @@ inputs:
     group:
         required: true
         type: number
+    person-on-events:
+        required: true
+        type: boolean
 
 runs:
     using: 'composite'
@@ -78,23 +81,44 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
+        - name: Get value for person on event querying
+          id: person-on-events
+          run: |
+              if ${{ inputs.person-on-events == 'true' }}
+              then
+                echo "::set-output name=enabled::all"
+              else
+                echo "::set-output name=enabled::none"
+              fi
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
-              pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' }}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'false'}}
           shell: bash
           run: |
-              pytest ee \
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
-                  --snapshot-update\
+                  --snapshot-update \
+                  --durations=100 --durations-min=1.0
+
+        - name: Run ee/ tests with person-on-events, no snapshot updates
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
+          shell: bash
+          run: |
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest ee \
+                  --splits ${{ inputs.concurrency }} \
+                  --group ${{ inputs.group }} \
+                  --store-durations \
+                  --cov \
+                  --cov-report=xml:coverage-clickhouse.xml \
                   --durations=100 --durations-min=1.0
 
         - name: Run pytest.mark.ee tests

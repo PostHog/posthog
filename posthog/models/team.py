@@ -207,7 +207,8 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
-        return str(self.pk) in get_list(config.ENABLE_ACTOR_ON_EVENTS_TEAMS)
+        enabled_teams = get_list(config.ENABLE_ACTOR_ON_EVENTS_TEAMS)
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):
         if self.name:
