@@ -446,14 +446,14 @@ export function applyAllNestedCriteria(
         filters: {
             properties: {
                 ...oldCohort.filters.properties,
-                values: oldCohort.filters.properties.values.map((group, groupI) =>
+                values: (oldCohort.filters.properties.values?.map((group, groupI) =>
                     (groupIndex === undefined || groupI === groupIndex) && isCohortCriteriaGroup(group)
                         ? {
                               ...group,
                               values: fn(group.values as AnyCohortCriteriaType[]),
                           }
                         : group
-                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }
