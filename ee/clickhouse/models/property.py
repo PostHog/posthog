@@ -21,6 +21,7 @@ from ee.clickhouse.models.cohort import (
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
+    get_count_operator,
 )
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
@@ -273,6 +274,28 @@ def parse_prop_clauses(
     return "", params
 
 
+def negate_operator(operator: OperatorType) -> OperatorType:
+    return {
+        "is_not": "exact",
+        "exact": "is_not",
+        "icontains": "not_icontains",
+        "not_icontains": "icontains",
+        "regex": "not_regex",
+        "not_regex": "regex",
+        "gt": "lte",
+        "lt": "gte",
+        "gte": "lt",
+        "lte": "gt",
+        "is_set": "is_not_set",
+        "is_not_set": "is_set",
+        "is_date_before": "is_date_after",
+        "is_date_after": "is_date_before",
+        # is_date_exact not yet supported
+    }.get(
+        operator, operator
+    )  # type: ignore
+
+
 def prop_filter_json_extract(
     prop: Property,
     idx: int,
@@ -294,6 +317,9 @@ def prop_filter_json_extract(
         property_expr = transform_expression(property_expr)
 
     operator = prop.operator
+    if prop.negation:
+        operator = negate_operator(operator or "exact")
+
     params: Dict[str, Any] = {}
 
     if operator == "is_not":
@@ -420,18 +446,13 @@ def prop_filter_json_extract(
             query,
             {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
-    elif operator == "gt":
+    elif operator in ["gt", "lt", "gte", "lte"]:
+        count_operator = get_count_operator(operator)
+
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            f" {property_operator} toFloat64OrNull({extract_property_expr}) > %(v{prepend}_{idx})s",
-            params,
-        )
-    elif operator == "lt":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
-        return (
-            f" {property_operator} toFloat64OrNull({extract_property_expr}) < %(v{prepend}_{idx})s",
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) {count_operator} %(v{prepend}_{idx})s",
             params,
         )
     else:
