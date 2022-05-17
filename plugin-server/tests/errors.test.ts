@@ -2,9 +2,9 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { delayUntilEventIngested } from './helpers/clickhouse'
 import { pluginConfig39 } from './helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from './helpers/sql'
-import { delayUntilEventIngested } from './shared/process-event'
 
 jest.setTimeout(60000) // 60 sec timeout
 
