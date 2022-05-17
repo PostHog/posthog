@@ -181,7 +181,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             lemonToast.success('Action saved', {
                 button: {
                     label: 'Open in PostHog',
-                    action: () => window.open(`${apiURL}/projects/@current/actions/${response.id}`, '_blank'),
+                    action: () => window.open(`${apiURL}/data-management/actions/${response.id}`, '_blank'),
                 },
             })
         },
