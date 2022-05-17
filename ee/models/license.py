@@ -59,6 +59,7 @@ class License(models.Model):
         AvailableFeature.MULTIVARIATE_FLAGS,
         AvailableFeature.EXPERIMENTATION,
         AvailableFeature.TAGGING,
+        AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

@@ -1,14 +1,15 @@
 import { actions, kea, key, connect, propsChanged, listeners, path, props, reducers, selectors } from 'kea'
 import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
-import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
+import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType, AnyCohortCriteriaType } from '~/types'
+import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
 import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -24,7 +25,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
     key((props) => `${props.cohortFilterLogicKey}`),
     props({} as CohortFieldLogicProps),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], userLogic, ['hasAvailableFeature']],
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.fieldKey && !objectsEqual(props.criteria, oldProps.criteria)) {
@@ -44,11 +45,24 @@ export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>
         ],
     })),
     selectors({
+        hasBehavioralCohortFiltering: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.BEHAVIORAL_COHORT_FILTERING),
+        ],
         fieldOptionGroups: [
-            (s) => [(_, props) => props.fieldOptionGroupTypes, s.groupTypes, s.aggregationLabel],
-            (fieldOptionGroupTypes, groupTypes, aggregationLabel): FieldValues[] => {
+            (s) => [
+                (_, props) => props.fieldOptionGroupTypes,
+                s.groupTypes,
+                s.aggregationLabel,
+                s.hasBehavioralCohortFiltering,
+            ],
+            (fieldOptionGroupTypes, groupTypes, aggregationLabel, hasBehavioralCohortFiltering): FieldValues[] => {
+                const fieldOptions = hasBehavioralCohortFiltering
+                    ? { ...FIELD_VALUES, ...SCALE_FIELD_VALUES }
+                    : FIELD_VALUES
+
                 const allGroups = {
-                    ...FIELD_VALUES,
+                    ...fieldOptions,
                     [FieldOptionsType.Actors]: {
                         label: 'Actors',
                         type: FieldOptionsType.Actors,

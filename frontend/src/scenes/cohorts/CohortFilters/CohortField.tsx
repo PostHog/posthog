@@ -60,25 +60,27 @@ export function CohortSelectorField({
                 placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
-                        {fieldOptionGroups.map(({ label, type: groupKey, values }, i) => (
-                            <div key={i}>
-                                {i !== 0 && <LemonDivider />}
-                                <h5>{label}</h5>
-                                {Object.entries(values).map(([_value, option]) => (
-                                    <LemonButton
-                                        key={_value}
-                                        onClick={() => {
-                                            onChange({ [fieldKey]: _value })
-                                        }}
-                                        type={_value == value ? 'highlighted' : 'stealth'}
-                                        fullWidth
-                                        data-attr={`cohort-${groupKey}-${_value}-type`}
-                                    >
-                                        {option.label}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        ))}
+                        {fieldOptionGroups.map(({ label, type: groupKey, values }, i) =>
+                            Object.keys(values).length != 0 ? (
+                                <div key={i}>
+                                    {i !== 0 && <LemonDivider />}
+                                    <h5>{label}</h5>
+                                    {Object.entries(values).map(([_value, option]) => (
+                                        <LemonButton
+                                            key={_value}
+                                            onClick={() => {
+                                                onChange({ [fieldKey]: _value })
+                                            }}
+                                            type={_value == value ? 'highlighted' : 'stealth'}
+                                            fullWidth
+                                            data-attr={`cohort-${groupKey}-${_value}-type`}
+                                        >
+                                            {option.label}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            ) : null
+                        )}
                     </div>
                 ),
             }}

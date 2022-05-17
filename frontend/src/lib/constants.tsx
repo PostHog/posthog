@@ -136,6 +136,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
     [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
     [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
