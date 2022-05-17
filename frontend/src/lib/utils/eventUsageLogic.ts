@@ -102,6 +102,19 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
     return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
+function hasCohortFilter(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    if (flattenedProperties) {
+        for (const property of flattenedProperties) {
+            if (property.type === 'cohort') {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
@@ -113,7 +126,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         date_to,
         filter_test_accounts,
         formula,
-        insight,
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
@@ -150,6 +162,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const breakdown_by_groups = filters.breakdown_group_type_index != undefined
     // If groups are being used in this query
     let using_groups = hasGroupProperties(filters.properties)
+    const using_cohort_filter = hasCohortFilter(filters.properties)
 
     for (const entity of entities) {
         properties_local = properties_local.concat(flattenProperties(entity.properties || []))
@@ -162,8 +175,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
-        filters,
-        insight,
         display,
         interval,
         date_from,
@@ -184,6 +195,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
+        using_cohort_filter,
     }
 }
 
