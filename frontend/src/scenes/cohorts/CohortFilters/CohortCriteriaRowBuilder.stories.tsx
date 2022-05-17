@@ -12,6 +12,7 @@ import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BehavioralEventType } from '~/types'
 import { Form } from 'kea-forms'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 export default {
     title: 'Filters/Cohort Filters/Row Builder',
@@ -23,9 +24,11 @@ export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps):
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
     useMountedLogic(cohortLogic({ id: 1 }))
+    useMountedLogic(cohortEditLogic({ id: 1 }))
     const [type, setType] = useState<BehavioralFilterType>(BehavioralEventType.PerformEvent)
+
     return (
-        <Form logic={cohortLogic} props={{ id: 1 }} formKey={'cohort'}>
+        <Form logic={cohortEditLogic} props={{ id: 1 }} formKey={'cohort'}>
             <CohortCriteriaRowBuilder {...props} criteria={{}} type={type} onChangeType={setType} />
         </Form>
     )

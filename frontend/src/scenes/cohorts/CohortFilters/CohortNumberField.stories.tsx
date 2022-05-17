@@ -5,6 +5,7 @@ import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { useMountedLogic } from 'kea'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 export default {
     title: 'Filters/Cohort Filters/Fields/Number',
@@ -13,6 +14,7 @@ export default {
 
 const Template: ComponentStory<typeof CohortNumberField> = (props: CohortNumberFieldProps) => {
     useMountedLogic(cohortLogic({ id: 1 }))
+    useMountedLogic(cohortEditLogic({ id: 1 }))
     const [value, setValue] = useState<number>(30)
     return renderField[FilterType.Number]({
         ...props,
