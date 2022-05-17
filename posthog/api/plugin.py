@@ -253,6 +253,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # Save regardless if changed the plugin or plugin source models. This reloads the plugin server.
         if performed_changes:
+            plugin.updated_at = now()
             plugin.save()
         return Response(response)
 
