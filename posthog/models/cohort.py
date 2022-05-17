@@ -338,7 +338,7 @@ class Cohort(models.Model):
 
 def get_and_update_pending_version(cohort: Cohort):
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save()
+    cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version
 
