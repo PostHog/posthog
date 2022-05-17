@@ -88,7 +88,7 @@ runs:
               pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'false'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
           shell: bash
           run: |
               pytest ee \
@@ -127,7 +127,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v2
-          if: ${{ inputs.ee == 'true' }}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
           with:
               name: timing_data-${{ inputs.group }}
               path: .test_durations
