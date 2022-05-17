@@ -317,7 +317,7 @@ class DateMixin(BaseParamMixin):
                     except ValueError:
                         date = relative_date_parse(self._date_to)
             else:
-                date = self._date_to
+                return self._date_to
 
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 

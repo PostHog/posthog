@@ -21,11 +21,9 @@ def _handle_date_interval(filter: Filter) -> Filter:
     date_from = filter.date_from or timezone.now()
     data: Dict = {}
     if filter.interval == "month":
-        data.update(
-            {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-        )
+        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")})
+        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "day":
         data.update({"date_to": date_from})
     elif filter.interval == "hour":
