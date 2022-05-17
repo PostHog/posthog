@@ -26,7 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { mergeWithDashboardTile } from 'scenes/insights/utils/dataStorage'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
