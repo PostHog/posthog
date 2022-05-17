@@ -18,7 +18,7 @@ export async function runAsyncHandlersStep(
     }
 
     const processedPluginEvent = convertToProcessedPluginEvent(event)
-    const isSnapshot = event.event == 'snapshot'
+    const isSnapshot = event.event === '$snapshot'
     const method = isSnapshot ? runOnSnapshot : runOnEvent
     promises.push(
         runInstrumentedFunction({
