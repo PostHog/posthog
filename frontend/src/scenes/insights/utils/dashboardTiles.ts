@@ -11,7 +11,7 @@ import { InsightDataThatVariesWithContext, InsightModel } from '~/types'
  * @param target the InsightModel to update
  * @param source the Insight data that is within a particular dashboard context
  */
-export function withDataFromDashboardContext<T extends InsightModel | Partial<InsightModel>>(
+export function mergeWithDashboardTile<T extends InsightModel | Partial<InsightModel>>(
     target: T,
     source: InsightDataThatVariesWithContext
 ): T {

@@ -26,7 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { withDataFromDashboardContext } from 'scenes/insights/utils/dataStorage'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dataStorage'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -190,7 +190,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = withDataFromDashboardContext<InsightModel>(item, newItems[itemIndex])
+                            newItems[itemIndex] = mergeWithDashboardTile(item, newItems[itemIndex])
                         } else {
                             newItems.push(item)
                         }

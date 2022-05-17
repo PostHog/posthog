@@ -38,7 +38,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { withDataFromDashboardContext } from 'scenes/insights/utils/dataStorage'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dataStorage'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -369,10 +369,7 @@ export const insightLogic = kea<insightLogicType>({
                 if (updateIsForThisDashboard) {
                     return updatedInsight
                 } else {
-                    return withDataFromDashboardContext<Partial<InsightModel>>(
-                        updatedInsight,
-                        state as InsightDataThatVariesWithContext
-                    )
+                    return mergeWithDashboardTile(updatedInsight, state as InsightDataThatVariesWithContext)
                 }
             },
         },
