@@ -220,11 +220,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def update_source(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="source editing")
         sources: Dict[str, PluginSource] = {}
+        performed_changes = False
         for source in PluginSource.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
             if sources.get(key):
                 if sources[key].source != value:
+                    performed_changes = True
                     if value is None:
                         sources[key].delete()
                         del sources[key]
@@ -233,19 +235,23 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         sources[key].save()
             else:
                 sources[key] = PluginSource.objects.create(plugin=plugin, filename=key, source=value)
+
         response: Dict[str, str] = {}
         for key, source in sources.items():
             response[source.filename] = source.source
 
-        # update data from plugin.json
+        # Update values from plugin.json
         plugin_json = json.loads(response.get("plugin.json") or "{}")
         if plugin_json["name"] != plugin.name:
             plugin.name = plugin_json["name"]
-            plugin.save()
-        if json.dumps(plugin_json["config"]) != json.dumps(plugin.config_schema):
+            performed_changes = True
+        if json.dumps(plugin_json.get("config") or []) != json.dumps(plugin.config_schema or []):
             plugin.config_schema = plugin_json["config"]
-            plugin.save()
+            performed_changes = True
 
+        # Save regardless if changed the plugin or plugin source models. This reloads the plugin server.
+        if performed_changes:
+            plugin.save()
         return Response(response)
 
     @action(methods=["POST"], detail=True)
