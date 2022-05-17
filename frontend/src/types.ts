@@ -42,6 +42,7 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
 }
 
 export enum LicensePlan {
