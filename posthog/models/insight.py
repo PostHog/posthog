@@ -89,9 +89,10 @@ class Insight(models.Model):
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         if dashboard:
-            dashboard_properties = dashboard.filters.pop("properties") if dashboard.filters.get("properties") else None
+            dashboard_filters = {**dashboard.filters}
+            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 
-            filters = {**self.filters, **dashboard.filters}
+            filters = {**self.filters, **dashboard_filters}
             if dashboard_properties:
                 if isinstance(self.filters.get("properties"), list):
                     filters["properties"] = {

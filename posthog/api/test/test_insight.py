@@ -665,7 +665,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            # self.assertEqual(spy_update_insight_cache.call_count, 4)
+            self.assertEqual(spy_update_insight_cache.call_count, 4)
             self.assertEqual(
                 response["result"][0]["data"],
                 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
