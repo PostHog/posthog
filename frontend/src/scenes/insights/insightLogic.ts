@@ -363,13 +363,11 @@ export const insightLogic = kea<insightLogicType>({
                     return state
                 }
 
-                const updatedInsight: Partial<InsightModel> = { ...item }
-
                 const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
-                    return updatedInsight
+                    return { ...item }
                 } else {
-                    return mergeWithDashboardTile(updatedInsight, state as InsightDataThatVariesWithContext)
+                    return mergeWithDashboardTile(item, state as InsightDataThatVariesWithContext)
                 }
             },
         },
