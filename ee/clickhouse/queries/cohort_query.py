@@ -462,6 +462,7 @@ class CohortQuery(EnterpriseEventQuery):
         field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
         self._fields.append(field)
 
+        # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
         return f"{'NOT' if prop.negation else ''} {column_name}", {f"{date_param}": date_value, **entity_params}
 
     def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -479,6 +480,7 @@ class CohortQuery(EnterpriseEventQuery):
         field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %(operator_value)s AS {column_name}"
         self._fields.append(field)
 
+        # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
         return (
             f"{'NOT' if prop.negation else ''} {column_name}",
             {"operator_value": count, f"{date_param}": date_value, **entity_params},
