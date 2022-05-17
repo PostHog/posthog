@@ -45,11 +45,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 config = JSON.parse(configJson)
             } catch (e) {
                 pluginConfig.vm?.failInitialization!()
-                await processError(
-                    server,
-                    pluginConfig,
-                    `Could not load app config from "plugin.json" for ${pluginDigest(plugin)}`
-                )
+                await processError(server, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)
                 return false
             }
         }
