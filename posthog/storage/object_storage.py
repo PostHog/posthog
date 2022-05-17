@@ -4,10 +4,10 @@ Helpers to interact with our Object Storage system
 import datetime
 from typing import Dict, List
 
-import boto3
+from boto3 import client, resource
 from botocore.client import Config
+from botocore.exceptions import EndpointConnectionError
 
-# TODO: we should pass to our client the compressed file and then decompress in the browser
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -16,7 +16,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-s3 = boto3.resource(
+s3 = resource(
     "s3",
     endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
     aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -25,7 +25,7 @@ s3 = boto3.resource(
     region_name="us-east-1",
 )
 
-client = boto3.client(
+client = client(
     "s3",
     endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
     aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -43,6 +43,17 @@ def read(file_name: str):
     s3_object = s3.Object(OBJECT_STORAGE_BUCKET, file_name)
     content = s3_object.get()["Body"].read()
     return content.decode("utf-8")
+
+
+def health_check() -> bool:
+    try:
+        response = client.head_bucket(Bucket=OBJECT_STORAGE_BUCKET)
+        if response:
+            return True
+        else:
+            return False
+    except (client.exceptions.NoSuchBucket, EndpointConnectionError) as e:
+        return False
 
 
 def page_buckets(prefix: str) -> List[Dict]:

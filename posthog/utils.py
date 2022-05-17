@@ -546,6 +546,18 @@ def is_redis_alive() -> bool:
         return False
 
 
+def is_object_storage_available() -> bool:
+    from posthog.storage import object_storage
+
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            return object_storage.health_check()
+        else:
+            return False
+    except BaseException:
+        return False
+
+
 def is_celery_alive() -> bool:
     try:
         return get_celery_heartbeat() != "offline"
