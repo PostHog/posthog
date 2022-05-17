@@ -3,7 +3,7 @@ import posthogLogo from 'public/posthog-logo.png'
 import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
 import './IngestionWizard.scss'
-import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
+import { InviteMembersButton, SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 
 export function Sidebar(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -26,6 +26,7 @@ export function Sidebar(): JSX.Element {
             <div className="sidebar-bottom">
                 <InviteMembersButton />
                 <div className="sidebar-help">
+                    <SitePopover />
                     <a style={{ marginBottom: '1.5em' }}>Get support on Slack</a>
                     <a>Read our documentation</a>
                 </div>
