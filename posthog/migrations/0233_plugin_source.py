@@ -52,22 +52,6 @@ class Migration(migrations.Migration):
                 ),
                 ("filename", models.CharField(max_length=200)),
                 ("source", models.TextField(blank=True, null=True)),
-                ("transpiled", models.TextField(blank=True, null=True)),
-                (
-                    "status",
-                    models.CharField(
-                        choices=[
-                            ("READY", "ready"),
-                            ("SKIPPED", "skipped"),
-                            ("LOCKED", "locked"),
-                            ("TRANSPILED", "transpiled"),
-                            ("ERROR", "error"),
-                        ],
-                        default="READY",
-                        max_length=20,
-                    ),
-                ),
-                ("error", models.TextField(blank=True, null=True)),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
             ],
         ),
