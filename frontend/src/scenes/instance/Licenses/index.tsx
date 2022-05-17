@@ -64,7 +64,7 @@ function ConfirmCancel({
                 </>
             }
         >
-            <ul>
+            <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
                 {!hasAnotherValidLicense ? (
                     <li>
                         You will <strong>IMMEDIATELY</strong> lose access to all premium features such as{' '}
