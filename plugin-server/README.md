@@ -13,7 +13,7 @@ Let's get you developing the plugin server in no time:
 
 1. Install dependencies and prepare for takeoff by running command `yarn`.
 
-1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server. To avoid interference, disable the plugin server there with setting the PLUGIN_SERVER_IDLE env variable before running. `PLUGIN_SERVER_IDLE=true ./bin/start`
+1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server.
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). Two settings that you MUST get right are DATABASE_URL and REDIS_URL - they need to be identical between the plugin server and the main server.
 
@@ -36,7 +36,6 @@ Each one does a single thing. They are listed in the table below, in order of pr
 | Version     | Only show currently running plugin server version          | `-v`, `--version` |
 | Healthcheck | Check plugin server health and exit with 0 or 1            | `--healthcheck`   |
 | Migrate     | Migrate Graphile job queue                                 | `--migrate`       |
-| Idle        | Start server in a completely idle, non-processing mode     | `--idle`          |
 
 ## Configuration
 
@@ -78,7 +77,6 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | DISABLE_MMDB                           | whether to disable MMDB IP location capabilities                                                                                                                                                               | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT              | port of the internal server used for IP location (0 means random)                                                                                                                                              | `0`                                   |
 | DISTINCT_ID_LRU_SIZE                   | size of persons distinct ID LRU cache                                                                                                                                                                          | `10000`                               |
-| PLUGIN_SERVER_IDLE                     | whether to disengage the plugin server, e.g. for development                                                                                                                                                   | `false`                               |
 | CAPTURE_INTERNAL_METRICS               | whether to capture internal metrics for posthog in posthog                                                                                                                                                     | `false`                               |
 | PISCINA_USE_ATOMICS                    | corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)                                                                                      | `true`                                |
 | PISCINA_ATOMICS_TIMEOUT                | (advanced) corresponds to the length of time (in ms) a piscina worker should block for when looking for tasks - instances with high volumes (100+ events/sec) might benefit from setting this to a lower value | `5000`                                |
