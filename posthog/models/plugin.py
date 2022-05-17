@@ -349,8 +349,6 @@ class PluginSource(UUIDModel):
         ]
 
     class Status(models.TextChoices):
-        READY = "READY", "ready"
-        SKIPPED = "SKIPPED", "skipped"
         LOCKED = "LOCKED", "locked"
         TRANSPILED = "TRANSPILED", "transpiled"
         ERROR = "ERROR", "error"
@@ -359,7 +357,7 @@ class PluginSource(UUIDModel):
     filename: models.CharField = models.CharField(max_length=200, blank=False)
     source: models.TextField = models.TextField(blank=True, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
-    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, default=Status.READY)
+    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, blank=True)
     error: models.TextField = models.TextField(blank=True, null=True)
 
     __repr__ = sane_repr("plugin_id", "filename", "source", "transpiled", "status")
