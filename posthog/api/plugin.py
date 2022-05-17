@@ -232,6 +232,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         del sources[key]
                     else:
                         sources[key].source = value
+                        sources[key].status = None
+                        sources[key].transpiled = None
                         sources[key].save()
             else:
                 sources[key] = PluginSource.objects.create(plugin=plugin, filename=key, source=value)
