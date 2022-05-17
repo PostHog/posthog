@@ -7,6 +7,7 @@ import { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
+    DashboardTile,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -37,6 +38,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -189,7 +191,7 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result || values.insight.result,
                     }
                     callback?.(updatedInsight)
-                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
+
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     for (const id of updatedInsight.dashboards ?? []) {
                         dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
@@ -356,11 +358,17 @@ export const insightLogic = kea<insightLogicType>({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
-            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                if (item.short_id === state.short_id) {
-                    return { ...item }
+            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
+                if (item.short_id !== state.short_id) {
+                    return state
                 }
-                return state
+
+                const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
+                if (updateIsForThisDashboard) {
+                    return { ...item }
+                } else {
+                    return mergeWithDashboardTile(item, state as DashboardTile)
+                }
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -828,10 +836,7 @@ export const insightLogic = kea<insightLogicType>({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
                 if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId,
-                        router.values.hashParams.fromDashboard
-                    )
+                    const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
