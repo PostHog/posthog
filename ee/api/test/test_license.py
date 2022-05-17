@@ -149,5 +149,5 @@ class TestLicenseAPI(APILicensedTest):
         response = self.client.delete(f"/api/license/{self.license.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Team.objects.count(), 4)
-        self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
+        self.assertEqual(Team.objects.all().order_by("pk")[0].pk, self.team.pk)
         self.assertEqual(Organization.objects.count(), 2)
