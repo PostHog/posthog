@@ -22,7 +22,7 @@ import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { delayUntilEventIngested,resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
