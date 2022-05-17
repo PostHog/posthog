@@ -9,6 +9,7 @@ import { validateJson } from 'lib/utils'
 import React from 'react'
 import { FormErrors } from 'lib/forms/Errors'
 import { defaultPluginJson, defaultSource } from 'scenes/plugins/source/defaults'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 interface PluginSourceProps {
     id: number
@@ -51,6 +52,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSource, PluginS
                     pluginSource
                 )
                 actions.resetPluginSource(response)
+                pluginsLogic.findMounted()?.actions.loadPlugins()
             },
         },
     })),
