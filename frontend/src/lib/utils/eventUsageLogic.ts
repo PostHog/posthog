@@ -105,16 +105,9 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
 
 function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
     const flattenedProperties = convertPropertyGroupToProperties(properties)
-    const cohortIds: PropertyFilterValue[] = []
-    if (flattenedProperties) {
-        for (const property of flattenedProperties) {
-            if (property.type === 'cohort') {
-                cohortIds.push(property.value)
-            }
-        }
-    }
+    const cohortIds = flattenedProperties?.filter((p) => p.type === 'cohort').map((p) => p.value)
 
-    return cohortIds
+    return cohortIds || []
 }
 
 /*
