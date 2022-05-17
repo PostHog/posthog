@@ -25,7 +25,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
     elif filter.interval == "week":
         data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "day":
-        data.update({"date_to": (date_from + relativedelta(days=1)).strftime("%Y-%m-%d")})
+        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
     return filter.with_data(data)
