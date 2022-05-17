@@ -163,18 +163,6 @@ describe('e2e', () => {
                 pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
             ).toEqual(1)
         })
-
-        test('action matches are saved', async () => {
-            await posthog.capture('xyz', { foo: 'bar' })
-
-            await delayUntilEventIngested(() => hub.db.fetchActionMatches())
-
-            const savedMatches = await hub.db.fetchActionMatches()
-
-            expect(savedMatches).toStrictEqual([
-                { id: expect.any(Number), event_id: expect.any(Number), action_id: 69 },
-            ])
-        })
     })
 
     describe('onAction', () => {
