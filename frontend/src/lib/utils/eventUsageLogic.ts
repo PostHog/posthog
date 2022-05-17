@@ -23,6 +23,7 @@ import {
     Experiment,
     PropertyGroupFilter,
     FilterLogicalOperator,
+    PropertyFilterValue,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -102,17 +103,18 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
     return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
-function hasCohortFilter(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
+function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
     const flattenedProperties = convertPropertyGroupToProperties(properties)
+    const cohortIds: PropertyFilterValue[] = []
     if (flattenedProperties) {
         for (const property of flattenedProperties) {
             if (property.type === 'cohort') {
-                return true
+                cohortIds.push(property.value)
             }
         }
     }
 
-    return false
+    return cohortIds
 }
 
 /*
@@ -162,7 +164,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const breakdown_by_groups = filters.breakdown_group_type_index != undefined
     // If groups are being used in this query
     let using_groups = hasGroupProperties(filters.properties)
-    const using_cohort_filter = hasCohortFilter(filters.properties)
+    const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
         properties_local = properties_local.concat(flattenProperties(entity.properties || []))
@@ -195,7 +197,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
-        using_cohort_filter,
+        used_cohort_filter_ids,
     }
 }
 
