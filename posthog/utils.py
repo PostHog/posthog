@@ -14,6 +14,7 @@ import time
 import uuid
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generator,
@@ -43,6 +44,10 @@ from sentry_sdk import configure_scope
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -598,7 +603,7 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
-def get_can_create_org() -> bool:
+def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 
     Organizations can be created only in the following cases:
@@ -610,10 +615,10 @@ def get_can_create_org() -> bool:
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY
-        or settings.DEMO
+        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
-        or not Organization.objects.filter(for_internal_metrics=False).exists()
+        or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
 

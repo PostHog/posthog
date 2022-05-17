@@ -9,6 +9,8 @@ from rest_framework import serializers
 
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.client import query_with_columns, sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -39,19 +41,19 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
-    sync_execute(
-        INSERT_EVENT_SQL(),
-        {
-            "uuid": str(event_uuid),
-            "event": event,
-            "properties": json.dumps(properties),
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "team_id": team.pk,
-            "distinct_id": str(distinct_id),
-            "elements_chain": elements_chain,
-            "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        },
-    )
+    data = {
+        "uuid": str(event_uuid),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": str(distinct_id),
+        "elements_chain": elements_chain,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        # TODO: Support persons on events
+    }
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
 

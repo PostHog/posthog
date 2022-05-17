@@ -160,6 +160,8 @@ marshmallow==3.15.0
     # via
     #   dataclasses-json
     #   marshmallow-enum
+mimesis==5.2.1
+    # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
 mypy-extensions==0.4.3
