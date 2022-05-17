@@ -35,7 +35,8 @@ export function shouldSendEventToBuffer(
 ): boolean {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinctId === event.properties['$device_id']
-    const isRecentPerson = !person || DateTime.now().diff(person.created_at).seconds < hub.BUFFER_CONVERSION_SECONDS
+    const isRecentPerson =
+        !person || DateTime.now().diff(person.created_at).as('seconds') < hub.BUFFER_CONVERSION_SECONDS
     const ingestEventDirectly = isAnonymousEvent || event.event === '$identify' || !isRecentPerson
     const sendToBuffer = !ingestEventDirectly
 
