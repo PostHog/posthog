@@ -41,12 +41,18 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         setScrollIndex: (index: number) => ({ index }),
         addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
         removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        addingStarted: true,
+        addingFinished: true,
+        removingStarted: true,
+        removingFinished: true,
     },
 
     reducers: {
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
+        adding: [false, { addingStarted: () => true, addingFinished: () => false }],
+        removing: [false, { removingStarted: () => true, removingFinished: () => false }],
     },
 
     selectors: {
@@ -115,7 +121,9 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         },
 
         addToDashboard: async ({ insight, dashboardId }) => {
+            actions.addingStarted()
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
+                actions.addingFinished()
                 eventUsageLogic.actions.reportSavedInsightToDashboard()
                 lemonToast.success('Insight added to dashboard', {
                     button: {
@@ -126,12 +134,14 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
             })
         },
         removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
+            actions.removingStarted()
             actions.updateInsight(
                 {
                     ...insight,
                     dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
                 },
                 () => {
+                    actions.removingFinished()
                     eventUsageLogic.actions.reportRemovedInsightFromDashboard()
                     lemonToast.success('Insight removed from dashboard')
                 }
