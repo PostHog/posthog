@@ -106,11 +106,7 @@ runs:
           run: |
               ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
-                  --group ${{ inputs.group }} \
-                  --store-durations \
-                  --cov \
-                  --cov-report=xml:coverage-clickhouse.xml \
-                  --durations=100 --durations-min=1.0
+                  --group ${{ inputs.group }}
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
