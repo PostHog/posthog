@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { Hub, PreIngestionEvent } from '../../../types'
@@ -47,9 +47,9 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PluginEvent | undefined
+    originalEvent: PluginEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent?: PluginEvent) {
+    constructor(hub: Hub, originalEvent: PluginEvent | ProcessedPluginEvent) {
         this.hub = hub
         this.originalEvent = originalEvent
     }
@@ -125,7 +125,7 @@ export class EventPipelineRunner {
         Sentry.captureException(err, { extra: { currentStepName, currentArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
-        if (this.originalEvent && STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
+        if (STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
             try {
                 const message = generateEventDeadLetterQueueMessage(this.originalEvent, err)
                 await this.hub.db.kafkaProducer!.queueMessage(message)
