@@ -26,6 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
+import { withDataFromDashboardContext } from 'scenes/insights/utils/dataStorage'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -189,18 +190,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
                         if (itemIndex >= 0) {
-                            const original = { ...newItems[itemIndex] }
-                            const updatedInsight: InsightModel = { ...item }
-
-                            // don't update dashboard specific data from outside the dashboard
-                            updatedInsight.result = original.result || []
-                            updatedInsight.layouts = original.layouts || {}
-                            updatedInsight.color = original.color || null
-                            updatedInsight.last_refresh = original.last_refresh || null
-                            updatedInsight.filters = original.filters
-                            updatedInsight.filters_hash = original.filters_hash || ''
-
-                            newItems[itemIndex] = updatedInsight
+                            newItems[itemIndex] = withDataFromDashboardContext<InsightModel>(item, newItems[itemIndex])
                         } else {
                             newItems.push(item)
                         }

@@ -759,7 +759,7 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-interface InsightDataThatVariesWithContext {
+export interface InsightDataThatVariesWithContext {
     result: any | null
     layouts: Record<string, any>
     color: InsightColor | null

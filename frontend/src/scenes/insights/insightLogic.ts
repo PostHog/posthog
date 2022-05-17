@@ -7,6 +7,7 @@ import { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
+    InsightDataThatVariesWithContext,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -37,6 +38,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { withDataFromDashboardContext } from 'scenes/insights/utils/dataStorage'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -364,17 +366,14 @@ export const insightLogic = kea<insightLogicType>({
                 const updatedInsight: Partial<InsightModel> = { ...item }
 
                 const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
-                if (!updateIsForThisDashboard) {
-                    // don't update dashboard specific data
-                    updatedInsight.result = state.result || []
-                    updatedInsight.layouts = state.layouts || {}
-                    updatedInsight.color = state.color || null
-                    updatedInsight.last_refresh = state.last_refresh || null
-                    updatedInsight.filters = state.filters
-                    updatedInsight.filters_hash = state.filters_hash || ''
+                if (updateIsForThisDashboard) {
+                    return updatedInsight
+                } else {
+                    return withDataFromDashboardContext<Partial<InsightModel>>(
+                        updatedInsight,
+                        state as InsightDataThatVariesWithContext
+                    )
                 }
-
-                return updatedInsight
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
