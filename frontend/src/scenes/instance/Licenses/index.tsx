@@ -54,7 +54,7 @@ function ConfirmCancel({
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton data-attr="cancel-license" status="danger" onClick={onOk}>
+                    <LemonButton data-attr="cancel-license" type="primary" status="danger" onClick={onOk}>
                         {willDeleteProjects ? (
                             <>Deactivate license & delete {nonDemoProjects.length} project(s)</>
                         ) : (
