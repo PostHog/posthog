@@ -7,7 +7,7 @@ import { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
-    InsightDataThatVariesWithContext,
+    DashboardTile,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -367,7 +367,7 @@ export const insightLogic = kea<insightLogicType>({
                 if (updateIsForThisDashboard) {
                     return { ...item }
                 } else {
-                    return mergeWithDashboardTile(item, state as InsightDataThatVariesWithContext)
+                    return mergeWithDashboardTile(item, state as DashboardTile)
                 }
             },
         },

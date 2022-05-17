@@ -759,7 +759,7 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightDataThatVariesWithContext {
+export interface DashboardTile {
     result: any | null
     layouts: Record<string, any>
     color: InsightColor | null
@@ -768,7 +768,7 @@ export interface InsightDataThatVariesWithContext {
     filters_hash: string
 }
 
-export interface InsightModel extends InsightDataThatVariesWithContext {
+export interface InsightModel extends DashboardTile {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */

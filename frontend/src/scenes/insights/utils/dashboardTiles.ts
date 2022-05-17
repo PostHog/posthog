@@ -1,4 +1,4 @@
-import { InsightDataThatVariesWithContext, InsightModel } from '~/types'
+import { DashboardTile, InsightModel } from '~/types'
 
 /**
  * When changing an InsightModel there is some data that applied no matter where the insight is displayed or changed
@@ -13,7 +13,7 @@ import { InsightDataThatVariesWithContext, InsightModel } from '~/types'
  */
 export function mergeWithDashboardTile<T extends InsightModel | Partial<InsightModel>>(
     target: T,
-    source: InsightDataThatVariesWithContext
+    source: DashboardTile
 ): T {
     const updatedTarget = { ...target }
 
