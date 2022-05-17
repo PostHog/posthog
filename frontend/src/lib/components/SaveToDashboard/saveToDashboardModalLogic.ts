@@ -124,6 +124,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
             actions.addingStarted()
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
                 actions.addingFinished()
+
                 eventUsageLogic.actions.reportSavedInsightToDashboard()
                 lemonToast.success('Insight added to dashboard', {
                     button: {
@@ -142,6 +143,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
                 },
                 () => {
                     actions.removingFinished()
+
                     eventUsageLogic.actions.reportRemovedInsightFromDashboard()
                     lemonToast.success('Insight removed from dashboard')
                 }
