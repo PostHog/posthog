@@ -22,3 +22,46 @@ class TestInstanceStatus(APIBaseTest):
             "/api/instance_status/capture", {"method": "timing", "metric": "bar", "value": 15.2, "tags": {"team_id": 1}}
         )
         timing_mock.assert_called_with("bar", 15.2, {"team_id": 1})
+
+    def test_object_storage_when_disabled(self):
+        response = self.client.get("/api/instance_status")
+        json = response.json()
+
+        object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
+        self.assertEqual(
+            object_storage_metrics, [{"key": "object_storage", "metric": "Object Storage enabled", "value": False}]
+        )
+
+    @patch("posthog.storage.object_storage.client.head_bucket")
+    def test_object_storage_when_enabled_but_unhealthy(self, patched_head_bucket):
+        patched_head_bucket.return_value = False
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True,):
+            response = self.client.get("/api/instance_status")
+            json = response.json()
+
+            object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
+            self.assertEqual(
+                object_storage_metrics,
+                [
+                    {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
+                    {"key": "object_storage", "metric": "Object Storage healthy", "value": False},
+                ],
+            )
+
+    @patch("posthog.storage.object_storage.client.head_bucket")
+    def test_object_storage_when_enabled_and_healthy(self, patched_head_bucket):
+        patched_head_bucket.return_value = True
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True,):
+            response = self.client.get("/api/instance_status")
+            json = response.json()
+
+            object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
+            self.assertEqual(
+                object_storage_metrics,
+                [
+                    {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
+                    {"key": "object_storage", "metric": "Object Storage healthy", "value": True},
+                ],
+            )

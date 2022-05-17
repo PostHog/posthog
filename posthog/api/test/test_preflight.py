@@ -1,5 +1,5 @@
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from constance.test import override_config
@@ -87,11 +87,9 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.client")
-    def test_preflight_request_with_object_storage_available(self, patched_boto3):
-        mock_client = MagicMock()
-        mock_client.head_bucket.return_value = True
-        patched_boto3.client.return_value = mock_client
+    @patch("posthog.storage.object_storage.client.head_bucket")
+    def test_preflight_request_with_object_storage_available(self, patched_head_bucket):
+        patched_head_bucket.return_value = True
 
         with self.settings(
             MULTI_TENANCY=False,
