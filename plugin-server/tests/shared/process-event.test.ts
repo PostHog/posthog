@@ -2,7 +2,6 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
-import { performance } from 'perf_hooks'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
@@ -20,39 +19,15 @@ import {
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
-import { delay, UUIDT } from '../../src/utils/utils'
+import { UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
-import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { delayUntilEventIngested,resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
-
-export async function delayUntilEventIngested(
-    fetchEvents: () => Promise<any[] | any>,
-    minCount = 1,
-    delayMs = 500,
-    maxDelayCount = 30,
-    debug = false
-): Promise<void> {
-    const timer = performance.now()
-    for (let i = 0; i < maxDelayCount; i++) {
-        const events = await fetchEvents()
-        if (debug) {
-            console.log(
-                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${
-                    typeof events === 'number' ? events : events.length
-                } events.`
-            )
-        }
-        if ((typeof events === 'number' ? events : events.length) >= minCount) {
-            return
-        }
-        await delay(delayMs)
-    }
-}
 
 export async function createPerson(
     server: Hub,

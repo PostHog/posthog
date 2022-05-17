@@ -10,7 +10,7 @@ import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
 import { resetKafka } from '../../tests/helpers/kafka'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 import { resetTestDatabase } from '../../tests/helpers/sql'
-import { delayUntilEventIngested } from '../../tests/shared/process-event'
+import { delayUntilEventIngested } from '../../tests/shared/process-event.test'
 
 jest.setTimeout(600000) // 10min timeout
 

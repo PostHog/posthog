@@ -5,7 +5,7 @@ import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
+import { delayUntilEventIngested } from '../shared/process-event.test'
 
 jest.setTimeout(100000) // 60 sec timeout
 

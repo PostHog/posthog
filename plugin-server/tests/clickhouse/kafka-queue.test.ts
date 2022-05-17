@@ -14,7 +14,7 @@ import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
+import { delayUntilEventIngested } from '../shared/process-event.test'
 
 const { console: testConsole } = writeToFile
 
