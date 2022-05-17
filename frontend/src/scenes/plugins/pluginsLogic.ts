@@ -72,8 +72,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
-        editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
-            values,
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
             checkAll,
             initialUpdateStatus,
@@ -131,16 +129,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
-                },
-                editPluginSource: async ({ id, name, source, configSchema }) => {
-                    const { plugins } = values
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {
-                        name,
-                        source,
-                        config_schema: configSchema,
-                    })
-                    capturePluginEvent(`plugin source edited`, response)
-                    return { ...plugins, [id]: response }
                 },
                 updatePlugin: async ({ id }) => {
                     const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
@@ -293,7 +281,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             false,
             {
                 setEditingSource: (_, { editingSource }) => editingSource,
-                editPluginSourceSuccess: () => false,
                 editPlugin: () => false,
             },
         ],
@@ -668,6 +655,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
             }
 
             actions.checkedForUpdates()
+            actions.toggleSectionOpen(PluginSection.Upgrade)
         },
         loadPluginsSuccess() {
             const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}

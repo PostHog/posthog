@@ -82,7 +82,8 @@ export function Cohort({ id }: { id?: CohortType['id'] } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-cohort"
                                 htmlType="submit"
-                                loading={cohortLoading}
+                                loading={cohortLoading || cohort.is_calculating}
+                                disabled={cohortLoading || cohort.is_calculating}
                             >
                                 Save
                             </LemonButton>

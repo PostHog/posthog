@@ -62,7 +62,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>who performed event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter
@@ -79,7 +78,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>
@@ -127,7 +125,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>and then came back to perform event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter
@@ -144,7 +141,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table-returning"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>on any of the next {dateOptionPlurals[filters.period ?? 'Day']}</Col>

@@ -1,6 +1,8 @@
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
+import { runEventPipeline } from './ingestion/event-pipeline'
 import { ingestBufferEvent, ingestEvent } from './ingestion/ingest-event'
 import { runHandleAlert, runOnAction, runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
@@ -9,13 +11,13 @@ import { teardownPlugins } from './plugins/teardown'
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
-    onEvent: (hub, args: { event: PluginEvent }) => {
+    onEvent: (hub, args: { event: ProcessedPluginEvent }) => {
         return runOnEvent(hub, args.event)
     },
-    onAction: (hub, args: { event: PluginEvent; action: Action }) => {
+    onAction: (hub, args: { event: ProcessedPluginEvent; action: Action }) => {
         return runOnAction(hub, args.action, args.event)
     },
-    onSnapshot: (hub, args: { event: PluginEvent }) => {
+    onSnapshot: (hub, args: { event: ProcessedPluginEvent }) => {
         return runOnSnapshot(hub, args.event)
     },
     processEvent: (hub, args: { event: PluginEvent }) => {
@@ -38,6 +40,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
+    },
+    runEventPipeline: async (hub, args: { event: PluginEvent }) => {
+        return await runEventPipeline(hub, args.event)
     },
     ingestEvent: async (hub, args: { event: PluginEvent }) => {
         return await ingestEvent(hub, args.event)

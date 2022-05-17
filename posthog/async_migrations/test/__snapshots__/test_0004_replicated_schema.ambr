@@ -97,7 +97,7 @@
 # name: Test0004ReplicatedSchema.test_migration.5
   <class 'tuple'> (
     'kafka_events_dead_letter_queue',
-    "Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.6
@@ -199,7 +199,7 @@
 # name: Test0004ReplicatedSchema.test_rollback.5
   <class 'tuple'> (
     'kafka_events_dead_letter_queue',
-    "Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.6

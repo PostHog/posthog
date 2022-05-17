@@ -21,7 +21,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:21.11.11.1}
         restart: on-failure
         depends_on:
             - kafka
@@ -39,6 +39,10 @@ services:
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
+        volumes:
+            - zookeeper-datalog:/datalog
+            - zookeeper-data:/data
+            - zookeeper-logs:/logs
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         restart: on-failure
@@ -118,3 +122,8 @@ services:
         command: python manage.py run_async_migrations --check
         restart: 'no'
         scale: 0
+
+volumes:
+    zookeeper-data:
+    zookeeper-datalog:
+    zookeeper-logs:

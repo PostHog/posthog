@@ -73,18 +73,21 @@ export function PropertyValue({
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
 
-    const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
-    const [shouldBlur, setShouldBlur] = useState(false)
+    // what the human has typed into the box
+    const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
+    // options from the server for search
     const [options, setOptions] = useState({} as Record<string, Option>)
+
+    const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
-        if (!value) {
+        if (value == null) {
             setInput('')
-        } else if (value !== input) {
+        } else if (!Array.isArray(value) && toString(value) !== input) {
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
