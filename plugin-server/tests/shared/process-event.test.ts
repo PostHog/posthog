@@ -4,6 +4,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     Database,
     Event,
@@ -22,6 +23,8 @@ import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -95,12 +98,17 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
     )
 }
 
-export const createProcessEventTests = (
-    database: 'postgresql' | 'clickhouse',
-    includeNewPropertiesUpdatesTests: boolean,
-    extraServerConfig?: Partial<PluginsServerConfig>,
-    createTests?: (response: ReturnWithHub) => void
-): ReturnWithHub => {
+const TEST_CONFIG: Partial<PluginsServerConfig> = {
+    PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
+    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
+    LOG_LEVEL: LogLevel.Log,
+    KAFKA_ENABLED: true,
+    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
+    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+}
+
+export const createProcessEventTests = (includeNewPropertiesUpdatesTests: boolean): ReturnWithHub => {
+    let testCounter = 0
     let processEventCounter = 0
     let mockClientEventCounter = 0
     let team: Team
@@ -113,10 +121,7 @@ export const createProcessEventTests = (
 
     async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
         const [hub, closeHub] = await createHub({
-            PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
-            CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
-            LOG_LEVEL: LogLevel.Log,
-            ...(extraServerConfig ?? {}),
+            ...TEST_CONFIG,
             ...(additionalProps ?? {}),
         })
 
@@ -151,12 +156,20 @@ export const createProcessEventTests = (
         if (response) {
             await eventsProcessor.createEvent(response)
         }
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
-        }
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
 
         return response
     }
+
+    // Simple client used to simulate sending events
+    // Use state object to simulate stateful clients that keep track of old
+    // distinct id, starting with an anonymous one. I've taken posthog-js as
+    // the reference implementation.
+    let state = { currentDistinctId: 'anonymous_id' }
+
+    beforeAll(async () => {
+        await resetKafka(TEST_CONFIG)
+    })
 
     beforeEach(async () => {
         const testCode = `
@@ -165,7 +178,8 @@ export const createProcessEventTests = (
                 return event
             }
         `
-        await resetTestDatabase(testCode, extraServerConfig)
+        await resetTestDatabase(testCode, TEST_CONFIG)
+        await resetTestDatabaseClickhouse(TEST_CONFIG)
         ;[hub, closeHub] = await createTestHub()
         returned.hub = hub
         returned.closeHub = closeHub
@@ -178,22 +192,17 @@ export const createProcessEventTests = (
         // clear the webhook redis cache
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
+
+        // Always start with an anonymous state
+        state = { currentDistinctId: 'anonymous_id' }
+
+        console.log(`About to start test ${++testCounter}: ${expect.getState().currentTestName}`)
     })
 
     afterEach(async () => {
+        console.log(`Finished test ${testCounter}`)
         await hub.redisPool.release(redis)
         await closeHub?.()
-    })
-
-    // Simple client used to simulate sending events
-    // Use state object to simulate stateful clients that keep track of old
-    // distinct id, starting with an anonymous one. I've taken posthog-js as
-    // the reference implementation.
-    let state = { currentDistinctId: 'anonymous_id' }
-
-    // Always start with an anonymous state
-    beforeEach(() => {
-        state = { currentDistinctId: 'anonymous_id' }
     })
 
     const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
@@ -208,9 +217,7 @@ export const createProcessEventTests = (
             team_id: team.id,
             uuid: new UUIDT().toString(),
         })
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
-        }
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
     }
 
     const identify = async (hub: Hub, distinctId: string) => {
@@ -230,20 +237,14 @@ export const createProcessEventTests = (
         await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
 
-    createTests?.(returned)
-
     test('merge people', async () => {
         const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
-        }
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
         await hub.db.updatePersonDeprecated(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
 
         const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-        }
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
         await hub.db.updatePersonDeprecated(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
 
         await processEvent(
@@ -263,31 +264,29 @@ export const createProcessEventTests = (
         expect((await hub.db.fetchPersons()).length).toEqual(2)
         const [person0, person1] = await hub.db.fetchPersons()
 
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-            expect(chPeople.length).toEqual(2)
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+        const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+        expect(chPeople.length).toEqual(2)
 
-            // try to merge and see if we queue any messages
-            jest.spyOn(hub!.db.kafkaProducer!, 'queueMessage')
+        // try to merge and see if we queue any messages
+        jest.spyOn(hub!.db.kafkaProducer!, 'queueMessage')
 
-            jest.spyOn(hub!.db, 'updatePersonDeprecated').mockImplementationOnce(() => {
-                throw new Error('updatePersonDeprecated error')
+        jest.spyOn(hub!.db, 'updatePersonDeprecated').mockImplementationOnce(() => {
+            throw new Error('updatePersonDeprecated error')
+        })
+
+        await expect(async () => {
+            await hub!.eventsProcessor!.mergePeople({
+                mergeInto: person0,
+                mergeIntoDistinctId: 'person_0',
+                otherPerson: person1,
+                otherPersonDistinctId: 'person_1',
+                totalMergeAttempts: 0,
+                timestamp: DateTime.now(),
             })
+        }).rejects.toThrow()
 
-            await expect(async () => {
-                await hub!.eventsProcessor!.mergePeople({
-                    mergeInto: person0,
-                    mergeIntoDistinctId: 'person_0',
-                    otherPerson: person1,
-                    otherPersonDistinctId: 'person_1',
-                    totalMergeAttempts: 0,
-                    timestamp: DateTime.now(),
-                })
-            }).rejects.toThrow()
-
-            expect(hub!.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
-        }
+        expect(hub!.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
 
         await eventsProcessor.mergePeople({
             mergeInto: person0,
@@ -298,15 +297,13 @@ export const createProcessEventTests = (
             timestamp: DateTime.now(),
         })
 
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(async () =>
-                (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? [1] : []
-            )
-            expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
+        await delayUntilEventIngested(async () =>
+            (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? [1] : []
+        )
+        expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
 
-            // moveDistinctIds 3x, deletePerson 1x
-            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
-        }
+        // moveDistinctIds 3x, deletePerson 1x
+        expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
 
         expect((await hub.db.fetchPersons()).length).toEqual(1)
 
@@ -374,13 +371,13 @@ export const createProcessEventTests = (
             gclid: 'GOOGLE ADS ID',
         }
         expect(persons[0].properties).toEqual(expectedProps)
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
-            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-            expect(chPeople.length).toEqual(1)
-            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
-            expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
-        }
+
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+        const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+        expect(chPeople.length).toEqual(1)
+        expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
+
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
             $os: 'Mac OS X',
@@ -447,12 +444,12 @@ export const createProcessEventTests = (
             gclid: 'GOOGLE ADS ID',
         }
         expect(persons[0].properties).toEqual(expectedProps)
-        if (database === 'clickhouse') {
-            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-            expect(chPeople.length).toEqual(1)
-            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
-        }
+
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+        const chPeople2 = await hub.db.fetchPersons(Database.ClickHouse)
+        expect(chPeople2.length).toEqual(1)
+        expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
+
         expect(events[1].properties.$set).toEqual({
             utm_medium: 'instagram',
         })
@@ -477,11 +474,7 @@ export const createProcessEventTests = (
         expect(elements[1].order).toEqual(1)
         expect(elements[1].text).toEqual('💻')
 
-        if (database === 'clickhouse') {
-            expect(hashElements(elements)).toEqual('0679137c0cd2408a2906839143e7a71f')
-        } else if (database === 'postgresql') {
-            expect(event.elements_hash).toEqual('0679137c0cd2408a2906839143e7a71f')
-        }
+        expect(hashElements(elements)).toEqual('0679137c0cd2408a2906839143e7a71f')
 
         // Don't update any props, set and set_once should be what was sent
         await processEvent(
@@ -531,11 +524,10 @@ export const createProcessEventTests = (
         })
         // check that person properties didn't change
         expect(persons[0].properties).toEqual(expectedProps)
-        if (database === 'clickhouse') {
-            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-            expect(chPeople.length).toEqual(1)
-            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
-        }
+
+        const chPeople3 = await hub.db.fetchPersons(Database.ClickHouse)
+        expect(chPeople3.length).toEqual(1)
+        expect(JSON.parse(chPeople3[0].properties)).toEqual(expectedProps)
 
         team = await getFirstTeam(hub)
 
@@ -1151,11 +1143,8 @@ export const createProcessEventTests = (
         const [element] = await hub.db.fetchElements(event)
         expect(element.href?.length).toEqual(2048)
         expect(element.text?.length).toEqual(400)
-        if (database === 'postgresql') {
-            expect(event.elements_hash).toEqual('c2659b28e72835706835764cf7f63c2a')
-        } else if (database === 'clickhouse') {
-            expect(hashElements([element])).toEqual('c2659b28e72835706835764cf7f63c2a')
-        }
+
+        expect(hashElements([element])).toEqual('c2659b28e72835706835764cf7f63c2a')
     })
 
     test('capture first team event', async () => {
@@ -1200,12 +1189,9 @@ export const createProcessEventTests = (
         expect(team.ingested_event).toEqual(true)
 
         const [event] = (await hub.db.fetchEvents()) as Event[]
-        if (database === 'postgresql') {
-            expect(event.elements_hash).toEqual('a89021a60b3497d24e93ae181fba01aa')
-        } else if (database === 'clickhouse') {
-            const elements = await hub.db.fetchElements(event)
-            expect(hashElements(elements)).toEqual('a89021a60b3497d24e93ae181fba01aa')
-        }
+
+        const elements = await hub.db.fetchElements(event)
+        expect(hashElements(elements)).toEqual('a89021a60b3497d24e93ae181fba01aa')
     })
 
     it('snapshot event not stored if session recording disabled', async () => {
@@ -2304,202 +2290,200 @@ export const createProcessEventTests = (
         })
     })
 
-    if (database == 'clickhouse') {
-        test('groupidentify', async () => {
-            await createPerson(hub, team, ['distinct_id1'])
+    test('groupidentify', async () => {
+        await createPerson(hub, team, ['distinct_id1'])
 
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: '$groupidentify',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: 'distinct_id1',
-                        $group_type: 'organization',
-                        $group_key: 'org::5',
-                        $group_set: {
-                            foo: 'bar',
-                        },
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: '$groupidentify',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $group_type: 'organization',
+                    $group_key: 'org::5',
+                    $group_set: {
+                        foo: 'bar',
                     },
-                } as any as PluginEvent,
-                team.id,
-                now,
-                now,
-                new UUIDT().toString()
-            )
-
-            expect((await hub.db.fetchEvents()).length).toBe(1)
-            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
-
-            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
-            expect(clickhouseGroup).toEqual({
-                group_key: 'org::5',
-                group_properties: JSON.stringify({ foo: 'bar' }),
-                group_type_index: 0,
-                team_id: team.id,
-                created_at: expect.any(String),
-            })
-
-            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
-            expect(group).toEqual({
-                id: expect.any(Number),
-                team_id: team.id,
-                group_type_index: 0,
-                group_key: 'org::5',
-                group_properties: { foo: 'bar' },
-                created_at: now,
-                properties_last_updated_at: { foo: now.toISO() },
-                properties_last_operation: { foo: PropertyUpdateOperation.Set },
-                version: 1,
-            })
-        })
-
-        test('$groupidentify updating properties', async () => {
-            const next: DateTime = now.plus({ minutes: 1 })
-
-            await createPerson(hub, team, ['distinct_id1'])
-            await hub.db.insertGroup(
-                team.id,
-                0,
-                'org::5',
-                { a: 1, b: 2 },
-                now,
-                { a: now.toISO(), b: now.toISO() },
-                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
-                1
-            )
-
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: '$groupidentify',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: 'distinct_id1',
-                        $group_type: 'organization',
-                        $group_key: 'org::5',
-                        $group_set: {
-                            foo: 'bar',
-                            a: 3,
-                        },
-                    },
-                } as any as PluginEvent,
-                team.id,
-                next,
-                next,
-                new UUIDT().toString()
-            )
-
-            expect((await hub.db.fetchEvents()).length).toBe(1)
-            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
-
-            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
-            expect(clickhouseGroup).toEqual({
-                group_key: 'org::5',
-                group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
-                group_type_index: 0,
-                team_id: team.id,
-                created_at: expect.any(String),
-            })
-
-            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
-            expect(group).toEqual({
-                id: expect.any(Number),
-                team_id: team.id,
-                group_type_index: 0,
-                group_key: 'org::5',
-                group_properties: { a: 3, b: 2, foo: 'bar' },
-                created_at: now,
-                properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
-                properties_last_operation: {
-                    a: PropertyUpdateOperation.Set,
-                    b: PropertyUpdateOperation.Set,
-                    foo: PropertyUpdateOperation.Set,
                 },
-                version: 2,
-            })
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+        await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+
+        const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+        expect(clickhouseGroup).toEqual({
+            group_key: 'org::5',
+            group_properties: JSON.stringify({ foo: 'bar' }),
+            group_type_index: 0,
+            team_id: team.id,
+            created_at: expect.any(String),
         })
 
-        test('person and group properties on events', async () => {
-            // setup 2 groups with properties
-            hub.db.personAndGroupsCachingEnabledTeams.add(2)
-            await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
-
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: '$groupidentify',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: 'distinct_id1',
-                        $group_type: 'organization',
-                        $group_key: 'org:5',
-                        $group_set: {
-                            foo: 'bar',
-                        },
-                    },
-                } as any as PluginEvent,
-                team.id,
-                now,
-                now,
-                new UUIDT().toString()
-            )
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: '$groupidentify',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: 'distinct_id1',
-                        $group_type: 'second',
-                        $group_key: 'second_key',
-                        $group_set: {
-                            pineapple: 'yummy',
-                        },
-                    },
-                } as any as PluginEvent,
-                team.id,
-                now,
-                now,
-                new UUIDT().toString()
-            )
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: 'test event',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: 'distinct_id1',
-                        $set: { new: 5 },
-                        $group_0: 'org:5',
-                        $group_1: 'second_key',
-                    },
-                } as any as PluginEvent,
-                team.id,
-                now,
-                now,
-                new UUIDT().toString()
-            )
-
-            const events = await hub.db.fetchEvents()
-            const event = [...events].find((e: any) => e['event'] === 'test event')
-            expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
-            expect(event?.group0_properties).toEqual({ foo: 'bar' })
-            expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
-
-            hub.db.personAndGroupsCachingEnabledTeams.delete(2)
+        const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+        expect(group).toEqual({
+            id: expect.any(Number),
+            team_id: team.id,
+            group_type_index: 0,
+            group_key: 'org::5',
+            group_properties: { foo: 'bar' },
+            created_at: now,
+            properties_last_updated_at: { foo: now.toISO() },
+            properties_last_operation: { foo: PropertyUpdateOperation.Set },
+            version: 1,
         })
-    }
+    })
+
+    test('$groupidentify updating properties', async () => {
+        const next: DateTime = now.plus({ minutes: 1 })
+
+        await createPerson(hub, team, ['distinct_id1'])
+        await hub.db.insertGroup(
+            team.id,
+            0,
+            'org::5',
+            { a: 1, b: 2 },
+            now,
+            { a: now.toISO(), b: now.toISO() },
+            { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
+            1
+        )
+
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: '$groupidentify',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $group_type: 'organization',
+                    $group_key: 'org::5',
+                    $group_set: {
+                        foo: 'bar',
+                        a: 3,
+                    },
+                },
+            } as any as PluginEvent,
+            team.id,
+            next,
+            next,
+            new UUIDT().toString()
+        )
+
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+        await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+
+        const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+        expect(clickhouseGroup).toEqual({
+            group_key: 'org::5',
+            group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
+            group_type_index: 0,
+            team_id: team.id,
+            created_at: expect.any(String),
+        })
+
+        const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+        expect(group).toEqual({
+            id: expect.any(Number),
+            team_id: team.id,
+            group_type_index: 0,
+            group_key: 'org::5',
+            group_properties: { a: 3, b: 2, foo: 'bar' },
+            created_at: now,
+            properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
+            properties_last_operation: {
+                a: PropertyUpdateOperation.Set,
+                b: PropertyUpdateOperation.Set,
+                foo: PropertyUpdateOperation.Set,
+            },
+            version: 2,
+        })
+    })
+
+    test('person and group properties on events', async () => {
+        // setup 2 groups with properties
+        hub.db.personAndGroupsCachingEnabledTeams.add(2)
+        await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
+
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: '$groupidentify',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $group_type: 'organization',
+                    $group_key: 'org:5',
+                    $group_set: {
+                        foo: 'bar',
+                    },
+                },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: '$groupidentify',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $group_type: 'second',
+                    $group_key: 'second_key',
+                    $group_set: {
+                        pineapple: 'yummy',
+                    },
+                },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: 'test event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $set: { new: 5 },
+                    $group_0: 'org:5',
+                    $group_1: 'second_key',
+                },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        const events = await hub.db.fetchEvents()
+        const event = [...events].find((e: any) => e['event'] === 'test event')
+        expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
+        expect(event?.group0_properties).toEqual({ foo: 'bar' })
+        expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
+
+        hub.db.personAndGroupsCachingEnabledTeams.delete(2)
+    })
 
     test('set and set_once on the same key', async () => {
         await createPerson(hub, team, ['distinct_id1'])
@@ -2630,3 +2614,5 @@ export const createProcessEventTests = (
 
     return returned
 }
+
+createProcessEventTests(false)
