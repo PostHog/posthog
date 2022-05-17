@@ -42,19 +42,19 @@ function ConfirmCancel({
         <LemonModal
             visible={true}
             onCancel={onCancel}
-            title="Are you sure you want to cancel your license?"
+            title="Are you sure you want to deactivate your license?"
             footer={
                 <>
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"
-                        data-attr="cancel-license-cancel"
+                        data-attr="deactivate-license-cancel"
                         style={{ marginRight: '0.5rem' }}
                         onClick={onCancel}
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton data-attr="cancel-license" type="primary" status="danger" onClick={onOk}>
+                    <LemonButton data-attr="deactivate-license-proceed" type="primary" status="danger" onClick={onOk}>
                         {willDeleteProjects ? (
                             <>Deactivate license & delete {nonDemoProjects.length} project(s)</>
                         ) : (
@@ -159,7 +159,7 @@ export function Licenses(): JSX.Element {
                                     onClick={() => setShowConfirmCancel(license)}
                                     fullWidth
                                 >
-                                    Cancel license
+                                    Deactivate license
                                 </LemonButton>
                             </>
                         }
