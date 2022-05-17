@@ -55,7 +55,6 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["description"] = json.get("description", "")
         validated_data["config_schema"] = json.get("config", [])
         validated_data["public_jobs"] = json.get("publicJobs", {})
-        validated_data["source"] = None
         posthog_version = json.get("posthogVersion", None)
         validated_data["is_stateless"] = json.get("stateless", False)
     else:
@@ -71,7 +70,6 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["description"] = plugin_json.get("description", "")
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
-            validated_data["source"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
             validated_data["is_stateless"] = plugin_json.get("stateless", False)
 
@@ -138,7 +136,6 @@ class Plugin(models.Model):
     config_schema: models.JSONField = models.JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
@@ -147,9 +144,12 @@ class Plugin(models.Model):
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # DEPRECATED: these were used when syncing posthog.json with the db on app start
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_web: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: using PluginSource model instead
+    source: models.TextField = models.TextField(blank=True, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
