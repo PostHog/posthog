@@ -215,6 +215,8 @@ jobs:
                       person-on-events: true
                       name: 'Person on Events'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      concurrency: [5]
+                      group: [1, 2, 3, 4, 5]
 
         steps:
             - uses: actions/checkout@v2
