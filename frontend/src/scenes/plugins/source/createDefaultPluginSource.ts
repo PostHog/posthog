@@ -1,4 +1,5 @@
-export const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
+export const createDefaultPluginSource = (name: string): Record<string, any> => ({
+    'index.ts': `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
 // Processes each event, optionally transforming it
 export function processEvent(event, { config }) {
@@ -21,25 +22,29 @@ export async function runEveryHour(meta) {
     const data = await response.json()
     const randomSpanishWord = data.body.Word
     console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
-}`
-
-export const defaultPluginJson = {
-    name: 'New App',
-    description: '',
-    url: '',
-    posthogVersion: '*',
-    main: 'index.ts',
-    config: [
+}`,
+    'plugin.json': JSON.stringify(
         {
-            markdown: 'Specify your config here',
+            name,
+            description: '',
+            url: '',
+            posthogVersion: '*',
+            main: 'index.ts',
+            config: [
+                {
+                    markdown: 'Specify your config here',
+                },
+                {
+                    key: 'name',
+                    name: 'Person to greet',
+                    type: 'string',
+                    hint: 'Used to personalise the property `hello`',
+                    default: 'world',
+                    required: false,
+                },
+            ],
         },
-        {
-            key: 'name',
-            name: 'Person to greet',
-            type: 'string',
-            hint: 'Used to personalise the property `hello`',
-            default: 'world',
-            required: false,
-        },
-    ],
-}
+        null,
+        4
+    ),
+})

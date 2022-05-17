@@ -8,7 +8,6 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { validateJson } from 'lib/utils'
 import React from 'react'
 import { FormErrors } from 'lib/forms/Errors'
-import { defaultPluginJson, defaultSource } from 'scenes/plugins/source/defaults'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 interface PluginSourceProps {
@@ -16,13 +15,7 @@ interface PluginSourceProps {
     onClose?: () => void
 }
 
-interface PluginSource {
-    name: string
-    'index.ts': string
-    'plugin.json': string
-}
-
-export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSource, PluginSourceProps>>([
+export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
     key((props) => props.id),
@@ -38,10 +31,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSource, PluginS
 
     forms(({ actions, props, values }) => ({
         pluginSource: {
-            defaults: {
-                'index.ts': defaultSource,
-                'plugin.json': JSON.stringify(defaultPluginJson, null, 4),
-            } as PluginSource,
+            defaults: {},
             errors: (values) => ({
                 'plugin.json': !validateJson(values['plugin.json']) ? 'Not valid JSON' : '',
             }),
