@@ -56,6 +56,7 @@ export function CohortSelectorField({
             className="CohortField"
             sideIcon={undefined}
             popup={{
+                className: 'Popup__CohortField',
                 placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
