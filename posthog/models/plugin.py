@@ -352,4 +352,4 @@ class PluginSource(UUIDModel):
     filename: models.CharField = models.CharField(max_length=200, blank=False)
     source: models.TextField = models.TextField(blank=True, null=True)
 
-    __repr__ = sane_repr("plugin_id", "filename", "source", "transpiled", "status")
+    __repr__ = sane_repr("plugin_id", "filename", "source")
