@@ -95,6 +95,7 @@ describe('queue', () => {
             ;[hub, closeHub] = await createHub({
                 LOG_LEVEL: LogLevel.Warn,
                 KAFKA_ENABLED: true,
+                KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
             })
             piscina = { run: jest.fn() } as any
         })
@@ -103,12 +104,12 @@ describe('queue', () => {
             await closeHub()
         })
 
-        it('starts ingestion and auxilary queues by default', async () => {
+        it('starts ingestion queue by default', async () => {
             const queues = await startQueues(hub, piscina)
 
             expect(queues).toEqual({
                 ingestion: expect.any(KafkaQueue),
-                auxiliary: expect.any(CeleryQueue),
+                auxiliary: null,
             })
         })
 
@@ -119,17 +120,6 @@ describe('queue', () => {
 
             expect(queues).toEqual({
                 ingestion: null,
-                auxiliary: expect.any(CeleryQueue),
-            })
-        })
-
-        it('handles job processing being turned off', async () => {
-            hub.capabilities.processJobs = false
-
-            const queues = await startQueues(hub, piscina)
-
-            expect(queues).toEqual({
-                ingestion: expect.any(KafkaQueue),
                 auxiliary: null,
             })
         })
