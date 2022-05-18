@@ -31,6 +31,8 @@ from posthog.plugins.access import can_globally_manage_plugins
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
+# TESTING
+
 
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
     for key, file in request.FILES.items():
