@@ -148,19 +148,19 @@ describe('worker', () => {
 
         it('handles `runEventPipeline` tasks', async () => {
             const spy = jest
-                .spyOn(EventPipelineRunner.prototype, 'runMainPipeline')
-                .mockResolvedValue('runMainPipeline result' as any)
+                .spyOn(EventPipelineRunner.prototype, 'runEventPipeline')
+                .mockResolvedValue('runEventPipeline result' as any)
             const event = createEvent()
 
-            expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runMainPipeline result')
+            expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runEventPipeline result')
 
             expect(spy).toHaveBeenCalledWith(event)
         })
 
-        it('handles `ingestBufferEvent` tasks', async () => {
+        it('handles `runBufferEventPipeline` tasks', async () => {
             const spy = jest
-                .spyOn(EventPipelineRunner.prototype, 'runBufferPipeline')
-                .mockResolvedValue('runBufferPipeline result' as any)
+                .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
+                .mockResolvedValue('runBufferEventPipeline result' as any)
             const event: PreIngestionEvent = {
                 eventUuid: 'uuid1',
                 distinctId: 'my_id',
@@ -173,7 +173,9 @@ describe('worker', () => {
                 elementsList: [],
             }
 
-            expect(await taskRunner({ task: 'ingestBufferEvent', args: { event } })).toEqual('runBufferPipeline result')
+            expect(await taskRunner({ task: 'runBufferEventPipeline', args: { event } })).toEqual(
+                'runBufferEventPipeline result'
+            )
 
             expect(spy).toHaveBeenCalledWith(event)
         })

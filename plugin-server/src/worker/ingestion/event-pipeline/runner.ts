@@ -61,13 +61,13 @@ export class EventPipelineRunner {
         this.originalEvent = originalEvent
     }
 
-    async runMainPipeline(event: PluginEvent): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         const result = await this.runPipeline('pluginsProcessEventStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }
 
-    async runBufferPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
+    async runBufferEventPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
         const result = await this.runPipeline('createEventStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')

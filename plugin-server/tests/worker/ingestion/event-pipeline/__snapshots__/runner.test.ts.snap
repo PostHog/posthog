@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runBufferPipeline() runs remaining steps 1`] = `
+exports[`EventPipelineRunner runBufferEventPipeline() runs remaining steps 1`] = `
 Array [
   Array [
     "createEventStep",
@@ -38,7 +38,7 @@ Array [
 ]
 `;
 
-exports[`EventPipelineRunner runMainPipeline() runs all steps 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs all steps 1`] = `
 Array [
   Array [
     "pluginsProcessEventStep",

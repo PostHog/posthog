@@ -85,9 +85,9 @@ describe('EventPipelineRunner', () => {
         mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
-    describe('runMainPipeline()', () => {
+    describe('runEventPipeline()', () => {
         it('runs all steps', async () => {
-            await runner.runMainPipeline(pluginEvent)
+            await runner.runEventPipeline(pluginEvent)
 
             expect(runner.steps).toEqual([
                 'pluginsProcessEventStep',
@@ -100,7 +100,7 @@ describe('EventPipelineRunner', () => {
         })
 
         it('emits metrics for every step', async () => {
-            await runner.runMainPipeline(pluginEvent)
+            await runner.runEventPipeline(pluginEvent)
 
             expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
             expect(hub.statsd.increment).toBeCalledTimes(7)
@@ -121,13 +121,13 @@ describe('EventPipelineRunner', () => {
             })
 
             it('stops processing after step', async () => {
-                await runner.runMainPipeline(pluginEvent)
+                await runner.runEventPipeline(pluginEvent)
 
                 expect(runner.steps).toEqual(['pluginsProcessEventStep', 'prepareEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
-                await runner.runMainPipeline(pluginEvent)
+                await runner.runEventPipeline(pluginEvent)
 
                 expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
@@ -144,7 +144,7 @@ describe('EventPipelineRunner', () => {
             it('runs and increments metrics', async () => {
                 mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runMainPipeline(pluginEvent)
+                await runner.runEventPipeline(pluginEvent)
 
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'pluginsProcessEventStep',
@@ -162,7 +162,7 @@ describe('EventPipelineRunner', () => {
                 mocked(generateEventDeadLetterQueueMessage).mockReturnValue('DLQ event' as any)
                 mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runMainPipeline(pluginEvent)
+                await runner.runEventPipeline(pluginEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledWith('DLQ event' as any)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
@@ -171,7 +171,7 @@ describe('EventPipelineRunner', () => {
             it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
                 mocked(runAsyncHandlersStep).mockRejectedValue(error)
 
-                await runner.runMainPipeline(pluginEvent)
+                await runner.runEventPipeline(pluginEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).not.toHaveBeenCalled()
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('events_added_to_dead_letter_queue')
@@ -179,9 +179,9 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('runBufferPipeline()', () => {
+    describe('runBufferEventPipeline()', () => {
         it('runs remaining steps', async () => {
-            await runner.runBufferPipeline(preIngestionEvent)
+            await runner.runBufferEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['createEventStep', 'runAsyncHandlersStep'])
             expect(runner.stepsWithArgs).toMatchSnapshot()

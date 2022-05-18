@@ -39,10 +39,10 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        ingestBufferEvent: (event: PreIngestionEvent) => {
+        runBufferEventPipeline: (event: PreIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'ingestBufferEvent'
-            return piscina.run({ task: 'ingestBufferEvent', args: { event } })
+            server.lastActivityType = 'runBufferEventPipeline'
+            return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
         },
         runEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()

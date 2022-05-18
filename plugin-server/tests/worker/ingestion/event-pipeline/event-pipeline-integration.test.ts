@@ -15,7 +15,7 @@ describe('Event Pipeline integration test', () => {
     let closeServer: () => Promise<void>
     let actionMatcher: ActionMatcher
 
-    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runMainPipeline(event)
+    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
 
     beforeEach(async () => {
         await resetTestDatabase()

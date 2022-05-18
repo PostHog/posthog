@@ -375,7 +375,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
