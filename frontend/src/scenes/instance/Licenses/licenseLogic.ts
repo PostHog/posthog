@@ -21,6 +21,7 @@ export const licenseLogic = kea<licenseLogicType>({
     actions: {
         setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),
+        setShowConfirmCancel: (license: LicenseType | null) => ({ license }),
     },
     loaders: ({ values, actions }) => ({
         licenses: [
@@ -33,12 +34,33 @@ export const licenseLogic = kea<licenseLogicType>({
                     try {
                         const license = await api.licenses.create(key)
                         lemonToast.success(
-                            `Activated license – you can now use all features of the ${license.plan} plan`
+                            `Activated license – you can now use all features of the ${license.plan} plan. Refreshing the page...`
                         )
                         actions.setError(null)
+                        setTimeout(() => {
+                            window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                        }, 4000)
                         return [license, ...values.licenses]
                     } catch (response) {
                         actions.setError(response as APIErrorType)
+                        return values.licenses
+                    }
+                },
+                deleteLicense: async ({ id }: LicenseType) => {
+                    try {
+                        await api.licenses.delete(id)
+                        actions.setShowConfirmCancel(null)
+                        lemonToast.success(`Your license was deactivated. Refreshing the page...`)
+                        actions.setError(null)
+                        setTimeout(() => {
+                            window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                        }, 4000)
+                        return values.licenses.filter((license: LicenseType) => license.id != id)
+                    } catch (response) {
+                        lemonToast.error(
+                            (response as APIErrorType).detail ||
+                                'We were unable to automatically cancel your license. Please contact sales@posthog.com for support.'
+                        )
                         return values.licenses
                     }
                 },
@@ -53,6 +75,12 @@ export const licenseLogic = kea<licenseLogicType>({
             null as null | APIErrorType,
             {
                 setError: (_, { error }) => error,
+            },
+        ],
+        showConfirmCancel: [
+            null as null | LicenseType,
+            {
+                setShowConfirmCancel: (_, { license }) => license,
             },
         ],
     },
