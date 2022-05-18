@@ -22,6 +22,7 @@ from posthog.utils import (
     get_instance_available_sso_providers,
     get_instance_realm,
     is_celery_alive,
+    is_object_storage_available,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
@@ -105,6 +106,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_email_available(with_absolute_urls=True),
+        "object_storage": is_object_storage_available(),
     }
 
     if request.user.is_authenticated:

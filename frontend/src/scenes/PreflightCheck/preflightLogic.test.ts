@@ -86,6 +86,12 @@ describe('preflightLogic', () => {
                             status: 'warning',
                             caption: 'Set up before ingesting real user data',
                         },
+                        {
+                            id: 'object_storage',
+                            name: 'Object Storage',
+                            status: 'warning',
+                            caption: 'Some features will not work without object storage',
+                        },
                     ],
                 })
         })
@@ -144,6 +150,12 @@ describe('preflightLogic', () => {
                             status: 'optional',
                             caption: 'Not required for experimentation mode',
                         },
+                        {
+                            id: 'object_storage',
+                            name: 'Object Storage',
+                            status: 'warning',
+                            caption: 'Some features will not work without object storage',
+                        },
                     ],
                 })
         })
@@ -156,7 +168,7 @@ describe('preflightLogic', () => {
                 .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checksSummary: {
-                        summaryString: '6 successful, 1 warning, 2 errors',
+                        summaryString: '6 successful, 2 warnings, 2 errors',
                         summaryStatus: 'error',
                     },
                 })
@@ -169,7 +181,7 @@ describe('preflightLogic', () => {
                 .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checksSummary: {
-                        summaryString: '6 successful, 1 warning, 1 error, 1 optional',
+                        summaryString: '6 successful, 2 warnings, 1 error, 1 optional',
                         summaryStatus: 'error',
                     },
                 })

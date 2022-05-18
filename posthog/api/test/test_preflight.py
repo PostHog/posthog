@@ -1,4 +1,5 @@
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from constance.test import override_config
@@ -44,6 +45,7 @@ class TestPreflight(APIBaseTest):
                 "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                 "can_create_org": False,
                 "email_service_available": False,
+                "object_storage": False,
             },
         )
 
@@ -80,6 +82,50 @@ class TestPreflight(APIBaseTest):
                     "site_url": "http://localhost:8000",
                     "can_create_org": False,
                     "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
+                    "object_storage": False,
+                },
+            )
+            self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+
+    @patch("posthog.storage.object_storage.client.head_bucket")
+    def test_preflight_request_with_object_storage_available(self, patched_head_bucket):
+        patched_head_bucket.return_value = True
+
+        with self.settings(
+            MULTI_TENANCY=False,
+            INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
+            OBJECT_STORAGE_ENABLED=True,
+        ):
+            response = self.client.get("/_preflight/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response = response.json()
+            available_timezones = cast(dict, response).pop("available_timezones")
+
+            self.assertEqual(
+                response,
+                {
+                    "django": True,
+                    "redis": True,
+                    "plugins": True,
+                    "celery": True,
+                    "db": True,
+                    "initiated": True,
+                    "cloud": False,
+                    "demo": False,
+                    "clickhouse": True,
+                    "kafka": True,
+                    "realm": "hosted-clickhouse",
+                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
+                    "opt_out_capture": False,
+                    "posthog_version": VERSION,
+                    "email_service_available": False,
+                    "is_debug": False,
+                    "is_event_property_usage_enabled": True,
+                    "licensed_users_available": None,
+                    "site_url": "http://localhost:8000",
+                    "can_create_org": False,
+                    "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
+                    "object_storage": True,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -111,6 +157,7 @@ class TestPreflight(APIBaseTest):
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                     "can_create_org": True,
                     "email_service_available": True,
+                    "object_storage": False,
                 },
             )
 
@@ -146,6 +193,7 @@ class TestPreflight(APIBaseTest):
                     "site_url": "https://app.posthog.com",
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
+                    "object_storage": False,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -188,6 +236,7 @@ class TestPreflight(APIBaseTest):
                     "site_url": "http://localhost:8000",
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
+                    "object_storage": False,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -217,6 +266,7 @@ class TestPreflight(APIBaseTest):
                 "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
                 "can_create_org": True,
                 "email_service_available": False,
+                "object_storage": False,
             },
         )
 
