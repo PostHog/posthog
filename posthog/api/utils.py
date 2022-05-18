@@ -308,3 +308,13 @@ def safe_clickhouse_string(s: str) -> str:
     for match in matches:
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
+
+
+def execute_postgres(sql, params):
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
