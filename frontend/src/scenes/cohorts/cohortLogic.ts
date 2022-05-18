@@ -273,7 +273,7 @@ export const cohortLogic = kea<cohortLogicType<CohortLogicProps>>([
 
     listeners(({ actions, values, key }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort(values.cohort)
+            cohortsModel.findMounted()?.actions.deleteCohort({ ...values.cohort, filters: undefined })
             router.actions.push(urls.cohorts())
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
