@@ -885,6 +885,26 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
+    @patch("posthog.api.plugin.celery_app.send_task")
+    def test_wat(self, patch_celery_that_doesnt_exist, mock_get, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        plugin_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            format="multipart",
+        )
+        plugin_config_id = response.json()["id"]
+        response = self.client.post(
+            f"/api/plugin_config/{plugin_config_id}/job",
+            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
+            format="json",
+        )
+
+        self.assertEqual(patch_celery_that_doesnt_exist.call_count, 1)
+
     @patch("posthog.api.plugin.execute_postgres")
     def test_job_trigger(self, execute_postgres, mock_get, mock_reload):
         response = self.client.post(
