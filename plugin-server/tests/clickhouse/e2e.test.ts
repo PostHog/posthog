@@ -1,10 +1,8 @@
 import Piscina from '@posthog/piscina'
-import { Consumer } from 'kafkajs'
 
 import { ONE_HOUR } from '../../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_HEALTHCHECK } from '../../src/config/kafka-topics'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { kafkaHealthcheck, setupKafkaHealthcheckConsumer } from '../../src/main/utils'
 import { LogLevel, PluginsServerConfig } from '../../src/types'
 import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
@@ -12,11 +10,10 @@ import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
 
@@ -158,61 +155,6 @@ describe('e2e', () => {
             expect(
                 pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
             ).toEqual(1)
-        })
-    })
-
-    describe('kafkaHealthcheck', () => {
-        let statsd: any
-        let consumer: Consumer
-
-        beforeEach(async () => {
-            statsd = {
-                timing: jest.fn(),
-            }
-            consumer = await setupKafkaHealthcheckConsumer(hub.kafka!)
-
-            await consumer.connect()
-            consumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-        })
-
-        afterEach(async () => {
-            await consumer.disconnect()
-        })
-
-        // if kafka is up and running it should pass this healthcheck
-        test('healthcheck passes under normal conditions', async () => {
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(true)
-            expect(error).toEqual(null)
-        })
-
-        test('healthcheck fails if producer throws', async () => {
-            hub!.kafkaProducer!.producer.send = jest.fn(() => {
-                throw new Error('producer error')
-            })
-
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('producer error')
-            expect(statsd.timing).not.toHaveBeenCalled()
-        })
-
-        test('healthcheck fails if consumer throws', async () => {
-            consumer.resume = jest.fn(() => {
-                throw new Error('consumer error')
-            })
-
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('consumer error')
-            expect(statsd.timing).not.toHaveBeenCalled()
-        })
-
-        test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 0)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
-            expect(statsd.timing).not.toHaveBeenCalled()
         })
     })
 

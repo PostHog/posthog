@@ -273,6 +273,7 @@ export const eventUsageLogic = kea<
             dateFrom,
             dateTo,
         }),
+        reportDashboardPropertiesChanged: true,
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
@@ -705,6 +706,9 @@ export const eventUsageLogic = kea<
                 date_from: dateFrom?.toString(),
                 date_to: dateTo?.toString(),
             })
+        },
+        reportDashboardPropertiesChanged: async () => {
+            posthog.capture(`dashboard properties changed`)
         },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)

@@ -12,6 +12,7 @@ from ee.clickhouse.sql.person import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 from posthog import client
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings.data_stores import CLICKHOUSE_PASSWORD
 
 """
 WARNING: This script is in Alpha! Make sure you know what you're doing before running it with --live-run set.
@@ -46,6 +47,8 @@ GROUPS_DICT_TABLE_NAME = f"{GROUPS_TABLE}_dict"
 PERSONS_DICT_TABLE_NAME = f"{PERSONS_TABLE}_dict"
 PERSON_DISTINCT_IDS_DICT_TABLE_NAME = f"{PERSON_DISTINCT_ID2_TABLE}_dict"
 
+ACCESS_CONFIG = f"DB '{CLICKHOUSE_DATABASE}' USER 'default' PASSWORD '{CLICKHOUSE_PASSWORD}'"
+
 GROUPS_DICTIONARY_SQL = f"""
 CREATE DICTIONARY IF NOT EXISTS {GROUPS_DICT_TABLE_NAME}
 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
@@ -54,7 +57,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     group_properties String
 )
 PRIMARY KEY group_key
-SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
+SOURCE(CLICKHOUSE(TABLE {GROUPS_TABLE} {ACCESS_CONFIG}))
 LAYOUT(complex_key_cache(size_in_cells 10000))
 Lifetime(60000)
 """
@@ -68,7 +71,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     person_id UUID
 )
 PRIMARY KEY distinct_id
-SOURCE(CLICKHOUSE(TABLE {PERSON_DISTINCT_ID2_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
+SOURCE(CLICKHOUSE(TABLE {PERSON_DISTINCT_ID2_TABLE} {ACCESS_CONFIG}))
 LAYOUT(complex_key_direct())
 """
 
@@ -80,7 +83,7 @@ ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     properties String
 )
 PRIMARY KEY id
-SOURCE(CLICKHOUSE(TABLE {PERSONS_TABLE} DB '{CLICKHOUSE_DATABASE}' USER 'default'))
+SOURCE(CLICKHOUSE(TABLE {PERSONS_TABLE} {ACCESS_CONFIG}))
 LAYOUT(complex_key_direct())
 """
 
@@ -153,10 +156,14 @@ def run_backfill(options):
     )
     client._request_information = None
 
+    if dry_run or settings.TEST:
+        return
+
+    # it can take a little while for the query to show up on the query_log
     sleep(10)
     query_id_res = print_and_execute_query(GET_QUERY_ID_SQL, "GET_QUERY_ID_SQL", dry_run)
 
-    if query_id_res and not settings.TEST:
+    if query_id_res:
         query_id = query_id_res[0][0]
         print()
         print(

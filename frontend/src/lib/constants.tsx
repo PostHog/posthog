@@ -120,6 +120,7 @@ export const FEATURE_FLAGS = {
     MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
     INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
+    PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -136,6 +137,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
     [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
     [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,

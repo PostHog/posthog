@@ -159,8 +159,8 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                 )}
             </LemonRow>
             {showTime && (
-                <LemonRow icon={<IconSchedule />} title="Average time of conversion from previous step">
-                    {humanFriendlyDuration(step.average_conversion_time, 3) || '–'}
+                <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">
+                    {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
                 </LemonRow>
             )}
         </div>

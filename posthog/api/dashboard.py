@@ -159,13 +159,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         instance = super().update(instance, validated_data)
 
-        tile_layouts = self.initial_data.pop("tile_layouts", [])
+        initial_data = dict(self.initial_data)
+
+        tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
             DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(tile_layout["id"])).update(
                 layouts=tile_layout["layouts"]
             )
 
-        colors = self.initial_data.pop("colors", [])
+        colors = initial_data.pop("colors", [])
         for color in colors:
             DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(
                 color=color["color"]

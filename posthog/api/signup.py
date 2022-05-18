@@ -1,3 +1,5 @@
+import datetime as dt
+import time
 from typing import Any, Dict, Optional, Union, cast
 
 import structlog
@@ -14,11 +16,10 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo import create_demo_team
+from posthog.demo.hedgebox import HedgeboxMatrix
+from posthog.demo.matrix import MatrixManager
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
-from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationInvite
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models import Organization, OrganizationDomain, OrganizationInvite, OrganizationMembership, Team, User
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -85,28 +86,33 @@ class SignupSerializer(serializers.Serializer):
 
     def enter_demo(self, validated_data) -> User:
         """Demo signup/login flow."""
-
+        email = validated_data["email"]
+        first_name = validated_data["first_name"]
+        organization_name = validated_data["organization_name"]
         # If there's an email collision in signup in the demo environment, we treat it as a login
-        matching_user = User.objects.filter(email=validated_data["email"]).first()
-        if matching_user is None:
-            validated_data["password"] = None
-            self._organization, self._team, self._user = User.objects.bootstrap(
-                create_team=self.create_team, **validated_data
+        existing_user = User.objects.filter(email=email).first()
+        if existing_user is None:
+            organization = Organization.objects.create(name=organization_name)
+            new_user = User.objects.create_and_join(
+                organization, email, None, first_name, OrganizationMembership.Level.ADMIN
             )
+            demo_time = time.time()
+            matrix = HedgeboxMatrix(
+                start=dt.datetime.now() - dt.timedelta(days=120), end=dt.datetime.now(), n_clusters=50,
+            )
+            team = MatrixManager.create_team_and_run(matrix, organization, new_user)
+            print(f"[DEMO] Prepared in {time.time() - demo_time:.2f} s!")  # noqa: T001
+            self._organization, self._team, self._user = organization, team, new_user
         else:
-            self._organization, self._team, self._user = matching_user.organization, matching_user.team, matching_user
+            self._organization, self._team, self._user = existing_user.organization, existing_user.team, existing_user
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
         )
-
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if settings.DEMO:
-            return create_demo_team(organization=organization)
-        else:
-            return Team.objects.create_with_data(user=user, organization=organization)
+        return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
@@ -296,7 +302,7 @@ def finish_social_signup(request):
     """
     TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
-    if not get_can_create_org():
+    if not get_can_create_org(request.user):
         if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
             request.session.get("email")
         ):
@@ -334,8 +340,7 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
         user = strategy.create_user(email=email, first_name=full_name, password=None)
     except Exception as e:
         capture_exception(e)
-        message = "Account unable to be created. This account may already exist. Please try again"
-        " or use different credentials."
+        message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
     invite.use(user, prevalidated=True)

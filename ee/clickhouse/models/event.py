@@ -9,7 +9,9 @@ from rest_framework import serializers
 
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from posthog.client import sync_execute
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.client import query_with_columns, sync_execute
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -39,19 +41,19 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
-    sync_execute(
-        INSERT_EVENT_SQL(),
-        {
-            "uuid": str(event_uuid),
-            "event": event,
-            "properties": json.dumps(properties),
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "team_id": team.pk,
-            "distinct_id": str(distinct_id),
-            "elements_chain": elements_chain,
-            "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        },
-    )
+    data = {
+        "uuid": str(event_uuid),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": str(distinct_id),
+        "elements_chain": elements_chain,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        # TODO: Support persons on events
+    }
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
 
@@ -108,7 +110,8 @@ def bulk_create_events(events: List[Dict[str, Any]]):
 
 
 def get_events_by_team(team_id: Union[str, int]):
-    events = sync_execute(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
+
+    events = query_with_columns(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
@@ -143,34 +146,30 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements_chain = serializers.SerializerMethodField()
 
     def get_id(self, event):
-        return str(event[0])
+        return str(event["uuid"])
 
     def get_distinct_id(self, event):
-        return event[5]
+        return event["distinct_id"]
 
     def get_properties(self, event):
-        if len(event) >= 10 and event[8] and event[9]:
-            prop_vals = [res.strip('"') for res in event[9]]
-            return dict(zip(event[8], prop_vals))
-        else:
-            # parse_constants gets called for any NaN, Infinity etc values
-            # we just want those to be returned as None
-            props = json.loads(event[2], parse_constant=lambda x: None)
-            unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-            return unpadded
+        # parse_constants gets called for any NaN, Infinity etc values
+        # we just want those to be returned as None
+        props = json.loads(event["properties"], parse_constant=lambda x: None)
+        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
+        return unpadded
 
     def get_event(self, event):
-        return event[1]
+        return event["event"]
 
     def get_timestamp(self, event):
-        dt = event[3].replace(tzinfo=timezone.utc)
+        dt = event["timestamp"].replace(tzinfo=timezone.utc)
         return dt.astimezone().isoformat()
 
     def get_person(self, event):
-        if not self.context.get("people") or event[5] not in self.context["people"]:
+        if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:
             return None
 
-        person = self.context["people"][event[5]]
+        person = self.context["people"][event["distinct_id"]]
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
@@ -180,12 +179,12 @@ class ClickhouseEventSerializer(serializers.Serializer):
         }
 
     def get_elements(self, event):
-        if not event[6]:
+        if not event["elements_chain"]:
             return []
-        return ElementSerializer(chain_to_elements(event[6]), many=True).data
+        return ElementSerializer(chain_to_elements(event["elements_chain"]), many=True).data
 
     def get_elements_chain(self, event):
-        return event[6]
+        return event["elements_chain"]
 
 
 def determine_event_conditions(

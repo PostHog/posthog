@@ -110,7 +110,7 @@ class OrganizationDomainManager(models.Manager):
 
 
 class OrganizationDomain(UUIDModel):
-    objects = OrganizationDomainManager()
+    objects: OrganizationDomainManager = OrganizationDomainManager()
 
     organization: models.ForeignKey = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="domains",
