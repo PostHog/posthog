@@ -72,6 +72,8 @@ describe('kafka health check', () => {
     })
 
     test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
+        consumer.resume = jest.fn()
+
         const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 0)
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
