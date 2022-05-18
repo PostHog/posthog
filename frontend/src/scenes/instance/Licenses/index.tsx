@@ -21,7 +21,7 @@ export const scene: SceneExport = {
     logic: licenseLogic,
 }
 
-function ConfirmCancel({
+function ConfirmCancelModal({
     licenses,
     onCancel,
     onOk,
@@ -31,7 +31,7 @@ function ConfirmCancel({
     onOk: () => void
 }): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const hasAnotherValidLicense = licenses.filter((license) => dayjs().isBefore(license.valid_until)).length > 0
+    const hasAnotherValidLicense = licenses.filter((license) => dayjs().isBefore(license.valid_until)).length > 1
 
     const nonDemoProjects = ((currentOrganization?.teams || []) as TeamType[])
         .filter((team) => !team.is_demo)
@@ -149,6 +149,9 @@ export function Licenses(): JSX.Element {
         {
             width: 0,
             render: function renderActive(_, license: LicenseType) {
+                if (dayjs().isAfter(license.valid_until)) {
+                    return null
+                }
                 return (
                     <More
                         overlay={
@@ -172,10 +175,13 @@ export function Licenses(): JSX.Element {
     return (
         <div>
             {showConfirmCancel && (
-                <ConfirmCancel
+                <ConfirmCancelModal
                     licenses={licenses}
                     onCancel={() => setShowConfirmCancel(undefined)}
-                    onOk={() => deleteLicense(showConfirmCancel)}
+                    onOk={() => {
+                        deleteLicense(showConfirmCancel)
+                        setShowConfirmCancel(undefined)
+                    }}
                 />
             )}
             <PageHeader
