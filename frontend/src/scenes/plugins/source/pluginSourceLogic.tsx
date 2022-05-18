@@ -11,16 +11,18 @@ import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 interface PluginSourceProps {
-    id: number
+    pluginId: number
+    pluginConfigId: number
     onClose?: () => void
 }
 
 export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
-    key((props) => props.id),
+    key((props) => props.pluginConfigId),
 
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
 
@@ -42,11 +44,13 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
             submit: async () => {
                 const { pluginSource } = values
                 const response = await api.update(
-                    `api/organizations/@current/plugins/${props.id}/update_source`,
+                    `api/organizations/@current/plugins/${props.pluginId}/update_source`,
                     pluginSource
                 )
                 actions.resetPluginSource(response)
                 pluginsLogic.findMounted()?.actions.loadPlugins()
+                frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(props.pluginConfigId)
+                frontendAppsLogic.findMounted()?.actions.loadFrontendApp(props.pluginConfigId, true)
             },
         },
     })),
@@ -54,7 +58,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     loaders(({ props }) => ({
         pluginSource: {
             fetchPluginSource: async () => {
-                const response = await api.get(`api/organizations/@current/plugins/${props.id}/source`)
+                const response = await api.get(`api/organizations/@current/plugins/${props.pluginId}/source`)
                 return response ?? {}
             },
         },
@@ -97,7 +101,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                     label: 'Close drawer',
                     action: () => props.onClose?.(),
                 },
-                toastId: `submit-plugin-${props.id}`,
+                toastId: `submit-plugin-${props.pluginConfigId}`,
             })
         },
         submitPluginSourceFailure: () => {

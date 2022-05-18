@@ -18,7 +18,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     defaults({
         frontendApps: {} as Record<string, FrontendApp>,
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         frontendApps: {
             loadFrontendApp: async ({ id, reload }) => {
                 try {
@@ -31,7 +31,15 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                         if ('scene' in app) {
                             return { ...values.frontendApps, [id]: { ...app.scene, id } }
                         }
-                        throw Error(`Could not find exported "scene" for plugin ${id}`)
+                        if ('transpiling' in app) {
+                            window.setTimeout(() => actions.loadFrontendApp(id, true), 1000)
+                            return values.frontendApps
+                        }
+                        if ('error' in app) {
+                            lemonToast.error(`Can not load frontend for plugin ${id}: ${app.error}`)
+                            return values.frontendApps
+                        }
+                        throw Error(`Could not find exported "scene" or "error" for plugin ${id}`)
                     }
                     throw Error(`Could not find exported "getFrontendApp" for plugin ${id}`)
                 } catch (error) {

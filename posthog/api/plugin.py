@@ -425,7 +425,16 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def frontend(self, request: request.Request, **kwargs):
         plugin_config = self.get_object()
         plugin_source = PluginSource.objects.get(plugin_id=plugin_config.plugin_id, filename="frontend.tsx")
-        content = plugin_source.transpiled or "" if plugin_source else ""
+        if plugin_source and plugin_source.status == PluginSource.Status.TRANSPILED:
+            content = plugin_source.transpiled or ""
+            return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
+
+        if not plugin_source or plugin_source.status is None or plugin_source.status == PluginSource.Status.LOCKED:
+            obj = {"transpiling": True}
+        else:
+            obj = {"error": plugin_source.error or "Error Compiling Plugin"}
+
+        content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
 

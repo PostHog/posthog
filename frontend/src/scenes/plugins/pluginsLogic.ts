@@ -647,6 +647,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
     },
 
     listeners: ({ actions, values }) => ({
+        toggleEnabled: () => {},
         checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
             const { updatablePlugins } = values

@@ -12,16 +12,17 @@ import { Field } from 'lib/forms/Field'
 import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 
 interface PluginSourceProps {
-    id: number
+    pluginId: number
+    pluginConfigId: number
     visible: boolean
     close: () => void
 }
 
-export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Element | null {
+export function PluginSource({ pluginId, pluginConfigId, visible, close }: PluginSourceProps): JSX.Element | null {
     const monaco = useMonaco()
     const { user } = useValues(userLogic)
 
-    const logicProps = { id, onClose: close }
+    const logicProps = { pluginId, pluginConfigId, onClose: close }
     const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
     const { isPluginSourceSubmitting, currentFile, name } = useValues(pluginSourceLogic(logicProps))
 
