@@ -114,9 +114,7 @@ packaging==21.3
     #   pytest
 pathspec==0.9.0
     # via black
-pep517==0.12.0
-    # via pip-tools
-pip-tools==6.6.1
+pip-tools==5.5.0
     # via -r requirements-dev.in
 pluggy==0.13.1
     # via pytest
@@ -192,9 +190,7 @@ toml==0.10.1
     #   pytest
     #   pytest-cov
 tomli==1.2.3
-    # via
-    #   mypy
-    #   pep517
+    # via mypy
 typed-ast==1.5.1
     # via black
 types-freezegun==1.1.3
@@ -229,8 +225,6 @@ urllib3==1.26.5
     # via
     #   -c requirements.txt
     #   requests
-wheel==0.37.1
-    # via pip-tools
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
