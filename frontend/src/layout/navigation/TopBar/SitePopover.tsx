@@ -34,6 +34,8 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -272,6 +274,7 @@ export function SitePopover(): JSX.Element {
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
     const { relevantLicense } = useValues(licenseLogic)
+    const { activeScene } = useValues(sceneLogic)
     useMountedLogic(licenseLogic)
 
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
@@ -299,7 +302,7 @@ export function SitePopover(): JSX.Element {
                                 Billing
                             </LemonButton>
                         )}
-                        <InviteMembersButton />
+                        {activeScene !== Scene.Ingestion && <InviteMembersButton />}
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                         <SitePopoverSection title="Other organizations">

@@ -15,6 +15,8 @@ import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import posthogLogo from 'public/posthog-logo.png'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { Sidebar } from './Sidebar'
+import { InviteModal } from 'scenes/organization/Settings/InviteModal'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -83,8 +85,12 @@ export function IngestionWizard(): JSX.Element {
 }
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
+    const { isInviteModalShown } = useValues(inviteLogic)
+    const { hideInviteModal } = useActions(inviteLogic)
+
     return (
         <div style={{ display: 'flex', height: '100%' }}>
+            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <Sidebar />
             <div className="bridge-page IngestionContainer">
                 <div className="mb">
