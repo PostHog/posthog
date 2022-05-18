@@ -8,6 +8,7 @@ from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
@@ -88,7 +89,30 @@ class Insight(models.Model):
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         if dashboard:
-            return {**self.filters, **dashboard.filters}
+            dashboard_filters = {**dashboard.filters}
+            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
+
+            filters = {**self.filters, **dashboard_filters}
+            if dashboard_properties:
+                if isinstance(self.filters.get("properties"), list):
+                    filters["properties"] = {
+                        "type": "AND",
+                        "values": [
+                            {"type": "AND", "values": self.filters["properties"],},
+                            {"type": "AND", "values": dashboard_properties},
+                        ],
+                    }
+                elif self.filters.get("properties", {}).get("type"):
+                    filters["properties"] = {
+                        "type": "AND",
+                        "values": [self.filters["properties"], {"type": "AND", "values": dashboard_properties}],
+                    }
+                elif not self.filters.get("properties"):
+                    filters["properties"] = dashboard_properties
+                else:
+                    raise ValidationError("Unrecognized property format: ", self.filters["properties"])
+
+            return filters
         else:
             return self.filters
 
