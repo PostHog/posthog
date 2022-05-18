@@ -4,6 +4,9 @@ from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
+
+# This import is needed for foss tests to work
+from django.conf import settings  # noqa
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db import connection
