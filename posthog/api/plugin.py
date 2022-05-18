@@ -6,7 +6,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connection as db_connection
+from django.db import connection
 from django.db.models import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, status, viewsets
@@ -363,13 +363,16 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
         params = [payload_json]
-        try:
-            with db_connection.cursor() as cursor:
-                cursor.execute(sql, params)
-        except Exception as e:
-            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
-
+        _execute_postgres(sql, params)
         return Response(status=200)
+
+
+def _execute_postgres(sql, params):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:

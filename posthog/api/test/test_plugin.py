@@ -885,8 +885,8 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
-    @patch("posthog.api.plugin.db_connection")
-    def test_job_trigger(self, db_connection, mock_get, mock_reload):
+    @patch("posthog.api.plugin._execute_postgres")
+    def test_job_trigger(self, execute_postgres, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
         )
@@ -903,9 +903,7 @@ class TestPluginAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(db_connection.cursor.call_count, 1)
-        cursor = db_connection.cursor().__enter__()
-        self.assertEqual(cursor.execute.call_count, 1)
+        self.assertEqual(execute_postgres.call_count, 1)
         expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
         expected_params = [
             (
@@ -914,7 +912,7 @@ class TestPluginAPI(APIBaseTest):
                 "}"
             )
         ]
-        cursor.execute.assert_called_with(expected_sql, expected_params)
+        execute_postgres.assert_called_with(expected_sql, expected_params)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
