@@ -103,6 +103,14 @@ class Cohort(models.Model):
             property_groups = []
             for group in self.groups:
                 if group.get("properties"):
+
+                    # KLUDGE: map 'event' to 'person' to handle faulty event type that used to be saved
+                    # TODO: Remove once the event type is swapped over
+                    props = group.get("properties")
+                    for prop in props:
+                        if prop.get("type") == "event":
+                            prop["type"] = "person"
+
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
                     property_groups.append(
                         Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
