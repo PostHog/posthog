@@ -562,7 +562,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
@@ -634,7 +635,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
