@@ -349,6 +349,7 @@ describe('funnelLogic', () => {
     }
 
     async function initFunnelLogic(props: InsightLogicProps = defaultProps): Promise<void> {
+        teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
         userLogic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
