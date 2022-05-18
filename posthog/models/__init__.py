@@ -3,6 +3,7 @@ from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
+from .constance import Constance
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile
 from .element import Element
@@ -38,6 +39,7 @@ __all__ = [
     "Annotation",
     "Cohort",
     "CohortPeople",
+    "Constance",
     "Dashboard",
     "DashboardTile",
     "Insight",
