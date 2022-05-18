@@ -38,6 +38,13 @@ export type StepResult =
     | NextStep<'createEventStep'>
     | NextStep<'runAsyncHandlersStep'>
 
+// Only used in tests
+export type EventPipelineResult = {
+    lastStep: StepType
+    args: any[]
+    error?: string
+}
+
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
     'pluginsProcessEventStep',
     'prepareEventStep',
@@ -54,21 +61,23 @@ export class EventPipelineRunner {
         this.originalEvent = originalEvent
     }
 
-    async runMainPipeline(event: PluginEvent): Promise<void> {
-        await this.runPipeline('pluginsProcessEventStep', event)
+    async runMainPipeline(event: PluginEvent): Promise<EventPipelineResult> {
+        const result = await this.runPipeline('pluginsProcessEventStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
-    async runBufferPipeline(event: PreIngestionEvent): Promise<void> {
+    async runBufferPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        await this.runPipeline('createEventStep', event, person)
+        const result = await this.runPipeline('createEventStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
+        return result
     }
 
     private async runPipeline<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
         name: Step,
         ...args: ArgsType
-    ): Promise<void> {
+    ): Promise<EventPipelineResult> {
         let currentStepName: StepType = name
         let currentArgs: any = args
 
@@ -87,11 +96,18 @@ export class EventPipelineRunner {
                         step: currentStepName,
                         team_id: String(this.originalEvent?.team_id),
                     })
-                    break
+                    return {
+                        lastStep: currentStepName,
+                        args: currentArgs,
+                    }
                 }
-            } catch (err) {
-                await this.handleError(err, currentStepName, currentArgs)
-                break
+            } catch (error) {
+                await this.handleError(error, currentStepName, currentArgs)
+                return {
+                    lastStep: currentStepName,
+                    args: currentArgs,
+                    error: error.message,
+                }
             }
         }
     }

@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { convertToProcessedPluginEvent } from 'utils/event'
-import { EventPipelineRunner } from 'worker/ingestion/event-pipeline/runner'
 
 import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
-import { runHandleAlert, runPluginTask } from './plugins/run'
+import { convertToProcessedPluginEvent } from '../utils/event'
+import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
+import { runHandleAlert, runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
@@ -30,11 +30,11 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     runEventPipeline: async (hub, args: { event: PluginEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
-        await runner.runMainPipeline(args.event)
+        return await runner.runMainPipeline(args.event)
     },
     ingestBufferEvent: async (hub, args: { event: PreIngestionEvent }) => {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
-        await runner.runBufferPipeline(args.event)
+        return await runner.runBufferPipeline(args.event)
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)
@@ -59,5 +59,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
         await hub.jobQueueManager.enqueue(job)
+    },
+    // Exported only for tests
+    _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
+        return runProcessEvent(hub, args.event)
     },
 }
