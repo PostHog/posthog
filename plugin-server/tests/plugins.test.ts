@@ -645,7 +645,7 @@ describe('plugins', () => {
         const {
             rows: [{ transpiled }],
         } = await hub.db.postgresQuery(
-            `SELECT transpiled FROM posthog_pluginsource WHERE plugin_id = $1 AND filename = $2`,
+            `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [60, 'frontend.tsx'],
             ''
         )
@@ -674,7 +674,7 @@ exports.scene = scene;; return exports; }`)
         const {
             rows: [plugin],
         } = await hub.db.postgresQuery(
-            `SELECT * FROM posthog_pluginsource WHERE plugin_id = $1 AND filename = $2`,
+            `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [60, 'frontend.tsx'],
             ''
         )
@@ -697,7 +697,7 @@ exports.scene = scene;; return exports; }`)
         const getStatus = async () =>
             (
                 await hub.db.postgresQuery(
-                    `SELECT status FROM posthog_pluginsource WHERE plugin_id = $1 AND filename = $2`,
+                    `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
                     [60, 'frontend.tsx'],
                     ''
                 )
@@ -708,7 +708,7 @@ exports.scene = scene;; return exports; }`)
         expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
 
         await hub.db.postgresQuery(
-            'UPDATE posthog_pluginsource SET transpiled = NULL, status = NULL WHERE filename = $1',
+            'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
             ['frontend.tsx'],
             ''
         )
