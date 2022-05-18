@@ -85,7 +85,9 @@ class ClickhouseTrendsBreakdown:
             property_group=target_properties,
             table_name="e",
             person_properties_mode=self._person_properties_mode,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            if not self.using_person_on_events
+            else "person_id",
         )
 
     def get_query(self) -> Tuple[str, Dict, Callable]:

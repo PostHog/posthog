@@ -10,6 +10,7 @@ from rest_framework import serializers
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from posthog.client import query_with_columns, sync_execute
+from posthog.models import Group
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -115,6 +116,21 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "person_properties": {**person_properties, **event.get("person_properties", {})},
             "person_id": person_id,
         }
+
+        # Populate group properties as well
+        for property_key, value in (event.get("properties") or {}).items():
+            if property_key.startswith("$group_"):
+                group_type_index = property_key[-1]
+                try:
+                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
+                    group_property_key = f"group{group_type_index}_properties"
+                    event = {
+                        **event,
+                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                    }
+
+                except Group.DoesNotExist:
+                    continue
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),

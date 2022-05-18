@@ -158,6 +158,12 @@ def parse_prop_clauses(
                     person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+                elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+                    person_id_query, cohort_filter_params = format_cohort_subquery(
+                        cohort, idx, custom_match_field=f"person_id"
+                    )
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort, idx, custom_match_field=f"{person_id_joined_alias}"
@@ -276,9 +282,14 @@ def parse_prop_clauses(
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(
-                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+                cohort_id,
+                idx,
+                prepend=prepend,
+                custom_match_field=person_id_joined_alias
+                if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+                else "person_id",
             )  # type: ignore
-            if has_person_id_joined:
+            if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
