@@ -544,7 +544,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.content, b"")
 
         # mock the plugin server's transpilation
-        plugin_source = Plugin.objects.get(plugin_id=id)
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         self.assertEqual(plugin_source.status, None)
         self.assertEqual(plugin_source.transpiled, None)
         plugin_source.status = PluginSourceFile.Status.TRANSPILED

@@ -428,6 +428,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             content = plugin_source.transpiled or ""
             return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
+        obj: Dict[str, Any] = {}
         if not plugin_source or plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
             obj = {"transpiling": True}
         else:
