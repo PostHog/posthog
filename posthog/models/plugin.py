@@ -148,7 +148,7 @@ class Plugin(models.Model):
     from_json: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_web: models.BooleanField = models.BooleanField(default=False)
-    # DEPRECATED: using PluginSource model instead
+    # DEPRECATED: using PluginSourceFile model instead
     source: models.TextField = models.TextField(blank=True, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -342,7 +342,7 @@ def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
 
 
-class PluginSource(UUIDModel):
+class PluginSourceFile(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
