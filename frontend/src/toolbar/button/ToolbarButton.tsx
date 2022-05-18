@@ -115,7 +115,7 @@ export function ToolbarButton(): JSX.Element {
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{ borderRadius: 10, height: 46, marginTop: -23 }}
-            zIndex={3}
+            zIndex={2147483018}
         >
             <Circle
                 width={26}
@@ -123,7 +123,7 @@ export function ToolbarButton(): JSX.Element {
                 distance={closeDistance}
                 rotation={closeRotation}
                 content={<Close style={{ width: 14, height: 14 }} />}
-                zIndex={extensionPercentage > 0.95 ? 5 : 2}
+                zIndex={extensionPercentage > 0.95 ? 2147483020 : 2147483017}
                 onClick={logout}
                 style={{
                     cursor: 'pointer',
@@ -142,7 +142,7 @@ export function ToolbarButton(): JSX.Element {
                         rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
                         content={<QuestionOutlined style={{ fontSize: 22 }} />}
                         label="Help"
-                        zIndex={2}
+                        zIndex={2147483017}
                         onClick={() => window.open(HELP_URL, '_blank')?.focus()}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
@@ -182,7 +182,7 @@ export function ToolbarButton(): JSX.Element {
                                 ) : null}
                             </div>
                         }
-                        zIndex={1}
+                        zIndex={2147483016}
                         onClick={inspectEnabled ? disableInspect : enableInspect}
                         style={{
                             cursor: 'pointer',
@@ -209,7 +209,7 @@ export function ToolbarButton(): JSX.Element {
                                     : 0,
                         }}
                         content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} animated={heatmapLoading} />}
-                        zIndex={2}
+                        zIndex={2147483017}
                         onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
                             cursor: 'pointer',
@@ -237,7 +237,7 @@ export function ToolbarButton(): JSX.Element {
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                     </Tooltip>
                                 }
-                                zIndex={4}
+                                zIndex={2147483019}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
                                     cursor: 'pointer',
@@ -270,7 +270,7 @@ export function ToolbarButton(): JSX.Element {
                                 style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
                             />
                         }
-                        zIndex={1}
+                        zIndex={2147483015}
                         onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
                         style={{
                             cursor: 'pointer',
@@ -298,7 +298,7 @@ export function ToolbarButton(): JSX.Element {
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
                                     </Tooltip>
                                 }
-                                zIndex={4}
+                                zIndex={2147483020}
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
@@ -330,7 +330,7 @@ export function ToolbarButton(): JSX.Element {
                                     : 0,
                         }}
                         content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
-                        zIndex={1}
+                        zIndex={2147483016}
                         onClick={flagsVisible ? hideFlags : showFlags}
                         style={{
                             cursor: 'pointer',
