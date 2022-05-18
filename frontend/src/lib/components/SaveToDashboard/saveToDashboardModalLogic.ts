@@ -25,13 +25,13 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         return insight.short_id
     },
     connect: (props: SaveToDashboardModalLogicProps) => ({
-        logic: [
-            newDashboardLogic,
-            dashboardsModel,
+        logic: [newDashboardLogic, dashboardsModel, prompt({ key: `saveToDashboardModalLogic-new-dashboard` })],
+        actions: [
+            insightLogic({ dashboardItemId: props.insight.short_id }),
+            ['updateInsight'],
             eventUsageLogic,
-            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }),
+            ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
         ],
-        actions: [insightLogic({ dashboardItemId: props.insight.short_id }), ['updateInsight']],
     }),
     actions: {
         addNewDashboard: true,
@@ -41,21 +41,43 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         setScrollIndex: (index: number) => ({ index }),
         addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
         removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
-        addingStarted: true,
-        addingFinished: true,
-        removingStarted: true,
-        removingFinished: true,
     },
 
     reducers: {
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
-        adding: [false, { addingStarted: () => true, addingFinished: () => false }],
-        removing: [false, { removingStarted: () => true, removingFinished: () => false }],
+        adding: [false, { addToDashboard: () => true, reportSavedInsightToDashboard: () => false }],
+        removing: [
+            false,
+            {
+                removeFromDashboard: () => true,
+                reportRemovedInsightFromDashboard: () => false,
+            },
+        ],
+        dashboardWithActiveAPICall: [
+            null as number | null,
+            {
+                addToDashboard: (_, { dashboardId }) => dashboardId,
+                removeFromDashboard: (_, { dashboardId }) => dashboardId,
+                reportSavedInsightToDashboard: () => null,
+                reportRemovedInsightFromDashboard: () => null,
+            },
+        ],
     },
 
     selectors: {
+        buttonLabel: [
+            (s) => [s.adding, s.dashboardWithActiveAPICall],
+            (adding: boolean, dashboardWithActiveAPICall: number | null) =>
+                (dashboardId: number, isAlreadyOnDashboard: boolean) => {
+                    if (dashboardWithActiveAPICall === dashboardId) {
+                        return adding ? 'Adding' : 'Removing'
+                    } else {
+                        return isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'
+                    }
+                },
+        ],
         dashboardId: [
             (s) => [
                 s._dashboardId,
@@ -114,18 +136,15 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
-            eventUsageLogic.actions.reportCreatedDashboardFromModal()
+            actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
             actions.addToDashboard(props.insight, dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
         addToDashboard: async ({ insight, dashboardId }) => {
-            actions.addingStarted()
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
-                actions.addingFinished()
-
-                eventUsageLogic.actions.reportSavedInsightToDashboard()
+                actions.reportSavedInsightToDashboard()
                 lemonToast.success('Insight added to dashboard', {
                     button: {
                         label: 'View dashboard',
@@ -135,16 +154,13 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
             })
         },
         removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
-            actions.removingStarted()
             actions.updateInsight(
                 {
                     ...insight,
                     dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
                 },
                 () => {
-                    actions.removingFinished()
-
-                    eventUsageLogic.actions.reportRemovedInsightFromDashboard()
+                    actions.reportRemovedInsightFromDashboard()
                     lemonToast.success('Insight removed from dashboard')
                 }
             )

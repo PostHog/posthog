@@ -46,14 +46,15 @@ const DashboardRelationRow = ({
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
     const { addToDashboard, removeFromDashboard } = useActions(logic)
-    const { adding, removing } = useValues(logic)
+    const { dashboardWithActiveAPICall, buttonLabel, adding, removing } = useValues(logic)
 
     return (
         <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
             <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
-                loading={adding || removing}
+                loading={dashboardWithActiveAPICall === dashboard.id}
+                disabled={adding || removing}
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
@@ -62,7 +63,7 @@ const DashboardRelationRow = ({
                         : addToDashboard(insight, dashboard.id)
                 }}
             >
-                {adding ? 'Adding' : removing ? 'Removing' : isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+                {buttonLabel(dashboard.id, isAlreadyOnDashboard)}
             </LemonButton>
         </div>
     )
