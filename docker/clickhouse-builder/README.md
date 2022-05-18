@@ -8,7 +8,7 @@ Note: If you are not `@harry` or `@guido` you'll likely not need to build the im
 From the PostHog repo run:
 1. `cd docker/clickhouse-builder/assets`
 1.  ```shell
-    CLICKHOUSE_VERSION="v21.11.11.1-stable" # see https://github.com/ClickHouse/ClickHouse/tags
+    CLICKHOUSE_VERSION="v22.3-stable" # see https://github.com/ClickHouse/ClickHouse/tags
     docker build \
         -t "posthog/clickhouse:$CLICKHOUSE_VERSION" \
         --build-arg CLICKHOUSE_TAG="$CLICKHOUSE_VERSION" \
@@ -22,7 +22,7 @@ Note: build time is ~90min, image size ~1.8GB
 Once the build process is completed, please spin up the stack locally and run the test suite. After you've verified all the tests are passing, you can push the image to our DockerHub repo [posthog/clickhouse](https://hub.docker.com/r/posthog/clickhouse) by running:
 
 ```shell
-CLICKHOUSE_VERSION="v21.11.11.1-stable"
+CLICKHOUSE_VERSION="v22.3-stable"
 docker image push "posthog/clickhouse:$CLICKHOUSE_VERSION"
 ```
 

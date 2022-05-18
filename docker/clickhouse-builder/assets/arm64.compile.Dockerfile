@@ -7,7 +7,7 @@
 FROM arm64v8/ubuntu:focal AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG CLICKHOUSE_TAG="v21.11.11.1-stable"
+ARG CLICKHOUSE_TAG="v22.3-stable"
 
 RUN apt-get update && apt-get install -y git cmake python ninja-build
 RUN git clone --depth 1 --shallow-submodules --branch $CLICKHOUSE_TAG --recursive https://github.com/ClickHouse/ClickHouse.git
