@@ -1208,7 +1208,6 @@ test('snapshot event stored as session_recording_event', async () => {
     const [event] = sessionRecordingEvents
     expect(event.session_id).toEqual($sessionId)
     expect(event.distinct_id).toEqual('some-id')
-    expect(event.snapshot_data).toEqual({ timestamp: 123 })
 
     const expectedFolderDate = now.toFormat('yyyy-MM-dd')
     expect(event.snapshot_data).toEqual({
