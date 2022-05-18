@@ -36,6 +36,10 @@ class TestCohort(APIBaseTest):
             self.user,
             "cohort created",
             {
+                "filters": {
+                    "type": "OR",
+                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 5, "type": "event"}]}],
+                },
                 "name_length": 8,
                 "person_count_precalc": 0,
                 "groups_count": 1,
@@ -66,6 +70,10 @@ class TestCohort(APIBaseTest):
             self.user,
             "cohort updated",
             {
+                "filters": {
+                    "type": "OR",
+                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 6, "type": "event"}]}],
+                },
                 "name_length": 9,
                 "person_count_precalc": 0,
                 "groups_count": 1,
