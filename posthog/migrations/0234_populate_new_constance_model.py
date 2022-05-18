@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0232_add_team_person_display_name_properties"),
+        ("posthog", "0233_add_constance_model"),
     ]
 
     operations = [
