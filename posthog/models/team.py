@@ -3,13 +3,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import posthoganalytics
 import pytz
-from constance import config
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.constance import get_dynamic_setting
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -125,7 +125,7 @@ class Team(UUIDClassicModel):
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
     def aggregate_users_by_distinct_id(self) -> bool:
-        return str(self.pk) in get_list(config.AGGREGATE_BY_DISTINCT_IDS_TEAMS)
+        return str(self.pk) in get_list(get_dynamic_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
@@ -203,7 +203,7 @@ class Team(UUIDClassicModel):
 
     @property
     def behavioral_cohort_querying_enabled(self) -> bool:
-        return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
+        return str(self.pk) in get_list(get_dynamic_setting("NEW_COHORT_QUERY_TEAMS"))
 
     def __str__(self):
         if self.name:
