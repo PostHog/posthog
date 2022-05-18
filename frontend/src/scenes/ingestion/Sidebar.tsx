@@ -30,7 +30,7 @@ export function Sidebar(): JSX.Element {
                     <InviteMembersButton />
                     <div className="sidebar-help">
                         <SitePopover />
-                        <a style={{ marginBottom: '1.5em' }}>Get support on Slack</a>
+                        <a style={{ marginBottom: '1.5em', marginTop: '1.5em' }}>Get support on Slack</a>
                         <a>Read our documentation</a>
                     </div>
                 </div>
