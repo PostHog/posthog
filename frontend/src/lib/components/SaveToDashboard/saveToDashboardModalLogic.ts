@@ -28,7 +28,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         logic: [newDashboardLogic, dashboardsModel, prompt({ key: `saveToDashboardModalLogic-new-dashboard` })],
         actions: [
             insightLogic({ dashboardItemId: props.insight.short_id }),
-            ['updateInsight'],
+            ['updateInsight', 'updateInsightSuccess'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
         ],
@@ -52,8 +52,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
             {
                 addToDashboard: (_, { dashboardId }) => dashboardId,
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
-                reportSavedInsightToDashboard: () => null,
-                reportRemovedInsightFromDashboard: () => null,
+                updateInsightSuccess: () => null,
             },
         ],
     },
