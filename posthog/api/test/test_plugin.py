@@ -528,7 +528,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 1)
 
         response = self.client.patch(
-            "/api/organizations/@current/plugins/update_source", {"frontend.tsx": "export const scene = {}",},
+            f"/api/organizations/@current/plugins/{id}/update_source", {"frontend.tsx": "export const scene = {}",},
         )
 
         self.assertEqual(Plugin.objects.count(), 1)
@@ -541,7 +541,7 @@ class TestPluginAPI(APIBaseTest):
         # no frontend, since no pluginserver transpiles the code
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"")
+        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
 
         # mock the plugin server's transpilation
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
@@ -566,6 +566,11 @@ class TestPluginAPI(APIBaseTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         self.assertEqual(plugin_source.source, "export const scene = { name: 'new' }")
         self.assertEqual(plugin_source.transpiled, None)
+
+        # And reply that it's transpiling
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")

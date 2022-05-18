@@ -236,8 +236,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if not sources.get(key):
                 performed_changes = True
                 sources[key] = PluginSourceFile.objects.create(plugin=plugin, filename=key, source=value)
-                continue
-            if sources[key].source != value:
+            elif sources[key].source != value:
                 performed_changes = True
                 if value is None:
                     sources[key].delete()
@@ -252,13 +251,15 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             response[source.filename] = source.source
 
         # Update values from plugin.json
-        plugin_json = json.loads(response.get("plugin.json") or "{}")
-        if plugin_json["name"] != plugin.name:
-            plugin.name = plugin_json["name"]
-            performed_changes = True
-        if json.dumps(plugin_json.get("config") or []) != json.dumps(plugin.config_schema or []):
-            plugin.config_schema = plugin_json["config"]
-            performed_changes = True
+        plugin_json_text = response.get("plugin.json")
+        if plugin_json_text:
+            plugin_json = json.loads(plugin_json_text)
+            if plugin_json.get("name") != plugin.name:
+                plugin.name = plugin_json.get("name")
+                performed_changes = True
+            if json.dumps(plugin_json.get("config") or []) != json.dumps(plugin.config_schema or []):
+                plugin.config_schema = plugin_json.get("config") or []
+                performed_changes = True
 
         # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
         if performed_changes:
