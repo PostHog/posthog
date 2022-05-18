@@ -24,7 +24,8 @@ class TestInstanceStatus(APIBaseTest):
         timing_mock.assert_called_with("bar", 15.2, {"team_id": 1})
 
     def test_object_storage_when_disabled(self):
-        response = self.client.get("/api/instance_status")
+        with self.settings(OBJECT_STORAGE_ENABLED=False,):
+            response = self.client.get("/api/instance_status")
         json = response.json()
 
         object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
