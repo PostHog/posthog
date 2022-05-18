@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import pytz
 from dateutil.parser import isoparse
@@ -94,22 +94,34 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         )
 
         #  use person properties mapping to populate person properties in given event
+        team_id = event["team"].pk if event.get("team") else event["team_id"]
         if person_mapping and person_mapping.get(event["distinct_id"]):
-            person_properties = person_mapping[event["distinct_id"]].properties
-            person_id = person_mapping[event["distinct_id"]].uuid
+            person = person_mapping[event["distinct_id"]]
+            person_properties = person.properties
+            person_id = person.uuid
+        else:
+            try:
+                person = Person.objects.get(
+                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
+                )
+                person_properties = person.properties
+                person_id = person.uuid
+            except Person.DoesNotExist:
+                person_properties = {}
+                person_id = cast(uuid.UUID, "00000000-0000-0000-0000-000000000000")
 
-            event = {
-                **event,
-                "person_properties": {**person_properties, **event.get("person_properties", {})},
-                "person_id": person_id,
-            }
+        event = {
+            **event,
+            "person_properties": {**person_properties, **event.get("person_properties", {})},
+            "person_id": person_id,
+        }
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
             "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
             "timestamp": timestamp,
-            "team_id": event["team"].pk if event.get("team") else event["team_id"],
+            "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,

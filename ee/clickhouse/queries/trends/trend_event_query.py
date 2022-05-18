@@ -40,6 +40,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
+            + (f", {self.EVENT_TABLE_ALIAS}.person_id as person_id" if self._using_person_on_events else "")
             + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
@@ -54,7 +55,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.actor_on_events_querying_enabled
+            if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
@@ -84,12 +85,12 @@ class TrendsEventQuery(EnterpriseEventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EnterpriseEventQuery._determine_should_join_persons(self)
-        if self._team.actor_on_events_querying_enabled:
+        if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
 
     def _get_extra_person_columns(self) -> str:
-        if self._team.actor_on_events_querying_enabled:
+        if self._using_person_on_events:
             return " ".join(
                 ", {extract} as {column_name}".format(
                     extract=get_property_string_expr(
