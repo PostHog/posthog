@@ -633,11 +633,8 @@ describe('plugins', () => {
     })
 
     test('plugin with frontend source transpiles it', async () => {
-        // const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
-        const source = null
         const source_frontend = `export const scene = {}`
-        hub.db.getPluginSource = (_, filename) =>
-            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
         getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
@@ -661,12 +658,8 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('plugin with frontend source with error', async () => {
-        // const source_frontend = `export const scene = {}`
-        // hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
-        const source = '' // `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
         const source_frontend = `export const scene = {}/`
-        hub.db.getPluginSource = (_, filename) =>
-            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
         getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
