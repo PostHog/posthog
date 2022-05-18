@@ -3,8 +3,6 @@ import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { Button } from 'antd'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import {
     ActionFilter as ActionFilterType,
     FilterType,
@@ -12,13 +10,14 @@ import {
     InsightType,
     Optional,
 } from '~/types'
-import { SortableContainer, SortableActionFilterRow } from './Sortable'
+import { SortableActionFilterContainer, SortableActionFilterRow } from './ActionFilterRow/SortableActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../teamLogic'
-import { ButtonType } from 'antd/lib/button'
 import clsx from 'clsx'
+import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
+import { IconPlusMini } from 'lib/components/icons'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -26,35 +25,29 @@ export interface ActionFilterProps {
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability
-    hidePropertySelector?: boolean
     /** Text copy for the action button to add more events/actions (graph series) */
     buttonCopy: string
-    buttonType?: ButtonType
+    buttonType?: LemonButtonProps['type']
     /** Whether the full control is enabled or not */
     disabled?: boolean
+    /** Bordered view */
+    bordered?: boolean
     /** Whether actions/events can be sorted (used mainly for funnel step reordering) */
     sortable?: boolean
     /** Whether to show an indicator identifying each graph */
     showSeriesIndicator?: boolean
     /** Series badge shows A, B, C | 1, 2, 3 */
     seriesIndicatorType?: 'alpha' | 'numeric'
-    /** Whether to show the "OR" label after each filter */
-    showOr?: boolean
     /** Hide local filtering (currently used for retention insight) */
     hideFilter?: boolean
     /** Hides the rename option */
     hideRename?: boolean
+    /** Hides the duplicate option */
+    hideDuplicate?: boolean
+    /** Whether to show the nested PropertyFilters in popup mode or not */
+    propertyFiltersPopover?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number
-    /** Custom prefix element to show in each ActionFilterRow */
-    customRowPrefix?:
-        | string
-        | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelStepRangeEntityFilter
-              index: number
-              onClose: () => void
-          }) => JSX.Element)
     /** Custom suffix element to show in each ActionFilterRow */
     customRowSuffix?:
         | string
@@ -64,13 +57,6 @@ export interface ActionFilterProps {
               index: number
               onClose: () => void
           }) => JSX.Element)
-    rowClassName?: string
-    propertyFilterWrapperClassName?: string
-    stripeActionRow?: boolean
-    /** Custom actions to be added next to the add series button */
-    customActions?: JSX.Element
-    horizontalUI?: boolean
-    fullWidth?: boolean
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */
@@ -98,31 +84,25 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             typeKey,
             addFilterDefaultOptions = {},
             mathAvailability = MathAvailability.All,
-            hidePropertySelector = false,
             buttonCopy = '',
             disabled = false,
             sortable = false,
             showSeriesIndicator = false,
             seriesIndicatorType = 'alpha',
-            showOr = false,
             hideFilter = false,
             hideRename = false,
-            horizontalUI = false,
-            fullWidth = false,
-            customRowPrefix,
+            hideDuplicate = false,
+            propertyFiltersPopover,
             customRowSuffix,
-            rowClassName,
             entitiesLimit,
-            propertyFilterWrapperClassName,
-            stripeActionRow = true,
-            customActions,
             showNestedArrow = false,
             actionsTaxonomicGroupTypes,
             propertiesTaxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
-            buttonType = 'dashed',
+            buttonType = 'default',
             readOnly = false,
+            bordered = false,
         },
         ref
     ): JSX.Element => {
@@ -164,28 +144,30 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             showSeriesIndicator,
             seriesIndicatorType,
             mathAvailability,
-            hidePropertySelector,
-            customRowPrefix,
             customRowSuffix,
-            rowClassName,
-            propertyFilterWrapperClassName,
-            stripeActionRow,
             hasBreakdown: !!filters.breakdown,
-            fullWidth,
             actionsTaxonomicGroupTypes,
             propertiesTaxonomicGroupTypes,
+            propertyFiltersPopover,
             hideDeleteBtn,
             disabled,
             readOnly,
             renderRow,
             hideRename,
+            hideDuplicate,
             onRenameClick: showModal,
+            sortable,
         }
 
         const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
 
         return (
-            <div ref={ref}>
+            <div
+                className={clsx('ActionFilter', {
+                    'ActionFilter--bordered': bordered,
+                })}
+                ref={ref}
+            >
                 {!hideRename && !readOnly && (
                     <BindLogic
                         logic={entityFilterLogic}
@@ -196,7 +178,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                 )}
                 {localFilters ? (
                     sortable ? (
-                        <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
+                        <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5} useDragHandle>
                             {localFilters.map((filter, index) => (
                                 <SortableActionFilterRow
                                     key={index}
@@ -208,7 +190,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     {...commonProps}
                                 />
                             ))}
-                        </SortableContainer>
+                        </SortableActionFilterContainer>
                     ) : (
                         localFilters.map((filter, index) => (
                             <ActionFilterRow
@@ -216,9 +198,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 index={index}
                                 key={index}
                                 singleFilter={singleFilter}
-                                showOr={showOr}
                                 hideFilter={hideFilter || readOnly}
-                                horizontalUI={horizontalUI}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}
                                 {...commonProps}
@@ -226,28 +206,25 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         ))
                     )
                 ) : null}
-                {(!singleFilter || customActions) && (
-                    <div
-                        className={clsx(buttonType !== 'link' ? 'mt' : 'mt-05')}
-                        style={{ display: 'flex', alignItems: 'center' }}
-                    >
+                {!singleFilter && (
+                    <div className="ActionFilter-footer">
                         {!singleFilter && (
-                            <Button
+                            <LemonButton
                                 type={buttonType}
+                                size="small"
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
-                                icon={<PlusCircleOutlined />}
+                                icon={<IconPlusMini />}
                                 disabled={reachedLimit || disabled || readOnly}
-                                className="add-action-event-button"
+                                fullWidth
                             >
                                 {!reachedLimit
                                     ? buttonCopy || 'Action or event'
                                     : `Reached limit of ${entitiesLimit} ${
                                           filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
                                       }`}
-                            </Button>
+                            </LemonButton>
                         )}
-                        {customActions}
                     </div>
                 )}
             </div>

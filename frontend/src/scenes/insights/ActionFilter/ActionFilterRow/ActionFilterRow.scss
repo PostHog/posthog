@@ -1,0 +1,68 @@
+@import '~/vars';
+
+.ActionFilterRow {
+    .ActionFilterRow-content {
+        display: flex;
+        align-items: flex-start;
+
+        > * + * {
+            margin-left: $default_spacing / 2;
+        }
+    }
+
+    .row-start,
+    .row-center,
+    .row-end {
+        display: flex;
+        align-items: center;
+    }
+
+    .row-start,
+    .row-end {
+        flex: 0;
+    }
+
+    .row-end {
+        padding-top: 5px;
+        > * + * {
+            margin-left: $default_spacing / 4;
+        }
+    }
+
+    .row-center {
+        flex: 1;
+        overflow: hidden;
+        flex-wrap: wrap;
+        gap: $default_spacing / 2;
+    }
+
+    .series-indicator {
+        padding-top: 5px;
+    }
+
+    .row-action-btn {
+        padding: 0 4px;
+        &:hover,
+        &:focus,
+        &.visible {
+            border: 1px solid $primary;
+        }
+
+        &.delete {
+            padding: 0;
+            width: unset;
+            color: rgba($danger, 0.6);
+        }
+    }
+}
+
+.ActionFilterRowDragHandle {
+    cursor: move;
+    color: var(--text-default);
+    font-size: 1.2em;
+    padding-right: 5px;
+
+    svg {
+        transform: rotate(90deg) translateX(5px);
+    }
+}

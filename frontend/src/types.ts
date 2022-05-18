@@ -20,6 +20,8 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -336,12 +338,18 @@ export enum PropertyOperator {
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
     LessThan = 'lt',
+    LessThanOrEqual = 'lte',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
 }
 
 export enum SavedInsightsTabs {
@@ -569,6 +577,37 @@ export interface CohortGroupType {
     name?: string
 }
 
+// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
+// Synced with `posthog/models/property.py`
+export interface CohortCriteriaType {
+    id: string // Criteria filter id
+    key: string
+    value: BehavioralFilterType
+    type: BehavioralFilterKey
+    operator?: PropertyOperator | null
+    group_type_index?: number | null
+    event_type?: TaxonomicFilterGroupType | null
+    operator_value?: PropertyFilterValue
+    time_value?: number | string | null
+    time_interval?: TimeUnitType | null
+    total_periods?: number | null
+    min_periods?: number | null
+    seq_event_type?: TaxonomicFilterGroupType | null
+    seq_event?: string | number | null
+    seq_time_value?: number | string | null
+    seq_time_interval?: TimeUnitType | null
+    negation?: boolean
+    value_property?: string | null // Transformed into 'value' for api calls
+}
+
+export type EmptyCohortGroupType = Partial<CohortGroupType>
+
+export type EmptyCohortCriteriaType = Partial<CohortCriteriaType>
+
+export type AnyCohortGroupType = CohortGroupType | EmptyCohortGroupType
+
+export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
+
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
@@ -579,11 +618,15 @@ export interface CohortType {
     deleted?: boolean
     id: number | 'new'
     is_calculating?: boolean
+    errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
     name?: string
     csv?: UploadFile
-    groups: CohortGroupType[]
+    groups: CohortGroupType[] // To be deprecated once `filter` takes over
+    filters: {
+        properties: CohortCriteriaGroupFilter
+    }
 }
 
 export interface InsightHistory {
@@ -716,7 +759,16 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightModel {
+export interface DashboardTile {
+    result: any | null
+    layouts: Record<string, any>
+    color: InsightColor | null
+    last_refresh: string | null
+    filters: Partial<FilterType>
+    filters_hash: string
+}
+
+export interface InsightModel extends DashboardTile {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -725,20 +777,14 @@ export interface InsightModel {
     derived_name?: string
     description?: string
     favorited?: boolean
-    filters: Partial<FilterType>
-    filters_hash: string
     order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    layouts: Record<string, any>
-    color: InsightColor | null
-    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
-    result: any | null
     updated_at: string
     tags?: string[]
     last_modified_at: string
@@ -1238,6 +1284,8 @@ export interface ChartParams {
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | null
+    /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
@@ -1516,6 +1564,7 @@ export enum FilterLogicalOperator {
     And = 'AND',
     Or = 'OR',
 }
+
 export interface PropertyGroupFilter {
     type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
@@ -1524,6 +1573,12 @@ export interface PropertyGroupFilter {
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
     values: AnyPropertyFilter[]
+}
+
+export interface CohortCriteriaGroupFilter {
+    id?: string
+    type: FilterLogicalOperator
+    values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1779,23 +1834,6 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
-}
-
-export enum OperatorType {
-    Equals = 'equals',
-    NotEquals = 'not_equals',
-    Contains = 'contains',
-    NotContains = 'not_contains',
-    MatchesRegex = 'matches_regex',
-    NotMatchesRegex = 'not_matches_regex',
-    GreaterThan = 'gt',
-    LessThan = 'lt',
-    Set = 'set',
-    NotSet = 'not_set',
-    Between = 'between',
-    NotBetween = 'not_between',
-    Minimum = 'min',
-    Maximum = 'max',
 }
 
 export enum ValueOptionType {

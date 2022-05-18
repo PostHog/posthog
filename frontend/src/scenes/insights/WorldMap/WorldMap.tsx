@@ -16,8 +16,8 @@ import { toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
-/** --primary in HSL for saturation mixing */
-const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
+/** --brand-blue in HSL for saturation mixing */
+const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
@@ -135,7 +135,9 @@ const WorldMapSVG = React.memo(
                         const saturation =
                             SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
                         const fill = aggregatedValue
-                            ? `hsl(${PRIMARY_HSL[0]} ${PRIMARY_HSL[1]}% ${100 - (100 - PRIMARY_HSL[2]) * saturation}%)`
+                            ? `hsl(${BRAND_BLUE_HSL[0]} ${BRAND_BLUE_HSL[1]}% ${
+                                  100 - (100 - BRAND_BLUE_HSL[2]) * saturation
+                              }%)`
                             : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,

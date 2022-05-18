@@ -365,7 +365,9 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? <PluginSource /> : null}
+            {editingPlugin?.plugin_type === 'source' ? (
+                <PluginSource visible={editingSource} close={() => setEditingSource(false)} id={editingPlugin.id} />
+            ) : null}
         </>
     )
 }
