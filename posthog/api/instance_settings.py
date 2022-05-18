@@ -1,11 +1,11 @@
 import re
 from typing import Any, Dict, Union
 
-from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
+from posthog.models.constance import get_dynamic_setting, set_dynamic_setting
 from posthog.permissions import IsStaffUser
-from posthog.settings import MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import CONSTANCE_CONFIG, MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
 
@@ -35,11 +35,11 @@ class InstanceSetting(object):
 def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting:
 
     if setting_config == {}:
-        for _key, setting_config in settings.CONFIG.items():
+        for _key, setting_config in CONSTANCE_CONFIG.items():
             if _key == key:
                 break
     is_secret = key in SECRET_SETTINGS
-    value = getattr(config, key)
+    value = get_dynamic_setting(key)
 
     return InstanceSetting(
         key=key,
@@ -66,7 +66,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if validated_data["value"] is None:
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
-        target_type = settings.CONFIG[instance.key][2]
+        target_type = CONSTANCE_CONFIG[instance.key][2]
         if target_type == "bool" and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
         else:
@@ -85,7 +85,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
-        setattr(config, instance.key, new_value_parsed)
+        set_dynamic_setting(instance.key, new_value_parsed)
         instance.value = new_value_parsed
 
         if instance.key.startswith("EMAIL_") and "request" in self.context:
@@ -105,7 +105,7 @@ class InstanceSettingsViewset(
 
     def get_queryset(self):
         output = []
-        for key, setting_config in settings.CONFIG.items():
+        for key, setting_config in CONSTANCE_CONFIG.items():
             output.append(get_instance_setting(key, setting_config))
         return output
 
@@ -114,7 +114,7 @@ class InstanceSettingsViewset(
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         key = self.kwargs[lookup_url_kwarg]
 
-        if key not in settings.CONFIG:
+        if key not in CONSTANCE_CONFIG:
             raise exceptions.NotFound(f"Setting with key `{key}` does not exist.")
 
         return get_instance_setting(key)
