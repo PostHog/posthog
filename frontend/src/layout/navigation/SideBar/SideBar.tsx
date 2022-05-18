@@ -7,6 +7,7 @@ import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
+    IconApps,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -41,6 +42,9 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { router } from 'kea-router'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
@@ -108,6 +112,8 @@ function Pages(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { frontendApps } = useValues(frontendAppsLogic)
+    const { currentLocation } = useValues(router)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -205,7 +211,12 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    <LemonDivider />
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <div className="SideBar__heading">Data</div>
+                    ) : (
+                        <LemonDivider />
+                    )}
+
                     <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
@@ -220,9 +231,39 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    <LemonDivider />
-                    {canViewPlugins(currentOrganization) && (
-                        <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <>
+                            <div className="SideBar__heading">Apps</div>
+                            {canViewPlugins(currentOrganization) && (
+                                <PageButton
+                                    title="Browse Apps"
+                                    icon={<IconApps />}
+                                    identifier={Scene.Plugins}
+                                    to={urls.plugins()}
+                                />
+                            )}
+                            {Object.values(frontendApps).map(({ id, title }) => (
+                                <PageButton
+                                    key={id}
+                                    icon={<IconComment />}
+                                    title={title || `App #${id}`}
+                                    identifier={
+                                        currentLocation.pathname === urls.frontendApp(id)
+                                            ? Scene.FrontendAppScene
+                                            : 'nope'
+                                    }
+                                    to={urls.frontendApp(id)}
+                                />
+                            ))}
+                            <div className="SideBar__heading">Configuration</div>
+                        </>
+                    ) : (
+                        <>
+                            <LemonDivider />
+                            {canViewPlugins(currentOrganization) && (
+                                <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                            )}
+                        </>
                     )}
                     <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
                     <PageButton

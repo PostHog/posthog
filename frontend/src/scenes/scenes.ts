@@ -117,6 +117,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Plugins',
     },
+    [Scene.FrontendAppScene]: {
+        projectBased: true,
+        name: 'App',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Insights',
@@ -247,6 +251,7 @@ export const routes: Record<string, Scene> = {
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
+    [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
