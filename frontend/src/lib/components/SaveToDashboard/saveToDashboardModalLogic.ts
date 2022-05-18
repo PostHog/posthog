@@ -47,14 +47,6 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
-        adding: [false, { addToDashboard: () => true, reportSavedInsightToDashboard: () => false }],
-        removing: [
-            false,
-            {
-                removeFromDashboard: () => true,
-                reportRemovedInsightFromDashboard: () => false,
-            },
-        ],
         dashboardWithActiveAPICall: [
             null as number | null,
             {
@@ -67,17 +59,6 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
     },
 
     selectors: {
-        buttonLabel: [
-            (s) => [s.adding, s.dashboardWithActiveAPICall],
-            (adding: boolean, dashboardWithActiveAPICall: number | null) =>
-                (dashboardId: number, isAlreadyOnDashboard: boolean) => {
-                    if (dashboardWithActiveAPICall === dashboardId) {
-                        return adding ? 'Adding' : 'Removing'
-                    } else {
-                        return isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'
-                    }
-                },
-        ],
         dashboardId: [
             (s) => [
                 s._dashboardId,
