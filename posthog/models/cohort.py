@@ -107,9 +107,13 @@ class Cohort(models.Model):
                     # KLUDGE: map 'event' to 'person' to handle faulty event type that used to be saved
                     # TODO: Remove once the event type is swapped over
                     props = group.get("properties")
-                    for prop in props:
-                        if prop.get("type") == "event":
-                            prop["type"] = "person"
+                    if isinstance(props, list):
+                        for prop in props:
+                            if prop.get("type") == "event":
+                                prop["type"] = "person"
+                    elif isinstance(props, dict):
+                        if props.get("type") == "event":
+                            props["type"] = "person"
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
                     property_groups.append(
