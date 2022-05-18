@@ -6,13 +6,15 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0233_plugin_source"),
+        ("posthog", "0233_plugin_source_file"),
     ]
 
     operations = [
-        migrations.AddField(model_name="pluginsource", name="error", field=models.TextField(blank=True, null=True),),
         migrations.AddField(
-            model_name="pluginsource",
+            model_name="pluginsourcefile", name="error", field=models.TextField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="pluginsourcefile",
             name="status",
             field=models.CharField(
                 null=True,
@@ -21,6 +23,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="pluginsource", name="transpiled", field=models.TextField(blank=True, null=True),
+            model_name="pluginsourcefile", name="transpiled", field=models.TextField(blank=True, null=True),
         ),
     ]

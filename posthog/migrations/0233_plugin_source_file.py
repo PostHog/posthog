@@ -9,15 +9,15 @@ import posthog.models.utils
 
 def migrate_plugin_source(apps, schema_editor):
     Plugin = apps.get_model("posthog", "Plugin")
-    PluginSource = apps.get_model("posthog", "PluginSource")
+    PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
 
     for plugin in Plugin.objects.filter(plugin_type="source"):
         if plugin.source:
-            PluginSource.objects.create(
+            PluginSourceFile.objects.create(
                 plugin=plugin, filename="index.ts", source=plugin.source,
             )
         if plugin.config_schema:
-            PluginSource.objects.create(
+            PluginSourceFile.objects.create(
                 plugin=plugin,
                 filename="plugin.json",
                 source=json.dumps({"name": plugin.name, "config": plugin.config_schema,}, indent=4,),
@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="PluginSource",
+            name="PluginSourceFile",
             fields=[
                 (
                     "id",
@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="pluginsource",
+            model_name="pluginsourcefile",
             constraint=models.UniqueConstraint(fields=("plugin_id", "filename"), name="unique_filename_for_plugin"),
         ),
         migrations.RunPython(migrate_plugin_source, migrations.RunPython.noop),
