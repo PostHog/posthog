@@ -210,24 +210,15 @@ export async function createHub(
     status.info('👍', `Redis`)
 
     status.info('🤔', `Storage`)
-    let objectStorage: ObjectStorage
+    const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
-        objectStorage = connectObjectStorage(serverConfig)
-    } catch (e) {
-        status.error('❌', `could not initialise storage: ${e}`)
-        throw e
-    }
-
-    try {
-        if (serverConfig.OBJECT_STORAGE_ENABLED) {
-            await objectStorage.healthCheck()
+        if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
             status.info('👍', `storage 🪣`)
         } else {
             status.info('🪣', `storage not in use`)
         }
     } catch (e) {
-        status.error('❌', `storage failed healthcheck: ${e}`)
-        throw e
+        status.warn('🪣', `storage failed healthcheck: ${e}`)
     }
 
     const db = new DB(
