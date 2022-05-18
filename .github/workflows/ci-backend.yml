@@ -268,6 +268,7 @@ jobs:
                   clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
+                  person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
               if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:21.11.11.1' && !matrix.person-on-events }}

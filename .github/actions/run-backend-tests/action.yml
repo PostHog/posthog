@@ -101,7 +101,7 @@ runs:
                   --durations=100 --durations-min=1.0
 
         - name: Run ee/ tests with person-on-events, no snapshot commits
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
               ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
