@@ -22,6 +22,10 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     }),
     listeners(({ values }) => ({
         updateAppConfig: async ({ appConfig, callback }) => {
+            if (!values.appConfig) {
+                callback(Error('No appConfig'))
+                return
+            }
             try {
                 const { pluginConfigId } = values.appConfig
                 await api.update(`api/plugin_config/${pluginConfigId}/`, { config: appConfig })
@@ -34,30 +38,34 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     selectors(({ actions }) => ({
         frontendApp: [
             (s) => [s.frontendApps, (_, props) => props.id],
-            (frontendApps, id): FrontendApp => frontendApps[id],
+            (frontendApps, id): FrontendApp | undefined => frontendApps[id],
         ],
         appConfig: [
             (s) => [s.appConfigs, (_, props) => props.id],
-            (appConfigs, id): FrontendAppConfig => appConfigs[id],
+            (appConfigs, id): FrontendAppConfig | undefined => appConfigs[id],
         ],
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
         logicProps: [
             (s) => [s.appConfig],
-            (appConfig): FrontendAppSceneProps => ({
-                ...appConfig,
-                name: appConfig.name,
-                url: urls.frontendApp(appConfig.pluginConfigId),
-                config: appConfig.config,
-                setConfig: async (config: Record<string, any>) => {
-                    return new Promise((resolve, reject) => {
-                        actions.updateAppConfig(config, (error) => {
-                            error ? reject(error) : resolve()
-                        })
-                    })
-                },
-            }),
+            (appConfig): FrontendAppSceneProps | undefined =>
+                appConfig
+                    ? {
+                          ...appConfig,
+                          url: urls.frontendApp(appConfig.pluginConfigId),
+                          setConfig: async (config: Record<string, any>) => {
+                              return new Promise((resolve, reject) => {
+                                  actions.updateAppConfig(config, (error) => {
+                                      error ? reject(error) : resolve()
+                                  })
+                              })
+                          },
+                      }
+                    : undefined,
         ],
-        builtLogic: [(s) => [s.logic, s.logicProps], (logic: any, props: any) => logic?.(props)],
+        builtLogic: [
+            (s) => [s.logic, s.logicProps],
+            (logic: any, props: any) => (logic && props ? logic(props) : null),
+        ],
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
         breadcrumbsSelector: [(s) => [s.builtLogic], (builtLogic) => builtLogic?.selectors.breadcrumbs],
         breadcrumbs: [

@@ -365,12 +365,12 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' && editingPlugin.id && editingPlugin.pluginConfig.id ? (
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
                 <PluginSource
                     visible={editingSource}
                     close={() => setEditingSource(false)}
                     pluginId={editingPlugin.id}
-                    pluginConfigId={editingPlugin.pluginConfig.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
                 />
             ) : null}
         </>

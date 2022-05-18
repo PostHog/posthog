@@ -13,7 +13,7 @@ import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 
 interface PluginSourceProps {
     pluginId: number
-    pluginConfigId: number
+    pluginConfigId?: number
     visible: boolean
     close: () => void
 }
@@ -45,7 +45,7 @@ export function PluginSource({ pluginId, pluginConfigId, visible, close }: Plugi
             visible={visible}
             onClose={closePluginSource}
             width={'min(90vw, 64rem)'}
-            title={`Coding Plugin: ${name}`}
+            title={`Edit App: ${name}`}
             placement="left"
             footer={
                 <div style={{ textAlign: 'right' }}>

@@ -15,14 +15,14 @@ import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 interface PluginSourceProps {
     pluginId: number
-    pluginConfigId: number
+    pluginConfigId?: number
     onClose?: () => void
 }
 
 export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
-    key((props) => props.pluginConfigId),
+    key((props) => props.pluginConfigId ?? `plugin-${props.pluginId}`),
 
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
 
@@ -49,8 +49,15 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                 )
                 actions.resetPluginSource(response)
                 pluginsLogic.findMounted()?.actions.loadPlugins()
-                frontendAppsLogic.findMounted()?.actions.unloadFrontendApp(props.pluginConfigId)
-                frontendAppsLogic.findMounted()?.actions.loadFrontendApp(props.pluginConfigId, true)
+
+                const appsLogic = frontendAppsLogic.findMounted()
+                if (appsLogic && props.pluginConfigId) {
+                    const appConfig = appsLogic.values.appConfigs[props.pluginConfigId]
+                    if (appConfig) {
+                        appsLogic.actions.unloadFrontendApp(appConfig.pluginConfigId)
+                        appsLogic.actions.loadFrontendApp(appConfig.pluginConfigId, appConfig.pluginId, true)
+                    }
+                }
             },
         },
     })),

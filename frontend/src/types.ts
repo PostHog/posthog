@@ -864,6 +864,7 @@ export interface PluginType {
 
 export interface FrontendApp {
     id: number
+    pluginId: number
     error?: any
     title?: string
     logic?: LogicWrapper

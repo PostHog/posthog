@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'frontendAppsLogic']),
     actions({
-        loadFrontendApp: (id: number, reload: boolean = false) => ({ id, reload }),
+        loadFrontendApp: (id: number, pluginId: number, reload: boolean = false) => ({ id, pluginId, reload }),
         unloadFrontendApp: (id: number) => ({ id }),
         setAppConfig: (id: number, appConfig: FrontendAppConfig) => ({ id, appConfig }),
         setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
@@ -20,7 +20,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     }),
     loaders(({ actions, values }) => ({
         frontendApps: {
-            loadFrontendApp: async ({ id, reload }) => {
+            loadFrontendApp: async ({ id, pluginId, reload }) => {
                 try {
                     const siteUrl = location.origin
                     const exports = await import(
@@ -29,10 +29,10 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                     if ('getFrontendApp' in exports) {
                         const app = exports.getFrontendApp(frontendAppRequire)
                         if ('scene' in app) {
-                            return { ...values.frontendApps, [id]: { ...app.scene, id } }
+                            return { ...values.frontendApps, [id]: { ...app.scene, id, pluginId } }
                         }
                         if ('transpiling' in app) {
-                            window.setTimeout(() => actions.loadFrontendApp(id, true), 1000)
+                            window.setTimeout(() => actions.loadFrontendApp(id, pluginId, true), 1000)
                             return values.frontendApps
                         }
                         if ('error' in app) {
@@ -74,8 +74,8 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         const appConfigs = getAppContext()?.frontend_apps || {}
         if (Object.keys(appConfigs).length > 0) {
             actions.setAppConfigs(appConfigs)
-            for (const id of Object.keys(appConfigs)) {
-                actions.loadFrontendApp(parseInt(id))
+            for (const { pluginId, pluginConfigId } of Object.values(appConfigs)) {
+                actions.loadFrontendApp(pluginConfigId, pluginId)
             }
         }
     }),

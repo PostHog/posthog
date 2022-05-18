@@ -13,7 +13,7 @@ export function FrontendAppScene(): JSX.Element {
     }
     return (
         <>
-            <PageHeader title={logicProps.name} />
+            <PageHeader title={logicProps?.name ?? 'App Loading...'} />
             <Skeleton />
         </>
     )

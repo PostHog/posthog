@@ -27,7 +27,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
-import { canViewPlugins } from '~/scenes/plugins/access'
+import { canInstallPlugins, canViewPlugins } from '~/scenes/plugins/access'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
@@ -44,6 +44,7 @@ import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { PluginSource } from 'scenes/plugins/source/PluginSource'
 
 interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
@@ -104,8 +105,9 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
-    const { isProjectSwitcherShown } = useValues(navigationLogic)
+    const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher, openAppSourceEditor, closeAppSourceEditor } =
+        useActions(navigationLogic)
+    const { isProjectSwitcherShown, appSourceEditor } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -242,10 +244,10 @@ function Pages(): JSX.Element {
                                     to={urls.plugins()}
                                 />
                             )}
-                            {Object.values(frontendApps).map(({ id, title }) => (
+                            {Object.values(frontendApps).map(({ id, pluginId, title }) => (
                                 <PageButton
                                     key={id}
-                                    icon={<IconComment />}
+                                    icon={<IconExtension />}
                                     title={title || `App #${id}`}
                                     identifier={
                                         currentLocation.pathname === urls.frontendApp(id)
@@ -253,8 +255,26 @@ function Pages(): JSX.Element {
                                             : 'nope'
                                     }
                                     to={urls.frontendApp(id)}
+                                    sideAction={
+                                        canInstallPlugins(currentOrganization)
+                                            ? {
+                                                  icon: <IconSettings />,
+                                                  tooltip: `Edit ${title || `App #${id}`}`,
+                                                  identifier: Scene.FrontendAppScene,
+                                                  onClick: () => openAppSourceEditor(id, pluginId),
+                                              }
+                                            : undefined
+                                    }
                                 />
                             ))}
+                            {appSourceEditor ? (
+                                <PluginSource
+                                    pluginConfigId={appSourceEditor.id}
+                                    pluginId={appSourceEditor.pluginId}
+                                    visible={!!appSourceEditor}
+                                    close={() => closeAppSourceEditor()}
+                                />
+                            ) : null}
                             <div className="SideBar__heading">Configuration</div>
                         </>
                     ) : (
