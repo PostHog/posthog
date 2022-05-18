@@ -20,17 +20,7 @@ def migrate_plugin_source(apps, schema_editor):
             PluginSource.objects.create(
                 plugin=plugin,
                 filename="plugin.json",
-                source=json.dumps(
-                    {
-                        "name": plugin.name,
-                        "description": "",
-                        "url": "",
-                        "posthogVersion": "*",
-                        "main": "index.ts",
-                        "config": plugin.config_schema,
-                    },
-                    indent=4,
-                ),
+                source=json.dumps({"name": plugin.name, "config": plugin.config_schema,}, indent=4,),
             )
 
 
