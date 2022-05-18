@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from semantic_version import Version
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSource
+from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import (
     can_configure_plugins,
@@ -532,7 +532,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginSource.objects.count(), 1)
+        self.assertEqual(PluginSourceFile.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 2)
 
         plugin = Plugin.objects.get(pk=id)
@@ -547,7 +547,7 @@ class TestPluginAPI(APIBaseTest):
         plugin_source = Plugin.objects.get(plugin_id=id)
         self.assertEqual(plugin_source.status, None)
         self.assertEqual(plugin_source.transpiled, None)
-        plugin_source.status = PluginSource.Status.TRANSPILED
+        plugin_source.status = PluginSourceFile.Status.TRANSPILED
         plugin_source.transpiled = "'random transpiled frontend'"
         plugin_source.save()
 
@@ -563,7 +563,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         # It will clear the transpiled frontend
-        plugin_source = PluginSource.objects.get(plugin_id=id)
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         self.assertEqual(plugin_source.source, "export const scene = { name: 'new' }")
         self.assertEqual(plugin_source.transpiled, None)
 

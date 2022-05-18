@@ -310,11 +310,11 @@ def get_default_event_name():
 
 
 def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
-    from posthog.models import Plugin, PluginSource
+    from posthog.models import Plugin, PluginSourceFile
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(pluginsource__status=PluginSource.Status.TRANSPILED, pluginsource__filename="frontend.tsx")
+        .filter(pluginsource__status=PluginSourceFile.Status.TRANSPILED, pluginsource__filename="frontend.tsx")
         .values("pluginconfig__id", "pluginconfig__config", "config_schema", "name", "id")
         .all()
     )
