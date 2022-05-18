@@ -20,14 +20,11 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     actions({
         updateAppConfig: (appConfig: Record<string, any>, callback: (error?: any) => void) => ({ appConfig, callback }),
     }),
-    listeners(({ props }) => ({
+    listeners(({ values }) => ({
         updateAppConfig: async ({ appConfig, callback }) => {
             try {
-                // TODO: this doesn't work yet
-                const response = await api.update(`api/plugin_config/${props.id}/`, {
-                    config: appConfig,
-                })
-                console.log(response)
+                const { pluginConfigId } = values.appConfig
+                await api.update(`api/plugin_config/${pluginConfigId}/`, { config: appConfig })
                 callback()
             } catch (e) {
                 callback(e)
@@ -45,12 +42,11 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
         ],
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
         logicProps: [
-            (s) => [(_, props) => props.id, s.appConfig],
-            (id, appConfig): FrontendAppSceneProps => ({
+            (s) => [s.appConfig],
+            (appConfig): FrontendAppSceneProps => ({
                 ...appConfig,
-                id,
                 name: appConfig.name,
-                url: urls.frontendApp(id),
+                url: urls.frontendApp(appConfig.pluginConfigId),
                 config: appConfig.config,
                 setConfig: async (config: Record<string, any>) => {
                     return new Promise((resolve, reject) => {

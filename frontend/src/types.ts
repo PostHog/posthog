@@ -873,7 +873,8 @@ export interface FrontendApp {
 
 /** Config passed to app from Django's app context */
 export interface FrontendAppConfig {
-    id: number
+    pluginId: number
+    pluginConfigId: number
     name: string
     url: string
     config: Record<string, any>

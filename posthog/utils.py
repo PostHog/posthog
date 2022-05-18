@@ -314,10 +314,8 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(pluginsource__status__exact=PluginSource.Status.TRANSPILED, pluginsource__filename="frontend.tsx")
-        # .exclude(pluginsource__transpiled__isnull=True, pluginsource__filename='frontend.tsx')
-        # .exclude(pluginsource__transpiled__exact="", pluginsource__filename='frontend.tsx')
-        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "name")
+        .filter(pluginsource__status=PluginSource.Status.TRANSPILED, pluginsource__filename="frontend.tsx")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "name", "id")
         .all()
     )
 
@@ -330,7 +328,8 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
             if key in config:
                 config[key] = "** SECRET FIELD **"
         frontend_apps[p["pluginconfig__id"]] = {
-            "id": p["pluginconfig__id"],
+            "pluginConfigId": p["pluginconfig__id"],
+            "pluginId": p["id"],
             "name": p["name"],
             "url": f"/app/{p['pluginconfig__id']}/",
             "config": config,
