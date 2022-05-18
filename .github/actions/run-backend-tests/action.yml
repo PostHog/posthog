@@ -100,13 +100,14 @@ runs:
                   --snapshot-update\
                   --durations=100 --durations-min=1.0
 
-        - name: Run ee/ tests with person-on-events, no snapshot updates
+        - name: Run ee/ tests with person-on-events, no snapshot commits
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
           shell: bash
           run: |
               ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
-                  --group ${{ inputs.group }}
+                  --group ${{ inputs.group }} \
+                  --snapshot-update
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
