@@ -97,20 +97,17 @@ runs:
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
-                  --snapshot-update \
+                  --snapshot-update\
                   --durations=100 --durations-min=1.0
 
         - name: Run ee/ tests with person-on-events, no snapshot commits
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              echo $ENABLE_ACTOR_ON_EVENTS_TEAMS;
-              pytest ee \
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --snapshot-update
-          env:
-              ENABLE_ACTOR_ON_EVENTS_TEAMS: all
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
