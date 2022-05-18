@@ -224,20 +224,19 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for source in PluginSource.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
-            if sources.get(key):
-                if sources[key].source != value:
-                    performed_changes = True
-                    if value is None:
-                        sources[key].delete()
-                        del sources[key]
-                    else:
-                        sources[key].source = value
-                        sources[key].status = None
-                        sources[key].transpiled = None
-                        sources[key].save()
-            else:
+            if not sources.get(key):
                 sources[key] = PluginSource.objects.create(plugin=plugin, filename=key, source=value)
-
+                continue
+            if sources[key].source != value:
+                performed_changes = True
+                if value is None:
+                    sources[key].delete()
+                    del sources[key]
+                else:
+                    sources[key].source = value
+                    sources[key].status = None
+                    sources[key].transpiled = None
+                    sources[key].save()
         response: Dict[str, str] = {}
         for key, source in sources.items():
             response[source.filename] = source.source
@@ -251,7 +250,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             plugin.config_schema = plugin_json["config"]
             performed_changes = True
 
-        # Save regardless if changed the plugin or plugin source models. This reloads the plugin server.
+        # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
         if performed_changes:
             plugin.updated_at = now()
             plugin.save()

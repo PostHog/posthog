@@ -26,10 +26,6 @@ export async function runEveryHour(meta) {
     'plugin.json': JSON.stringify(
         {
             name,
-            description: '',
-            url: '',
-            posthogVersion: '*',
-            main: 'index.ts',
             config: [
                 {
                     markdown: 'Specify your config here',
