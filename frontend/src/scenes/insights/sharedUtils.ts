@@ -15,7 +15,9 @@ export const keyForInsightLogicProps =
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || defaultKey
+        return props.dashboardItemId
+            ? `${props.dashboardItemId}${props.dashboardId ? `/on-dashboard-${props.dashboardId}` : ''}`
+            : defaultKey
     }
 
 export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {

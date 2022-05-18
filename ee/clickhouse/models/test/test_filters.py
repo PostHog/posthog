@@ -6,7 +6,7 @@ from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
@@ -24,7 +24,7 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
     )
     params = {"team_id": team.pk, **prop_filter_params}
 
-    events = sync_execute(
+    events = query_with_columns(
         GET_EVENTS_WITH_PROPERTIES.format(
             filters=prop_filters, order_by="ORDER BY {}".format(order_by) if order_by else ""
         ),
