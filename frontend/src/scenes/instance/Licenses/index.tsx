@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { More } from 'lib/components/LemonButton/More'
 import { Alert, Form, Button, Input } from 'antd'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'
@@ -97,9 +97,8 @@ function ConfirmCancelModal({
 
 export function Licenses(): JSX.Element {
     const [form] = Form.useForm()
-    const { licenses, licensesLoading, error } = useValues(licenseLogic)
-    const { createLicense, deleteLicense } = useActions(licenseLogic)
-    const [showConfirmCancel, setShowConfirmCancel] = useState(undefined as LicenseType | undefined)
+    const { licenses, licensesLoading, error, showConfirmCancel } = useValues(licenseLogic)
+    const { createLicense, deleteLicense, setShowConfirmCancel } = useActions(licenseLogic)
 
     const columns: LemonTableColumns<LicenseType> = [
         {
@@ -177,11 +176,8 @@ export function Licenses(): JSX.Element {
             {showConfirmCancel && (
                 <ConfirmCancelModal
                     licenses={licenses}
-                    onCancel={() => setShowConfirmCancel(undefined)}
-                    onOk={() => {
-                        deleteLicense(showConfirmCancel)
-                        setShowConfirmCancel(undefined)
-                    }}
+                    onCancel={() => setShowConfirmCancel(null)}
+                    onOk={() => deleteLicense(showConfirmCancel)}
                 />
             )}
             <PageHeader

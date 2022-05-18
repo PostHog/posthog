@@ -21,6 +21,7 @@ export const licenseLogic = kea<licenseLogicType>({
     actions: {
         setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),
+        setShowConfirmCancel: (license: LicenseType | null) => ({ license }),
     },
     loaders: ({ values, actions }) => ({
         licenses: [
@@ -48,6 +49,7 @@ export const licenseLogic = kea<licenseLogicType>({
                 deleteLicense: async ({ id }: LicenseType) => {
                     try {
                         await api.licenses.delete(id)
+                        actions.setShowConfirmCancel(null)
                         lemonToast.success(`Your license was deactivated. Refreshing the page...`)
                         actions.setError(null)
                         setTimeout(() => {
@@ -73,6 +75,12 @@ export const licenseLogic = kea<licenseLogicType>({
             null as null | APIErrorType,
             {
                 setError: (_, { error }) => error,
+            },
+        ],
+        showConfirmCancel: [
+            null as null | LicenseType,
+            {
+                setShowConfirmCancel: (_, { license }) => license,
             },
         ],
     },
