@@ -11,6 +11,7 @@ import {
     IconBarChart,
     IconCohort,
     IconComment,
+    IconEdit,
     IconExperiment,
     IconExtension,
     IconFlag,
@@ -244,29 +245,27 @@ function Pages(): JSX.Element {
                                     to={urls.plugins()}
                                 />
                             )}
-                            {Object.values(frontendApps).map(({ id, pluginId, title }) => (
-                                <PageButton
-                                    key={id}
-                                    icon={<IconExtension />}
-                                    title={title || `App #${id}`}
-                                    identifier={
-                                        currentLocation.pathname === urls.frontendApp(id)
-                                            ? Scene.FrontendAppScene
-                                            : 'nope'
-                                    }
-                                    to={urls.frontendApp(id)}
-                                    sideAction={
-                                        canInstallPlugins(currentOrganization)
-                                            ? {
-                                                  icon: <IconSettings />,
-                                                  tooltip: `Edit ${title || `App #${id}`}`,
-                                                  identifier: Scene.FrontendAppScene,
-                                                  onClick: () => openAppSourceEditor(id, pluginId),
-                                              }
-                                            : undefined
-                                    }
-                                />
-                            ))}
+                            {Object.values(frontendApps).map(({ id, pluginId, title }) => {
+                                const selected = currentLocation.pathname === urls.frontendApp(id)
+                                return (
+                                    <PageButton
+                                        key={id}
+                                        icon={<IconExtension />}
+                                        title={title || `App #${id}`}
+                                        identifier={selected ? Scene.FrontendAppScene : 'nope'}
+                                        to={urls.frontendApp(id)}
+                                        sideAction={
+                                            selected && canInstallPlugins(currentOrganization)
+                                                ? {
+                                                      icon: <IconEdit />,
+                                                      tooltip: `Edit ${title || `App #${id}`}`,
+                                                      onClick: () => openAppSourceEditor(id, pluginId),
+                                                  }
+                                                : undefined
+                                        }
+                                    />
+                                )
+                            })}
                             {appSourceEditor ? (
                                 <PluginSource
                                     pluginConfigId={appSourceEditor.id}
