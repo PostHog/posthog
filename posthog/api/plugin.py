@@ -21,7 +21,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSource, update_validated_data_from_url
+from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
 from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -221,32 +221,31 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def source(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="source editing")
         response: Dict[str, str] = {}
-        for source in PluginSource.objects.filter(plugin=plugin):
+        for source in PluginSourceFile.objects.filter(plugin=plugin):
             response[source.filename] = source.source
         return Response(response)
 
     @action(methods=["PATCH"], detail=True)
     def update_source(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="source editing")
-        sources: Dict[str, PluginSource] = {}
+        sources: Dict[str, PluginSourceFile] = {}
         performed_changes = False
-        for source in PluginSource.objects.filter(plugin=plugin):
+        for source in PluginSourceFile.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
-            if sources.get(key):
-                if sources[key].source != value:
-                    performed_changes = True
-                    if value is None:
-                        sources[key].delete()
-                        del sources[key]
-                    else:
-                        sources[key].source = value
-                        sources[key].status = None
-                        sources[key].transpiled = None
-                        sources[key].save()
-            else:
-                sources[key] = PluginSource.objects.create(plugin=plugin, filename=key, source=value)
-
+            if not sources.get(key):
+                sources[key] = PluginSourceFile.objects.create(plugin=plugin, filename=key, source=value)
+                continue
+            if sources[key].source != value:
+                performed_changes = True
+                if value is None:
+                    sources[key].delete()
+                    del sources[key]
+                else:
+                    sources[key].source = value
+                    sources[key].status = None
+                    sources[key].transpiled = None
+                    sources[key].save()
         response: Dict[str, str] = {}
         for key, source in sources.items():
             response[source.filename] = source.source
@@ -260,7 +259,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             plugin.config_schema = plugin_json["config"]
             performed_changes = True
 
-        # Save regardless if changed the plugin or plugin source models. This reloads the plugin server.
+        # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
         if performed_changes:
             plugin.updated_at = now()
             plugin.save()

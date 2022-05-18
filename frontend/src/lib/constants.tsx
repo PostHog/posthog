@@ -121,6 +121,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
+    PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

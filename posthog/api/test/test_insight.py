@@ -601,13 +601,25 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"prop": "val"})
+            _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"prop": "another_val"})
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                properties={"prop": "val", "another": "never_return_this"},
+            )
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights",
-                data={"filters": {"events": [{"id": "$pageview"}]}, "dashboards": [dashboard_id]},
+                data={
+                    "filters": {
+                        "events": [{"id": "$pageview"}],
+                        "properties": [{"key": "another", "value": "never_return_this", "operator": "is_not"}],
+                    },
+                    "dashboards": [dashboard_id],
+                },
             ).json()
             self.assertEqual(response["last_refresh"], None)
 
@@ -643,6 +655,21 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(spy_update_insight_cache.call_count, 3)
             self.assertEqual(response["last_refresh"], None)
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+
+        #  Test property filter
+
+        dashboard = Dashboard.objects.get(pk=dashboard_id)
+        dashboard.filters = {"properties": [{"key": "prop", "value": "val"}], "date_from": "-14d"}
+        dashboard.save()
+        with freeze_time("2012-01-16T05:01:34.000Z"):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
+            ).json()
+            self.assertEqual(spy_update_insight_cache.call_count, 4)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            )
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
