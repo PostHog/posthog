@@ -298,7 +298,7 @@ export function ToolbarButton(): JSX.Element {
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
                                     </Tooltip>
                                 }
-                                zIndex={2147483020}
+                                zIndex={2147483019}
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
