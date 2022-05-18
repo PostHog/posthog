@@ -104,6 +104,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
           shell: bash
           run: |
+              echo $ENABLE_ACTOR_ON_EVENTS_TEAMS;
               pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
