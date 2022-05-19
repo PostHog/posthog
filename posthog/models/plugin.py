@@ -252,6 +252,7 @@ class PluginSourceFile(UUIDModel):
 
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     filename: models.CharField = models.CharField(max_length=200, blank=False)
+    # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
     source: models.TextField = models.TextField(blank=True, null=True)
 
     __repr__ = sane_repr("plugin_id", "filename", "source")
