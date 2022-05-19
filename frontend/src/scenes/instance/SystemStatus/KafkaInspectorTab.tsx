@@ -22,6 +22,7 @@ export function KafkaInspectorTab(): JSX.Element {
                         logic={kafkaInspectorLogic}
                         formKey="fetchKafkaMessage"
                         className="ant-form-horizontal ant-form-hide-required-mark"
+                        enableFormOnSubmit
                     >
                         <Row gutter={[24, 24]}>
                             <Col span={8}>

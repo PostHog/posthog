@@ -21,6 +21,7 @@ class AvailableFeature(str, Enum):
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
     TAGGING = "tagging"
+    BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

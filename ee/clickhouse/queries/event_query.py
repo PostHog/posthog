@@ -29,6 +29,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        using_person_on_events: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -41,10 +42,13 @@ class EnterpriseEventQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
+            using_person_on_events=using_person_on_events,
             **kwargs,
         )
 
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
-        return GroupsJoinQuery(self._filter, self._team_id, self._column_optimizer).get_join_query()
+        return GroupsJoinQuery(
+            self._filter, self._team_id, self._column_optimizer, using_person_on_events=self._using_person_on_events
+        ).get_join_query()

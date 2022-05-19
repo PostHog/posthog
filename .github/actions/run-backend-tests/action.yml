@@ -10,7 +10,7 @@ inputs:
     python-version:
         required: true
         type: string
-    clickhouse-server-image-version:
+    clickhouse-server-image:
         required: true
         type: string
     ee:
@@ -35,7 +35,7 @@ runs:
         - name: Start stack with Docker Compose
           shell: bash
           run: |
-              export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
+              export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               docker-compose -f docker-compose.dev.yml down
               docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
 
@@ -81,48 +81,34 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
-        - name: Get value for person on event querying
-          id: person-on-events
-          shell: bash
-          run: |
-              if [$REF == 'true']
-              then
-                echo "::set-output name=enabled::all"
-              else
-                echo "::set-output name=enabled::none"
-              fi
-          env:
-              REF: ${{ inputs.person-on-events }}
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
-              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
+              pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
+                --snapshot-update --durations=150 --durations-min=1.0
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'false'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
           shell: bash
           run: |
-              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest ee \
+              pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
-                  --snapshot-update \
+                  --snapshot-update\
                   --durations=100 --durations-min=1.0
 
-        - name: Run ee/ tests with person-on-events, no snapshot updates
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true'}}
+        - name: Run ee/ tests with person-on-events, no snapshot commits
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              ENABLE_ACTOR_ON_EVENTS_TEAMS=${{steps.person-on-events.enabled}} pytest ee \
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
-                  --store-durations \
-                  --cov \
-                  --cov-report=xml:coverage-clickhouse.xml \
-                  --durations=100 --durations-min=1.0
+                  --snapshot-update
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
@@ -139,7 +125,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v2
-          if: ${{ inputs.ee == 'true' }}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
           with:
               name: timing_data-${{ inputs.group }}
               path: .test_durations

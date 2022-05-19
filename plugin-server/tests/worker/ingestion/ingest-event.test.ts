@@ -97,13 +97,13 @@ describe('ingestEvent', () => {
                 properties: {
                     foo: 'bar',
                 },
+                eventUuid: expect.any(String),
                 timestamp: expect.any(String),
-                now: expect.any(String),
-                team_id: 2,
-                distinct_id: 'abc',
+                teamId: 2,
+                distinctId: 'abc',
                 ip: null,
-                site_url: 'https://example.com',
-                uuid: expect.any(String),
+                siteUrl: 'https://example.com',
+                elementsList: [],
                 person: {
                     id: expect.any(Number),
                     created_at: expect.any(String),

@@ -3,7 +3,6 @@ import { VM } from 'vm2'
 
 import {
     Hub,
-    PluginCapabilities,
     PluginConfig,
     PluginConfigVMResponse,
     PluginLogEntrySource,
@@ -13,9 +12,10 @@ import {
     VMMethods,
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
-import { disablePlugin, setPluginCapabilities, setPluginMetrics } from '../../utils/db/sql'
+import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
+import { getVMPluginCapabilities } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
 export const VM_INIT_MAX_RETRIES = 5
@@ -128,7 +128,7 @@ export class LazyPluginVM {
                     }
                     await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    await this.inferPluginCapabilities(vm)
+                    await this.updatePluginCapabilitiesIfNeeded(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
@@ -175,6 +175,7 @@ export class LazyPluginVM {
             this.ready = true
             await this.createLogEntry(`setupPlugin completed successfully (instance ID ${this.hub.instanceId}).`)
             status.info('🔌', `setupPlugin completed successfully for ${logInfo}`)
+            this.lastError = null
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             const nextRetryMs =
@@ -187,6 +188,7 @@ export class LazyPluginVM {
             )
             await this.createLogEntry(error.message, PluginLogEntryType.Error)
             this.clearRetryTimeoutIfExists()
+            this.lastError = error
             this.initRetryTimeout = setTimeout(async () => {
                 await this._setupPlugin(vm)
             }, nextRetryMs)
@@ -213,39 +215,12 @@ export class LazyPluginVM {
         void disablePlugin(this.hub, this.pluginConfig.id)
     }
 
-    private async inferPluginCapabilities(vm: PluginConfigVMResponse): Promise<void> {
+    private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
         if (!this.pluginConfig.plugin) {
             throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
         }
 
-        const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
-
-        const tasks = vm?.tasks
-        const methods = vm?.methods
-
-        if (methods) {
-            for (const [key, value] of Object.entries(methods)) {
-                if (value as VMMethods[keyof VMMethods] | undefined) {
-                    capabilities.methods.push(key)
-                }
-            }
-        }
-
-        if (tasks?.schedule) {
-            for (const [key, value] of Object.entries(tasks.schedule)) {
-                if (value) {
-                    capabilities.scheduled_tasks.push(key)
-                }
-            }
-        }
-
-        if (tasks?.job) {
-            for (const [key, value] of Object.entries(tasks.job)) {
-                if (value) {
-                    capabilities.jobs.push(key)
-                }
-            }
-        }
+        const capabilities = getVMPluginCapabilities(vm)
 
         const prevCapabilities = this.pluginConfig.plugin.capabilities
         if (!equal(prevCapabilities, capabilities)) {

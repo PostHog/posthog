@@ -23,6 +23,7 @@ import {
     Experiment,
     PropertyGroupFilter,
     FilterLogicalOperator,
+    PropertyFilterValue,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -103,6 +104,13 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
     return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
+function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    const cohortIds = flattenedProperties?.filter((p) => p.type === 'cohort').map((p) => p.value)
+
+    return cohortIds || []
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
@@ -114,7 +122,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         date_to,
         filter_test_accounts,
         formula,
-        insight,
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
@@ -151,6 +158,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const breakdown_by_groups = filters.breakdown_group_type_index != undefined
     // If groups are being used in this query
     let using_groups = hasGroupProperties(filters.properties)
+    const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
         properties_local = properties_local.concat(flattenProperties(entity.properties || []))
@@ -163,7 +171,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
-        insight,
         display,
         interval,
         date_from,
@@ -184,6 +191,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
+        used_cohort_filter_ids,
     }
 }
 
@@ -273,6 +281,7 @@ export const eventUsageLogic = kea<
             dateFrom,
             dateTo,
         }),
+        reportDashboardPropertiesChanged: true,
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
@@ -285,7 +294,7 @@ export const eventUsageLogic = kea<
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
+        reportIngestionLandingSeen: true,
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -706,6 +715,9 @@ export const eventUsageLogic = kea<
                 date_to: dateTo?.toString(),
             })
         },
+        reportDashboardPropertiesChanged: async () => {
+            posthog.capture(`dashboard properties changed`)
+        },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)
         },
@@ -739,8 +751,8 @@ export const eventUsageLogic = kea<
             }
             posthog.capture('test account filters updated', payload)
         },
-        reportIngestionLandingSeen: async ({ isGridView }) => {
-            posthog.capture('ingestion landing seen', { grid_view: isGridView })
+        reportIngestionLandingSeen: async () => {
+            posthog.capture('ingestion landing seen')
         },
         reportProjectHomeItemClicked: async ({ module, item, extraProps }) => {
             const defaultProps = { module, item }

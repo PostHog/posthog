@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Tuple, Union, cast
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
-from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown, ClickhouseTrendsBreakdown_PersonsOnEvents
+from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
@@ -34,12 +34,9 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
 
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            if team.actor_on_events_querying_enabled:
-                sql, params, parse_function = ClickhouseTrendsBreakdown_PersonsOnEvents(
-                    entity, filter, team
-                ).get_query()
-            else:
-                sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team).get_query()
+            sql, params, parse_function = ClickhouseTrendsBreakdown(
+                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:

@@ -6,7 +6,7 @@ import { IconLegend } from 'lib/components/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { formatCompareLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { ChartDisplayType, InsightType } from '~/types'
@@ -43,7 +43,6 @@ export function InsightLegend(): JSX.Element {
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
-    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
 
     return (
         <div className="insight-legend-menu">
@@ -54,14 +53,14 @@ export function InsightLegend(): JSX.Element {
                             <Row key={item.id} className="insight-legend-menu-item" wrap={false}>
                                 <LemonCheckbox
                                     className="insight-legend-menu-item-inner"
-                                    color={colorList[item.id]}
+                                    color={getSeriesColor(item.id, !!filters.compare)}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
                                     rowProps={{ fullWidth: true }}
                                     label={
                                         <InsightLabel
                                             key={item.id}
-                                            seriesColor={colorList[item.id]}
+                                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
                                             action={item.action}
                                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                                             hasMultipleSeries={indexedResults.length > 1}

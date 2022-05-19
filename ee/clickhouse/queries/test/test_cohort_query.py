@@ -1024,6 +1024,17 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             distinct_id="p2",
             timestamp=datetime.now() - timedelta(days=10),
         )
+
+        p3 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=10),
+        )
         flush_persons_and_events()
 
         filter = Filter(
@@ -1055,10 +1066,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        # shouldn't raise negation error, but it does right now
-        # because simplify converts each individual property to its own property group
-        CohortQuery(filter=filter, team=self.team).get_query()
-        # self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+        self.assertCountEqual([p3.uuid], [r[0] for r in res])
 
     def test_negation_dynamic_time_bound_with_performed_event(self):
         # invalid dude because $pageview happened too early
@@ -1303,6 +1313,28 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_faulty_type(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[
+                {"properties": [{"key": "email", "type": "event", "value": ["fake@test.com"], "operator": "exact"}]}
+            ],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    }
+                ],
+            },
+        )
 
     def test_precalculated_cohort_filter(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
@@ -1943,6 +1975,323 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         self.assertEqual(set([p1.uuid, p2.uuid]), set([r[0] for r in res]))
+
+    @snapshot_clickhouse_queries
+    def test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        cohort_static = _create_cohort(team=self.team, name="cohort static", groups=[], is_static=True,)
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test"})
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        p4 = _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "test"})
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p4",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        p5 = _create_person(team_id=self.team.pk, distinct_ids=["p5"], properties={"name": "test"})
+        flush_persons_and_events()
+        cohort_static.insert_users_by_list(["p4", "p5"])
+
+        other_cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort other",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$new_view",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                            # p3, p4 fits in here
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_static.pk,
+                            "type": "cohort",
+                            "negation": True,
+                            # p4, p5 fits in here
+                        },
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "id", "value": other_cohort.pk, "type": "cohort"},  # p3 fits in here
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                            # p2 fits in here
+                        },
+                    ],
+                },
+            },
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p2.uuid, p3.uuid], [r[0] for r in res])
+
+    def test_unwrap_with_negated_cohort(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test2", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        p3 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test2", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort 1",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$new_view",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort 2",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$some_event",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                        {"key": "name", "value": "test2", "type": "person", "negation": True},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True,},
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"},],  # p3 fits in here
+                },
+            },
+            team=self.team,
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p2.uuid], [r[0] for r in res])
+
+    def test_unwrap_multiple_levels(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test2", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$new_view",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        p3 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test2", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        p4 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "test3", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$target_event",
+            properties={},
+            distinct_id="p4",
+            timestamp=datetime.now() - timedelta(days=6),
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort 1",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$new_view",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort 2",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$some_event",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                        {"key": "name", "value": "test2", "type": "person", "negation": True},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True,},
+                    ],
+                }
+            },
+        )
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            name="cohort 3",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "name", "value": "test3", "type": "person"},
+                        {"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True,},
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"},],},},
+            team=self.team,
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertCountEqual([p4.uuid], [r[0] for r in res])
 
 
 class TestCohortNegationValidation(BaseTest):

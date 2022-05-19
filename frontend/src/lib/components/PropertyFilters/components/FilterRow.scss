@@ -12,37 +12,4 @@
     &.wrap-filters {
         flex-basis: auto;
     }
-
-    .property-filter-button-spacing {
-        color: #c4c4c4;
-        font-size: 18px;
-        min-width: 30px;
-        box-sizing: border-box;
-        align-items: center;
-        padding-left: 4px;
-        padding-right: 4px;
-        position: relative;
-        top: -4px;
-        user-select: none;
-    }
-}
-
-.property-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin: 0.25rem 0 1rem;
-
-    .property-filter {
-        color: #2d2d2d;
-        border-color: $dark-grey;
-        background: $dark-grey;
-
-        text-shadow: none;
-        box-shadow: none;
-
-        .anticon-close {
-            color: #2d2d2d;
-        }
-    }
 }

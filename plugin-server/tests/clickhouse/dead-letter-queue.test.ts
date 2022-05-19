@@ -1,12 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 import { workerTasks } from './../../src/worker/tasks'
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
@@ -66,7 +65,7 @@ describe('events dead letter queue', () => {
 
     test('events get sent to dead letter queue on error', async () => {
         const ingestResponse1 = await workerTasks.ingestEvent(hub, { event: createEvent() })
-        expect(ingestResponse1).toEqual({ error: 'database unavailable' })
+        expect(ingestResponse1).toEqual({ success: false, error: 'database unavailable' })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
         await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)

@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
@@ -13,6 +13,7 @@ import { resetTestDatabase } from '../helpers/sql'
 import { PluginConfig, PluginConfigVMResponse } from './../../src/types'
 import { plugin60 } from './../helpers/plugins'
 
+jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/celery/client')
 jest.mock('../../src/main/job-queues/job-queue-manager')
 jest.setTimeout(100000)
@@ -23,7 +24,9 @@ const defaultEvent = {
     site_url: 'http://localhost',
     team_id: 3,
     now: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     event: 'default event',
+    properties: {},
 }
 
 // since we introduced super lazy vms, setupPlugin does not run immediately with
@@ -372,7 +375,7 @@ describe('vm tests', () => {
             `
             await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'export',
             }
@@ -391,7 +394,7 @@ describe('vm tests', () => {
             `
             await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'default export',
             }
@@ -1071,7 +1074,7 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: PluginEvent = {
+        const event: ProcessedPluginEvent = {
             ...defaultEvent,
             event: 'onEvent',
         }
@@ -1087,7 +1090,7 @@ describe('vm tests', () => {
         `
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: PluginEvent = {
+        const event: ProcessedPluginEvent = {
             ...defaultEvent,
             event: '$snapshot',
         }
@@ -1158,7 +1161,7 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'exported',
             }
@@ -1267,7 +1270,7 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 ...defaultEvent,
                 event: 'exported',
             }
@@ -1301,13 +1304,13 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
-                site_url: 'http://localhost',
                 team_id: 3,
-                now: new Date().toISOString(),
+                timestamp: new Date().toISOString(),
                 event: 'exported',
+                properties: {},
             }
             for (let i = 0; i < 100; i++) {
                 await vm.methods.onEvent!(event)
@@ -1316,21 +1319,21 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(15)
             expect((fetch as any).mock.calls).toEqual([
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=946&count=7'],
-                ['https://export.com/?length=271&count=2'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=890&count=7'],
+                ['https://export.com/?length=255&count=2'],
             ])
         })
 
@@ -1355,13 +1358,13 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            const event: PluginEvent = {
+            const event: ProcessedPluginEvent = {
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
-                site_url: 'http://localhost',
                 team_id: 3,
-                now: new Date().toISOString(),
+                timestamp: new Date().toISOString(),
                 event: 'exported',
+                properties: {},
             }
             for (let i = 0; i < 100; i++) {
                 await vm.methods.onEvent!(event)
@@ -1370,7 +1373,7 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(100)
             expect((fetch as any).mock.calls).toEqual(
-                Array.from(Array(100)).map(() => ['https://export.com/?length=136&count=1'])
+                Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
             )
         })
 

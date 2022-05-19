@@ -158,12 +158,6 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -562,7 +556,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
@@ -634,7 +629,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'

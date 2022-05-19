@@ -46,6 +46,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        using_person_on_events: bool = False,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -59,7 +60,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
-        self._extra_person_fields = extra_person_fields
+        self._using_person_on_events = using_person_on_events
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id

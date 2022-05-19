@@ -103,6 +103,18 @@ class Cohort(models.Model):
             property_groups = []
             for group in self.groups:
                 if group.get("properties"):
+
+                    # KLUDGE: map 'event' to 'person' to handle faulty event type that used to be saved
+                    # TODO: Remove once the event type is swapped over
+                    props = group.get("properties")
+                    if isinstance(props, list):
+                        for prop in props:
+                            if prop.get("type") == "event":
+                                prop["type"] = "person"
+                    elif isinstance(props, dict):
+                        if props.get("type") == "event":
+                            props["type"] = "person"
+
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
                     property_groups.append(
                         Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
@@ -158,7 +170,6 @@ class Cohort(models.Model):
         return False
 
     def get_analytics_metadata(self):
-        # TODO: add analytics for new cohort prop types
         action_groups_count: int = 0
         properties_groups_count: int = 0
         for group in self.groups:
@@ -166,6 +177,7 @@ class Cohort(models.Model):
             properties_groups_count += 1 if group.get("properties") else 0
 
         return {
+            "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
             "person_count_precalc": self.people.count(),
             "groups_count": len(self.groups),
@@ -338,7 +350,7 @@ class Cohort(models.Model):
 
 def get_and_update_pending_version(cohort: Cohort):
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save()
+    cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version
 
