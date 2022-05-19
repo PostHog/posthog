@@ -91,7 +91,7 @@ runs:
           if: ${{ inputs.foss == 'true' && inputs.person-on-events == 'true'}}
           shell: bash
           run: |
-              pytest -m "not ee and not async_migrations" posthog/api/ posthog/queries --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
+              pytest -m "not ee and not async_migrations" posthog/api/ posthog/queries
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
