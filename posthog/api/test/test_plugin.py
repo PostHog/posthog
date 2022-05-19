@@ -461,6 +461,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_update_plugin_source(self, mock_get, mock_reload):
+        # Create the plugin
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin_original",},
@@ -468,10 +469,12 @@ class TestPluginAPI(APIBaseTest):
         plugin_id = response.json()["id"]
         self.assertEqual(mock_reload.call_count, 1)
 
+        # There is no actual source code stored yet
         response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/source")
         self.assertEqual(response.json(), {})
         self.assertEqual(Plugin.objects.get(pk=plugin_id).name, "myplugin_original")
 
+        # Create two files: index.ts and plugin.json
         response = self.client.patch(
             f"/api/organizations/@current/plugins/{plugin_id}/update_source",
             data=json.dumps({"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'}),
@@ -481,6 +484,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.get(pk=plugin_id).name, "my plugin")
         self.assertEqual(mock_reload.call_count, 2)
 
+        # Modifying just one file will not alter the other
         response = self.client.patch(
             f"/api/organizations/@current/plugins/{plugin_id}/update_source",
             data=json.dumps({"index.ts": "'hello again'"}),
@@ -489,6 +493,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.json(), {"index.ts": "'hello again'", "plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 3)
 
+        # Deleting a file by passing `None`
         response = self.client.patch(
             f"/api/organizations/@current/plugins/{plugin_id}/update_source",
             data=json.dumps({"index.ts": None}),
