@@ -44,7 +44,6 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             using_person_on_events=self.team.actor_on_events_querying_enabled,
         ).get_query()
-        # TODO: check ramifications in snapshots
 
         result = sync_execute(query, params)
 
