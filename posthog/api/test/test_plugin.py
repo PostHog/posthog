@@ -890,8 +890,8 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
-    @patch("posthog.api.plugin.celery_app.send_task")
-    def test_job_trigger(self, patch_trigger_plugin_job, mock_get, mock_reload):
+    @patch("posthog.api.plugin.connection")
+    def test_job_trigger(self, db_connection, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
         )
@@ -907,16 +907,18 @@ class TestPluginAPI(APIBaseTest):
             {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
             format="json",
         )
-
-        patch_trigger_plugin_job.assert_has_calls(
-            [
-                mock.call(
-                    name="posthog.tasks.plugins.plugin_job",
-                    queue="posthog-plugins",
-                    args=[self.team.pk, plugin_config_id, "myJob", "stop", {"a": 1}],
-                )
-            ]
-        )
+        self.assertEqual(response.status_code, 200)
+        execute_fn = db_connection.cursor().__enter__().execute
+        self.assertEqual(execute_fn.call_count, 1)
+        expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
+        expected_params = [
+            (
+                '{"type": "myJob", "payload": {"a": 1, "$operation": "stop"}, '
+                f'"pluginConfigId": {plugin_config_id}, "pluginConfigTeam": {self.team.pk}'
+                "}"
+            )
+        ]
+        execute_fn.assert_called_with(expected_sql, expected_params)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
