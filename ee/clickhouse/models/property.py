@@ -300,12 +300,14 @@ def parse_prop_clauses(
                 final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
 
-    if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
-        final.append(f"person_id != 00000000-0000-0000-0000-000000000000")
-
     if final:
         # remove the first operator
-        return " ".join(final).replace(property_operator, "", 1), params
+        formatted_clauses = " ".join(final).replace(property_operator, "", 1)
+
+        if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            formatted_clauses = f"person_id != '00000000-0000-0000-0000-000000000000' AND ({formatted_clauses})"
+
+        return formatted_clauses, params
 
     return "", params
 

@@ -165,7 +165,7 @@ class _FunnelEventQuery_PersonOnEvents(EnterpriseEventQuery):
         )
 
         _fields.extend(
-            f"group{group_index}_properties AS group_properties_{group_index}"
+            f"group{group_index}_properties AS group{group_index}_properties"
             for group_index in self._column_optimizer.group_types_to_query
         )
 
