@@ -491,7 +491,7 @@ describe('plugins', () => {
     test('plugin config order', async () => {
         hub.db.getPluginSource = (pluginId, filename) =>
             Promise.resolve(
-                filename == 'index.ts'
+                filename === 'index.ts'
                     ? `function processEvent(event) {
                          event.properties.plugins = [...(event.properties.plugins || []), ${pluginId}]
                          return event
@@ -616,8 +616,7 @@ describe('plugins', () => {
         getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename == 'index.ts' ? source_code : null)
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'index.ts' ? source_code : null)
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
@@ -630,6 +629,85 @@ describe('plugins', () => {
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
         expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
+    })
+
+    test('plugin with frontend source transpiles it', async () => {
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const {
+            rows: [{ transpiled }],
+        } = await hub.db.postgresQuery(
+            `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+            [60, 'frontend.tsx'],
+            ''
+        )
+        expect(transpiled).toEqual(`"use strict";
+export function getFrontendApp (require) { let exports = {}; "use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.scene = void 0;
+var scene = {};
+exports.scene = scene;; return exports; }`)
+    })
+
+    test('plugin with frontend source with error', async () => {
+        const source_frontend = `export const scene = {}/`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const {
+            rows: [plugin],
+        } = await hub.db.postgresQuery(
+            `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+            [60, 'frontend.tsx'],
+            ''
+        )
+        expect(plugin.transpiled).toEqual(null)
+        expect(plugin.status).toEqual('ERROR')
+        expect(plugin.error).toContain(`SyntaxError: /frontend.tsx: Unexpected token (1:24)`)
+        expect(plugin.error).toContain(`export const scene = {}/`)
+    })
+
+    test('getTranspilationLock returns just once', async () => {
+        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) =>
+            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+        await setupPlugins(hub)
+        const getStatus = async () =>
+            (
+                await hub.db.postgresQuery(
+                    `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+                    [60, 'frontend.tsx'],
+                    ''
+                )
+            )?.rows?.[0]?.status || null
+
+        expect(await getStatus()).toEqual('TRANSPILED')
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+
+        await hub.db.postgresQuery(
+            'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
+            ['frontend.tsx'],
+            ''
+        )
+
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(true)
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await getStatus()).toEqual('LOCKED')
     })
 
     test('reloading plugins after config changes', async () => {

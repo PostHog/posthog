@@ -236,6 +236,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     del sources[key]
                 else:
                     sources[key].source = value
+                    sources[key].status = None
+                    sources[key].transpiled = None
+                    sources[key].error = None
                     sources[key].save()
         response: Dict[str, str] = {}
         for key, source in sources.items():
@@ -258,6 +261,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
         if performed_changes:
+            plugin.updated_at = now()
             plugin.save()
         return Response(response)
 
