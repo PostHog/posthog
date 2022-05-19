@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.group import get_aggregation_target_field
@@ -13,7 +13,7 @@ from posthog.models.utils import PersonPropertiesMode
 
 def FunnelEventQuery(
     filter: Filter, team: Team, extra_fields: List[ColumnName] = [], extra_event_properties: List[PropertyName] = []
-) -> EnterpriseEventQuery:
+) -> Union["_FunnelEventQuery", "_FunnelEventQuery_PersonOnEvents"]:
     if team.actor_on_events_querying_enabled:
         return _FunnelEventQuery_PersonOnEvents(
             filter=filter, team=team, extra_fields=extra_fields, extra_event_properties=extra_event_properties
@@ -212,6 +212,9 @@ class _FunnelEventQuery_PersonOnEvents(EnterpriseEventQuery):
         """
 
         return query, self.params
+
+    def _determine_should_join_distinct_ids(self) -> None:
+        pass
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
         events = set()
