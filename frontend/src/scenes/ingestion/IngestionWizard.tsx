@@ -91,8 +91,12 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
 
     return (
         <div style={{ display: 'flex', height: '100%' }}>
-            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
-            <Sidebar />
+            {onboardingSidebar && (
+                <>
+                    <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+                    <Sidebar />
+                </>
+            )}
             <div className="bridge-page IngestionContainer">
                 {!onboardingSidebar && (
                     <div className="mb">
