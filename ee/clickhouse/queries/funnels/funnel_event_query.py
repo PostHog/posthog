@@ -12,7 +12,7 @@ from posthog.models.utils import PersonPropertiesMode
 
 
 def FunnelEventQuery(
-    filter: Filter, team: Team, extra_fields: List[ColumnName], extra_event_properties: List[PropertyName]
+    filter: Filter, team: Team, extra_fields: List[ColumnName] = [], extra_event_properties: List[PropertyName] = []
 ) -> EnterpriseEventQuery:
     if team.actor_on_events_querying_enabled:
         return _FunnelEventQuery_PersonOnEvents(
