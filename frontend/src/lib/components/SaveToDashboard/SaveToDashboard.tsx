@@ -11,9 +11,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
+    disabled: boolean
 }
 
-export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element {
+export function SaveToDashboard({ insight, disabled }: SaveToDashboardProps): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []
@@ -27,6 +28,7 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                 <>
                     <AddToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
                     <LemonButton
+                        disabled={disabled}
                         onClick={() => setOpenModal(true)}
                         type="secondary"
                         icon={
@@ -47,6 +49,7 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                     />
                     {dashboards.length > 0 ? (
                         <LemonButton
+                            disabled={disabled}
                             to={urls.dashboard(dashboards[0].id, insight.short_id)}
                             type="secondary"
                             icon={<IconGauge />}
@@ -54,7 +57,12 @@ export function SaveToDashboard({ insight }: SaveToDashboardProps): JSX.Element 
                             {dashboards.length > 1 ? 'On multiple dashboards' : `On dashboard: ${dashboards[0]?.name}`}
                         </LemonButton>
                     ) : (
-                        <LemonButton onClick={() => setOpenModal(true)} type="secondary" icon={<IconGauge />}>
+                        <LemonButton
+                            disabled={disabled}
+                            onClick={() => setOpenModal(true)}
+                            type="secondary"
+                            icon={<IconGauge />}
+                        >
                             Add to dashboard
                         </LemonButton>
                     )}
