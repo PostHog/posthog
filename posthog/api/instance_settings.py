@@ -32,9 +32,9 @@ class InstanceSetting(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting:
+def get_instance_setting(key: str, setting_config: Tuple = []) -> InstanceSetting:
 
-    if setting_config == {}:
+    if setting_config == []:
         for _key, setting_config in CONSTANCE_CONFIG.items():
             if _key == key:
                 break
