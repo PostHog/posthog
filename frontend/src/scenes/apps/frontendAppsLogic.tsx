@@ -10,7 +10,12 @@ import { lemonToast } from 'lib/components/lemonToast'
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'frontendAppsLogic']),
     actions({
-        loadFrontendApp: (id: number, pluginId: number, reload: boolean = false) => ({ id, pluginId, reload }),
+        loadFrontendApp: (id: number, pluginId: number, reload: boolean = false, attempt: number = 1) => ({
+            id,
+            pluginId,
+            reload,
+            attempt,
+        }),
         unloadFrontendApp: (id: number) => ({ id }),
         setAppConfig: (id: number, appConfig: FrontendAppConfig) => ({ id, appConfig }),
         setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
@@ -20,7 +25,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     }),
     loaders(({ actions, values }) => ({
         frontendApps: {
-            loadFrontendApp: async ({ id, pluginId, reload }) => {
+            loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
                 try {
                     const siteUrl = location.origin
                     const exports = await import(
@@ -31,8 +36,16 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                         if ('scene' in app) {
                             return { ...values.frontendApps, [id]: { ...app.scene, id, pluginId } }
                         }
-                        if ('transpiling' in app) {
-                            window.setTimeout(() => actions.loadFrontendApp(id, pluginId, true), 1000)
+                        if ('no_frontend' in app || 'transpiling' in app) {
+                            // Also retry with "no frontend". We will get this error when using a github/zip
+                            // plugin, after it's saved in the db, but before loadPlugin runs the first time.
+                            const maxAttempts = 5
+                            if (attempt < maxAttempts) {
+                                window.setTimeout(
+                                    () => actions.loadFrontendApp(id, pluginId, true, attempt + 1),
+                                    1000 + attempt * 300
+                                )
+                            }
                             return values.frontendApps
                         }
                         if ('error' in app) {

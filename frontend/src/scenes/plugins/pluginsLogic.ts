@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
@@ -16,6 +16,9 @@ import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 type PluginForm = FormInstance
 
@@ -60,9 +63,10 @@ async function loadPaginatedResults(
     return results
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
-    path: ['scenes', 'plugins', 'pluginsLogic'],
-    actions: {
+export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>([
+    path(['scenes', 'plugins', 'pluginsLogic']),
+    connect(frontendAppsLogic),
+    actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
@@ -98,9 +102,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
         toggleSectionOpen: (section: PluginSection) => ({ section }),
-    },
+        syncFrontendAppState: (id: number) => ({ id }),
+    }),
 
-    loaders: ({ actions, values }) => ({
+    loaders(({ actions, values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -187,7 +192,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         formData.append('order', values.nextPluginOrder.toString())
                     }
 
-                    let response
+                    let response: PluginConfigType
                     if (editingPlugin.pluginConfig.id) {
                         response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
@@ -198,7 +203,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     if (editingPlugin.pluginConfig.enabled !== response.enabled) {
                         capturePluginEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
                     }
-
+                    if ('id' in response) {
+                        window.setTimeout(() => response.id && actions.syncFrontendAppState(response.id), 0)
+                    }
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
@@ -252,9 +259,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
-    }),
+    })),
 
-    reducers: {
+    reducers({
         plugins: {
             setUpdateStatus: (state, { id, tag, latestTag }) => ({
                 ...state,
@@ -430,9 +437,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
-    },
+    }),
 
-    selectors: {
+    selectors({
         installedPlugins: [
             (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
             (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
@@ -644,10 +651,23 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 return allPossiblePlugins
             },
         ],
-    },
+    }),
 
-    listeners: ({ actions, values }) => ({
-        toggleEnabled: () => {},
+    listeners(({ actions, values }) => ({
+        toggleEnabledSuccess: ({ payload: { id } }) => {
+            actions.syncFrontendAppState(id)
+        },
+        syncFrontendAppState: ({ id }) => {
+            const getPluginConfig = (): PluginConfigType | undefined =>
+                Object.values(values.pluginConfigs).find(({ id: _id }) => id === _id)
+            const pluginConfig = getPluginConfig()
+            if (pluginConfig) {
+                frontendAppsLogic.actions.unloadFrontendApp(id)
+                if (pluginConfig.enabled) {
+                    frontendAppsLogic.actions.loadFrontendApp(id, pluginConfig.plugin, true)
+                }
+            }
+        },
         checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
             const { updatablePlugins } = values
@@ -713,24 +733,22 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }
         },
-    }),
+    })),
 
-    urlToAction: ({ actions }) => ({
+    urlToAction(({ actions }) => ({
         '/project/plugins': (_, { tab, name }) => {
             if (tab && name) {
                 actions.setSearchTerm(name)
                 actions.setPluginTab(tab as PluginTab)
             }
         },
-    }),
+    })),
 
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPlugins()
-            actions.loadPluginConfigs()
-            if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
-                actions.loadRepository()
-            }
-        },
+    afterMount(({ actions }) => {
+        actions.loadPlugins()
+        actions.loadPluginConfigs()
+        if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
+            actions.loadRepository()
+        }
     }),
-})
+])
