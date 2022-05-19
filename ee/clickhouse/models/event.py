@@ -58,7 +58,7 @@ def create_event(
     return str(event_uuid)
 
 
-def bulk_create_events(events: List[Dict[str, Any]]):
+def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
     """
     TEST ONLY
     Insert events in bulk. List of dicts:
@@ -90,10 +90,22 @@ def bulk_create_events(events: List[Dict[str, Any]]):
             elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
 
         inserts.append(
-            "(%(uuid_{i})s, %(event_{i})s, %(properties_{i})s, %(timestamp_{i})s, %(team_id_{i})s, %(distinct_id_{i})s, %(elements_chain_{i})s, %(created_at_{i})s, now(), 0)".format(
+            "(%(uuid_{i})s, %(event_{i})s, %(properties_{i})s, %(timestamp_{i})s, %(team_id_{i})s, %(distinct_id_{i})s, %(elements_chain_{i})s, %(person_id_{i})s, %(person_properties_{i})s, %(group0_properties_{i})s, %(group1_properties_{i})s, %(group2_properties_{i})s, %(group3_properties_{i})s, %(group4_properties_{i})s, %(created_at_{i})s, now(), 0)".format(
                 i=index
             )
         )
+
+        #  use person properties mapping to populate person properties in given event
+        if person_mapping and person_mapping.get(event["distinct_id"]):
+            person_properties = person_mapping[event["distinct_id"]].properties
+            person_id = person_mapping[event["distinct_id"]].uuid
+
+            event = {
+                **event,
+                "person_properties": {**person_properties, **event.get("person_properties", {})},
+                "person_id": person_id,
+            }
+
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
@@ -103,6 +115,13 @@ def bulk_create_events(events: List[Dict[str, Any]]):
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,
+            "person_id": event["person_id"] if event.get("person_id") else "00000000-0000-0000-0000-000000000000",
+            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
+            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
+            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
+            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
+            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
+            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
         }
 
         params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}

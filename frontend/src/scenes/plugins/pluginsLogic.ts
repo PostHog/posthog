@@ -15,6 +15,7 @@ import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 
 type PluginForm = FormInstance
 
@@ -115,8 +116,15 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create(
                         'api/organizations/@current/plugins',
-                        pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
+                        pluginType === 'source' ? { plugin_type: pluginType, name: url } : { url }
                     )
+                    if (pluginType === 'source') {
+                        await api.update(
+                            `api/organizations/@current/plugins/${response.id}/update_source`,
+                            createDefaultPluginSource(url)
+                        )
+                        actions.loadPlugins()
+                    }
                     capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
                 },
