@@ -272,6 +272,10 @@ export interface Plugin {
     source?: string
     /** Cached source for index.ts from a joined PluginSourceFile query */
     source__index_ts?: string
+    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
+    source__frontend_tsx?: string
+    /** Cached result of a SQL query checking if status=TRANSPILED in the filename=frontend.tsx PluginSourceFile */
+    has_transpiled_frontend_tsx?: boolean
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
