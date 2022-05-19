@@ -1,6 +1,8 @@
-from boto3 import client, resource
+import structlog
+from boto3 import client
 from botocore.client import Config
-from botocore.exceptions import EndpointConnectionError
+
+logger = structlog.get_logger(__name__)
 
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -10,31 +12,33 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-s3 = resource(
-    "s3",
-    endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
-    aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-    aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    config=Config(signature_version="s3v4"),
-    region_name="us-east-1",
-)
+s3_client = None
 
-client = client(
-    "s3",
-    endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
-    aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-    aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    config=Config(signature_version="s3v4"),
-    region_name="us-east-1",
-)
+
+# boto doing some magic and gets confused if this is hinted as BaseClient
+# noinspection PyMissingTypeHints
+def storage_client():
+    global s3_client
+    if not s3_client:
+        s3_client = client(
+            "s3",
+            endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+    return s3_client
 
 
 def health_check() -> bool:
+    # noinspection PyBroadException
     try:
-        response = client.head_bucket(Bucket=OBJECT_STORAGE_BUCKET)
+        response = storage_client().head_bucket(Bucket=OBJECT_STORAGE_BUCKET)
         if response:
             return True
         else:
             return False
-    except (client.exceptions.NoSuchBucket, EndpointConnectionError) as e:
+    except Exception as e:
+        logger.warn("object_storage.health_check_failed", error=e)
         return False

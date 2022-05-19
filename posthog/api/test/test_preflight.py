@@ -89,9 +89,9 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.client.head_bucket")
-    def test_preflight_request_with_object_storage_available(self, patched_head_bucket):
-        patched_head_bucket.return_value = True
+    @patch("posthog.storage.object_storage.s3_client")
+    def test_preflight_request_with_object_storage_available(self, patched_s3_client):
+        patched_s3_client.head_bucket.return_value = True
 
         with self.settings(
             MULTI_TENANCY=False,
