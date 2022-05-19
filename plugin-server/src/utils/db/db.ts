@@ -39,7 +39,6 @@ import {
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
-    Plugin,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
