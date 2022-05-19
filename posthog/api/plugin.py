@@ -252,6 +252,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 plugin.config_schema = plugin_json.get("config")
                 performed_changes = True
 
+        # TODO: Truly deprecate this old field. Keeping the sync just in case for now.
+        if response.get("index.ts") and plugin.source != response["index.ts"]:
+            plugin.source = response["index.ts"]
+            performed_changes = True
+
         # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
         if performed_changes:
             plugin.save()
