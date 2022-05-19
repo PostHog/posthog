@@ -14,75 +14,65 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
     }
 
     try {
+        let getFile = (file: string): Promise<string | null> => Promise.resolve(null)
+
         if (plugin.url?.startsWith('file:')) {
             const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
-            const configPath = path.resolve(pluginPath, 'plugin.json')
-
-            let config: PluginJsonConfig = {}
-            if (fs.existsSync(configPath)) {
-                try {
-                    const jsonBuffer = fs.readFileSync(configPath)
-                    config = JSON.parse(jsonBuffer.toString())
-                } catch (e) {
-                    pluginConfig.vm?.failInitialization!()
-                    await processError(
-                        server,
-                        pluginConfig,
-                        `Could not load posthog config at "${configPath}" for ${pluginDigest(plugin)}`
-                    )
-                    return false
-                }
+            getFile = (file) => {
+                const fullPath = path.resolve(pluginPath, file)
+                return Promise.resolve(fs.existsSync(fullPath) ? fs.readFileSync(fullPath).toString() : null)
             }
-
-            if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
-                pluginConfig.vm?.failInitialization!()
-                await processError(
-                    server,
-                    pluginConfig,
-                    `No "main" config key or "index.js" file found for ${pluginDigest(plugin)}`
-                )
-                return false
-            }
-
-            const jsPath = path.resolve(pluginPath, config['main'] || 'index.js')
-            const indexJs = fs.readFileSync(jsPath).toString()
-
-            void pluginConfig.vm?.initialize!(indexJs, `local ${pluginDigest(plugin)} from "${pluginPath}"!`)
-            return true
         } else if (plugin.archive) {
-            let config: PluginJsonConfig = {}
             const archive = Buffer.from(plugin.archive)
-            const json = await getFileFromArchive(archive, 'plugin.json')
-            if (json) {
-                try {
-                    config = JSON.parse(json)
-                } catch (error) {
-                    pluginConfig.vm?.failInitialization!()
-                    await processError(server, pluginConfig, `Can not load plugin.json for ${pluginDigest(plugin)}`)
-                    return false
+            getFile = (file) => getFileFromArchive(archive, file)
+        } else if (plugin.plugin_type === 'source') {
+            getFile = async (file) => {
+                if (file === 'index.ts' && plugin.source) {
+                    return file
                 }
+                return await server.db.getPluginSource(plugin.id, file)
             }
-
-            const indexJs = await getFileFromArchive(archive, config['main'] || 'index.js')
-
-            if (indexJs) {
-                void pluginConfig.vm?.initialize!(indexJs, pluginDigest(plugin))
-                return true
-            } else {
-                pluginConfig.vm?.failInitialization!()
-                await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
-            }
-        } else if (plugin.plugin_type === 'source' && plugin.source) {
-            void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
-            return true
         } else {
             pluginConfig.vm?.failInitialization!()
             await processError(
                 server,
                 pluginConfig,
-                `Tried using undownloaded remote ${pluginDigest(plugin)}, which is not supported!`
+                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Can not load.`
             )
+            return false
         }
+
+        const configJson: string | null = await getFile('plugin.json')
+        let config: PluginJsonConfig = {}
+
+        if (configJson) {
+            try {
+                config = JSON.parse(configJson)
+            } catch (e) {
+                pluginConfig.vm?.failInitialization!()
+                await processError(server, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)
+                return false
+            }
+        }
+
+        const pluginSource = config['main']
+            ? await getFile(config['main'])
+            : (await getFile('index.ts')) || (await getFile('index.js'))
+
+        if (!pluginSource) {
+            pluginConfig.vm?.failInitialization!()
+            await processError(
+                server,
+                pluginConfig,
+                `Could not load source code for ${pluginDigest(plugin)}. Tried: ${
+                    config['main'] || 'index.ts, index.js'
+                }`
+            )
+            return false
+        }
+
+        void pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
+        return true
     } catch (error) {
         pluginConfig.vm?.failInitialization!()
         await processError(server, pluginConfig, error)

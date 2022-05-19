@@ -24,8 +24,8 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows: pluginRows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        `SELECT posthog_plugin.*, psf.source as psf_source
+    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+        `SELECT posthog_plugin.*, psf.source as source__index_ts
         FROM posthog_plugin
         LEFT JOIN posthog_pluginsourcefile psf
             ON (posthog_plugin.plugin_type = 'source' AND psf.plugin_id = posthog_plugin.id AND psf.filename = 'index.ts')
@@ -35,12 +35,13 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         'getPluginRows'
     )
 
-    // TODO: properly support multiple files via "posthog_pluginsourcefile"
-    for (const row of pluginRows) {
-        row['source'] = (row as any)['psf_source']
-        delete (row as any)['psf_source']
+    // Pre-fetch the "index.ts" source from posthog_pluginsourcefile
+    for (const row of rows) {
+        row['source'] = (row as any)['source__index_ts']
+        delete (row as any)['source__index_ts']
     }
-    return pluginRows
+
+    return rows
 }
 
 export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {
