@@ -15,7 +15,7 @@ export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
-    const { index } = useValues(ingestionLogic)
+    const { index, onboardingSidebar } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -48,7 +48,7 @@ export function VerificationPanel(): JSX.Element {
                                 Continue without verifying
                             </LemonButton>
                         </div>
-                        <PanelSupport />
+                        {!onboardingSidebar && <PanelSupport />}
                     </>
                 ) : (
                     <>
@@ -69,7 +69,7 @@ export function VerificationPanel(): JSX.Element {
                                 Complete
                             </LemonButton>
                         </div>
-                        <PanelSupport />
+                        {!onboardingSidebar && <PanelSupport />}
                     </>
                 )}
             </div>

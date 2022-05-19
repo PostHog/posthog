@@ -33,7 +33,7 @@ export function IngestionWizard(): JSX.Element {
         }
     }, [platform])
 
-    if (!platform) {
+    if (!platform && !verify) {
         return (
             <IngestionContainer>
                 <PlatformPanel />
@@ -87,15 +87,18 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
+    const { onboardingSidebar } = useValues(ingestionLogic)
 
     return (
         <div style={{ display: 'flex', height: '100%' }}>
             <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <Sidebar />
             <div className="bridge-page IngestionContainer">
-                <div className="mb">
-                    <img src={posthogLogo} style={{ width: 157, height: 30 }} />
-                </div>
+                {!onboardingSidebar && (
+                    <div className="mb">
+                        <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                    </div>
+                )}
                 {children}
             </div>
         </div>

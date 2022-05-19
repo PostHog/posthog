@@ -156,7 +156,7 @@ export function ThirdPartyPanel(): JSX.Element {
 export function IntegrationInstructionsModal(): JSX.Element {
     const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, onboardingSidebar } = useValues(teamLogic)
 
     return (
         <>
@@ -249,7 +249,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                             ) : (
                                 <PluginDrawer />
                             )}
-                            <PanelSupport />
+                            {!onboardingSidebar && <PanelSupport />}
                         </LemonModal>
                     )}
                 </>

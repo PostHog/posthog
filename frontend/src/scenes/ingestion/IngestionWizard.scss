@@ -32,6 +32,7 @@
 .ingestion-current-nav-step {
     color: black;
     display: flex;
+    font-weight: bold;
 
     .step-indicator {
         width: 3px;
@@ -54,4 +55,20 @@
     padding-left: $default_spacing / 2;
     padding-top: $default_spacing * 1.5;
     margin-top: $default_spacing;
+}
+
+.IngestionSidebar__steps {
+    color: $text_muted_alt;
+
+    div {
+        &:hover {
+            cursor: pointer;
+        }
+    }
+
+    .nonclickable {
+        &:hover {
+            cursor: default;
+        }
+    }
 }

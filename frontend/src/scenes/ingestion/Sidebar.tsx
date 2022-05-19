@@ -1,12 +1,13 @@
 import React from 'react'
 import posthogLogo from 'public/posthog-logo.png'
 import { ingestionLogic } from './ingestionLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton, SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 
 export function Sidebar(): JSX.Element {
-    const { index } = useValues(ingestionLogic)
+    const { currentIndex, platform } = useValues(ingestionLogic)
+    const { setVerify, setPlatform } = useActions(ingestionLogic)
 
     return (
         <div
@@ -16,14 +17,37 @@ export function Sidebar(): JSX.Element {
                 <div style={{ padding: '2em' }}>
                     <img src={posthogLogo} style={{ width: 157, height: 30 }} />
                 </div>
-                <div className="text-muted-alt" style={{ fontSize: 14, padding: '2em' }}>
+                <div className="IngestionSidebar__steps" style={{ fontSize: 14, padding: '2em' }}>
                     <b>
-                        <div className={`mb ${index === 0 && 'ingestion-current-nav-step'}`}>
-                            {index === 0 && <div className="step-indicator" />}
+                        <div
+                            className={`mb ${currentIndex === 0 && 'ingestion-current-nav-step'}`}
+                            onClick={() => setPlatform(null)}
+                        >
+                            {currentIndex === 0 && <div className="step-indicator" />}
                             <span>Get started</span>
                         </div>
-                        <div className="mb">Connect your product</div>
-                        <div className="mb">Listen for events</div>
+                        <div
+                            className={`mb ${currentIndex === 1 && 'ingestion-current-nav-step'} ${
+                                !platform && 'nonclickable'
+                            }`}
+                            onClick={() => setVerify(false)}
+                        >
+                            {currentIndex === 1 && <div className="step-indicator" />}
+                            <span>Connect your product</span>
+                        </div>
+                        <div
+                            className={`mb ${currentIndex === 2 && 'ingestion-current-nav-step'} ${
+                                !platform && 'nonclickable'
+                            }`}
+                            onClick={() => {
+                                if (platform) {
+                                    setVerify(true)
+                                }
+                            }}
+                        >
+                            {currentIndex === 2 && <div className="step-indicator" />}
+                            <span>Listen for events</span>
+                        </div>
                     </b>
                 </div>
                 <div className="sidebar-bottom">

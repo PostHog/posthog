@@ -36,6 +36,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
+        setIndex: (index: number) => ({ index }),
         completeOnboarding: true,
     },
 
@@ -86,6 +87,12 @@ export const ingestionLogic = kea<ingestionLogicType>({
             null as PluginTypeWithConfig | null,
             {
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
+            },
+        ],
+        currentIndex: [
+            0,
+            {
+                setIndex: (_, { index }) => index,
             },
         ],
     },
