@@ -17,7 +17,6 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             attempt,
         }),
         unloadFrontendApp: (id: number) => ({ id }),
-        setAppConfig: (id: number, appConfig: FrontendAppConfig) => ({ id, appConfig }),
         setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
     }),
     defaults({
@@ -74,13 +73,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         },
         appConfigs: [
             {} as Record<string, FrontendAppConfig>,
-            {
-                setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
-                setAppConfig: (state, { id, appConfig }) => ({
-                    ...state,
-                    [id]: { ...(state[id] ?? {}), ...appConfig },
-                }),
-            },
+            { setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }) },
         ],
     }),
     afterMount(({ actions }) => {
