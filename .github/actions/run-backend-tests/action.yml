@@ -82,10 +82,16 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Run FOSS tests
-          if: ${{ inputs.foss == 'true' }}
+          if: ${{ inputs.foss == 'true' && inputs.person-on-events != 'true'}}
           shell: bash
           run: |
               pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
+
+        - name: Run specific slice of FOSS tests for person-on-events
+          if: ${{ inputs.foss == 'true' && inputs.person-on-events == 'true'}}
+          shell: bash
+          run: |
+              pytest -m "not ee and not async_migrations" posthog/api/ posthog/queries --cov  --cov-report=xml:coverage-postgres.xml --durations=150 --durations-min=1.0
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
@@ -104,7 +110,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
+              ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee/clickhouse \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --snapshot-update
