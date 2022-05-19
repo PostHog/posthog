@@ -11,6 +11,8 @@ import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
+import { LemonButton } from 'lib/components/LemonButton'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 
 interface PluginSourceProps {
     pluginId: number
@@ -95,17 +97,31 @@ export function PluginSource({
                                 <PluginSourceTabs />
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
-                                        <MonacoEditor
-                                            theme="vs-dark"
-                                            path={currentFile}
-                                            language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
-                                            value={value}
-                                            onChange={(v) => onChange(v ?? '')}
-                                            height={700}
-                                            options={{
-                                                minimap: { enabled: false },
-                                            }}
-                                        />
+                                        <>
+                                            <MonacoEditor
+                                                theme="vs-dark"
+                                                path={currentFile}
+                                                language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
+                                                value={value}
+                                                onChange={(v) => onChange(v ?? '')}
+                                                height={700}
+                                                options={{
+                                                    minimap: { enabled: false },
+                                                }}
+                                            />
+                                            {!value && createDefaultPluginSource(name)[currentFile] ? (
+                                                <div style={{ marginTop: '0.5rem' }}>
+                                                    <LemonButton
+                                                        type="primary"
+                                                        onClick={() =>
+                                                            onChange(createDefaultPluginSource(name)[currentFile])
+                                                        }
+                                                    >
+                                                        Add Example "{currentFile}"
+                                                    </LemonButton>
+                                                </div>
+                                            ) : null}
+                                        </>
                                     )}
                                 </Field>
                             </>

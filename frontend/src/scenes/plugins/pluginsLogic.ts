@@ -124,10 +124,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         pluginType === 'source' ? { plugin_type: pluginType, name: url } : { url }
                     )
                     if (pluginType === 'source') {
-                        await api.update(
-                            `api/organizations/@current/plugins/${response.id}/update_source`,
-                            createDefaultPluginSource(url)
-                        )
+                        await api.update(`api/organizations/@current/plugins/${response.id}/update_source`, {
+                            'plugin.json': createDefaultPluginSource(url)['plugin.json'],
+                        })
                         actions.loadPlugins()
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
