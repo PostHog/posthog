@@ -3,8 +3,8 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 from rest_framework import status
-from posthog.models.constance import set_dynamic_setting
 
+from posthog.models.constance import set_dynamic_setting
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
