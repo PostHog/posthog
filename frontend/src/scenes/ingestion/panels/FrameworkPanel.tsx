@@ -15,12 +15,7 @@ export function FrameworkPanel(): JSX.Element {
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
-        <CardContainer
-            index={index}
-            onBack={() => {
-                setPlatform(null)
-            }}
-        >
+        <CardContainer index={index} onBack={() => setPlatform(null)}>
             {onboarding1 ? (
                 <div style={{ maxWidth: 400 }}>
                     <h1 className="ingestion-title">

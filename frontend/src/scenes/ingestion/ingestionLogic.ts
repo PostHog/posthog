@@ -93,6 +93,18 @@ export const ingestionLogic = kea<ingestionLogicType>({
             0,
             {
                 setIndex: (_, { index }) => index,
+                setPlatform: (state, { platform }) => (platform ? 1 : Math.max(state - 1, 0)),
+                setFramework: (state, { framework }) => (framework ? 1 : Math.max(state - 1, 0)),
+                setVerify: () => 2,
+                setState: (_, { platform, framework, verify }) => {
+                    if (verify) {
+                        return 2
+                    }
+                    if (platform || framework) {
+                        return 1
+                    }
+                    return 0
+                },
             },
         ],
     },
