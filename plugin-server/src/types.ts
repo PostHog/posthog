@@ -363,6 +363,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum PluginSourceFileStatus {
+    Transpiled = 'TRANSPILED',
+    Locked = 'LOCKED',
+    Error = 'ERROR',
+}
+
 export enum PluginTaskType {
     Job = 'job',
     Schedule = 'schedule',
