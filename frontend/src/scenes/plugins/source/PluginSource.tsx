@@ -1,7 +1,7 @@
 import './PluginSource.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button } from 'antd'
+import { Button, Skeleton } from 'antd'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
@@ -32,7 +32,9 @@ export function PluginSource({
 
     const logicProps = { pluginId, pluginConfigId, onClose: close }
     const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
-    const { isPluginSourceSubmitting, currentFile, name } = useValues(pluginSourceLogic(logicProps))
+    const { isPluginSourceSubmitting, pluginSourceLoading, currentFile, name } = useValues(
+        pluginSourceLogic(logicProps)
+    )
 
     useEffect(() => {
         if (!monaco) {
@@ -53,7 +55,7 @@ export function PluginSource({
             visible={visible}
             onClose={closePluginSource}
             width={'min(90vw, 64rem)'}
-            title={`Edit App: ${name}`}
+            title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
                 <div style={{ textAlign: 'right' }}>
@@ -86,23 +88,28 @@ export function PluginSource({
                             .
                         </p>
 
-                        <PluginSourceTabs />
-
-                        <Field name={[currentFile]}>
-                            {({ value, onChange }) => (
-                                <MonacoEditor
-                                    theme="vs-dark"
-                                    path={currentFile}
-                                    language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
-                                    value={value}
-                                    onChange={(v) => onChange(v ?? '')}
-                                    height={700}
-                                    options={{
-                                        minimap: { enabled: false },
-                                    }}
-                                />
-                            )}
-                        </Field>
+                        {pluginSourceLoading ? (
+                            <Skeleton />
+                        ) : (
+                            <>
+                                <PluginSourceTabs />
+                                <Field name={[currentFile]}>
+                                    {({ value, onChange }) => (
+                                        <MonacoEditor
+                                            theme="vs-dark"
+                                            path={currentFile}
+                                            language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
+                                            value={value}
+                                            onChange={(v) => onChange(v ?? '')}
+                                            height={700}
+                                            options={{
+                                                minimap: { enabled: false },
+                                            }}
+                                        />
+                                    )}
+                                </Field>
+                            </>
+                        )}
                     </>
                 ) : null}
             </VerticalForm>
