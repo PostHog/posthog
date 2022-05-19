@@ -27,7 +27,12 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             const archive = Buffer.from(plugin.archive)
             getFile = (file) => getFileFromArchive(archive, file)
         } else if (plugin.plugin_type === 'source') {
-            getFile = (file) => hub.db.getPluginSource(plugin.id, file)
+            getFile = async (file) => {
+                if (file === 'index.ts' && plugin.source) {
+                    return file
+                }
+                return await hub.db.getPluginSource(plugin.id, file)
+            }
         } else {
             pluginConfig.vm?.failInitialization!()
             await processError(
