@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { mocked } from 'ts-jest/utils'
 
 import { Hub, LogLevel, PluginTaskType } from '../src/types'
 import { processError } from '../src/utils/db/error'
@@ -222,7 +221,7 @@ describe('plugins', () => {
         expect(returnedEvent).toEqual(event)
 
         expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
-        const error = mocked(processError).mock.calls[0][2]! as Error
+        const error = jest.mocked(processError).mock.calls[0][2]! as Error
         expect(error.message).toContain(': Unexpected token, expected ","')
     })
 
@@ -249,7 +248,7 @@ describe('plugins', () => {
         expect(returnedEvent).toEqual(event)
 
         expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
-        const error = mocked(processError).mock.calls[0][2]! as Error
+        const error = jest.mocked(processError).mock.calls[0][2]! as Error
         expect(error.message).toContain(': Unexpected token, expected ","')
 
         unlink()
