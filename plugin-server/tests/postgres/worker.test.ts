@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { mocked } from 'ts-jest/utils'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
 import { Hub } from '../../src/types'
@@ -134,7 +133,7 @@ describe('worker', () => {
         })
 
         it('handles `processEvent` task', async () => {
-            mocked(runProcessEvent).mockReturnValue('runProcessEvent response' as any)
+            jest.mocked(runProcessEvent).mockReturnValue('runProcessEvent response' as any)
 
             expect(await taskRunner({ task: 'processEvent', args: { event: 'someEvent' } })).toEqual(
                 'runProcessEvent response'
@@ -150,7 +149,7 @@ describe('worker', () => {
         })
 
         it('handles `ingestEvent` task', async () => {
-            mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
+            jest.mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
 
             expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual(
                 'ingestEvent response'
@@ -160,7 +159,7 @@ describe('worker', () => {
         })
 
         it('handles `runEvery` tasks', async () => {
-            mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
+            jest.mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
                 Promise.resolve(`${task} for ${pluginId}`)
             )
 

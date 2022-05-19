@@ -1,18 +1,18 @@
 import Piscina from '@posthog/piscina'
 
-import { setupPiscina } from '../../benchmarks/postgres/helpers/piscina'
 import { CeleryQueue } from '../../src/main/ingestion-queues/celery-queue'
+import { ingestEvent } from '../../src/main/ingestion-queues/ingest-event'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
-import { runProcessEvent } from '../../src/worker/plugins/run'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
 jest.mock('../../src/utils/status')
+jest.mock('../../src/main/ingestion-queues/ingest-event')
 
 function advanceOneTick() {
     return new Promise((resolve) => process.nextTick(resolve))
@@ -35,7 +35,7 @@ async function createTestHub(): Promise<[Hub, () => Promise<void>]> {
 }
 
 describe('queue', () => {
-    test('plugin jobs queue', async () => {
+    test('process event queue', async () => {
         const [hub, closeHub] = await createTestHub()
         const redis = await hub.redisPool.acquire()
 
@@ -44,17 +44,19 @@ describe('queue', () => {
         expect(queue1).toBe(0)
 
         const kwargs = {
-            pluginConfigTeam: 2,
-            pluginConfigId: 39,
-            type: 'someJobName',
-            jobOp: 'start',
-            payload: { a: 1 },
+            distinct_id: 'hedgehog',
+            ip: null,
+            site_url: 'hedgehogs.com',
+            data: { pineapple: 1 },
+            team_id: 1234,
+            now: 'now',
+            sent_at: 'later',
         }
         const args = Object.values(kwargs)
 
         const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
         for (let i = 0; i < 6; i++) {
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+            client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
         }
 
         await delay(1000)
@@ -70,19 +72,13 @@ describe('queue', () => {
 
         await queue!.pause()
 
-        expect(fakePiscina.run).toHaveBeenCalledWith(
-            expect.objectContaining({
-                task: 'enqueueJob',
-                args: {
-                    job: {
-                        pluginConfigTeam: 2,
-                        pluginConfigId: 39,
-                        type: 'someJobName',
-                        payload: { a: 1, $operation: 'start' },
-                        timestamp: expect.any(Number),
-                    },
-                },
-            })
+        expect(ingestEvent).toHaveBeenCalledTimes(6)
+        const { data, ...expected_args } = kwargs
+        expect(ingestEvent).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ ...expected_args, ...data, uuid: expect.anything() }),
+            expect.anything()
         )
 
         await queue!.stop()
@@ -99,6 +95,7 @@ describe('queue', () => {
             ;[hub, closeHub] = await createHub({
                 LOG_LEVEL: LogLevel.Warn,
                 KAFKA_ENABLED: true,
+                KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
             })
             piscina = { run: jest.fn() } as any
         })
@@ -107,12 +104,12 @@ describe('queue', () => {
             await closeHub()
         })
 
-        it('starts ingestion and auxilary queues by default', async () => {
+        it('starts ingestion queue by default', async () => {
             const queues = await startQueues(hub, piscina)
 
             expect(queues).toEqual({
                 ingestion: expect.any(KafkaQueue),
-                auxiliary: expect.any(CeleryQueue),
+                auxiliary: null,
             })
         })
 
@@ -123,17 +120,6 @@ describe('queue', () => {
 
             expect(queues).toEqual({
                 ingestion: null,
-                auxiliary: expect.any(CeleryQueue),
-            })
-        })
-
-        it('handles job processing being turned off', async () => {
-            hub.capabilities.processJobs = false
-
-            const queues = await startQueues(hub, piscina)
-
-            expect(queues).toEqual({
-                ingestion: expect.any(KafkaQueue),
                 auxiliary: null,
             })
         })
