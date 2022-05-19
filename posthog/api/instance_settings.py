@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
@@ -32,12 +32,8 @@ class InstanceSetting(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Tuple = tuple()) -> InstanceSetting:
-
-    if setting_config == []:
-        for _key, setting_config in CONSTANCE_CONFIG.items():
-            if _key == key:
-                break
+def get_instance_setting(key: str, setting_config: Optional[Tuple] = None) -> InstanceSetting:
+    setting_config = setting_config or CONSTANCE_CONFIG[key]
     is_secret = key in SECRET_SETTINGS
     value = get_dynamic_setting(key)
 
