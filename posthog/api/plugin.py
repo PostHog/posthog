@@ -441,13 +441,17 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @renderer_classes((PlainRenderer,))
     def frontend(self, request: request.Request, **kwargs):
         plugin_config = self.get_object()
-        plugin_source = PluginSourceFile.objects.get(plugin_id=plugin_config.plugin_id, filename="frontend.tsx")
+        plugin_source = PluginSourceFile.objects.filter(
+            plugin_id=plugin_config.plugin_id, filename="frontend.tsx"
+        ).first()
         if plugin_source and plugin_source.status == PluginSourceFile.Status.TRANSPILED:
             content = plugin_source.transpiled or ""
             return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
         obj: Dict[str, Any] = {}
-        if not plugin_source or plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
+        if not plugin_source:
+            obj = {"no_frontend": True}
+        elif plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
             obj = {"transpiling": True}
         else:
             obj = {"error": plugin_source.error or "Error Compiling Plugin"}
