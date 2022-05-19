@@ -18,7 +18,6 @@
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
-        "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "protobuf:compile": "cd src/config/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto --keep-case && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
