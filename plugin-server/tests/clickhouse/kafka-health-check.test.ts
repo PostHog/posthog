@@ -32,43 +32,10 @@ describe('kafka health check', () => {
             timing: jest.fn(),
         }
         consumer = await setupKafkaHealthcheckConsumer(hub.kafka!)
-
-        await consumer.connect()
-        consumer.pause([{ topic: KAFKA_HEALTHCHECK }])
     })
 
     afterEach(async () => {
         await closeHub()
-        await consumer.disconnect()
-    })
-
-    // if kafka is up and running it should pass this healthcheck
-    test('healthcheck passes under normal conditions', async () => {
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-        expect(kafkaHealthy).toEqual(true)
-        expect(error).toEqual(null)
-    })
-
-    test('healthcheck fails if producer throws', async () => {
-        hub!.kafkaProducer!.producer.send = jest.fn(() => {
-            throw new Error('producer error')
-        })
-
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-        expect(kafkaHealthy).toEqual(false)
-        expect(error!.message).toEqual('producer error')
-        expect(statsd.timing).not.toHaveBeenCalled()
-    })
-
-    test('healthcheck fails if consumer throws', async () => {
-        consumer.resume = jest.fn(() => {
-            throw new Error('consumer error')
-        })
-
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-        expect(kafkaHealthy).toEqual(false)
-        expect(error!.message).toEqual('consumer error')
-        expect(statsd.timing).not.toHaveBeenCalled()
     })
 
     test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
@@ -78,5 +45,45 @@ describe('kafka health check', () => {
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
         expect(statsd.timing).not.toHaveBeenCalled()
+    })
+
+    describe('consumer can connect', () => {
+        beforeEach(async () => {
+            await consumer.connect()
+            consumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+        })
+
+        afterEach(async () => {
+            await consumer.disconnect()
+        })
+
+        // if kafka is up and running it should pass this healthcheck
+        test('healthcheck passes under normal conditions', async () => {
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+            expect(kafkaHealthy).toEqual(true)
+            expect(error).toEqual(null)
+        })
+
+        test('healthcheck fails if producer throws', async () => {
+            hub!.kafkaProducer!.producer.send = jest.fn(() => {
+                throw new Error('producer error')
+            })
+
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+            expect(kafkaHealthy).toEqual(false)
+            expect(error!.message).toEqual('producer error')
+            expect(statsd.timing).not.toHaveBeenCalled()
+        })
+
+        test('healthcheck fails if consumer throws', async () => {
+            consumer.resume = jest.fn(() => {
+                throw new Error('consumer error')
+            })
+
+            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+            expect(kafkaHealthy).toEqual(false)
+            expect(error!.message).toEqual('consumer error')
+            expect(statsd.timing).not.toHaveBeenCalled()
+        })
     })
 })
