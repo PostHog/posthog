@@ -31,7 +31,7 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             psf__frontend_tsx.source as source__frontend_tsx
         FROM posthog_plugin
         LEFT JOIN posthog_pluginsourcefile psf__index_ts
-            ON (posthog_plugin.plugin_type = 'source' AND psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
+            ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
         LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx
             ON (psf__frontend_tsx.plugin_id = posthog_plugin.id AND psf__frontend_tsx.filename = 'frontend.tsx')
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
