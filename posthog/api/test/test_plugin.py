@@ -922,7 +922,7 @@ class TestPluginAPI(APIBaseTest):
             {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
             format="json",
         )
-
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(execute_postgres.call_count, 1)
         expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
         expected_params = [
