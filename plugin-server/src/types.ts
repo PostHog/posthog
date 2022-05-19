@@ -16,6 +16,7 @@ import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
+import { SiteUrlManager } from 'worker/ingestion/site-url-manager'
 
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -179,6 +180,7 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueueManager
+    siteUrlManager: SiteUrlManager
     // diagnostics
     lastActivity: number
     lastActivityType: string

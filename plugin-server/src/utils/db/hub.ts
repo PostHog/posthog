@@ -9,6 +9,7 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { SiteUrlManager } from 'worker/ingestion/site-url-manager'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
@@ -225,7 +226,7 @@ export async function createHub(
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
-    const hub: Omit<Hub, 'eventsProcessor'> = {
+    const hub: Omit<Hub, 'eventsProcessor' | 'siteUrlManager'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -258,6 +259,7 @@ export async function createHub(
     }
 
     // :TODO: This is only used on worker threads, not main
+    hub.siteUrlManager = new SiteUrlManager(hub as Hub)
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
 
