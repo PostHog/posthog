@@ -171,14 +171,20 @@ export const personsLogic = kea<personsLogicType>({
                 if (!Object.keys(person.properties).includes(key)) {
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                     action = 'added'
+                } else if (parsedValue === undefined) {
+                    delete person.properties[key]
+                    action = 'removed'
                 } else {
                     person.properties[key] = parsedValue
-                    action = parsedValue !== undefined ? 'updated' : 'removed'
+                    action = 'updated'
                 }
 
-                actions.setPerson(person) // To update the UI immediately while the request is being processed
-                const response = await api.update(`api/person/${person.id}`, person)
-                actions.setPerson(response)
+                console.log({ person })
+
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
+                //      the 'updated' properties yet.
+                await api.update(`api/person/${person.id}`, person)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
