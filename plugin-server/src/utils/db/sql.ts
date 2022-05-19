@@ -25,12 +25,22 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        `SELECT posthog_plugin.* FROM posthog_plugin
+        `SELECT posthog_plugin.*, psf.source as source__index_ts
+        FROM posthog_plugin
+        LEFT JOIN posthog_pluginsourcefile psf
+            ON (posthog_plugin.plugin_type = 'source' AND psf.plugin_id = posthog_plugin.id AND psf.filename = 'index.ts')
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
         'getPluginRows'
     )
+
+    // Pre-fetch the "index.ts" source from posthog_pluginsourcefile
+    for (const row of rows) {
+        row['source'] = (row as any)['source__index_ts']
+        delete (row as any)['source__index_ts']
+    }
+
     return rows
 }
 
