@@ -619,6 +619,8 @@ describe('plugins', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'index.ts' ? source_code : null)
 
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename == 'index.ts' ? source_code : null)
+
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 

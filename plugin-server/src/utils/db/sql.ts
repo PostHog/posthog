@@ -28,8 +28,7 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         `SELECT
             posthog_plugin.*,
             psf__index_ts.source as source__index_ts,
-            psf__frontend_tsx.source as source__frontend_tsx,
-            psf__frontend_tsx.status = 'TRANSPILED' as has_transpiled_frontend_tsx,
+            psf__frontend_tsx.source as source__frontend_tsx
         FROM posthog_plugin
         LEFT JOIN posthog_pluginsourcefile psf__index_ts
             ON (posthog_plugin.plugin_type = 'source' AND psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
