@@ -26,6 +26,8 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
 
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
 
+    connect({ values: [featureFlagLogic, ['featureFlags']] }),
+
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
         closePluginSource: true,

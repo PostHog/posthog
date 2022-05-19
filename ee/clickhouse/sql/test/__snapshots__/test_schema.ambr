@@ -20,7 +20,7 @@
       group4_properties VARCHAR
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -375,7 +375,7 @@
       
   ) ENGINE = 
       Kafka () SETTINGS
-      kafka_broker_list = 'kafka',
+      kafka_broker_list = 'kafka:9092',
       kafka_topic_list = 'clickhouse_events_proto_test',
       kafka_group_name = 'group1',
       kafka_format = 'Protobuf',
@@ -407,7 +407,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '
 ---
@@ -422,7 +422,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -438,7 +438,7 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -453,7 +453,7 @@
       is_deleted Int8,
       version Int64 DEFAULT 1
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -467,7 +467,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -486,7 +486,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -505,7 +505,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
 ---

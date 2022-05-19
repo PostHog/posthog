@@ -77,8 +77,6 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
     PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
     CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
     LOG_LEVEL: LogLevel.Log,
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
