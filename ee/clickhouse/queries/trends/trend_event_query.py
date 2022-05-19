@@ -149,7 +149,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.actor_on_events_querying_enabled
+            if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
