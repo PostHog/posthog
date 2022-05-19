@@ -294,10 +294,12 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Last month's signups by country",
             filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0, "math": "dau"}],
+                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
                 "actions": [],
                 "display": TRENDS_WORLD_MAP,
                 "insight": INSIGHT_TRENDS,
+                "breakdown_type": "event",
+                "breakdown": "$geoip_country_code",
                 "date_from": "-1m",
             },
         )
