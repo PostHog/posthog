@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, Union
+from typing import Any, Dict, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 

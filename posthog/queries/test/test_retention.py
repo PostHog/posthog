@@ -3,7 +3,6 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytz
-from constance.test import override_config
 from rest_framework import status
 
 from posthog.constants import (
@@ -14,6 +13,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models import Person
+from posthog.models.constance import override_constance_config
 from posthog.models.filters import RetentionFilter
 from posthog.test.base import APIBaseTest
 
@@ -918,7 +918,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
 
-            with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{self.team.pk}"):
+            with override_constance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
                 # even if set to hour 6 it should default to beginning of day and include all pageviews above
                 result = retention().run(RetentionFilter(data={"date_to": self._date(10, hour=6)}), self.team)
                 self.assertEqual(len(result), 11)

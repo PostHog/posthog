@@ -85,7 +85,6 @@ def _send_email(
             email_message.attach_alternative(html_body, "text/html")
             messages.append(email_message)
 
-        print(f"sending email {get_dynamic_setting('EMAIL_DEFAULT_FROM')}")
         connection = None
         try:
             klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
