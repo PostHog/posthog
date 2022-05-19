@@ -156,7 +156,8 @@ export function ThirdPartyPanel(): JSX.Element {
 export function IntegrationInstructionsModal(): JSX.Element {
     const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
-    const { currentTeam, onboardingSidebar } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { onboardingSidebar } = useValues(ingestionLogic)
 
     return (
         <>
