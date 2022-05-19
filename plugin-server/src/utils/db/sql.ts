@@ -34,14 +34,11 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         undefined,
         'getPluginRows'
     )
-    // TODO: read source from the "posthog_pluginsourcefile" table directly
+
+    // TODO: properly support multiple files via "posthog_pluginsourcefile"
     for (const row of pluginRows) {
-        if ('psf_source' in row) {
-            if ((row as any)['psf_source']) {
-                row['source'] = (row as any)['psf_source']
-            }
-            delete (row as any)['psf_source']
-        }
+        row['source'] = (row as any)['psf_source']
+        delete (row as any)['psf_source']
     }
     return pluginRows
 }
