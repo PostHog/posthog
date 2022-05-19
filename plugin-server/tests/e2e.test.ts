@@ -74,7 +74,6 @@ export async function handleAlert(alert) {
 export async function runEveryMinute() {}
 `
 
-// TODO: merge these tests with postgres/e2e.test.ts
 describe('e2e', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
