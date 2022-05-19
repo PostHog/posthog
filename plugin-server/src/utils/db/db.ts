@@ -44,6 +44,7 @@ import {
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginSourceFileStatus,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -1902,12 +1903,43 @@ export class DB {
         })
     }
 
-    public async getPluginSource(pluginId: Plugin['id'], filename = 'index.ts'): Promise<string | null> {
+    public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {
         const { rows }: { rows: { source: string }[] } = await this.postgresQuery(
             `SELECT source FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [pluginId, filename],
             'getPluginSource'
         )
         return rows[0]?.source ?? null
+    }
+
+    public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
+        await this.postgresQuery(
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled) VALUES($1, $2, $3, $4, $5)
+                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
+                DO UPDATE SET status = $4, transpiled = $5, error = NULL`,
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
+            'setPluginTranspiled'
+        )
+    }
+
+    public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
+        await this.postgresQuery(
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error) VALUES($1, $2, $3, $4, $5)
+                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
+                DO UPDATE SET status = $4, error = $5, transpiled = NULL`,
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
+            'setPluginTranspiledError'
+        )
+    }
+
+    public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
+        const response = await this.postgresQuery(
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled) VALUES($1, $2, $3, $4, NULL)
+                ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
+                DO UPDATE SET status = $4 WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
+            'getPluginTranspilationLock'
+        )
+        return response.rowCount > 0
     }
 }
