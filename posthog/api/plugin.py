@@ -224,8 +224,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for source in PluginSourceFile.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
-            if not sources.get(key):
-                sources[key] = PluginSourceFile.objects.create(plugin=plugin, filename=key, source=value)
+            if key not in sources:
+                performed_changes = True
+                sources[key], created = PluginSourceFile.objects.update_or_create(
+                    plugin=plugin, filename=key, defaults={"source": value}
+                )
                 continue
             if sources[key].source != value:
                 performed_changes = True
@@ -241,13 +244,19 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for key, source in sources.items():
             response[source.filename] = source.source
 
-        # Update values from plugin.json
-        plugin_json = json.loads(response.get("plugin.json") or "{}")
-        if plugin_json["name"] != plugin.name:
-            plugin.name = plugin_json["name"]
-            performed_changes = True
-        if json.dumps(plugin_json.get("config") or []) != json.dumps(plugin.config_schema or []):
-            plugin.config_schema = plugin_json["config"]
+        # Update values from plugin.json, if one exists
+        if response.get("plugin.json"):
+            plugin_json = json.loads(response["plugin.json"])
+            if "name" in plugin_json and plugin_json["name"] != plugin.name:
+                plugin.name = plugin_json.get("name")
+                performed_changes = True
+            if "config" in plugin_json and json.dumps(plugin_json["config"]) != json.dumps(plugin.config_schema):
+                plugin.config_schema = plugin_json["config"]
+                performed_changes = True
+
+        # TODO: Truly deprecate this old field. Keeping the sync just in case for now.
+        if response.get("index.ts") and plugin.source != response["index.ts"]:
+            plugin.source = response["index.ts"]
             performed_changes = True
 
         # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
