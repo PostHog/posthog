@@ -85,7 +85,7 @@ FROM (
         breakdown_value
     FROM (
         SELECT
-        pdi.person_id as person_id,
+        {person_id_alias}.person_id as person_id,
         timestamp,
         {breakdown_value} as breakdown_value
         FROM
@@ -106,10 +106,8 @@ FROM (
         SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, pdi.person_id AS person_id, {breakdown_value} as breakdown_value
+        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
         FROM events e
-        INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
-        ON e.distinct_id = pdi.distinct_id
         {person_join}
         {groups_join}
         {conditions}

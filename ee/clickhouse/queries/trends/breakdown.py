@@ -188,6 +188,7 @@ class ClickhouseTrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -201,6 +202,7 @@ class ClickhouseTrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -404,7 +406,10 @@ class ClickhouseTrendsBreakdown:
             """,
                 params,
             )
-        elif self.entity.math == "dau" or self.column_optimizer.is_using_cohort_propertes:
+        elif (
+            self.entity.math in ["dau", WEEKLY_ACTIVE, MONTHLY_ACTIVE]
+            or self.column_optimizer.is_using_cohort_propertes
+        ):
             # Only join distinct_ids
             return event_join, {}
         else:
