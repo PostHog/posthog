@@ -32,7 +32,7 @@ class InstanceSetting(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Tuple = []) -> InstanceSetting:
+def get_instance_setting(key: str, setting_config: Tuple = tuple()) -> InstanceSetting:
 
     if setting_config == []:
         for _key, setting_config in CONSTANCE_CONFIG.items():
@@ -66,8 +66,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if validated_data["value"] is None:
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
-        target_type = CONSTANCE_CONFIG[instance.key][2]
-        if target_type == "bool" and isinstance(validated_data["value"], bool):
+        target_type: type = CONSTANCE_CONFIG[instance.key][2]
+        if target_type == bool and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
         else:
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
