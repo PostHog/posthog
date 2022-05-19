@@ -1,18 +1,34 @@
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Hub, LogLevel } from '../../src/types'
-import { delay, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { delayUntilEventIngested } from '../helpers/clickhouse'
-import { pluginConfig39 } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
+import Piscina from '@posthog/piscina'
 
-jest.setTimeout(100000) // 60 sec timeout
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
+import { startPluginsServer } from '../src/main/pluginsServer'
+import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
+import { delay, UUIDT } from '../src/utils/utils'
+import { makePiscina } from '../src/worker/piscina'
+import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
+import { pluginConfig39 } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 
-describe('e2e postgres ingestion timeout', () => {
+jest.setTimeout(60000) // 60 sec timeout
+
+const extraServerConfig: Partial<PluginsServerConfig> = {
+    TASK_TIMEOUT: 2,
+    WORKER_CONCURRENCY: 2,
+    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    LOG_LEVEL: LogLevel.Log,
+}
+
+describe('e2e ingestion timeout', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
+    let piscina: Piscina
+
+    beforeAll(async () => {
+        await resetKafka(extraServerConfig)
+    })
 
     beforeEach(async () => {
         await resetTestDatabase(`
@@ -26,24 +42,11 @@ describe('e2e postgres ingestion timeout', () => {
                 return event
             }
         `)
-        const startResponse = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                TASK_TIMEOUT: 2,
-                PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
-                CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
-                LOG_LEVEL: LogLevel.Log,
-                KAFKA_ENABLED: false,
-            },
-            makePiscina
-        )
+        await resetTestDatabaseClickhouse(extraServerConfig)
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
+        piscina = startResponse.piscina
         stopServer = startResponse.stop
-        const redis = await hub.redisPool.acquire()
-        await redis.del(hub.PLUGINS_CELERY_QUEUE)
-        await redis.del(hub.CELERY_DEFAULT_QUEUE)
-        await hub.redisPool.release(redis)
-
         posthog = createPosthog(hub, pluginConfig39)
     })
 
@@ -55,10 +58,12 @@ describe('e2e postgres ingestion timeout', () => {
         expect((await hub.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
         await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 50)
-        await delay(10000)
+        await delayUntilEventIngested(() => hub.db.fetchEvents())
 
+        await hub.kafkaProducer?.flush()
         const events = await hub.db.fetchEvents()
+        await delay(1000)
+
         expect(events.length).toBe(1)
         expect(events[0].properties.name).toEqual('haha')
         expect(events[0].properties.passed).not.toEqual(true)

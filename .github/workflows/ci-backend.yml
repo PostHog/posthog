@@ -203,7 +203,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 1
                     - python-version: '3.8.12'
@@ -211,7 +211,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 2
                     - python-version: '3.8.12'
@@ -219,7 +219,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 3
                     - python-version: '3.8.12'
@@ -227,7 +227,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 4
                     - python-version: '3.8.12'
@@ -235,7 +235,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 5
 
