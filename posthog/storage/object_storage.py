@@ -7,8 +7,7 @@ logger = structlog.get_logger(__name__)
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_HOST,
-    OBJECT_STORAGE_PORT,
+    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
@@ -22,7 +21,7 @@ def storage_client():
     if not s3_client:
         s3_client = client(
             "s3",
-            endpoint_url=f"http://{OBJECT_STORAGE_HOST}:{OBJECT_STORAGE_PORT}",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
             aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
             aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),

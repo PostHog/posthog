@@ -144,8 +144,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
     OBJECT_STORAGE_ENABLED: boolean
-    OBJECT_STORAGE_HOST: string
-    OBJECT_STORAGE_PORT: number
+    OBJECT_STORAGE_ENDPOINT: string
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string

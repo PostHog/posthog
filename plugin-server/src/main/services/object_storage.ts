@@ -17,8 +17,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
     }
     try {
         const {
-            OBJECT_STORAGE_HOST,
-            OBJECT_STORAGE_PORT,
+            OBJECT_STORAGE_ENDPOINT,
             OBJECT_STORAGE_ACCESS_KEY_ID,
             OBJECT_STORAGE_SECRET_ACCESS_KEY,
             OBJECT_STORAGE_ENABLED,
@@ -27,7 +26,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
 
         if (OBJECT_STORAGE_ENABLED && !S3) {
             S3 = new aws.S3({
-                endpoint: `http://${OBJECT_STORAGE_HOST}:${OBJECT_STORAGE_PORT}`,
+                endpoint: OBJECT_STORAGE_ENDPOINT,
                 accessKeyId: OBJECT_STORAGE_ACCESS_KEY_ID,
                 secretAccessKey: OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 s3ForcePathStyle: true, // needed with minio?
